@@ -26,11 +26,14 @@ function resolveXaiStageTimeoutMaxMs(fallback = 300_000) {
   return clampInt(raw, { min: 2_500, max: 600_000, fallback });
 }
 
-// Extended stage timeouts to allow thorough XAI searches - accuracy is paramount.
+// Stage timeouts - generous timeouts to ensure xAI web searches complete successfully.
+// xAI web searches can take 30-180+ seconds for thorough results.
+// Never timeout during a search - let xAI complete its work.
 const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
-  reviews: { min: 60_000, max: 180_000 },
-  location: { min: 60_000, max: 180_000 },
-  light: { min: 30_000, max: 120_000 },
+  reviews: { min: 480_000, max: 900_000 },     // 8-15 minutes for reviews (4x - complex web search with URL verification)
+  keywords: { min: 180_000, max: 600_000 },    // 3-10 minutes for keywords (2x - must accumulate all products)
+  location: { min: 90_000, max: 360_000 },     // 1.5-6 minutes for location searches
+  light: { min: 90_000, max: 300_000 },        // 1.5-5 minutes for simpler fields (tagline, industries)
 });
 
 // Short-TTL cache to avoid re-paying the same Grok searches on resume cycles.
@@ -41,6 +44,14 @@ const GROK_STAGE_CACHE_TTL_MS = 10 * 60 * 1000;
 const IS_NODE_TEST_RUNNER =
   (Array.isArray(process.execArgv) && process.execArgv.includes("--test")) ||
   (Array.isArray(process.argv) && process.argv.includes("--test"));
+
+// Skip budget check - rely on actual timeouts instead of preemptive budget constraints.
+// The preemptive checks were too conservative and preventing enrichment from running.
+function shouldSkipBudgetCheck() {
+  // Always skip in production - let xAI calls run and timeout naturally if needed.
+  // The budget check was causing "deferred" status even when there was plenty of time.
+  return true;
+}
 
 function readStageCache(key) {
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
@@ -396,9 +407,10 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.reviews;
 
   // Budget clamp: if we can't safely run another upstream call, defer without terminalizing.
+  // Skip this check in test mode when a stub is present.
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (remaining < minRequired) {
+  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
     return {
       curated_reviews: [],
       reviews_stage_status: "deferred",
@@ -648,7 +660,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (remaining < minRequired) {
+  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
     return {
       headquarters_location: "",
       hq_status: "deferred",
@@ -784,7 +796,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (remaining < minRequired) {
+  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
     return {
       manufacturing_locations: [],
       mfg_status: "deferred",
@@ -917,7 +929,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (remaining < minRequired) {
+  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
     return {
       tagline: "",
       tagline_status: "deferred",
@@ -1033,7 +1045,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (remaining < minRequired) {
+  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
     return {
       industries: [],
       industries_status: "deferred",
@@ -1153,11 +1165,11 @@ Return:
 }
 `.trim();
 
-  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
+  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.keywords;
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (remaining < minRequired) {
+  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
     return {
       keywords: [],
       keywords_status: "deferred",

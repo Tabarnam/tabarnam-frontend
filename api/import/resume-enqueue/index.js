@@ -19,6 +19,8 @@ const {
 } = require("../../_cosmosPartitionKey");
 
 const { enqueueResumeRun, resolveQueueConfig } = require("../../_enrichmentQueue");
+const { invokeResumeWorkerInProcess } = require("../resume-worker/handler");
+const { buildInternalFetchRequest } = require("../../_internalJobAuth");
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -140,6 +142,12 @@ app.http("import-resume-enqueue", {
     const reason = asString(body?.reason).trim() || "manual_retry";
     const requestedBy = asString(body?.requested_by).trim() || "admin";
 
+    // Support direct invocation (bypasses queue trigger which may not fire in SWA environments)
+    const url = new URL(req.url);
+    const directMode = String(
+      body?.direct || url.searchParams.get("direct") || ""
+    ).trim() === "1";
+
     const cfg = resolveQueueConfig();
 
     const endpoint = asString(process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT).trim();
@@ -260,17 +268,66 @@ app.http("import-resume-enqueue", {
       }
     }
 
+    // Direct invocation mode: bypass queue and call resume worker directly
+    // This is needed when Azure Storage Queue triggers don't fire (e.g., SWA environments)
+    let directInvokeResult = null;
+    if (directMode) {
+      try {
+        const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
+        const invokeRes = await invokeResumeWorkerInProcess({
+          session_id: sessionId,
+          context,
+          workerRequest,
+        });
+
+        directInvokeResult = {
+          invoked: true,
+          ok: Boolean(invokeRes.ok),
+          status: Number(invokeRes.status || 0) || 0,
+          did_work: null,
+          error: invokeRes.error ? String(invokeRes.error?.message || invokeRes.error) : null,
+        };
+
+        // Try to parse the body for more detail
+        try {
+          const bodyText = invokeRes.bodyText || "";
+          if (bodyText) {
+            const parsed = JSON.parse(bodyText);
+            directInvokeResult.did_work = Boolean(parsed?.did_work);
+            directInvokeResult.did_work_reason = parsed?.did_work_reason || null;
+          }
+        } catch {}
+
+        console.log("[import-resume-enqueue] direct_invoke_result", {
+          session_id: sessionId,
+          ok: directInvokeResult.ok,
+          status: directInvokeResult.status,
+          did_work: directInvokeResult.did_work,
+        });
+      } catch (e) {
+        directInvokeResult = {
+          invoked: true,
+          ok: false,
+          status: 0,
+          error: String(e?.message || e),
+        };
+      }
+    }
+
     return json(
       {
-        ok: Boolean(enqueueRes.ok),
+        ok: directMode ? Boolean(directInvokeResult?.ok) : Boolean(enqueueRes.ok),
         session_id: sessionId,
         enqueued_at: enqueueAt,
         reason,
         requested_by: requestedBy,
         queue: enqueueRes.queue || (cfg.queueName ? { provider: cfg.provider, name: cfg.queueName } : null),
         message_id: enqueueRes.message_id || null,
-        error: enqueueRes.ok ? null : enqueueRes.error || "enqueue_failed",
+        error: directMode
+          ? (directInvokeResult?.error || null)
+          : (enqueueRes.ok ? null : enqueueRes.error || "enqueue_failed"),
         cosmos,
+        direct_invoke: directInvokeResult,
       },
       200,
       req

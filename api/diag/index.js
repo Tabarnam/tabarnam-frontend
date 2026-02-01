@@ -434,11 +434,6 @@ app.http("diag-xai", {
         function_key_len: asString(process.env.FUNCTION_KEY || "").length,
       };
 
-      const resolved = {
-        base_url: base || null,
-        key_shape: key ? classifyKeyShape(key) : null,
-      };
-
       // Wrap model resolution (requirement B.2)
       let model, url;
       try {
@@ -455,10 +450,16 @@ app.http("diag-xai", {
             message: "Failed to resolve xAI endpoint for model",
           },
           env: envDiag,
-          resolved,
+          resolved: { base_url: base || null, key_shape: key ? classifyKeyShape(key) : null },
           ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
         });
       }
+
+      // Build resolved config for diagnostics (after model and URL are known)
+      const resolved = {
+        base_url: url || null,
+        key_shape: key ? classifyKeyShape(key) : null,
+      };
 
       // If missing config, return gracefully (requirement D: return 200 always)
       if (!url || !key) {
@@ -489,14 +490,25 @@ app.http("diag-xai", {
             headers.Authorization = `Bearer ${key}`;
           }
 
-          const payload = {
-            model,
-            messages: [{ role: "user", content: "ping" }],
-            max_tokens: 1,
-            temperature: 0,
-            stream: false,
-            search_parameters: { mode: "off" },
-          };
+          // Detect if using /responses endpoint (newer xAI API) vs /chat/completions
+          const useResponsesFormat = /\/v1\/responses\/?$/i.test(url) || url.includes("/responses");
+
+          const payload = useResponsesFormat
+            ? {
+                // /v1/responses format
+                model,
+                input: [{ role: "user", content: "ping" }],
+                search: { mode: "off" },
+              }
+            : {
+                // /v1/chat/completions format (legacy)
+                model,
+                messages: [{ role: "user", content: "ping" }],
+                max_tokens: 1,
+                temperature: 0,
+                stream: false,
+                search_parameters: { mode: "off" },
+              };
 
           let status = null;
 

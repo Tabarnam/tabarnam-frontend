@@ -30,16 +30,25 @@ function jsonResponse(status, obj) {
   };
 }
 
-function resolveXaiChatCompletionsUrl(rawBase) {
+// xAI deprecated /chat/completions (returns 410 Gone). Use /responses instead.
+function resolveXaiResponsesUrl(rawBase) {
   const base = String(rawBase || "").trim();
-  if (!base) return "https://api.x.ai/v1/chat/completions";
+  if (!base) return "https://api.x.ai/v1/responses";
 
   try {
     const u = new URL(base);
     const path = String(u.pathname || "");
     const lower = path.toLowerCase();
 
+    // If already pointing to /responses, use it
+    if (/\/v1\/responses\/?$/.test(lower)) {
+      u.search = "";
+      return u.toString();
+    }
+
+    // If pointing to /chat/completions, convert to /responses
     if (/\/v1\/chat\/completions\/?$/.test(lower)) {
+      u.pathname = path.replace(/\/chat\/completions\/?$/i, "/responses");
       u.search = "";
       return u.toString();
     }
@@ -48,15 +57,82 @@ function resolveXaiChatCompletionsUrl(rawBase) {
     let basePath = path.replace(/\/+$/, "");
     if (basePath.toLowerCase().endsWith("/v1")) basePath = basePath.slice(0, -3);
 
-    u.pathname = `${basePath}/v1/chat/completions`.replace(/\/{2,}/g, "/");
+    u.pathname = `${basePath}/v1/responses`.replace(/\/{2,}/g, "/");
     // Ensure no query params are carried through.
     u.search = "";
 
     return u.toString();
   } catch {
     // If it's not a valid URL, fall back to the canonical external API.
-    return "https://api.x.ai/v1/chat/completions";
+    return "https://api.x.ai/v1/responses";
   }
+}
+
+// Convert /chat/completions payload to /responses format
+function convertToResponsesPayload(chatPayload) {
+  if (!chatPayload || typeof chatPayload !== "object") return chatPayload;
+
+  // If it already has 'input', it's already in responses format
+  if (Array.isArray(chatPayload.input)) return chatPayload;
+
+  const messages = chatPayload.messages;
+  if (!Array.isArray(messages)) return chatPayload;
+
+  const responsesPayload = {
+    model: chatPayload.model || "grok-4-latest",
+    input: messages.map(m => ({
+      role: m.role,
+      content: typeof m.content === "string" ? m.content : String(m.content || ""),
+    })),
+  };
+
+  // Preserve search parameters if present
+  if (chatPayload.search_parameters) {
+    responsesPayload.search = { mode: chatPayload.search_parameters.mode || "on" };
+  }
+
+  return responsesPayload;
+}
+
+// Convert /responses response back to /chat/completions format
+function convertToChatCompletionsResponse(responsesData) {
+  if (!responsesData || typeof responsesData !== "object") return responsesData;
+
+  // If it already has 'choices', it's already in chat/completions format
+  if (Array.isArray(responsesData.choices)) return responsesData;
+
+  // Extract text from /responses format: output[0].content[...].text
+  let content = "";
+  if (Array.isArray(responsesData.output)) {
+    const firstOutput = responsesData.output[0];
+    if (firstOutput?.content) {
+      const textItem = Array.isArray(firstOutput.content)
+        ? firstOutput.content.find(c => c?.type === "output_text") || firstOutput.content[0]
+        : firstOutput.content;
+      if (textItem?.text) content = String(textItem.text);
+    }
+  }
+
+  // Build /chat/completions format response
+  return {
+    id: responsesData.id || `chatcmpl-${Date.now()}`,
+    object: "chat.completion",
+    created: responsesData.created || Math.floor(Date.now() / 1000),
+    model: responsesData.model || "grok-4-latest",
+    choices: [{
+      index: 0,
+      message: {
+        role: "assistant",
+        content,
+      },
+      finish_reason: responsesData.stop_reason || "stop",
+    }],
+    usage: responsesData.usage || {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+    },
+  };
 }
 
 function getRequestHost(req) {
@@ -83,7 +159,7 @@ function getUpstreamXaiUrl(req) {
   for (const c of candidates) {
     const raw = String(c || "").trim();
     if (!raw) continue;
-    const resolved = resolveXaiChatCompletionsUrl(raw);
+    const resolved = resolveXaiResponsesUrl(raw);
     try {
       const u = new URL(resolved);
       // Avoid accidentally pointing to ourselves and causing recursion.
@@ -94,7 +170,7 @@ function getUpstreamXaiUrl(req) {
     }
   }
 
-  return "https://api.x.ai/v1/chat/completions";
+  return "https://api.x.ai/v1/responses";
 }
 
 function getUpstreamXaiKey() {
@@ -254,8 +330,9 @@ app.http("v1-chat-completions", {
       Authorization: `Bearer ${xaiKey}`,
     };
 
-    // Capture from the exact JSON string passed to fetch().
-    const outboundBodyJsonText = JSON.stringify(parsed.value);
+    // Convert incoming /chat/completions payload to /responses format
+    const responsesPayload = convertToResponsesPayload(parsed.value);
+    const outboundBodyJsonText = JSON.stringify(responsesPayload);
 
     let res;
     let text = "";
@@ -264,6 +341,7 @@ app.http("v1-chat-completions", {
     let response_text_preview = "";
     let xai_request_id = null;
     let response_preview = null;
+    let convertedResponse = null;
 
     try {
       res = await fetch(xaiUrl, {
@@ -284,7 +362,9 @@ app.http("v1-chat-completions", {
       try {
         const parsedJson = JSON.parse(text);
         response_json_ok = true;
-        const choices = Array.isArray(parsedJson?.choices) ? parsedJson.choices : null;
+        // Convert /responses format back to /chat/completions format for backward compatibility
+        convertedResponse = convertToChatCompletionsResponse(parsedJson);
+        const choices = Array.isArray(convertedResponse?.choices) ? convertedResponse.choices : null;
         response_preview = {
           has_choices: Array.isArray(choices),
           choices_len: Array.isArray(choices) ? choices.length : 0,
@@ -311,10 +391,15 @@ app.http("v1-chat-completions", {
 
       setLatestEgressSnapshot(egressSnapshot);
 
+      // Return converted /chat/completions format response if we successfully parsed and converted
+      const responseBody = response_json_ok && convertedResponse
+        ? JSON.stringify(convertedResponse)
+        : text;
+
       return {
         status: res.status,
-        headers: withCors({ "Content-Type": res.headers.get("content-type") || "application/json" }),
-        body: text,
+        headers: withCors({ "Content-Type": "application/json" }),
+        body: responseBody,
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e || "fetch_failed");

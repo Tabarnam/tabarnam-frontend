@@ -85,6 +85,20 @@ function extractTextFromXaiResponse(resp) {
   // Axios response shape.
   const data = r.data && typeof r.data === "object" ? r.data : null;
   if (data) {
+    // Try /responses format first: data.output[0].content[...].text
+    if (Array.isArray(data.output)) {
+      const firstOutput = data.output[0];
+      if (firstOutput?.content) {
+        const textItem = Array.isArray(firstOutput.content)
+          ? firstOutput.content.find(c => c?.type === "output_text") || firstOutput.content[0]
+          : firstOutput.content;
+        if (textItem?.text && typeof textItem.text === "string" && textItem.text.trim()) {
+          return textItem.text;
+        }
+      }
+    }
+
+    // Try /chat/completions format
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content === "string" && content.trim()) return content;
 
@@ -96,7 +110,20 @@ function extractTextFromXaiResponse(resp) {
     if (typeof direct === "string" && direct.trim()) return direct;
   }
 
-  // Raw object shapes.
+  // Raw object shapes - try /responses format first
+  if (Array.isArray(r.output)) {
+    const firstOutput = r.output[0];
+    if (firstOutput?.content) {
+      const textItem = Array.isArray(firstOutput.content)
+        ? firstOutput.content.find(c => c?.type === "output_text") || firstOutput.content[0]
+        : firstOutput.content;
+      if (textItem?.text && typeof textItem.text === "string" && textItem.text.trim()) {
+        return textItem.text;
+      }
+    }
+  }
+
+  // Raw object shapes - /chat/completions format
   const content = r?.choices?.[0]?.message?.content;
   if (typeof content === "string" && content.trim()) return content;
 

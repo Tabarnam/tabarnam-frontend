@@ -1,6 +1,5 @@
-const { app } = require("@azure/functions");
+const { app, listTriggers } = require("../_app");
 const { resolveQueueConfig } = require("../_enrichmentQueue");
-const { listTriggers } = require("../_app");
 
 function json(obj, status = 200) {
   return {

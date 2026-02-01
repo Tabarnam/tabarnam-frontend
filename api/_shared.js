@@ -94,9 +94,8 @@ function resolveXaiEndpointForModel(rawEndpoint, model) {
   const alreadyResponses = /\/v1\/responses\/?$/i.test(u.pathname || '');
   if (alreadyChat || alreadyResponses) return u.toString();
 
-  const m = String(model || '').toLowerCase();
-  const wantsResponses = m.includes('vision') || m.includes('image') || m.includes('audio');
-  const desiredSuffix = wantsResponses ? '/v1/responses' : '/v1/chat/completions';
+  // xAI deprecated /chat/completions (returns 410 Gone). Use /responses for all models.
+  const desiredSuffix = '/v1/responses';
 
   let basePath = String(u.pathname || '').replace(/\/+$/, '');
 

@@ -937,12 +937,13 @@ async function resumeWorkerHandler(req, context) {
     { min: 1, max: 50 }
   );
 
-  // Default deadline increased to 5 minutes (300000ms) to allow thorough XAI enrichment.
-  // Deep searches for HQ, manufacturing locations, and reviews require significant time for accuracy.
+  // Default deadline increased to 15 minutes (900000ms) to allow thorough XAI enrichment.
+  // xAI web searches must never timeout - each field can take 1-5 minutes for accurate results.
+  // With 6 fields per company, we need at least 6-30 minutes total budget.
   const deadlineMs = parseBoundedInt(
     body?.deadline_ms ?? body?.deadlineMs ?? url.searchParams.get("deadline_ms") ?? url.searchParams.get("deadlineMs"),
-    300000,
-    { min: 1000, max: 600000 }
+    900000,
+    { min: 1000, max: 1800000 }
   );
 
   const forceTerminalizeSingle =
@@ -1702,15 +1703,17 @@ async function resumeWorkerHandler(req, context) {
       "reviews",
     ];
 
-    // Minimum time budgets per field - generous to allow thorough, accurate XAI searches.
-    // Deep research for locations and reviews requires substantial time.
+    // Minimum time budgets per field - reduced to allow enrichment to proceed.
+    // xAI API calls typically complete within 10-30 seconds.
+    // Minimum required budget per field - set high enough to allow xAI web searches to complete.
+    // xAI searches can take 1-3 minutes, so we need generous minimums.
     const MIN_REQUIRED_MS_BY_FIELD = {
-      tagline: 30_000,
-      headquarters_location: 60_000,
-      manufacturing_locations: 60_000,
-      industries: 30_000,
-      product_keywords: 30_000,
-      reviews: 90_000,
+      tagline: 60_000,           // 1 minute min
+      headquarters_location: 90_000,    // 1.5 minutes min
+      manufacturing_locations: 90_000,  // 1.5 minutes min
+      industries: 60_000,        // 1 minute min
+      product_keywords: 180_000, // 3 minutes min (2x - must accumulate all products)
+      reviews: 480_000,          // 8 minutes min (4x - complex web search with URL verification)
     };
 
     const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
@@ -2533,15 +2536,17 @@ async function resumeWorkerHandler(req, context) {
     const remainingRunMs = () => Math.max(0, deadlineMs - (Date.now() - startedEnrichmentAt));
 
     // Field-level planning:
-    // - Generous time budgets to allow thorough, accurate XAI searches.
-    // - Deep research for locations and reviews requires substantial time.
+    // Minimum time budgets per field - reduced to allow enrichment to proceed.
+    // xAI API calls typically complete within 10-30 seconds.
+    // Minimum required budget per field - set high enough to allow xAI web searches to complete.
+    // xAI searches can take 1-3 minutes, so we need generous minimums.
     const MIN_REQUIRED_MS_BY_FIELD = {
-      reviews: 90_000,
-      headquarters_location: 60_000,
-      manufacturing_locations: 60_000,
-      tagline: 30_000,
-      industries: 30_000,
-      product_keywords: 30_000,
+      reviews: 480_000,          // 8 minutes min (4x - complex web search with URL verification)
+      headquarters_location: 90_000,    // 1.5 minutes min
+      manufacturing_locations: 90_000,  // 1.5 minutes min
+      tagline: 60_000,           // 1 minute min
+      industries: 60_000,        // 1 minute min
+      product_keywords: 180_000, // 3 minutes min (2x - must accumulate all products)
     };
 
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");

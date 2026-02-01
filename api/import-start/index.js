@@ -11152,19 +11152,37 @@ const xaiSmokeHandler = async (req, context) => {
 
     const timeoutMsUsed = Math.min(20000, Number(process.env.XAI_TIMEOUT_MS) || 20000);
 
-    const upstreamBody = {
-      model,
-      messages: [
-        { role: "system", content: XAI_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content:
-            'Return ONLY valid JSON with the schema {"ok":true,"source":"xai_smoke"} and no other text.',
-        },
-      ],
-      temperature: 0,
-      stream: false,
-    };
+    // Detect if using /responses endpoint (newer xAI API) vs /chat/completions
+    const useResponsesFormat = /\/v1\/responses\/?$/i.test(xaiUrl) || xaiUrl.includes("/responses");
+
+    const upstreamBody = useResponsesFormat
+      ? {
+          // /v1/responses format
+          model,
+          input: [
+            { role: "system", content: XAI_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content:
+                'Return ONLY valid JSON with the schema {"ok":true,"source":"xai_smoke"} and no other text.',
+            },
+          ],
+          search: { mode: "off" },
+        }
+      : {
+          // /v1/chat/completions format (legacy)
+          model,
+          messages: [
+            { role: "system", content: XAI_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content:
+                'Return ONLY valid JSON with the schema {"ok":true,"source":"xai_smoke"} and no other text.',
+            },
+          ],
+          temperature: 0,
+          stream: false,
+        };
 
     const res = await postJsonWithTimeout(xaiUrl, {
       headers: {

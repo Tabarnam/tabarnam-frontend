@@ -1,6 +1,62 @@
 const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
 const { getJob, tryClaimJob, patchJob } = require("./_importPrimaryJobStore");
 
+// Helper: Check if the URL is an xAI /responses endpoint (vs /chat/completions)
+function isResponsesEndpoint(rawUrl) {
+  const raw = String(rawUrl || "").trim().toLowerCase();
+  return raw.includes("/v1/responses") || raw.includes("/responses");
+}
+
+// Helper: Convert chat/completions payload to /responses format
+function convertToResponsesPayload(chatPayload) {
+  if (!chatPayload || typeof chatPayload !== "object") return chatPayload;
+
+  // If it already has 'input', it's already in responses format
+  if (Array.isArray(chatPayload.input)) return chatPayload;
+
+  const messages = chatPayload.messages;
+  if (!Array.isArray(messages)) return chatPayload;
+
+  const responsesPayload = {
+    model: chatPayload.model || "grok-4-latest",
+    input: messages.map(m => ({
+      role: m.role,
+      content: typeof m.content === "string" ? m.content : String(m.content || ""),
+    })),
+  };
+
+  // Add search if search_parameters was present
+  if (chatPayload.search_parameters) {
+    responsesPayload.search = { mode: chatPayload.search_parameters.mode || "on" };
+  }
+
+  return responsesPayload;
+}
+
+// Helper: Extract text content from xAI response (works for both formats)
+function extractXaiResponseText(data) {
+  if (!data || typeof data !== "object") return "";
+
+  // Try /responses format first: data.output[0].content[...].text
+  if (Array.isArray(data.output)) {
+    const firstOutput = data.output[0];
+    if (firstOutput?.content) {
+      const textItem = Array.isArray(firstOutput.content)
+        ? firstOutput.content.find(c => c?.type === "output_text") || firstOutput.content[0]
+        : firstOutput.content;
+      if (textItem?.text) return String(textItem.text);
+    }
+  }
+
+  // Fall back to /chat/completions format: data.choices[0].message.content
+  if (Array.isArray(data.choices)) {
+    const content = data.choices[0]?.message?.content;
+    if (content) return String(content);
+  }
+
+  return "";
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -165,6 +221,20 @@ async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
 
   const ms = Number.isFinite(Number(timeoutMs)) ? Math.max(1, Number(timeoutMs)) : 30_000;
 
+  // Convert payload to /responses format if using that endpoint
+  let finalBody = typeof body === "string" ? body : "";
+  if (isResponsesEndpoint(u) && finalBody) {
+    try {
+      const parsed = safeJsonParse(finalBody);
+      if (parsed) {
+        const converted = convertToResponsesPayload(parsed);
+        finalBody = JSON.stringify(converted);
+      }
+    } catch {
+      // If conversion fails, use original body
+    }
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ms);
 
@@ -172,7 +242,7 @@ async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
     const res = await fetch(u, {
       method: "POST",
       headers: headers && typeof headers === "object" ? headers : {},
-      body: typeof body === "string" ? body : "",
+      body: finalBody,
       signal: controller.signal,
     });
 
@@ -200,8 +270,9 @@ async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
 }
 
 function parseCompaniesFromXaiResponse(xaiResponse) {
+  // Use helper that handles both /responses and /chat/completions formats
   const responseText =
-    xaiResponse?.data?.choices?.[0]?.message?.content ||
+    extractXaiResponseText(xaiResponse?.data) ||
     (typeof xaiResponse?.text === "string" && xaiResponse.text ? xaiResponse.text : "") ||
     JSON.stringify(xaiResponse?.data || {});
 

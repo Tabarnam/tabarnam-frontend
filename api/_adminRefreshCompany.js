@@ -25,6 +25,62 @@ const {
 const { fetchConfirmedCompanyTagline } = require("./_taglineXai");
 const { getBuildInfo } = require("./_buildInfo");
 
+// Helper: Check if the URL is an xAI /responses endpoint (vs /chat/completions)
+function isResponsesEndpoint(rawUrl) {
+  const raw = String(rawUrl || "").trim().toLowerCase();
+  return raw.includes("/v1/responses") || raw.includes("/responses");
+}
+
+// Helper: Convert chat/completions payload to /responses format
+function convertToResponsesPayload(chatPayload) {
+  if (!chatPayload || typeof chatPayload !== "object") return chatPayload;
+
+  // If it already has 'input', it's already in responses format
+  if (Array.isArray(chatPayload.input)) return chatPayload;
+
+  const messages = chatPayload.messages;
+  if (!Array.isArray(messages)) return chatPayload;
+
+  const responsesPayload = {
+    model: chatPayload.model || "grok-4-latest",
+    input: messages.map(m => ({
+      role: m.role,
+      content: typeof m.content === "string" ? m.content : String(m.content || ""),
+    })),
+  };
+
+  // Add search if search_parameters was present
+  if (chatPayload.search_parameters) {
+    responsesPayload.search = { mode: chatPayload.search_parameters.mode || "on" };
+  }
+
+  return responsesPayload;
+}
+
+// Helper: Extract text content from xAI response (works for both formats)
+function extractXaiResponseText(data) {
+  if (!data || typeof data !== "object") return "";
+
+  // Try /responses format first: data.output[0].content[...].text
+  if (Array.isArray(data.output)) {
+    const firstOutput = data.output[0];
+    if (firstOutput?.content) {
+      const textItem = Array.isArray(firstOutput.content)
+        ? firstOutput.content.find(c => c?.type === "output_text") || firstOutput.content[0]
+        : firstOutput.content;
+      if (textItem?.text) return String(textItem.text);
+    }
+  }
+
+  // Fall back to /chat/completions format: data.choices[0].message.content
+  if (Array.isArray(data.choices)) {
+    const content = data.choices[0]?.message?.content;
+    if (content) return String(content);
+  }
+
+  return "";
+}
+
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "refresh-company";
 
@@ -745,9 +801,9 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     if (missing_env.length || bad_base_url) {
       stage = "config_error";
       const hints = [
-        missing_env.includes("XAI_EXTERNAL_BASE") ? "Set XAI_EXTERNAL_BASE (or FUNCTION_URL) to a chat/completions endpoint." : null,
+        missing_env.includes("XAI_EXTERNAL_BASE") ? "Set XAI_EXTERNAL_BASE (or FUNCTION_URL) to an xAI API endpoint." : null,
         missing_env.includes("XAI_API_KEY") ? "Set XAI_API_KEY (or XAI_EXTERNAL_KEY / FUNCTION_KEY) to a valid key." : null,
-        bad_base_url ? "Ensure the xAI URL points to /v1/chat/completions (or a compatible proxy endpoint)." : null,
+        bad_base_url ? "Ensure the xAI URL points to /v1/responses (or a compatible proxy endpoint)." : null,
         !xaiModel ? "Set XAI_MODEL to a valid model name (example: grok-4-latest)." : null,
       ].filter(Boolean);
 
@@ -779,12 +835,15 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     const prompt = buildPrompt({ companyName, websiteUrl, normalizedDomain });
-    const payload = {
+    const chatPayload = {
       messages: [{ role: "user", content: prompt }],
       model: xaiModel,
       temperature: 0.1,
       stream: false,
     };
+
+    // Convert to /responses format if using that endpoint
+    const payload = isResponsesEndpoint(xaiUrl) ? convertToResponsesPayload(chatPayload) : chatPayload;
 
     stage = "call_xai";
     pushBreadcrumb(stage, { company_id: companyId });
@@ -924,8 +983,9 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       "";
 
     stage = "parse_xai";
+    // Use helper that handles both /responses and /chat/completions formats
     const responseText =
-      resp?.data?.choices?.[0]?.message?.content ||
+      extractXaiResponseText(resp?.data) ||
       (typeof resp?.data === "string" ? resp.data : JSON.stringify(resp.data || {}));
 
     const upstream_preview = asString(responseText).slice(0, 8000);
