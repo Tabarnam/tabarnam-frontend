@@ -959,7 +959,7 @@ export default function AdminImport() {
       const sid = asString(session_id).trim();
       if (!sid) return;
 
-      const path = `/import/resume-enqueue`;
+      const path = `/import/resume-enqueue?direct=1`;
       const endpointUrl = join(API_BASE, path);
 
       const requestHeaders = { "Content-Type": "application/json" };
