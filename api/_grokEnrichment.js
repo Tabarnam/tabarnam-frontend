@@ -29,11 +29,11 @@ function resolveXaiStageTimeoutMaxMs(fallback = 600_000) {
 
 // Extended stage timeouts to 10 minutes max - accuracy is paramount.
 // We'd rather leave a field blank after 10 minutes than have false information.
-// Min values kept reasonable for tests; max extended to allow thorough searches.
+// Min values kept low for test compatibility; max extended to allow thorough searches in production.
 const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
-  reviews: { min: 60_000, max: 600_000 },
-  location: { min: 60_000, max: 600_000 },
-  light: { min: 30_000, max: 300_000 },
+  reviews: { min: 20_000, max: 600_000 },
+  location: { min: 20_000, max: 600_000 },
+  light: { min: 15_000, max: 300_000 },
 });
 
 // Short-TTL cache to avoid re-paying the same Grok searches on resume cycles.
