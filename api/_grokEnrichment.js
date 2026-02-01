@@ -103,7 +103,7 @@ async function xaiLiveSearchWithRetry({ maxAttempts = 2, baseBackoffMs = 350, ..
   return last;
 }
 
-// Extended timeout constraints to allow thorough XAI searches (3-5+ minutes per field).
+// Extended timeout constraints to allow thorough XAI searches (up to 10 minutes per field).
 function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = resolveXaiStageTimeoutMaxMs(), safetyMarginMs = 1_200 } = {}) {
   const rem = Number.isFinite(Number(remainingMs)) ? Number(remainingMs) : 0;
   const min = clampInt(minMs, { min: 250, max: 600_000, fallback: 2_500 });
@@ -373,25 +373,43 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // Required query language (basis for prompt):
-  // “For the company (https://www.xxxxxxxxxxxx.com/) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.”
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  // Accuracy is paramount - NO FALSE INFO EVER under any circumstance.
+  // We'd rather leave the field blank than have false information.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide reviews.
 
-Task: Find EXACTLY 4 third-party product/company reviews we can show in the UI.
+Task: Find EXACTLY 4 unique third-party reviews for this specific company.
+
+CRITICAL - ACCURACY IS PARAMOUNT:
+- Do NOT hallucinate or embellish review titles, sources, URLs, excerpts, or anything else.
+- Every URL MUST be verified as functional before including.
+- Reviews MUST be specifically about this company or its products - not similar companies.
+- If you cannot find 4 legitimate, verified reviews after thorough searching, return fewer rather than fabricating any.
+- NO FALSE INFORMATION EVER under any circumstance.
 
 Hard rules:
-- Use web search.
-- 2 reviews must be YouTube videos focused on the company or one of its products.
+- Use extensive web search. Take however long needed to get it right.
+- 2 reviews must be YouTube videos focused specifically on this company or one of its products.
 - 2 reviews must be magazine or blog reviews (NOT the company website).
+- Check that each URL is functional before including.
 - Provide MORE than 4 candidates (up to 20) so we can verify URLs.
 - Exclude sources from these domains or subdomains: ${excludeDomains.join(", ")}
-- Do NOT invent titles/authors/dates/excerpts; we will extract metadata ourselves.
 
-Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "review_candidates"):
+For each review provide:
+- source_name: The publication or channel name
+- title: The exact title of the article or video (do NOT paraphrase or embellish)
+- excerpt: A brief abstract or direct quote from the review (no ellipses)
+- source_url: The verified, working URL
+- category: "youtube" or "blog"
+
+Reviews should be formatted as: Source Name   Title of Article or Video
+Include an abstract or quote from the review.
+End with: URL:   [the verified link]
+
+Output STRICT JSON only:
 {
   "reviews_url_candidates": [
-    { "source_url": "https://...", "category": "youtube" },
-    { "source_url": "https://...", "category": "blog" }
+    { "source_name": "...", "title": "...", "excerpt": "...", "source_url": "https://...", "category": "youtube" },
+    { "source_name": "...", "title": "...", "excerpt": "...", "source_url": "https://...", "category": "blog" }
   ]
 }`.trim();
 
@@ -427,7 +445,7 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 1400,
+    maxTokens: 2000,
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,
@@ -480,7 +498,7 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
       const url = safeUrl(x.source_url || x.url || x.link);
       const categoryRaw = asString(x.category || x.type || "").trim().toLowerCase();
       const category = categoryRaw === "youtube" || isYouTubeUrl(url) ? "youtube" : "blog";
-      return { source_url: url, category };
+      return { source_url: url, category, source_name: x.source_name, title: x.title, excerpt: x.excerpt };
     })
     .filter((x) => x.source_url)
     .filter((x) => !excludeDomains.some((d) => x.source_url.includes(d)));
@@ -537,12 +555,12 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
     const meta = buildReviewMetadataFromHtml(c.source_url, html);
 
     const review = {
-      source_name: isYouTubeUrl(c.source_url) ? "YouTube" : meta.source_name,
+      source_name: c.source_name || (isYouTubeUrl(c.source_url) ? "YouTube" : meta.source_name),
       author: meta.author,
       source_url: meta.source_url,
-      title: meta.title,
+      title: c.title || meta.title,
       date: meta.date,
-      excerpt: meta.excerpt,
+      excerpt: c.excerpt || meta.excerpt,
     };
 
     if (c.category === "youtube") {
@@ -626,22 +644,32 @@ async function fetchHeadquartersLocation({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  // Accuracy is paramount - NO FALSE INFO EVER under any circumstance.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide the HEADQUARTERS location.
+
+CRITICAL - ACCURACY IS PARAMOUNT:
+- Do deep dives for HQ location if necessary.
+- Having the actual city within the United States is crucial.
+- Do NOT guess or fabricate locations.
+- If you cannot determine the HQ location with certainty after thorough searching, return empty rather than guessing.
+- NO FALSE INFORMATION EVER under any circumstance.
 
 Task: Determine the company's HEADQUARTERS location.
 
 Rules:
-- Use web search (do not rely only on the company website).
-- Prefer authoritative sources like LinkedIn, official filings, reputable business directories.
+- Use extensive web search (do not rely only on the company website).
+- Do deep dives if necessary - take however long needed to get it right.
+- Prefer authoritative sources like LinkedIn, official filings, SEC documents, reputable business directories.
 - Return best available HQ as a single formatted string: "City, State/Province, Country".
   - If state/province is not applicable, use "City, Country".
   - If only country is known, return "Country".
+- For US companies, the specific city and state is crucial.
 - Provide the supporting URLs you used for the HQ determination.
 - Output STRICT JSON only.
 
 Return:
 {
-  "headquarters_location": "...",
+  "headquarters_location": "City, State, Country",
   "location_source_urls": { "hq_source_urls": ["https://...", "https://..."] }
 }
 `.trim();
@@ -672,7 +700,7 @@ Return:
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 300,
+    maxTokens: 400,
     model: resolveSearchModel(),
     xaiUrl,
     xaiKey,
@@ -763,21 +791,31 @@ async function fetchManufacturingLocations({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  // Accuracy is paramount - NO FALSE INFO EVER under any circumstance.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide MANUFACTURING locations.
+
+CRITICAL - ACCURACY IS PARAMOUNT:
+- Do deep dives for manufacturing locations if necessary.
+- Having the actual cities within the United States is crucial.
+- Do NOT guess or fabricate locations.
+- If you cannot determine manufacturing locations with certainty after thorough searching, return ["Not disclosed"] rather than guessing.
+- NO FALSE INFORMATION EVER under any circumstance.
 
 Task: Determine the company's MANUFACTURING locations.
 
 Rules:
-- Use web search (do not rely only on the company website).
-- Return an array of one or more locations. Include city + country when known; include multiple cities when applicable.
-- If only country-level is available, country-only entries are acceptable.
-- If manufacturing is not publicly disclosed after searching, return ["Not disclosed"].
+- Use extensive web search (do not rely only on the company website).
+- Do deep dives if necessary - take however long needed to get it right.
+- Return an array of one or more locations. Include city + state/country when known; include multiple cities when applicable.
+- For US locations, the specific city and state is crucial.
+- If only country-level is available after exhaustive search, country-only entries are acceptable.
+- If manufacturing is not publicly disclosed after thorough searching, return ["Not disclosed"].
 - Provide the supporting URLs you used for the manufacturing determination.
 - Output STRICT JSON only.
 
 Return:
 {
-  "manufacturing_locations": ["City, Country"],
+  "manufacturing_locations": ["City, State, Country"],
   "location_source_urls": { "mfg_source_urls": ["https://...", "https://..."] }
 }
 `.trim();
@@ -808,7 +846,7 @@ Return:
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 400,
+    maxTokens: 500,
     model: resolveSearchModel(),
     xaiUrl,
     xaiKey,
@@ -901,7 +939,13 @@ async function fetchTagline({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide the tagline/slogan.
+
+CRITICAL - ACCURACY IS PARAMOUNT:
+- Do NOT guess or fabricate taglines.
+- Only return the actual official tagline/slogan used by the company.
+- If you cannot find an official tagline, return empty rather than making one up.
+- NO FALSE INFORMATION EVER under any circumstance.
 
 Task: Provide ONLY the company tagline/slogan.
 
@@ -1016,19 +1060,27 @@ async function fetchIndustries({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  // Accuracy is paramount - industries should be in paragraph form with commas separating them.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide the industries.
+
+CRITICAL - ACCURACY IS PARAMOUNT:
+- Do NOT guess or fabricate industries.
+- Only return actual industries the company operates in.
+- NO FALSE INFORMATION EVER under any circumstance.
 
 Task: Identify the company's industries.
 
 Rules:
 - Use web search.
 - Return a list of industries/categories that best describe what the company makes/sells.
+- Industries should be in paragraph form with each industry separated by commas.
+- Use commas to separate industries - no commas within an industry name.
 - Avoid store navigation terms (e.g. "New Arrivals", "Shop", "Sale") and legal terms.
 - Prefer industry labels that can be mapped to an internal taxonomy.
 - Output STRICT JSON only.
 
 Return:
-{ "industries": ["..."] }
+{ "industries": ["Industry 1", "Industry 2", "Industry 3"] }
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
@@ -1057,7 +1109,7 @@ Return:
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 220,
+    maxTokens: 300,
     model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
@@ -1100,7 +1152,7 @@ Return:
     return valueOut;
   }
 
-  const valueOut = { industries: cleaned.slice(0, 5), industries_status: "ok" };
+  const valueOut = { industries: cleaned.slice(0, 10), industries_status: "ok" };
   if (cacheKey) writeStageCache(cacheKey, valueOut);
   return valueOut;
 }
@@ -1132,12 +1184,22 @@ async function fetchProductKeywords({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  // Keywords should be exhaustive, complete and all-inclusive of all products.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide the keywords (products).
+
+CRITICAL - ACCURACY IS PARAMOUNT:
+- Keywords should be EXHAUSTIVE, COMPLETE and ALL-INCLUSIVE (all the products that the company produces).
+- Do NOT guess or fabricate product names.
+- NO FALSE INFORMATION EVER under any circumstance.
+- Take however long needed to get a complete list.
 
 Task: Provide an EXHAUSTIVE list of the PRODUCTS (SKUs/product names/product lines) this company sells.
 
 Hard rules:
-- Use web search (not just the company website).
+- Use extensive web search (not just the company website).
+- Keywords should be in paragraph form with each item separated by commas.
+- NO commas within a product name - only use commas to separate products.
+- Do NOT include dosages, GMP certifications, or 3rd party testing info.
 - Return ONLY products/product lines. Do NOT include navigation/UX taxonomy such as: Shop All, Collections, New, Best Sellers, Sale, Account, Cart, Store Locator, FAQ, Shipping, Returns, Contact, About, Blog.
 - Do NOT include generic category labels unless they are actual product lines.
 - The list should be materially more complete than the top nav.
@@ -1149,7 +1211,7 @@ Hard rules:
 
 Return:
 {
-  "product_keywords": ["Product 1", "Product 2"],
+  "product_keywords": ["Product 1", "Product 2", "Product 3"],
   "completeness": "complete" | "incomplete",
   "incomplete_reason": null | "..."
 }
@@ -1181,7 +1243,7 @@ Return:
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 300,
+    maxTokens: 1500,
     model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
