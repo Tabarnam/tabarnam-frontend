@@ -2876,7 +2876,8 @@ test("/api/import/start uses provided session_id for async primary job and impor
 
       try {
         const startReq = makeReq({
-          url: "https://example.test/api/import/start?stage_ms_primary=30000",
+          // stage_ms_primary must exceed inline_budget_ms (60000) to trigger async primary mode
+          url: "https://example.test/api/import/start?stage_ms_primary=70000",
           body: JSON.stringify({
             session_id,
             query: "test",
