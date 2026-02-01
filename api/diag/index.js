@@ -489,14 +489,23 @@ app.http("diag-xai", {
             headers.Authorization = `Bearer ${key}`;
           }
 
-          const payload = {
-            model,
-            messages: [{ role: "user", content: "ping" }],
-            max_tokens: 1,
-            temperature: 0,
-            stream: false,
-            search_parameters: { mode: "off" },
-          };
+          // Detect endpoint format: /v1/responses uses `input` array, /v1/chat/completions uses `messages` array
+          const useResponsesFormat = /\/v1\/responses\/?$/i.test(url) || url.includes("/responses");
+
+          const payload = useResponsesFormat
+            ? {
+                model,
+                input: [{ role: "user", content: "ping" }],
+                max_output_tokens: 1,
+              }
+            : {
+                model,
+                messages: [{ role: "user", content: "ping" }],
+                max_tokens: 1,
+                temperature: 0,
+                stream: false,
+                search_parameters: { mode: "off" },
+              };
 
           let status = null;
 
