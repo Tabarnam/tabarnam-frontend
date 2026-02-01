@@ -631,7 +631,7 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-12 lg:grid-cols-[minmax(0,_2fr)_minmax(0,_2fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)] gap-3 border border-[#649BA0] rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
+      className="grid grid-cols-12 lg:grid-cols-5 gap-x-3 gap-y-2 border border-[#649BA0] rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
     >
       <div className="col-span-4 lg:col-span-1">
         <h2 className="font-bold text-gray-900">
@@ -684,37 +684,19 @@ export default function ExpandableCompanyRow({
           </div>
         )}
 
-        <div className="text-xs font-semibold text-gray-700 mt-2">Industries</div>
-        <div className="flex flex-wrap gap-1 mt-1">
-          {Array.isArray(company.industries) &&
-            company.industries.slice(0, 3).map((ind, idx) => (
-              <button
-                key={idx}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onKeywordSearch(ind);
-                }}
-                className="text-xs text-blue-600 hover:underline"
-              >
-                {ind}
-              </button>
-            ))}
-          {company.industries?.length > 3 && (
-            <span className="text-xs text-gray-500">+{company.industries.length - 3}</span>
-          )}
-        </div>
       </div>
 
+      {/* Logo Column */}
       <div className="col-span-2 lg:col-span-1">
         {shouldShowLogo ? (
           <img
             src={logoUrl}
             alt={displayName}
-            className="w-full h-32 object-contain mb-2"
+            className="w-full max-h-40 h-auto object-contain"
             onError={() => setLogoFailed(true)}
           />
         ) : (
-          <div className="w-full h-32 mb-2 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-lg">
+          <div className="w-full h-32 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-lg">
             {logoStatus === "not_found_on_site" ? (
               <span className="text-xs font-semibold text-gray-500">No logo found on company website</span>
             ) : logoStatus === "not_found" ? (
@@ -729,41 +711,9 @@ export default function ExpandableCompanyRow({
             )}
           </div>
         )}
-        <div className="text-xs font-semibold text-gray-700">Keywords</div>
-        <div className="flex flex-wrap gap-1 mt-1">
-          {Array.isArray(company.keywords) && company.keywords.length > 0
-            ? company.keywords.slice(0, 4).map((kw, idx) => (
-                <button
-                  key={idx}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onKeywordSearch(kw);
-                  }}
-                  className="text-xs text-blue-600 hover:underline bg-gray-100 px-1 py-0.5 rounded"
-                >
-                  {kw}
-                </button>
-              ))
-            : String(company.product_keywords || "")
-                .split(",")
-                .map((kw) => kw.trim())
-                .filter(Boolean)
-                .slice(0, 4)
-                .map((kw, idx) => (
-                  <button
-                    key={idx}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onKeywordSearch(kw);
-                    }}
-                    className="text-xs text-blue-600 hover:underline bg-gray-100 px-1 py-0.5 rounded"
-                  >
-                    {kw}
-                  </button>
-                ))}
-        </div>
       </div>
 
+      {/* Manufacturing/HQ/QQ columns - spans 3 columns */}
       {rightColsOrder.map((colKey, colIdx) => (
         <div key={colKey} className="col-span-2 lg:col-span-1">
           <div className="text-xs font-semibold text-gray-700 flex items-center gap-1 mb-2">
@@ -772,6 +722,53 @@ export default function ExpandableCompanyRow({
           {renderRightColumn(colKey)}
         </div>
       ))}
+
+      {/* Industries Row - spans full width below company info */}
+      <div className="col-span-12 lg:col-span-5 mt-2 border-t pt-2">
+        <div className="text-xs font-semibold text-gray-500 mb-1">Industries</div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 overflow-hidden max-h-5 relative">
+          {Array.isArray(company.industries) && company.industries.map((ind, idx) => (
+            <button
+              key={idx}
+              onClick={(e) => {
+                e.stopPropagation();
+                onKeywordSearch(ind);
+              }}
+              className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+            >
+              {ind}
+            </button>
+          ))}
+          {Array.isArray(company.industries) && company.industries.length > 8 && (
+            <span className="text-xs text-gray-400 ml-1">...</span>
+          )}
+        </div>
+      </div>
+
+      {/* Keywords Row - spans full width, 2 lines max */}
+      <div className="col-span-12 lg:col-span-5 mt-1">
+        <div className="text-xs font-semibold text-gray-500 mb-1">Keywords</div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 overflow-hidden max-h-10 relative">
+          {(Array.isArray(company.keywords) && company.keywords.length > 0
+            ? company.keywords
+            : String(company.product_keywords || "").split(",").map((kw) => kw.trim()).filter(Boolean)
+          ).map((kw, idx) => (
+            <button
+              key={idx}
+              onClick={(e) => {
+                e.stopPropagation();
+                onKeywordSearch(kw);
+              }}
+              className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+            >
+              {kw}
+            </button>
+          ))}
+          {((Array.isArray(company.keywords) ? company.keywords.length : String(company.product_keywords || "").split(",").filter(Boolean).length) > 12) && (
+            <span className="text-xs text-gray-400 ml-1">...</span>
+          )}
+        </div>
+      </div>
 
       {/* Location Sources Section */}
       {company.show_location_sources_to_users && Array.isArray(company.location_sources) && company.location_sources.length > 0 && (
