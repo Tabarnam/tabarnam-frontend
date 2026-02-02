@@ -1944,6 +1944,13 @@ async function resumeWorkerHandler(req, context) {
             r?.diagnostics?.code ||
             (status && status !== "ok" ? status : null),
           xai_attempted: false,
+          // Budget diagnostics from grok functions
+          grok_remaining_ms: r?.diagnostics?.remaining_ms ?? null,
+          grok_min_required_ms: r?.diagnostics?.min_required_ms ?? null,
+          grok_reason: r?.diagnostics?.reason ?? null,
+          // Handler budget context
+          handler_budget_passed_ms: grokArgsForField?.budgetMs ?? null,
+          handler_is_fresh_seed: isFreshSeed,
         };
 
         const xaiAttempted = status !== "deferred";
