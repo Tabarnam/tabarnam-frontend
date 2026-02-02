@@ -41,12 +41,18 @@ jobs:
           set -euo pipefail
           node -e "const fs=require('node:fs'); const stamp={sha:process.env.GITHUB_SHA||'', run_id:process.env.GITHUB_RUN_ID||'', run_number:process.env.GITHUB_RUN_NUMBER||'', ts:new Date().toISOString()}; fs.writeFileSync('api/__deploy_stamp.json', JSON.stringify(stamp)+'\n', 'utf8'); console.log('[deploy-stamp]', JSON.stringify(stamp));"
 
+      # Azure Login using Service Principal (Flex Consumption doesn't support publish profiles)
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
       - name: Deploy tabarnam-xai-dedicated
         uses: Azure/functions-action@v1
         with:
           app-name: tabarnam-xai-dedicated
           package: api
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+          # No publish-profile needed - uses Azure Login credentials
 
       - name: Validate dedicated diag endpoint
         shell: bash
