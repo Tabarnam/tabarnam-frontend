@@ -1,7 +1,24 @@
-const endpoint = require("./index.js");
+let endpoint;
+let loadError;
+
+try {
+  endpoint = require("./index.js");
+} catch (e) {
+  loadError = e;
+}
 
 module.exports = async function searchCompaniesLegacy(context, req) {
   try {
+    if (loadError) {
+      context.log("[search-companies] module load error", loadError?.message || loadError);
+      context.res = {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "Module load failed: " + (loadError?.message || "unknown") }),
+      };
+      return;
+    }
+
     const handler = typeof endpoint?.handler === "function" ? endpoint.handler : null;
 
     if (!handler) {
