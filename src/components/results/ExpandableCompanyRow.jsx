@@ -10,6 +10,39 @@ import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQScore } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 
+// Renders text with URLs converted to clickable links
+function TextWithLinks({ text, className = "" }) {
+  if (!text || typeof text !== "string") return null;
+
+  // URL regex pattern
+  const urlPattern = /(https?:\/\/[^\s<>"{}|\\^`[\]]+)/gi;
+  const parts = text.split(urlPattern);
+
+  return (
+    <span className={className}>
+      {parts.map((part, i) => {
+        if (urlPattern.test(part)) {
+          // Reset lastIndex since we're reusing the regex
+          urlPattern.lastIndex = 0;
+          return (
+            <a
+              key={i}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline break-all"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {part}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
 async function copyToClipboard(text) {
   const value = (text || "").toString();
   if (!value.trim()) return false;
@@ -613,7 +646,11 @@ export default function ExpandableCompanyRow({
                       {n.created_at ? (
                         <div className="text-xs text-gray-500 mt-0.5">{new Date(n.created_at).toLocaleString()}</div>
                       ) : null}
-                      {n.body ? <div className="text-sm text-gray-700 mt-2 whitespace-pre-wrap break-words">{n.body}</div> : null}
+                      {n.body ? (
+                        <div className="text-sm text-gray-700 mt-2 whitespace-pre-wrap break-words">
+                          <TextWithLinks text={n.body} />
+                        </div>
+                      ) : null}
                     </div>
                   ))}
               </div>
