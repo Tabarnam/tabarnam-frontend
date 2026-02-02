@@ -3127,7 +3127,7 @@ async function handler(req, context) {
                 };
               })(),
               // Budget diagnostics for debugging deferred fields
-              _budget_debug: resumeDoc?._budget_debug || null,
+              _budget_debug: sessionDoc?.resume_worker_budget_debug || resumeDoc?._budget_debug || null,
             }
           : null,
         enrichment_health_summary,

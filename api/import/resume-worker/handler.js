@@ -2433,6 +2433,8 @@ async function resumeWorkerHandler(req, context) {
       resume_next_allowed_run_at: nextAllowedRunAt,
       resume_last_backoff_reason: lastBackoffReason,
       resume_last_backoff_ms: lastBackoffMs,
+      // Also write to session doc for easier retrieval
+      resume_worker_budget_debug: nextResumeDoc._budget_debug,
       ...(enqueueRes?.ok
         ? {
             resume_worker_last_enqueued_at: updatedAt,
