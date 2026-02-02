@@ -27,47 +27,50 @@ function nowIso() {
 /**
  * Enrichment field definitions with fetchers and configuration
  */
+// minBudgetMs values MUST match XAI_STAGE_TIMEOUTS_MS.min + 1200ms safety margin
+// in _grokEnrichment.js, or fields will be incorrectly deferred.
+// See _grokEnrichment.js lines 35-40 for the source of truth.
 const ENRICHMENT_FIELDS = [
   {
     key: "tagline",
     fetcher: fetchTagline,
     maxAttempts: 3,
-    minBudgetMs: 60000,
+    minBudgetMs: 17000, // light: min 15000 + 1200 + buffer
     priority: 1, // Higher priority = run first
   },
   {
     key: "industries",
     fetcher: fetchIndustries,
     maxAttempts: 3,
-    minBudgetMs: 60000,
+    minBudgetMs: 17000, // light: min 15000 + 1200 + buffer
     priority: 2,
   },
   {
     key: "headquarters_location",
     fetcher: fetchHeadquartersLocation,
     maxAttempts: 3,
-    minBudgetMs: 90000,
+    minBudgetMs: 22000, // location: min 20000 + 1200 + buffer
     priority: 3,
   },
   {
     key: "manufacturing_locations",
     fetcher: fetchManufacturingLocations,
     maxAttempts: 3,
-    minBudgetMs: 90000,
+    minBudgetMs: 22000, // location: min 20000 + 1200 + buffer
     priority: 4,
   },
   {
     key: "product_keywords",
     fetcher: fetchProductKeywords,
     maxAttempts: 3,
-    minBudgetMs: 180000, // Keywords need more time
+    minBudgetMs: 32000, // keywords: min 30000 + 1200 + buffer
     priority: 5,
   },
   {
     key: "reviews",
     fetcher: fetchCuratedReviews,
     maxAttempts: 3,
-    minBudgetMs: 480000, // Reviews need the most time
+    minBudgetMs: 62000, // reviews: min 60000 + 1200 + buffer
     priority: 6,
   },
 ];
