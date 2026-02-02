@@ -1806,6 +1806,7 @@ async function resumeWorkerHandler(req, context) {
       const normalizedDomain = String(doc.normalized_domain || "").trim();
 
       const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, plannedIds.length || 1)));
+      console.log(`[resume-worker] enrichment loop start: companyId=${companyId}, companyName=${companyName}, normalizedDomain=${normalizedDomain}, deadlineMs=${deadlineMs}, plannedIds.length=${plannedIds.length}, perDocBudgetMs=${perDocBudgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
 
       // Use shared XAI config resolution for consistent endpoint/key handling
       const xaiEndpointRaw = getXAIEndpoint();
