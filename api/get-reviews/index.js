@@ -739,6 +739,7 @@ app.http("get-reviews", {
 });
 
 module.exports = {
+  handler: getReviewsHandler,
   _test: {
     resolveCompanyName,
     resolveCompanyId,

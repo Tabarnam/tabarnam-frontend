@@ -6143,4 +6143,4 @@ app.http("import-status-session-raw", {
   },
 });
 
-module.exports = { _test: { handler } };
+module.exports = { handler, _test: { handler } };

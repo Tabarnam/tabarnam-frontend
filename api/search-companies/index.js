@@ -833,6 +833,7 @@ app.http("search-companies", {
   },
 });
 
+module.exports.handler = searchCompaniesHandler;
 module.exports._test = {
   SELECT_FIELDS,
   normalizeStringArray,

@@ -241,44 +241,46 @@ async function persistXaiDiagBundle({ sessionId, bundle }) {
   return out;
 }
 
+async function diagHandler(req) {
+  const method = String(req?.method || "").toUpperCase();
+  if (method === "OPTIONS") {
+    return {
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,OPTIONS",
+        "Access-Control-Allow-Headers": "content-type,authorization,x-functions-key",
+      },
+    };
+  }
+
+  const buildInfo = getBuildInfo();
+  const handler_versions = getHandlerVersions(buildInfo);
+
+  let routes = [];
+  try {
+    const appMod = require("../_app");
+    routes = typeof appMod?.listRoutes === "function" ? appMod.listRoutes() : [];
+  } catch {
+    routes = [];
+  }
+
+  return json({
+    ok: true,
+    now: new Date().toISOString(),
+    env: pickEnv(process.env),
+    routes,
+    handler_version: handler_versions.import_start,
+    handler_versions,
+    ...buildInfo,
+  });
+}
+
 app.http("diag", {
   route: "diag",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req) => {
-    const method = String(req?.method || "").toUpperCase();
-    if (method === "OPTIONS") {
-      return {
-        status: 200,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "content-type,authorization,x-functions-key",
-        },
-      };
-    }
-
-    const buildInfo = getBuildInfo();
-    const handler_versions = getHandlerVersions(buildInfo);
-
-    let routes = [];
-    try {
-      const appMod = require("../_app");
-      routes = typeof appMod?.listRoutes === "function" ? appMod.listRoutes() : [];
-    } catch {
-      routes = [];
-    }
-
-    return json({
-      ok: true,
-      now: new Date().toISOString(),
-      env: pickEnv(process.env),
-      routes,
-      handler_version: handler_versions.import_start,
-      handler_versions,
-      ...buildInfo,
-    });
-  },
+  handler: diagHandler,
 });
 
 // xAI connectivity diagnostic (same config + auth rules used by the import enrichment pipeline).
@@ -782,3 +784,5 @@ app.http("diag-session", {
     }
   },
 });
+
+module.exports = { handler: diagHandler };
