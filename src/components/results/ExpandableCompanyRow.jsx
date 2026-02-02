@@ -688,7 +688,7 @@ export default function ExpandableCompanyRow({
         {Array.isArray(company.industries) && company.industries.length > 0 && (
           <div className="mt-2">
             <div className="text-xs font-semibold text-gray-500 mb-1">Industries</div>
-            <div className="flex flex-wrap gap-x-2 gap-y-0.5 overflow-hidden max-h-12">
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5 overflow-hidden max-h-14">
               {company.industries.map((ind, idx) => (
                 <button
                   key={idx}
