@@ -2617,6 +2617,7 @@ async function handler(req, context) {
                       (typeof workerJson.error === "string" && workerJson.error.trim() ? workerJson.error.trim() : null) ||
                       (typeof workerJson.root_cause === "string" && workerJson.root_cause.trim() ? workerJson.root_cause.trim() : null) ||
                       null,
+                    _budget_debug: workerJson?._budget_debug || null,
                   }
                 : {
                     response_text_preview: preview || null,
@@ -4662,6 +4663,7 @@ async function handler(req, context) {
                       (typeof workerJson.error === "string" && workerJson.error.trim() ? workerJson.error.trim() : null) ||
                       (typeof workerJson.root_cause === "string" && workerJson.root_cause.trim() ? workerJson.root_cause.trim() : null) ||
                       null,
+                    _budget_debug: workerJson?._budget_debug || null,
                   }
                 : {
                     response_text_preview: preview || null,
