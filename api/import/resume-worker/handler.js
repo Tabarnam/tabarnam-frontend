@@ -1753,6 +1753,8 @@ async function resumeWorkerHandler(req, context) {
 
     const budgetRemainingMs = () => Math.max(0, deadlineMs - (Date.now() - startedAtMs));
 
+    console.log(`[resume-worker] enrichment block entry: deadlineMs=${deadlineMs}, startedAtMs=${startedAtMs}, initialBudgetRemaining=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
+
     const plannedByCompany = Array.isArray(resumeDoc?.missing_by_company)
       ? resumeDoc.missing_by_company
       : (Array.isArray(resumeDoc?.saved_company_ids) ? resumeDoc.saved_company_ids : []).map((company_id) => ({
@@ -2414,7 +2416,10 @@ async function resumeWorkerHandler(req, context) {
       },
     };
 
-    await upsertDoc(container, nextResumeDoc).catch(() => null);
+    console.log(`[resume-worker] _budget_debug being written: ${JSON.stringify(nextResumeDoc._budget_debug)}`);
+    await upsertDoc(container, nextResumeDoc).catch((err) => {
+      console.log(`[resume-worker] resumeDoc upsert failed: ${err?.message || err}`);
+    });
 
     const sessionPatch = {
       resume_needed: finalResumeNeeded,
