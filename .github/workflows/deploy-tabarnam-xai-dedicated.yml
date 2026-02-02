@@ -41,6 +41,20 @@ jobs:
           set -euo pipefail
           node -e "const fs=require('node:fs'); const stamp={sha:process.env.GITHUB_SHA||'', run_id:process.env.GITHUB_RUN_ID||'', run_number:process.env.GITHUB_RUN_NUMBER||'', ts:new Date().toISOString()}; fs.writeFileSync('api/__deploy_stamp.json', JSON.stringify(stamp)+'\n', 'utf8'); console.log('[deploy-stamp]', JSON.stringify(stamp));"
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install API dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd api
+          npm ci --omit=dev || npm install --omit=dev
+          echo "node_modules installed:"
+          ls -la node_modules | head -20
+
       # Azure Login using Service Principal (Flex Consumption doesn't support publish profiles)
       - name: Azure Login
         uses: azure/login@v1
