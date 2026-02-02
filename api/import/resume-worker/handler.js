@@ -1888,8 +1888,11 @@ async function resumeWorkerHandler(req, context) {
         const freshSeedBudgetMs = (() => {
           if (!isFreshSeed) return null;
           const remainingFields = Math.max(1, ENRICH_FIELDS.length - Number(fieldIndex || 0));
-          const slice = Math.trunc(budgetRemainingMs() / remainingFields);
-          return Math.max(1500, Math.min(perDocBudgetMs, slice));
+          const budgetRemaining = budgetRemainingMs();
+          const slice = Math.trunc(budgetRemaining / remainingFields);
+          const result = Math.max(1500, Math.min(perDocBudgetMs, slice));
+          console.log(`[resume-worker] freshSeedBudgetMs calc: field=${field}, fieldIndex=${fieldIndex}, remainingFields=${remainingFields}, budgetRemaining=${budgetRemaining}, slice=${slice}, perDocBudgetMs=${perDocBudgetMs}, result=${result}`);
+          return result;
         })();
 
         const grokArgsForField = freshSeedBudgetMs ? { ...grokArgs, budgetMs: freshSeedBudgetMs } : grokArgs;
