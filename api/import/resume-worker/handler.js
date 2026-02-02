@@ -1703,17 +1703,16 @@ async function resumeWorkerHandler(req, context) {
       "reviews",
     ];
 
-    // Minimum time budgets per field - reduced to allow enrichment to proceed.
-    // xAI API calls typically complete within 10-30 seconds.
-    // Minimum required budget per field - set high enough to allow xAI web searches to complete.
-    // xAI searches can take 1-3 minutes, so we need generous minimums.
+    // Minimum time budgets per field - realistic values based on actual xAI response times.
+    // xAI API calls typically complete within 10-60 seconds.
+    // These must be >= the values in _grokEnrichment.js XAI_STAGE_TIMEOUTS_MS.min + safety margin.
     const MIN_REQUIRED_MS_BY_FIELD = {
-      tagline: 60_000,           // 1 minute min
-      headquarters_location: 90_000,    // 1.5 minutes min
-      manufacturing_locations: 90_000,  // 1.5 minutes min
-      industries: 60_000,        // 1 minute min
-      product_keywords: 180_000, // 3 minutes min (2x - must accumulate all products)
-      reviews: 480_000,          // 8 minutes min (4x - complex web search with URL verification)
+      tagline: 20_000,                  // 20 seconds min (light field)
+      headquarters_location: 25_000,    // 25 seconds min (location field)
+      manufacturing_locations: 25_000,  // 25 seconds min (location field)
+      industries: 20_000,               // 20 seconds min (light field)
+      product_keywords: 35_000,         // 35 seconds min (keywords field)
+      reviews: 65_000,                  // 65 seconds min (reviews - multi-step)
     };
 
     const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;

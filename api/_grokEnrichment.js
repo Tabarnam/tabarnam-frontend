@@ -29,14 +29,14 @@ function resolveXaiStageTimeoutMaxMs(fallback = 300_000) {
   return clampInt(raw, { min: 2_500, max: 600_000, fallback });
 }
 
-// Stage timeouts - generous timeouts to ensure xAI web searches complete successfully.
-// xAI web searches can take 30-180+ seconds for thorough results.
-// Never timeout during a search - let xAI complete its work.
+// Stage timeouts - realistic timeouts based on actual xAI web search response times.
+// xAI typically responds in 10-60 seconds, with complex searches taking up to 2 minutes.
+// Previous values were 8-15x higher than needed, causing budget exhaustion.
 const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
-  reviews: { min: 480_000, max: 900_000 },     // 8-15 minutes for reviews (4x - complex web search with URL verification)
-  keywords: { min: 180_000, max: 600_000 },    // 3-10 minutes for keywords (2x - must accumulate all products)
-  location: { min: 90_000, max: 360_000 },     // 1.5-6 minutes for location searches
-  light: { min: 90_000, max: 300_000 },        // 1.5-5 minutes for simpler fields (tagline, industries)
+  reviews: { min: 60_000, max: 180_000 },      // 1-3 minutes for reviews (multi-step URL verification)
+  keywords: { min: 30_000, max: 90_000 },      // 30s-1.5 min for keywords
+  location: { min: 20_000, max: 60_000 },      // 20s-1 min for location searches
+  light: { min: 15_000, max: 45_000 },         // 15-45 seconds for simpler fields (tagline, industries)
 });
 
 // Short-TTL cache to avoid re-paying the same Grok searches on resume cycles.

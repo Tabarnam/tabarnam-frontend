@@ -27,9 +27,9 @@ const { getBuildInfo } = require("../_buildInfo");
 
 const HANDLER_ID = "import-status";
 
-// Non-negotiable: status is read-only + watchdog only.
-// It must never trigger enrichment or force-terminalize.
-const STATUS_NO_ORCHESTRATION = true;
+// Orchestration mode: When false, status endpoint can trigger resume worker and force-terminalize.
+// Set to true only if import-status should be purely read-only (e.g., for debugging).
+const STATUS_NO_ORCHESTRATION = false;
 
 const RESUME_WATCHDOG_STALE_MS = Number.isFinite(Number(process.env.RESUME_WATCHDOG_STALE_MS))
   ? Math.max(5_000, Math.trunc(Number(process.env.RESUME_WATCHDOG_STALE_MS)))

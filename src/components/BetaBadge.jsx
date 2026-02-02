@@ -19,7 +19,7 @@ export default function BetaBadge() {
         style={{
           position: 'absolute',
           inset: 0,
-          backgroundColor: 'rgba(135, 206, 235, 0.7)',
+          backgroundColor: '#B1DDE3',
           clipPath: 'polygon(0 0, 0 100%, 100% 0)',
           zIndex: 0,
         }}
