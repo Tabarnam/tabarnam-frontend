@@ -2481,6 +2481,7 @@ async function resumeWorkerHandler(req, context) {
         last_xai_attempt_at: resumeDoc?.last_xai_attempt_at || null,
         last_field_attempted: lastFieldAttemptedThisRun,
         last_field_result: lastFieldResultThisRun,
+        _budget_debug: nextResumeDoc._budget_debug,
       },
       200,
       req
