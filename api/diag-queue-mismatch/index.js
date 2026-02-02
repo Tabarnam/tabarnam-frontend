@@ -24,7 +24,12 @@
  *      in the storage account (Azure Portal > Storage account > Queues)
  */
 
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 const { resolveQueueConfig } = require("../_enrichmentQueue");
 const { listTriggers } = require("../_app");
 

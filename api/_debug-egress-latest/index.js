@@ -1,7 +1,12 @@
 // api/_debug-egress-latest/index.js
 // Route: /api/_debug/egress/latest
 
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 
 const {
   getLatestEgressSnapshot,

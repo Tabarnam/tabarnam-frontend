@@ -1,4 +1,9 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 const { getBuildInfo } = require("../_buildInfo");
 
 async function pingHandler(req, context) {

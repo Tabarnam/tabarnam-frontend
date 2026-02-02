@@ -1,4 +1,9 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 const { geocodeLocationEntry, normalizeLocationInput } = require("../_geocode");
 
 function getHeader(req, name) {

@@ -1,4 +1,9 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 
 function cors(req) {
   const origin = req.headers.get("origin") || "*";

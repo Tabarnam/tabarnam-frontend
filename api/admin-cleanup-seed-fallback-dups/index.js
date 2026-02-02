@@ -1,6 +1,6 @@
 let app;
 try {
-  ({ app } = require("@azure/functions"));
+  ({ app } = require("../_app"));
 } catch {
   app = { http() {} };
 }

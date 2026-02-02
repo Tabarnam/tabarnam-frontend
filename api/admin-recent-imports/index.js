@@ -1,5 +1,10 @@
 // api/admin-recent-imports/index.js - v4 HTTP function
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 
 async function adminRecentImportsHandler(req, ctx) {
   ctx.log("[xadmin-api-recent-imports] v4 handler called");

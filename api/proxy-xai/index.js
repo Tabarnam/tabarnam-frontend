@@ -1,5 +1,10 @@
 // api/proxy-xai/index.js  (Azure Functions v4, CommonJS)
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 const { stripAmazonAffiliateTagForStorage } = require("../_amazonAffiliate");

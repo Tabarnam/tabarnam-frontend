@@ -2,7 +2,12 @@
 // Chat ingress endpoint for the dedicated worker.
 // Route: /api/v1/chat/completions
 
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 
 const {
   getHandlerVersion,

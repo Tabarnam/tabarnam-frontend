@@ -1,5 +1,10 @@
 // api/import-stop/index.js - Stop a running import session
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 const { CosmosClient } = require("@azure/cosmos");
 const {
   getContainerPartitionKeyPath,

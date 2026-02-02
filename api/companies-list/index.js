@@ -1,6 +1,11 @@
 // Companies list API endpoint - v4 modern runtime with app.http()
 console.log("[companies-list] Starting module load...");
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 const axios = require("axios");
 const { stripAmazonAffiliateTagForStorage } = require("../_amazonAffiliate");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");

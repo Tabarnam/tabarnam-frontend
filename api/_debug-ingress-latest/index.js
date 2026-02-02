@@ -1,7 +1,12 @@
 // api/_debug-ingress-latest/index.js
 // Route: /api/_debug/ingress/latest
 
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 
 const {
   getLatestIngressSnapshot,

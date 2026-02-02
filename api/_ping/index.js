@@ -1,4 +1,9 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("../_app"));
+} catch {
+  app = { http() {} };
+}
 
 async function _pingHandler(req, context) {
   if ((req.method || "").toUpperCase() === "OPTIONS") {
