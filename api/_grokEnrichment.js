@@ -414,9 +414,11 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
   // Skip budget check when test stub is active (allows tests with small budgets).
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
   const remaining = budgetMs - (Date.now() - started);
+  const minRequired = stageTimeout.min + 1_200;
+  console.log(`[grokEnrichment] fetchCuratedReviews: budgetMs=${budgetMs}, remaining=${remaining}, minRequired=${minRequired}, hasStub=${hasStub}`);
   if (!hasStub) {
-    const minRequired = stageTimeout.min + 1_200;
     if (remaining < minRequired) {
+      console.log(`[grokEnrichment] fetchCuratedReviews: DEFERRED - remaining (${remaining}) < minRequired (${minRequired})`);
       return {
         curated_reviews: [],
         reviews_stage_status: "deferred",

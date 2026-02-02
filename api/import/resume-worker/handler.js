@@ -1913,7 +1913,11 @@ async function resumeWorkerHandler(req, context) {
           if (field === "manufacturing_locations") r = await fetchManufacturingLocations(grokArgsForField);
           if (field === "industries") r = await fetchIndustries(grokArgsForField);
           if (field === "product_keywords") r = await fetchProductKeywords(grokArgsForField);
-          if (field === "reviews") r = await fetchCuratedReviews(grokArgsForField);
+          if (field === "reviews") {
+            console.log(`[resume-worker] reviews budget: freshSeedBudgetMs=${freshSeedBudgetMs}, grokArgsForField.budgetMs=${grokArgsForField?.budgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}`);
+            r = await fetchCuratedReviews(grokArgsForField);
+            console.log(`[resume-worker] reviews result: status=${r?.reviews_stage_status}, diagnostics=${JSON.stringify(r?.diagnostics || {})}`);
+          }
         } catch (e) {
           const failure = isTimeoutLikeMessage(e?.message) ? "upstream_timeout" : "upstream_unreachable";
           r = { diagnostics: { message: safeErrorMessage(e), upstream_http_status: null }, _failure: failure };
