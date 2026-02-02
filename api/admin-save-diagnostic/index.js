@@ -35,12 +35,8 @@ function getCompaniesContainer() {
   }
 }
 
-app.http('adminSaveDiagnostic', {
-  route: 'xadmin-api-save-diagnostic',
-  methods: ['GET', 'POST', 'OPTIONS'],
-  authLevel: 'anonymous',
-  handler: async (req, context) => {
-    context.log("[admin-save-diagnostic] Request received:", { method: req.method });
+async function adminSaveDiagnosticHandler(req, context) {
+  context.log("[admin-save-diagnostic] Request received:", { method: req.method });
 
     const method = (req.method || "").toUpperCase();
 
@@ -184,7 +180,15 @@ app.http('adminSaveDiagnostic', {
     }
 
     return json({ error: "Method not allowed" }, 405);
-  }
+}
+
+app.http('adminSaveDiagnostic', {
+  route: 'xadmin-api-save-diagnostic',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  handler: adminSaveDiagnosticHandler,
 });
+
+module.exports = { handler: adminSaveDiagnosticHandler };
 
 console.log("[admin-save-diagnostic] ✅ Diagnostic endpoint registered");

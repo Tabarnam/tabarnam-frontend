@@ -133,75 +133,79 @@ async function getKeywordRefinements(container, q, country, state, city) {
   }
 }
 
+async function suggestRefinementsHandler(req, context) {
+  const method = String(req.method || "").toUpperCase();
+  if (method === "OPTIONS") {
+    return {
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,OPTIONS",
+        "Access-Control-Allow-Headers": "content-type,x-functions-key",
+        "Access-Control-Max-Age": "86400",
+      },
+    };
+  }
+  if (method !== "GET") {
+    return json({ ok: false, success: false, error: "Method Not Allowed" }, 405, req);
+  }
+
+  const url = new URL(req.url);
+  const q = (url.searchParams.get("q") || "").trim();
+  const country = (url.searchParams.get("country") || "").trim();
+  const state = (url.searchParams.get("state") || "").trim();
+  const city = (url.searchParams.get("city") || "").trim();
+
+  if (!q || q.length < 2) {
+    return json({ ok: true, success: true, suggestions: [] }, 200, req);
+  }
+
+  const container = getCompaniesContainer();
+  if (!container) {
+    return json({ ok: true, success: true, suggestions: [] }, 200, req);
+  }
+
+  try {
+    const { keywords, industries } = await getKeywordRefinements(container, q, country, state, city);
+
+    // Merge and limit to total of results (keywords + industries combined)
+    // Interleave them for better UX (keyword, industry, keyword, industry...)
+    const suggestions = [];
+    const maxLen = Math.max(keywords.length, industries.length);
+    for (let i = 0; i < maxLen; i++) {
+      if (keywords[i]) suggestions.push(keywords[i]);
+      if (industries[i]) suggestions.push(industries[i]);
+    }
+
+    return json(
+      {
+        ok: true,
+        success: true,
+        suggestions: suggestions.slice(0, 12), // Limit to 12 total
+        meta: { q, country, state, city },
+      },
+      200,
+      req
+    );
+  } catch (e) {
+    context.log("suggest-refinements error:", e?.message || e, e?.stack);
+    console.error("suggest-refinements error details:", {
+      message: e?.message,
+      stack: e?.stack,
+      q,
+      country,
+      state,
+      city,
+    });
+    return json({ ok: true, success: true, suggestions: [] }, 200, req);
+  }
+}
+
 app.http("suggest-refinements", {
   route: "suggest-refinements",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
-    if (method === "OPTIONS") {
-      return {
-        status: 200,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "content-type,x-functions-key",
-          "Access-Control-Max-Age": "86400",
-        },
-      };
-    }
-    if (method !== "GET") {
-      return json({ ok: false, success: false, error: "Method Not Allowed" }, 405, req);
-    }
-
-    const url = new URL(req.url);
-    const q = (url.searchParams.get("q") || "").trim();
-    const country = (url.searchParams.get("country") || "").trim();
-    const state = (url.searchParams.get("state") || "").trim();
-    const city = (url.searchParams.get("city") || "").trim();
-
-    if (!q || q.length < 2) {
-      return json({ ok: true, success: true, suggestions: [] }, 200, req);
-    }
-
-    const container = getCompaniesContainer();
-    if (!container) {
-      return json({ ok: true, success: true, suggestions: [] }, 200, req);
-    }
-
-    try {
-      const { keywords, industries } = await getKeywordRefinements(container, q, country, state, city);
-
-      // Merge and limit to total of results (keywords + industries combined)
-      // Interleave them for better UX (keyword, industry, keyword, industry...)
-      const suggestions = [];
-      const maxLen = Math.max(keywords.length, industries.length);
-      for (let i = 0; i < maxLen; i++) {
-        if (keywords[i]) suggestions.push(keywords[i]);
-        if (industries[i]) suggestions.push(industries[i]);
-      }
-
-      return json(
-        {
-          ok: true,
-          success: true,
-          suggestions: suggestions.slice(0, 12), // Limit to 12 total
-          meta: { q, country, state, city },
-        },
-        200,
-        req
-      );
-    } catch (e) {
-      context.log("suggest-refinements error:", e?.message || e, e?.stack);
-      console.error("suggest-refinements error details:", {
-        message: e?.message,
-        stack: e?.stack,
-        q,
-        country,
-        state,
-        city,
-      });
-      return json({ ok: true, success: true, suggestions: [] }, 200, req);
-    }
-  },
+  handler: suggestRefinementsHandler,
 });
+
+module.exports = { handler: suggestRefinementsHandler };

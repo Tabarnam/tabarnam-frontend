@@ -65,11 +65,7 @@ function json(obj, status = 200) {
   };
 }
 
-app.http("diagQueueMismatch", {
-  route: "diag/queue-mismatch",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
+async function diagQueueMismatchHandler(req, context) {
     if (req.method === "OPTIONS") {
       return {
         status: 200,
@@ -238,5 +234,13 @@ app.http("diagQueueMismatch", {
           ]
         : ["System is properly configured. Both sides use same storage account."],
     });
-  },
+}
+
+app.http("diagQueueMismatch", {
+  route: "diag/queue-mismatch",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: diagQueueMismatchHandler,
 });
+
+module.exports = { handler: diagQueueMismatchHandler };

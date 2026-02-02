@@ -70,12 +70,8 @@ function toNormalizedDomain(s = "") {
   }
 }
 
-app.http("upload-logo-blob", {
-  route: "upload-logo-blob",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, ctx) => {
-    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
+async function uploadLogoBlobHandler(req, ctx) {
+  if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     try {
       // Get Azure Blob Storage credentials (hard-targets env vars, ignores admin overrides)
@@ -364,5 +360,13 @@ app.http("upload-logo-blob", {
       };
       return json(errorResponse, 500, req);
     }
-  },
+}
+
+app.http("upload-logo-blob", {
+  route: "upload-logo-blob",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: uploadLogoBlobHandler,
 });
+
+module.exports = { handler: uploadLogoBlobHandler };

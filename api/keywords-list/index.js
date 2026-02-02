@@ -170,3 +170,5 @@ app.http("keywords-list", {
   handler: keywordsListHandler,
 });
 console.log("[keywords-list] ✅ Successfully registered app.http with route: keywords-list");
+
+module.exports = { handler: keywordsListHandler };

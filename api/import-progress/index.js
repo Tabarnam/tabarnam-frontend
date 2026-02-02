@@ -71,12 +71,8 @@ async function readControlDoc(container, id, sessionId) {
   return null;
 }
 
-app.http("import-progress", {
-  route: "import/progress",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, ctx) => {
-    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
+async function importProgressHandler(req, ctx) {
+  if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     const sessionId = new URL(req.url).searchParams.get("session_id");
     const take = Number(new URL(req.url).searchParams.get("take") || "200") || 200;
@@ -182,14 +178,22 @@ app.http("import-progress", {
         200,
         req
       );
-    } catch (e) {
-      console.error("[import-progress] Query error:", e.message);
-      console.error("[import-progress] Full error:", e);
-      return json(
-        { error: "query failed", detail: e?.message || String(e) },
-        500,
-        req
-      );
-    }
-  },
+  } catch (e) {
+    console.error("[import-progress] Query error:", e.message);
+    console.error("[import-progress] Full error:", e);
+    return json(
+      { error: "query failed", detail: e?.message || String(e) },
+      500,
+      req
+    );
+  }
+}
+
+app.http("import-progress", {
+  route: "import/progress",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: importProgressHandler,
 });
+
+module.exports = { handler: importProgressHandler };

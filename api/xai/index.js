@@ -18,31 +18,35 @@ function json(obj, status = 200, req) {
   };
 }
 
+async function xaiHandler(req, context) {
+  if (req.method === "OPTIONS") {
+    return { status: 200, headers: cors(req) };
+  }
+
+  console.warn(`[xai] Deprecated endpoint: /api/xai should not be called directly`);
+  console.warn(`[xai] Use /api/xadmin-api-bulk-import-config for configuration diagnostics instead`);
+
+  return json(
+    {
+      error: "Endpoint deprecated",
+      message: "The /api/xai endpoint is deprecated and should not be used",
+      note: "Use /api/xadmin-api-bulk-import-config for configuration status or call /api/proxy-xai for XAI operations",
+      configuration: {
+        XAI_EXTERNAL_BASE: (process.env.XAI_EXTERNAL_BASE || "").trim() || "not set",
+        XAI_EXTERNAL_KEY: (process.env.XAI_EXTERNAL_KEY || "").trim() ? "configured" : "not set",
+        FUNCTION_URL: (process.env.FUNCTION_URL || "").trim() ? "legacy (deprecated)" : "not set",
+      },
+    },
+    410,
+    req
+  );
+}
+
 app.http("xai", {
   route: "xai",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    if (req.method === "OPTIONS") {
-      return { status: 200, headers: cors(req) };
-    }
-
-    console.warn(`[xai] Deprecated endpoint: /api/xai should not be called directly`);
-    console.warn(`[xai] Use /api/xadmin-api-bulk-import-config for configuration diagnostics instead`);
-
-    return json(
-      {
-        error: "Endpoint deprecated",
-        message: "The /api/xai endpoint is deprecated and should not be used",
-        note: "Use /api/xadmin-api-bulk-import-config for configuration status or call /api/proxy-xai for XAI operations",
-        configuration: {
-          XAI_EXTERNAL_BASE: (process.env.XAI_EXTERNAL_BASE || "").trim() || "not set",
-          XAI_EXTERNAL_KEY: (process.env.XAI_EXTERNAL_KEY || "").trim() ? "configured" : "not set",
-          FUNCTION_URL: (process.env.FUNCTION_URL || "").trim() ? "legacy (deprecated)" : "not set",
-        },
-      },
-      410,
-      req
-    );
-  },
+  handler: xaiHandler,
 });
+
+module.exports = { handler: xaiHandler };

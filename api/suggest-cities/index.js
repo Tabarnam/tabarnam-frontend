@@ -36,107 +36,111 @@ function getCompaniesContainer() {
   }
 }
 
+async function suggestCitiesHandler(req, context) {
+  const method = String(req.method || "").toUpperCase();
+  if (method === "OPTIONS") {
+    return {
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,OPTIONS",
+        "Access-Control-Allow-Headers": "content-type,x-functions-key",
+        "Access-Control-Max-Age": "86400",
+      },
+    };
+  }
+  if (method !== "GET") {
+    return json({ ok: false, success: false, error: "Method Not Allowed" }, 405, req);
+  }
+
+  const url = new URL(req.url);
+  const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+  const country = (url.searchParams.get("country") || "").trim();
+
+  if (!q || q.length < 1) {
+    return json({ ok: true, success: true, suggestions: [] }, 200, req);
+  }
+
+  const container = getCompaniesContainer();
+  if (!container) {
+    return json({ ok: true, success: true, suggestions: [] }, 200, req);
+  }
+
+  try {
+    const params = [{ name: "@q", value: q }];
+    let countryFilter = "";
+
+    if (country) {
+      params.push({ name: "@country", value: country });
+      countryFilter = " AND (IS_DEFINED(c.country) AND c.country = @country)";
+    }
+
+    // Query to get all distinct cities that match the search term
+    const sql = `
+      SELECT DISTINCT c.city
+      FROM c
+      WHERE IS_DEFINED(c.city)
+      AND c.city != null
+      AND c.city != ''
+      AND CONTAINS(LOWER(c.city), @q)
+      AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
+      ${countryFilter}
+      ORDER BY c.city ASC
+    `;
+
+    const res = await container.items
+      .query({ query: sql, parameters: params }, { enableCrossPartitionQuery: true })
+      .fetchAll();
+
+    const cities = res.resources || [];
+
+    // Extract unique city names and convert to suggestions
+    const citySet = new Set();
+    const suggestions = [];
+
+    cities.forEach((item) => {
+      if (item.city && typeof item.city === "string") {
+        const cityName = item.city.trim();
+        if (cityName && !citySet.has(cityName)) {
+          citySet.add(cityName);
+          suggestions.push({
+            value: cityName,
+            type: "City",
+          });
+        }
+      }
+    });
+
+    // Limit to 20 suggestions
+    const limited = suggestions.slice(0, 20);
+
+    return json(
+      {
+        ok: true,
+        success: true,
+        suggestions: limited,
+        meta: { q, country },
+      },
+      200,
+      req
+    );
+  } catch (e) {
+    context.log("suggest-cities error:", e?.message || e, e?.stack);
+    console.error("suggest-cities error details:", {
+      message: e?.message,
+      stack: e?.stack,
+      q,
+      country,
+    });
+    return json({ ok: true, success: true, suggestions: [] }, 200, req);
+  }
+}
+
 app.http("suggest-cities", {
   route: "suggest-cities",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
-    if (method === "OPTIONS") {
-      return {
-        status: 200,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "content-type,x-functions-key",
-          "Access-Control-Max-Age": "86400",
-        },
-      };
-    }
-    if (method !== "GET") {
-      return json({ ok: false, success: false, error: "Method Not Allowed" }, 405, req);
-    }
-
-    const url = new URL(req.url);
-    const q = (url.searchParams.get("q") || "").trim().toLowerCase();
-    const country = (url.searchParams.get("country") || "").trim();
-
-    if (!q || q.length < 1) {
-      return json({ ok: true, success: true, suggestions: [] }, 200, req);
-    }
-
-    const container = getCompaniesContainer();
-    if (!container) {
-      return json({ ok: true, success: true, suggestions: [] }, 200, req);
-    }
-
-    try {
-      const params = [{ name: "@q", value: q }];
-      let countryFilter = "";
-      
-      if (country) {
-        params.push({ name: "@country", value: country });
-        countryFilter = " AND (IS_DEFINED(c.country) AND c.country = @country)";
-      }
-
-      // Query to get all distinct cities that match the search term
-      const sql = `
-        SELECT DISTINCT c.city
-        FROM c
-        WHERE IS_DEFINED(c.city) 
-        AND c.city != null 
-        AND c.city != ''
-        AND CONTAINS(LOWER(c.city), @q)
-        AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
-        ${countryFilter}
-        ORDER BY c.city ASC
-      `;
-
-      const res = await container.items
-        .query({ query: sql, parameters: params }, { enableCrossPartitionQuery: true })
-        .fetchAll();
-
-      const cities = res.resources || [];
-      
-      // Extract unique city names and convert to suggestions
-      const citySet = new Set();
-      const suggestions = [];
-      
-      cities.forEach((item) => {
-        if (item.city && typeof item.city === "string") {
-          const cityName = item.city.trim();
-          if (cityName && !citySet.has(cityName)) {
-            citySet.add(cityName);
-            suggestions.push({
-              value: cityName,
-              type: "City",
-            });
-          }
-        }
-      });
-
-      // Limit to 20 suggestions
-      const limited = suggestions.slice(0, 20);
-
-      return json(
-        {
-          ok: true,
-          success: true,
-          suggestions: limited,
-          meta: { q, country },
-        },
-        200,
-        req
-      );
-    } catch (e) {
-      context.log("suggest-cities error:", e?.message || e, e?.stack);
-      console.error("suggest-cities error details:", {
-        message: e?.message,
-        stack: e?.stack,
-        q,
-        country,
-      });
-      return json({ ok: true, success: true, suggestions: [] }, 200, req);
-    }
-  },
+  handler: suggestCitiesHandler,
 });
+
+module.exports = { handler: suggestCitiesHandler };

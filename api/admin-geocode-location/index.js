@@ -81,47 +81,51 @@ function stripLatLngForForce(loc) {
   return out;
 }
 
+async function adminGeocodeLocationHandler(req, context) {
+  const method = String(req.method || "").toUpperCase();
+
+  if (method === "OPTIONS") {
+    return { status: 200, headers: cors(req) };
+  }
+
+  if (method !== "POST") {
+    return json({ ok: false, error: "Method not allowed" }, 405, req);
+  }
+
+  let body = await getJson(req);
+  body = body && typeof body === "object" ? body : {};
+
+  const timeoutMsRaw = body.timeoutMs ?? body.timeout_ms;
+  const timeoutMs = Math.min(30000, Math.max(2000, Math.floor(toFiniteNumber(timeoutMsRaw) || 5000)));
+
+  const force = body.force === true || body.force === "true" || body.force === 1;
+
+  let input = body.location ?? body.loc ?? body.entry ?? body;
+  if (typeof body.address === "string" && body.address.trim()) {
+    input = { ...(typeof input === "object" && input ? input : {}), address: body.address.trim() };
+  }
+
+  input = normalizeLocationInput(input);
+  if (!input) {
+    return json({ ok: false, error: "location payload required" }, 400, req);
+  }
+
+  const location = force ? stripLatLngForForce(input) : input;
+
+  try {
+    const geocoded = await geocodeLocationEntry(location, { timeoutMs });
+    return json({ ok: true, location: geocoded }, 200, req);
+  } catch (e) {
+    context.log("[admin-geocode-location] Failed", { message: e?.message || String(e) });
+    return json({ ok: false, error: "geocode_failed", detail: e?.message || String(e) }, 500, req);
+  }
+}
+
 app.http("adminGeocodeLocation", {
   route: "xadmin-api-geocode-location",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
-
-    if (method === "OPTIONS") {
-      return { status: 200, headers: cors(req) };
-    }
-
-    if (method !== "POST") {
-      return json({ ok: false, error: "Method not allowed" }, 405, req);
-    }
-
-    let body = await getJson(req);
-    body = body && typeof body === "object" ? body : {};
-
-    const timeoutMsRaw = body.timeoutMs ?? body.timeout_ms;
-    const timeoutMs = Math.min(30000, Math.max(2000, Math.floor(toFiniteNumber(timeoutMsRaw) || 5000)));
-
-    const force = body.force === true || body.force === "true" || body.force === 1;
-
-    let input = body.location ?? body.loc ?? body.entry ?? body;
-    if (typeof body.address === "string" && body.address.trim()) {
-      input = { ...(typeof input === "object" && input ? input : {}), address: body.address.trim() };
-    }
-
-    input = normalizeLocationInput(input);
-    if (!input) {
-      return json({ ok: false, error: "location payload required" }, 400, req);
-    }
-
-    const location = force ? stripLatLngForForce(input) : input;
-
-    try {
-      const geocoded = await geocodeLocationEntry(location, { timeoutMs });
-      return json({ ok: true, location: geocoded }, 200, req);
-    } catch (e) {
-      context.log("[admin-geocode-location] Failed", { message: e?.message || String(e) });
-      return json({ ok: false, error: "geocode_failed", detail: e?.message || String(e) }, 500, req);
-    }
-  },
+  handler: adminGeocodeLocationHandler,
 });
+
+module.exports = { handler: adminGeocodeLocationHandler };

@@ -5,8 +5,8 @@
   "main": "index.js",
   "type": "commonjs",
   "dependencies": {
-    "@azure/functions": "^4.6.0",
     "@azure/cosmos": "^4.2.0",
+    "@azure/functions": "^4.6.0",
     "@azure/storage-blob": "^12.20.0",
     "@azure/storage-queue": "^12.27.0",
     "axios": "^1.7.7",

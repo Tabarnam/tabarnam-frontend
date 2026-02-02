@@ -265,12 +265,8 @@ function parseXaiResponse(responseText) {
 }
 
 // ----- function entrypoint -----
-app.http("proxy-xai", {
-  route: "proxy-xai",
-  methods: ["GET", "POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, ctx) => {
-    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
+async function proxyXaiHandler(req, ctx) {
+  if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     const started = Date.now();
     const XAI_STUB = (process.env.XAI_STUB || "").trim() === "1";
@@ -386,5 +382,13 @@ app.http("proxy-xai", {
         req
       );
     }
-  },
+}
+
+app.http("proxy-xai", {
+  route: "proxy-xai",
+  methods: ["GET", "POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: proxyXaiHandler,
 });
+
+module.exports = { handler: proxyXaiHandler };

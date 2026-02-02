@@ -116,9 +116,13 @@ function createBulkImportConfigHandler(routeName) {
   };
 }
 
+const adminBulkImportConfigHandler = createBulkImportConfigHandler("xadmin-api-bulk-import-config");
+
 app.http("adminBulkImportConfig", {
   route: "xadmin-api-bulk-import-config",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: createBulkImportConfigHandler("xadmin-api-bulk-import-config"),
+  handler: adminBulkImportConfigHandler,
 });
+
+module.exports = { handler: adminBulkImportConfigHandler };

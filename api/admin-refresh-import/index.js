@@ -574,9 +574,13 @@ function createHandler(routeName) {
   };
 }
 
+const adminRefreshImportHandler = createHandler("xadmin-api-refresh-import");
+
 app.http("adminRefreshImport", {
   route: "xadmin-api-refresh-import",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: createHandler("xadmin-api-refresh-import"),
+  handler: adminRefreshImportHandler,
 });
+
+module.exports = { handler: adminRefreshImportHandler };

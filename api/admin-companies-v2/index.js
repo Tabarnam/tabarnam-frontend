@@ -1502,7 +1502,10 @@ app.http("adminCompanies", {
   handler: (req, context) => adminCompaniesHandler(req, context),
 });
 
-module.exports._test = {
-  adminCompaniesHandler,
-  adminCompanyHistoryFallbackHandler,
+module.exports = {
+  handler: adminCompaniesHandler,
+  _test: {
+    adminCompaniesHandler,
+    adminCompanyHistoryFallbackHandler,
+  },
 };

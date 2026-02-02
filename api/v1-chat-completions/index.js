@@ -224,27 +224,23 @@ function requireInternal(req) {
   return { ok: true };
 }
 
-app.http("v1-chat-completions", {
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  route: "v1/chat/completions",
-  handler: async (req, context) => {
-    if (req.method === "OPTIONS") {
-      return {
-        status: 200,
-        headers: withCors({}),
-        body: "",
-      };
-    }
+async function v1ChatCompletionsHandler(req, context) {
+  if (req.method === "OPTIONS") {
+    return {
+      status: 200,
+      headers: withCors({}),
+      body: "",
+    };
+  }
 
-    // Check internal-only gate if enabled
-    const authCheck = requireInternal(req);
-    if (!authCheck.ok) {
-      return jsonResponse(authCheck.status, {
-        ok: false,
-        error: authCheck.error,
-      });
-    }
+  // Check internal-only gate if enabled
+  const authCheck = requireInternal(req);
+  if (!authCheck.ok) {
+    return jsonResponse(authCheck.status, {
+      ok: false,
+      error: authCheck.error,
+    });
+  }
 
     const handler_version = getHandlerVersion();
 
@@ -426,5 +422,13 @@ app.http("v1-chat-completions", {
         error: "upstream_fetch_failed",
       });
     }
-  },
+}
+
+app.http("v1-chat-completions", {
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "v1/chat/completions",
+  handler: v1ChatCompletionsHandler,
 });
+
+module.exports = { handler: v1ChatCompletionsHandler };

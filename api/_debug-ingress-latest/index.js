@@ -21,25 +21,29 @@ function jsonResponse(status, obj) {
   };
 }
 
+async function debugIngressLatestHandler(req) {
+  if (!isDebugAuthorized(req)) {
+    return jsonResponse(401, { ok: false, error: "unauthorized" });
+  }
+
+  const snap = getLatestIngressSnapshot();
+  if (!snap) {
+    return jsonResponse(404, { ok: false, error: "no_ingress_captured" });
+  }
+
+  return jsonResponse(200, {
+    ok: true,
+    ts: snap.ts,
+    handler_version: snap.handler_version,
+    ingress: snap.ingress,
+  });
+}
+
 app.http("_debug-ingress-latest", {
   methods: ["GET"],
   authLevel: "anonymous",
   route: "_debug/ingress/latest",
-  handler: async (req) => {
-    if (!isDebugAuthorized(req)) {
-      return jsonResponse(401, { ok: false, error: "unauthorized" });
-    }
-
-    const snap = getLatestIngressSnapshot();
-    if (!snap) {
-      return jsonResponse(404, { ok: false, error: "no_ingress_captured" });
-    }
-
-    return jsonResponse(200, {
-      ok: true,
-      ts: snap.ts,
-      handler_version: snap.handler_version,
-      ingress: snap.ingress,
-    });
-  },
+  handler: debugIngressLatestHandler,
 });
+
+module.exports = { handler: debugIngressLatestHandler };

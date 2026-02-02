@@ -63,33 +63,37 @@ async function updateLogos() {
   }
 }
 
+async function adminUpdateLogosHandler(req, context) {
+  const method = String(req.method || "").toUpperCase();
+
+  if (method === "OPTIONS") {
+    return {
+      status: 200,
+      headers: getCorsHeaders(),
+    };
+  }
+
+  try {
+    const result = await updateLogos();
+    return {
+      status: result.success ? 200 : 400,
+      body: JSON.stringify(result),
+      headers: getCorsHeaders(),
+    };
+  } catch (e) {
+    return {
+      status: 500,
+      body: JSON.stringify({ error: e.message }),
+      headers: getCorsHeaders(),
+    };
+  }
+}
+
 app.http('adminUpdateLogos', {
   route: 'xadmin-api-update-logos',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
-
-    if (method === "OPTIONS") {
-      return {
-        status: 200,
-        headers: getCorsHeaders(),
-      };
-    }
-
-    try {
-      const result = await updateLogos();
-      return {
-        status: result.success ? 200 : 400,
-        body: JSON.stringify(result),
-        headers: getCorsHeaders(),
-      };
-    } catch (e) {
-      return {
-        status: 500,
-        body: JSON.stringify({ error: e.message }),
-        headers: getCorsHeaders(),
-      };
-    }
-  }
+  handler: adminUpdateLogosHandler,
 });
+
+module.exports = { handler: adminUpdateLogosHandler };

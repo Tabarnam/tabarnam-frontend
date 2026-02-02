@@ -238,13 +238,9 @@ const toNormalizedDomain = (s = "") => {
 
 console.log("[companies-list] About to register app.http handler...");
 
-app.http("companies-list", {
-  route: "companies-list",
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    console.log("[companies-list-handler] Request received:", { method: req.method, url: req.url });
-    context.log("companies-list function invoked");
+async function companiesListHandler(req, context) {
+  console.log("[companies-list-handler] Request received:", { method: req.method, url: req.url });
+  context.log("companies-list function invoked");
 
     const method = (req.method || "").toUpperCase();
 
@@ -875,11 +871,19 @@ app.http("companies-list", {
       }
 
       return json({ error: "Method not allowed" }, 405);
-    } catch (e) {
-      context.log("[companies-list] Error:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500);
-    }
-  },
+  } catch (e) {
+    context.log("[companies-list] Error:", e?.message || e);
+    return json({ error: e?.message || "Internal error" }, 500);
+  }
+}
+
+app.http("companies-list", {
+  route: "companies-list",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: companiesListHandler,
 });
 
 console.log("[companies-list] ✅ Handler registered successfully with app.http v2");
+
+module.exports = { handler: companiesListHandler };

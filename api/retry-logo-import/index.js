@@ -49,12 +49,8 @@ function toNormalizedDomain(s = "") {
   }
 }
 
-app.http("retry-logo-import", {
-  route: "retry-logo-import",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
+async function retryLogoImportHandler(req, context) {
+  if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     let body = {};
     try {
@@ -158,5 +154,13 @@ app.http("retry-logo-import", {
     } catch (e) {
       return json({ ok: false, error: e?.message || "Retry failed" }, 500, req);
     }
-  },
+}
+
+app.http("retry-logo-import", {
+  route: "retry-logo-import",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: retryLogoImportHandler,
 });
+
+module.exports = { handler: retryLogoImportHandler };

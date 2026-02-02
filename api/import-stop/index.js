@@ -102,14 +102,10 @@ async function readWithPkCandidates(container, id, sessionId) {
   return null;
 }
 
-app.http("import-stop", {
-  route: "import/stop",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    if (req.method === "OPTIONS") {
-      return { status: 200, headers: cors(req) };
-    }
+async function importStopHandler(req, context) {
+  if (req.method === "OPTIONS") {
+    return { status: 200, headers: cors(req) };
+  }
 
     let body = {};
     try {
@@ -220,5 +216,13 @@ app.http("import-stop", {
       // The worst case is the import continues, but frontend will stop polling
       return json({ ok: true, session_id: sessionId, message: "Stop signal received", error: e.message }, 200, req);
     }
-  },
+}
+
+app.http("import-stop", {
+  route: "import/stop",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: importStopHandler,
 });
+
+module.exports = { handler: importStopHandler };

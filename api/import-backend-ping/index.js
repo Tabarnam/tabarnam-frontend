@@ -188,12 +188,8 @@ function generateRequestId(req) {
   return `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
-app.http("import-backend-ping", {
-  route: "import/backend-ping",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    const request_id = generateRequestId(req);
+async function importBackendPingHandler(req, context) {
+  const request_id = generateRequestId(req);
     const responseHeaders = { "x-request-id": request_id };
 
     if ((req.method || "").toUpperCase() === "OPTIONS") {
@@ -365,5 +361,13 @@ app.http("import-backend-ping", {
       500,
       responseHeaders
     );
-  },
+}
+
+app.http("import-backend-ping", {
+  route: "import/backend-ping",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: importBackendPingHandler,
 });
+
+module.exports = { handler: importBackendPingHandler };

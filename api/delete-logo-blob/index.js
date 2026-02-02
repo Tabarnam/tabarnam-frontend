@@ -67,11 +67,7 @@ function json(obj, status = 200, req) {
   };
 }
 
-app.http("delete-logo-blob", {
-  route: "delete-logo-blob",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, ctx) => {
+async function deleteLogoBlobHandler(req, ctx) {
     if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     try {
@@ -278,5 +274,13 @@ app.http("delete-logo-blob", {
       };
       return json(errorResponse, 500, req);
     }
-  },
+}
+
+app.http("delete-logo-blob", {
+  route: "delete-logo-blob",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: deleteLogoBlobHandler,
 });
+
+module.exports = { handler: deleteLogoBlobHandler };

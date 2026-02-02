@@ -398,12 +398,8 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
   return null;
 }
 
-app.http("save-companies", {
-  route: "save-companies",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
+async function saveCompaniesHandler(req, context) {
+  const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
       return {
@@ -1044,5 +1040,13 @@ app.http("save-companies", {
     } catch (e) {
       return json({ ok: false, error: `Database error: ${e?.message || String(e)}` }, 500);
     }
-  },
+}
+
+app.http("save-companies", {
+  route: "save-companies",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: saveCompaniesHandler,
 });
+
+module.exports = { handler: saveCompaniesHandler };

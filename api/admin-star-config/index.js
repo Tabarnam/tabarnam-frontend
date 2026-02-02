@@ -44,11 +44,7 @@ const DEFAULT_CONFIG = {
   min_reviews: 3,
 };
 
-app.http('adminStarConfig', {
-  route: 'xadmin-api-star-config',
-  methods: ['GET', 'PUT', 'OPTIONS'],
-  authLevel: 'anonymous',
-  handler: async (req, context) => {
+async function adminStarConfigHandler(req, context) {
   const method = String(req.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
@@ -105,5 +101,13 @@ app.http('adminStarConfig', {
     context.log("Error in admin-star-config:", e?.message || e);
     return json({ error: e?.message || "Internal error" }, 500);
   }
-  }
+}
+
+app.http('adminStarConfig', {
+  route: 'xadmin-api-star-config',
+  methods: ['GET', 'PUT', 'OPTIONS'],
+  authLevel: 'anonymous',
+  handler: adminStarConfigHandler,
 });
+
+module.exports = { handler: adminStarConfigHandler };

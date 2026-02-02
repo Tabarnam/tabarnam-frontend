@@ -118,13 +118,9 @@ async function readWithPkCandidates(container, id, sessionId) {
   return null;
 }
 
-app.http("import-resume-enqueue", {
-  route: "import/resume-enqueue",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = asString(req?.method).toUpperCase();
-    if (method === "OPTIONS") return { status: 200, headers: cors(req) };
+async function importResumeEnqueueHandler(req, context) {
+  const method = asString(req?.method).toUpperCase();
+  if (method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     if (method !== "POST") {
       return json({ ok: false, error: "method_not_allowed" }, 405, req);
@@ -312,16 +308,22 @@ app.http("import-resume-enqueue", {
         session_id: sessionId,
         enqueued_at: enqueueAt,
         reason,
-        requested_by: requestedBy,
-        queue: enqueueRes.queue || (cfg.queueName ? { provider: cfg.provider, name: cfg.queueName } : null),
-        message_id: enqueueRes.message_id || null,
-        error: enqueueRes.ok ? null : enqueueRes.error || "enqueue_failed",
-        cosmos,
-      },
-      200,
-      req
-    );
-  },
+      requested_by: requestedBy,
+      queue: enqueueRes.queue || (cfg.queueName ? { provider: cfg.provider, name: cfg.queueName } : null),
+      message_id: enqueueRes.message_id || null,
+      error: enqueueRes.ok ? null : enqueueRes.error || "enqueue_failed",
+      cosmos,
+    },
+    200,
+    req
+  );
+}
+
+app.http("import-resume-enqueue", {
+  route: "import/resume-enqueue",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: importResumeEnqueueHandler,
 });
 
-module.exports = {};
+module.exports = { handler: importResumeEnqueueHandler };

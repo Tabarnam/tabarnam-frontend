@@ -44,11 +44,7 @@ function isExcludedSource(source) {
   return false;
 }
 
-app.http('adminReviews', {
-  route: 'xadmin-api-reviews',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  authLevel: 'anonymous',
-  handler: async (req, context) => {
+async function adminReviewsHandler(req, context) {
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
@@ -403,5 +399,13 @@ app.http('adminReviews', {
       context.log("Error in admin-reviews:", e?.message || e);
       return json({ error: e?.message || "Internal error" }, 500);
     }
-  }
+}
+
+app.http('adminReviews', {
+  route: 'xadmin-api-reviews',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  authLevel: 'anonymous',
+  handler: adminReviewsHandler,
 });
+
+module.exports = { handler: adminReviewsHandler };

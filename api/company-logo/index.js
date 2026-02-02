@@ -102,11 +102,7 @@ function extractBlobName(src) {
   return "";
 }
 
-app.http("company-logo", {
-  route: "company-logo",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, ctx) => {
+async function companyLogoHandler(req, ctx) {
     if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     try {
@@ -228,5 +224,13 @@ app.http("company-logo", {
       ctx.error(`[company-logo] Unexpected error: ${e?.message || e}`);
       return json({ ok: false, error: "Unexpected error." }, 500, req);
     }
-  },
+}
+
+app.http("company-logo", {
+  route: "company-logo",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: companyLogoHandler,
 });
+
+module.exports = { handler: companyLogoHandler };

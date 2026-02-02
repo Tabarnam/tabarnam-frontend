@@ -56,51 +56,55 @@ function calculateBinaryStars(company, minReviews = 3, reviewThreshold = 4) {
   return Math.min(3, Math.max(0, stars));
 }
 
+async function adminRecalcStarsHandler(req, context) {
+  const method = String(req.method || "").toUpperCase();
+
+  if (method === "OPTIONS") {
+    return {
+      status: 200,
+      headers: getCorsHeaders(),
+    };
+  }
+
+  const companiesContainer = getCompaniesContainer();
+  if (!companiesContainer) {
+    return json({ error: "Cosmos DB not configured" }, 500);
+  }
+
+  try {
+    const { resources: companies } = await companiesContainer.items
+      .query({ query: "SELECT * FROM c WHERE NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false" })
+      .fetchAll();
+
+    let updated = 0;
+
+    for (const company of companies) {
+      const binaryStars = calculateBinaryStars(company, 3, 4);
+      if (company.auto_star_rating !== binaryStars) {
+        company.auto_star_rating = binaryStars;
+        if (!company.star_rating || company.star_rating <= binaryStars) {
+          company.star_rating = binaryStars;
+        }
+        company.updated_at = new Date().toISOString();
+
+        const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
+        await companiesContainer.items.upsert(company, { partitionKey: partitionKeyValue });
+        updated += 1;
+      }
+    }
+
+    return json({ ok: true, updated }, 200);
+  } catch (e) {
+    context.log("Error in admin-recalc-stars:", e?.message || e);
+    return json({ error: e?.message || "Internal error" }, 500);
+  }
+}
+
 app.http('adminRecalcStars', {
   route: 'xadmin-api-recalc-stars',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
-
-    if (method === "OPTIONS") {
-      return {
-        status: 200,
-        headers: getCorsHeaders(),
-      };
-    }
-
-    const companiesContainer = getCompaniesContainer();
-    if (!companiesContainer) {
-      return json({ error: "Cosmos DB not configured" }, 500);
-    }
-
-    try {
-      const { resources: companies } = await companiesContainer.items
-        .query({ query: "SELECT * FROM c WHERE NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false" })
-        .fetchAll();
-
-      let updated = 0;
-
-      for (const company of companies) {
-        const binaryStars = calculateBinaryStars(company, 3, 4);
-        if (company.auto_star_rating !== binaryStars) {
-          company.auto_star_rating = binaryStars;
-          if (!company.star_rating || company.star_rating <= binaryStars) {
-            company.star_rating = binaryStars;
-          }
-          company.updated_at = new Date().toISOString();
-
-          const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
-          await companiesContainer.items.upsert(company, { partitionKey: partitionKeyValue });
-          updated += 1;
-        }
-      }
-
-      return json({ ok: true, updated }, 200);
-    } catch (e) {
-      context.log("Error in admin-recalc-stars:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500);
-    }
-  }
+  handler: adminRecalcStarsHandler,
 });
+
+module.exports = { handler: adminRecalcStarsHandler };
