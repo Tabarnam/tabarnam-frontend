@@ -405,7 +405,7 @@ export default function ExpandableCompanyRow({
                 <div className="space-y-2">
                   {reviews.map((r, idx) => (
                     <div key={idx} className="text-xs text-gray-600">
-                      <div className="line-clamp-2">{r.text || "—"}</div>
+                      <div className="line-clamp-1">{r.text || "—"}</div>
                       {r.sourceUrl ? (
                         <a
                           href={withAmazonAffiliate(r.sourceUrl)}
