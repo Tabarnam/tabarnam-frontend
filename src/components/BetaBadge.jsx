@@ -37,7 +37,7 @@ export default function BetaBadge() {
           fontWeight: 700,
           whiteSpace: 'nowrap',
           lineHeight: 1,
-          top: '32px',
+          top: '28px',
           left: '4px',
           transform: 'rotate(-45deg)',
           transformOrigin: 'center',
