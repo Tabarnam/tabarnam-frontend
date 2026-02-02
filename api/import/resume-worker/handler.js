@@ -940,11 +940,14 @@ async function resumeWorkerHandler(req, context) {
   // Default deadline increased to 15 minutes (900000ms) to allow thorough XAI enrichment.
   // xAI web searches must never timeout - each field can take 1-5 minutes for accurate results.
   // With 6 fields per company, we need at least 6-30 minutes total budget.
+  const rawDeadlineValue = body?.deadline_ms ?? body?.deadlineMs ?? url.searchParams.get("deadline_ms") ?? url.searchParams.get("deadlineMs");
+  console.log(`[resume-worker] deadlineMs input: body.deadline_ms=${body?.deadline_ms}, body.deadlineMs=${body?.deadlineMs}, url.deadline_ms=${url.searchParams.get("deadline_ms")}, rawValue=${rawDeadlineValue}`);
   const deadlineMs = parseBoundedInt(
-    body?.deadline_ms ?? body?.deadlineMs ?? url.searchParams.get("deadline_ms") ?? url.searchParams.get("deadlineMs"),
+    rawDeadlineValue,
     900000,
     { min: 1000, max: 1800000 }
   );
+  console.log(`[resume-worker] deadlineMs result: ${deadlineMs}`);
 
   const forceTerminalizeSingle =
     String(
