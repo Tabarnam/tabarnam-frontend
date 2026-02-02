@@ -399,7 +399,7 @@ export default function ExpandableCompanyRow({
 
           {showReviewPreview && (
             <>
-              <div className="text-xs font-semibold text-gray-700">Reviews</div>
+              <div className="text-xs font-semibold text-gray-700">Features & Reviews</div>
 
               {reviews.length > 0 ? (
                 <div className="space-y-2">
@@ -684,12 +684,12 @@ export default function ExpandableCompanyRow({
           </div>
         )}
 
-        {/* Industries - inline in column 1 */}
+        {/* Industries - inline in column 1, one line only */}
         {Array.isArray(company.industries) && company.industries.length > 0 && (
           <div className="mt-2">
             <div className="text-xs font-semibold text-gray-500 mb-1">Industries</div>
-            <div className="flex flex-wrap gap-x-2 gap-y-0.5 overflow-hidden max-h-14">
-              {company.industries.map((ind, idx) => (
+            <div className="flex flex-nowrap gap-x-2 overflow-hidden max-h-5 items-center">
+              {company.industries.slice(0, 4).map((ind, idx) => (
                 <button
                   key={idx}
                   onClick={(e) => {
@@ -701,8 +701,8 @@ export default function ExpandableCompanyRow({
                   {ind}
                 </button>
               ))}
-              {company.industries.length > 6 && (
-                <span className="text-xs text-gray-400">...</span>
+              {company.industries.length > 4 && (
+                <span className="text-xs text-gray-400 whitespace-nowrap">+{company.industries.length - 4} more</span>
               )}
             </div>
           </div>

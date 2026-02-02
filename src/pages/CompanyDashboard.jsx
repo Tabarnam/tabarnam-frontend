@@ -56,6 +56,39 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+// Renders text with URLs converted to clickable links
+function TextWithLinks({ text, className = "" }) {
+  if (!text || typeof text !== "string") return null;
+
+  // URL regex pattern
+  const urlPattern = /(https?:\/\/[^\s<>"{}|\\^`[\]]+)/gi;
+  const parts = text.split(urlPattern);
+
+  return (
+    <span className={className}>
+      {parts.map((part, i) => {
+        if (urlPattern.test(part)) {
+          // Reset lastIndex since we're reusing the regex
+          urlPattern.lastIndex = 0;
+          return (
+            <a
+              key={i}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline break-all"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {part}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
 function prettyJson(value) {
   try {
     return JSON.stringify(value, null, 2);
@@ -1036,6 +1069,14 @@ function CompanyNotesEditor({ value, onChange }) {
                 className="min-h-[100px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
                 placeholder="Body"
               />
+
+              {/* Preview with clickable URLs */}
+              {asString(n.body).includes("http") && (
+                <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700 whitespace-pre-wrap">
+                  <div className="text-xs text-slate-500 mb-1">Preview (clickable links):</div>
+                  <TextWithLinks text={asString(n.body)} />
+                </div>
+              )}
 
               <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input

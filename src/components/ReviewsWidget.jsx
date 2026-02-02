@@ -106,7 +106,7 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
 
   return (
     <div className="mt-3 border rounded p-3 bg-gray-50">
-      <div className="font-semibold mb-2">{titleName ? `Reviews for ${titleName}` : "Reviews"}</div>
+      <div className="font-semibold mb-2">{titleName ? `Features & Reviews for ${titleName}` : "Features & Reviews"}</div>
 
       <div className="mt-4">
         {loading ? (
