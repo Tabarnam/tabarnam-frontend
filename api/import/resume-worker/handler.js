@@ -1860,8 +1860,12 @@ async function resumeWorkerHandler(req, context) {
           continue;
         }
 
-        const minMs = Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 0;
-        if (!isFreshSeed && minMs && budgetRemainingMs() < minMs) {
+        // Budget check: ensure we have enough time for at least one xAI call.
+        // The grok functions have their own internal budget checks, so we only need a minimum
+        // here to avoid wasting cycles. Use a lower threshold (5s) to allow the grok function
+        // to make the final decision about whether it has enough budget.
+        const budgetCheckMs = Math.min(5000, Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 5000);
+        if (!isFreshSeed && budgetRemainingMs() < budgetCheckMs) {
           fieldProgress.attempts = (Number(fieldProgress.attempts) || 0) + 1;
           fieldProgress.status = "retryable";
           fieldProgress.last_error = "budget_exhausted";
