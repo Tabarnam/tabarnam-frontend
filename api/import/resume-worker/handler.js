@@ -912,6 +912,8 @@ async function resumeWorkerHandler(req, context) {
   const cosmosEnabled = !noCosmosMode;
 
   const parseBoundedInt = (value, fallback, { min = 1, max = 50 } = {}) => {
+    // Handle null/undefined/empty string explicitly - these should use fallback
+    if (value === null || value === undefined || value === "") return fallback;
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(min, Math.min(Math.trunc(n), max));
