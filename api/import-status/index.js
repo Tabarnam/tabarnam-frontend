@@ -3126,6 +3126,8 @@ async function handler(req, context) {
                   telemetry_missing_resume_fields: resume_missing_fields,
                 };
               })(),
+              // Budget diagnostics for debugging deferred fields
+              _budget_debug: resumeDoc?._budget_debug || null,
             }
           : null,
         enrichment_health_summary,

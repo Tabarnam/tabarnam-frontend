@@ -2402,6 +2402,16 @@ async function resumeWorkerHandler(req, context) {
       ...(finalStatus === "complete" ? { completed_at: updatedAt } : {}),
       lock_expires_at: null,
       updated_at: updatedAt,
+      // Debug: track budget values to diagnose deferred fields
+      _budget_debug: {
+        deadlineMs,
+        startedAtMs,
+        elapsed_at_finish: Date.now() - startedAtMs,
+        budget_remaining_at_finish: budgetRemainingMs(),
+        is_fresh_seed: isFreshSeed,
+        cycle_count: cycleCount,
+        planned_ids_count: plannedIds?.length || 0,
+      },
     };
 
     await upsertDoc(container, nextResumeDoc).catch(() => null);
