@@ -31,6 +31,7 @@ const { buildPrimaryJobId: buildImportPrimaryJobId, upsertJob: upsertImportPrima
 const { runPrimaryJob } = require("../_importPrimaryWorker");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
+const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
 
 // Helper to extract normalized domain from URL
 function toNormalizedDomain(urlStr) {
@@ -539,6 +540,43 @@ async function handleImportOne(req, context) {
                   session_id: sessionId,
                   error: String(e?.message || e),
                 });
+              }
+
+              // Immediately invoke resume-worker to process enrichment
+              if (missingByCompany && missingByCompany.length > 0) {
+                try {
+                  const invokeRes = await invokeResumeWorkerInProcess({
+                    session_id: sessionId,
+                    context,
+                    deadline_ms: 300000, // 5 minutes
+                  });
+                  console.log("[import-one] resume_worker_invoked", {
+                    session_id: sessionId,
+                    ok: invokeRes?.ok,
+                    invocation: invokeRes?.invocation,
+                  });
+                } catch (err) {
+                  console.log("[import-one] resume_worker_invoke_failed", {
+                    session_id: sessionId,
+                    error: String(err?.message || err),
+                  });
+
+                  // Fallback: enqueue to resume-worker queue
+                  try {
+                    await enqueueResumeRun({
+                      session_id: sessionId,
+                      company_ids: seededCompanyIds,
+                      reason: "import_one_fallback_queue",
+                      requested_by: "import_one",
+                    });
+                    console.log("[import-one] resume_enqueued_fallback", { session_id: sessionId });
+                  } catch (qErr) {
+                    console.log("[import-one] resume_enqueue_fallback_failed", {
+                      session_id: sessionId,
+                      error: String(qErr?.message || qErr),
+                    });
+                  }
+                }
               }
             }
           }
