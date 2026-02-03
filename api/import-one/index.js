@@ -522,7 +522,7 @@ async function handleImportOne(req, context) {
                   type: "import_control",
                   created_at: nowIso,
                   updated_at: nowIso,
-                  status: "pending",
+                  status: "queued",
                   doc_created: true,
                   saved_company_ids: seededCompanyIds,
                   missing_by_company: missingByCompany,
