@@ -3229,7 +3229,7 @@ export default function AdminImport() {
       <div className="min-h-screen bg-slate-50">
         <AdminHeader />
 
-        <main className="container mx-auto py-6 px-4 pb-96 space-y-6">
+        <main className="container mx-auto py-6 px-4 space-y-6">
           <header className="flex flex-col gap-2">
             <h1 className="text-3xl font-bold text-slate-900">Company Import</h1>
             <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
@@ -5162,80 +5162,80 @@ export default function AdminImport() {
               <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStatusResponseText)}</pre>
             </div>
           </section>
-        </main>
 
-        {/* Fixed bottom import report panel */}
-        <div className="fixed bottom-0 left-0 right-0 border-t border-slate-300 bg-slate-100 shadow-lg z-50">
-          <div className="container mx-auto px-4 py-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <div>
-                <div className="text-xs font-medium text-slate-700">Import report</div>
-                <div className="text-[10px] text-slate-500">
-                  Live report — auto-scrolls to bottom. Use buttons to copy/download.
+          {/* Import Report Section */}
+          <section className="rounded-lg border border-slate-300 bg-slate-100 shadow">
+            <div className="px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div>
+                  <div className="text-xs font-medium text-slate-700">Import report</div>
+                  <div className="text-[10px] text-slate-500">
+                    Live report — auto-scrolls to bottom. Use buttons to copy/download.
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!activeReportText}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(activeReportText);
+                        toast.success("Report copied");
+                      } catch {
+                        toast.error("Could not copy");
+                      }
+                    }}
+                  >
+                    <Copy className="h-3 w-3 mr-1" />
+                    Copy
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!activeDebugText}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(activeDebugText);
+                        toast.success("Debug JSON copied");
+                      } catch {
+                        toast.error("Could not copy");
+                      }
+                    }}
+                  >
+                    <Copy className="h-3 w-3 mr-1" />
+                    Debug
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!activeReportPayload}
+                    onClick={() => {
+                      try {
+                        const sid = asString(activeRun?.session_id).trim() || "session";
+                        downloadJsonFile({ filename: `import-report-${sid}.json`, value: activeReportPayload });
+                      } catch {
+                        toast.error("Download failed");
+                      }
+                    }}
+                  >
+                    <Download className="h-3 w-3 mr-1" />
+                    JSON
+                  </Button>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!activeReportText}
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(activeReportText);
-                      toast.success("Report copied");
-                    } catch {
-                      toast.error("Could not copy");
-                    }
-                  }}
-                >
-                  <Copy className="h-3 w-3 mr-1" />
-                  Copy
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!activeDebugText}
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(activeDebugText);
-                      toast.success("Debug JSON copied");
-                    } catch {
-                      toast.error("Could not copy");
-                    }
-                  }}
-                >
-                  <Copy className="h-3 w-3 mr-1" />
-                  Debug
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!activeReportPayload}
-                  onClick={() => {
-                    try {
-                      const sid = asString(activeRun?.session_id).trim() || "session";
-                      downloadJsonFile({ filename: `import-report-${sid}.json`, value: activeReportPayload });
-                    } catch {
-                      toast.error("Download failed");
-                    }
-                  }}
-                >
-                  <Download className="h-3 w-3 mr-1" />
-                  JSON
-                </Button>
-              </div>
+              <pre
+                ref={importReportRef}
+                className="h-[358px] overflow-y-scroll rounded border border-slate-300 bg-white p-2 text-[11px] leading-relaxed text-slate-900 font-mono"
+              >
+                {activeReportText ? toDisplayText(activeReportText) : "No report yet. Run an import to populate."}
+              </pre>
             </div>
-            <pre
-              ref={importReportRef}
-              className="h-[358px] overflow-y-scroll rounded border border-slate-300 bg-white p-2 text-[11px] leading-relaxed text-slate-900 font-mono"
-            >
-              {activeReportText ? toDisplayText(activeReportText) : "No report yet. Run an import to populate."}
-            </pre>
-          </div>
-        </div>
+          </section>
+        </main>
       </div>
     </>
   );
