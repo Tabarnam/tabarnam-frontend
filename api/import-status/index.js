@@ -2066,14 +2066,24 @@ async function handler(req, context) {
           const sessionDocForStall = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
           const enteredTs = Date.parse(String(sessionDocForStall?.resume_worker_handler_entered_at || "")) || 0;
           const heartbeatTs = Date.parse(String(sessionDocForStall?.resume_worker_heartbeat_at || "")) || 0;
+          // Check for last_finished_at - if set recently, worker completed successfully
+          const finishedTs = Date.parse(String(
+            sessionDocForStall?.resume_worker_last_finished_at ||
+            resumeDoc?.last_finished_at || ""
+          )) || 0;
 
-          // Check for recent activity: handler entry OR heartbeat within 180s
-          const mostRecentActivityTs = Math.max(enteredTs, heartbeatTs);
+          // Check for recent activity: handler entry OR heartbeat OR completion within 180s
+          const mostRecentActivityTs = Math.max(enteredTs, heartbeatTs, finishedTs);
           const hasRecentActivity = mostRecentActivityTs && (Date.now() - mostRecentActivityTs < 180_000);
+
+          // Check if resume doc indicates completion (don't mark completed work as stalled)
+          const resumeIsComplete = resumeDoc?.status === "complete" ||
+                                   (finishedTs && finishedTs >= resumeUpdatedTs);
 
           // If the worker never reached the handler after the resume doc was queued/updated, it's a gateway/host-key rejection.
           // Also don't mark as stalled if we have a recent heartbeat (worker is still running)
-          if (!hasRecentActivity && (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs))) {
+          // Also don't mark as stalled if the worker actually completed successfully
+          if (!hasRecentActivity && !resumeIsComplete && (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs))) {
             const stalledAt = nowIso();
             resumeStatus = "stalled";
 

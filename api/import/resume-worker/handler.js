@@ -36,6 +36,8 @@ const {
 
 const { enqueueResumeRun } = require("../../_enrichmentQueue");
 
+const { importCompanyLogo } = require("../../_logoImport");
+
 const HANDLER_ID = "import-resume-worker";
 
 const BUILD_INFO = (() => {
@@ -2618,6 +2620,7 @@ async function resumeWorkerHandler(req, context) {
       tagline: 60_000,           // 1 minute min
       industries: 60_000,        // 1 minute min
       product_keywords: 180_000, // 3 minutes min (2x - must accumulate all products)
+      logo: 25_000,              // 25 seconds min (logo discovery + download)
     };
 
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
@@ -3314,10 +3317,38 @@ async function resumeWorkerHandler(req, context) {
 
     const logoRetryable = !isRealValue("logo", doc.logo_url, doc) && !isTerminalMissingField(doc, "logo");
 
-    // Logo is handled by import-start, but we still track attempts here so it can terminalize.
+    // Logo enrichment - fetch logo if missing and budget allows
     if (logoRetryable && shouldRunField("logo")) {
       const bumped = bumpFieldAttempt(doc, "logo", requestId);
       if (bumped) changed = true;
+
+      // Actually fetch the logo (previously delegated to import-start which was unreliable)
+      try {
+        const logoBudgetMs = Math.min(20000, Math.max(5000, budgetRemainingMs() - 2000));
+        console.log(`[resume-worker] Fetching logo for ${doc.id} (budget: ${logoBudgetMs}ms)`);
+        const logoResult = await importCompanyLogo({
+          companyId: doc.id,
+          domain: doc.normalized_domain,
+          websiteUrl: doc.website_url || doc.url,
+          companyName: doc.company_name || doc.name,
+          logoSourceUrl: null,
+        }, console, { budgetMs: logoBudgetMs });
+
+        if (logoResult?.logo_url) {
+          doc.logo_url = logoResult.logo_url;
+          doc.logo_source_url = logoResult.logo_source_url || null;
+          doc.logo_source_type = logoResult.logo_source_type || "discovered";
+          doc.logo_stage_status = "ok";
+          changed = true;
+          console.log(`[resume-worker] Logo fetched for ${doc.id}: ${logoResult.logo_url}`);
+        } else {
+          doc.logo_stage_status = logoResult?.logo_stage_status || "not_found";
+          changed = true;
+          console.log(`[resume-worker] Logo not found for ${doc.id}: ${logoResult?.logo_stage_status || "no result"}`);
+        }
+      } catch (logoErr) {
+        console.warn(`[resume-worker] Logo fetch error for ${doc.id}: ${logoErr?.message}`);
+      }
 
       if (attemptsFor(doc, "logo") >= MAX_ATTEMPTS_LOGO) {
         terminalizeNonGrokField(doc, "logo", "not_found_terminal");

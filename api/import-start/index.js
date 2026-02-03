@@ -7381,6 +7381,20 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     message_id: fallbackQueue.message_id,
                     fallback: true,
                   };
+
+                  // Immediately invoke resume-worker to process the queued item (don't wait for polling)
+                  try {
+                    const invokeRes = await invokeResumeWorkerInProcess({
+                      session_id: sessionId,
+                      context,
+                      deadline_ms: 300000, // 5 minutes
+                    });
+                    console.log(`[import-start] company_url_seed_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
+                    resumeEnqueue.invoked = Boolean(invokeRes?.ok);
+                  } catch (invokeErr) {
+                    console.warn(`[import-start] company_url_seed_fallback_queue: resume-worker invoke failed: ${invokeErr?.message}`);
+                    resumeEnqueue.invoked = false;
+                  }
                 }
               }
 
@@ -9801,14 +9815,29 @@ Output JSON only:
               // Fallback: if direct invocation failed, explicitly enqueue to resume-worker queue
               if (!enqueueResult?.invoked && !enqueueResult?.queued && mandatoryCompanyIds.length > 0) {
                 console.log(`[import-start] Direct enrichment failed, attempting fallback queue for session ${sessionId}`);
-                await enqueueResumeRun({
+                const fallbackResult = await enqueueResumeRun({
                   session_id: sessionId,
                   company_ids: mandatoryCompanyIds,
                   reason: "seed_complete_fallback_queue",
                   requested_by: "import_start",
                 }).catch((qErr) => {
                   console.error(`[import-start] Fallback queue also failed: ${qErr?.message || qErr}`);
+                  return null;
                 });
+
+                // Immediately invoke resume-worker if queue succeeded (don't wait for polling)
+                if (fallbackResult?.ok) {
+                  try {
+                    const invokeRes = await invokeResumeWorkerInProcess({
+                      session_id: sessionId,
+                      context,
+                      deadline_ms: 300000, // 5 minutes
+                    });
+                    console.log(`[import-start] seed_complete_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
+                  } catch (invokeErr) {
+                    console.warn(`[import-start] seed_complete_fallback_queue: resume-worker invoke failed: ${invokeErr?.message}`);
+                  }
+                }
               }
             } catch {}
           }
@@ -10695,6 +10724,20 @@ Return ONLY the JSON array, no other text.`,
                       message_id: fallbackQueue.message_id,
                       fallback: true,
                     };
+
+                    // Immediately invoke resume-worker to process the queued item (don't wait for polling)
+                    try {
+                      const invokeRes = await invokeResumeWorkerInProcess({
+                        session_id: sessionId,
+                        context,
+                        deadline_ms: 300000, // 5 minutes
+                      });
+                      console.log(`[import-start] auto_enrich_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
+                      resumeEnqueue.invoked = Boolean(invokeRes?.ok);
+                    } catch (invokeErr) {
+                      console.warn(`[import-start] auto_enrich_fallback_queue: resume-worker invoke failed: ${invokeErr?.message}`);
+                      resumeEnqueue.invoked = false;
+                    }
                   }
                 }
               }
