@@ -725,22 +725,21 @@ export default function ExpandableCompanyRow({
         {Array.isArray(company.industries) && company.industries.length > 0 && (
           <div className="mt-2">
             <div className="text-xs font-semibold text-gray-500 mb-1">Industries</div>
-            <div className="flex flex-nowrap gap-x-2 overflow-hidden max-h-5 items-center">
-              {company.industries.slice(0, 4).map((ind, idx) => (
-                <button
-                  key={idx}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onKeywordSearch(ind);
-                  }}
-                  className="text-xs text-blue-600 hover:underline whitespace-nowrap"
-                >
-                  {ind}
-                </button>
+            <div className="text-xs truncate">
+              {company.industries.map((ind, idx) => (
+                <React.Fragment key={idx}>
+                  {idx > 0 && <span className="text-gray-400 mx-1">·</span>}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onKeywordSearch(ind);
+                    }}
+                    className="text-blue-600 hover:underline"
+                  >
+                    {ind}
+                  </button>
+                </React.Fragment>
               ))}
-              {company.industries.length > 4 && (
-                <span className="text-xs text-gray-400 whitespace-nowrap">+{company.industries.length - 4} more</span>
-              )}
             </div>
           </div>
         )}
