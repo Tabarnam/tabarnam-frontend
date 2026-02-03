@@ -2060,13 +2060,20 @@ async function handler(req, context) {
         const resumeAgeMs = resumeUpdatedTs ? Math.max(0, Date.now() - resumeUpdatedTs) : 0;
 
         // Hard stall detector: queued forever with no handler entry marker => label stalled.
-        if (resumeDoc && resumeStatus === "queued" && resumeAgeMs > 90_000) {
+        // Increased from 90s to 180s to allow more time for XAI enrichment calls
+        if (resumeDoc && resumeStatus === "queued" && resumeAgeMs > 180_000) {
           const sessionDocId = `_import_session_${sessionId}`;
           const sessionDocForStall = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
           const enteredTs = Date.parse(String(sessionDocForStall?.resume_worker_handler_entered_at || "")) || 0;
+          const heartbeatTs = Date.parse(String(sessionDocForStall?.resume_worker_heartbeat_at || "")) || 0;
+
+          // Check for recent activity: handler entry OR heartbeat within 180s
+          const mostRecentActivityTs = Math.max(enteredTs, heartbeatTs);
+          const hasRecentActivity = mostRecentActivityTs && (Date.now() - mostRecentActivityTs < 180_000);
 
           // If the worker never reached the handler after the resume doc was queued/updated, it's a gateway/host-key rejection.
-          if (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs)) {
+          // Also don't mark as stalled if we have a recent heartbeat (worker is still running)
+          if (!hasRecentActivity && (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs))) {
             const stalledAt = nowIso();
             resumeStatus = "stalled";
 
@@ -2076,7 +2083,7 @@ async function handler(req, context) {
               stalled_at: stalledAt,
               last_error: {
                 code: "resume_stalled_no_worker_entry",
-                message: "Resume doc queued > 90s with no resume-worker handler entry marker",
+                message: "Resume doc queued > 180s with no resume-worker handler entry marker",
               },
               updated_at: stalledAt,
               lock_expires_at: null,
@@ -2088,7 +2095,7 @@ async function handler(req, context) {
                 resume_error: "resume_stalled_no_worker_entry",
                 resume_error_details: {
                   root_cause: "resume_stalled_no_worker_entry",
-                  message: "Resume doc queued > 90s and resume-worker handler entry marker never updated",
+                  message: "Resume doc queued > 180s and resume-worker handler entry marker never updated",
                   updated_at: stalledAt,
                 },
                 resume_needed: true,
@@ -2112,7 +2119,7 @@ async function handler(req, context) {
           if (resumeErr === "resume_no_progress_no_attempts") {
             const stuckWindowMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
               ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-              : 90_000;
+              : 180_000;
 
             const plannedReason = normalizeKey(
               activeResume?.planned_fields_reason ||
@@ -2181,7 +2188,7 @@ async function handler(req, context) {
 
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
           ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-          : 90_000;
+          : 180_000;
 
         let watchdog_stuck_queued = false;
         let watchdog_last_finished_at = null;
@@ -4149,7 +4156,7 @@ async function handler(req, context) {
           if (resumeErr === "resume_no_progress_no_attempts") {
             const stuckWindowMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
               ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-              : 90_000;
+              : 180_000;
 
             const plannedReason = normalizeKey(
               activeResume?.planned_fields_reason ||
@@ -4218,7 +4225,7 @@ async function handler(req, context) {
 
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
           ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-          : 90_000;
+          : 180_000;
 
         let watchdog_stuck_queued = false;
         let watchdog_last_finished_at = null;

@@ -7348,14 +7348,41 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               } catch {}
 
               // Non-negotiable: fresh seeds must immediately queue + run xAI enrichment.
-              const resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
+              let resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
                 sessionId,
                 requestId,
                 context,
                 companyIds: resumeCompanyIds,
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
-              }).catch(() => null);
+              }).catch((err) => {
+                console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
+                return { queued: false, invoked: false, error: err?.message };
+              });
+
+              // Fallback: if direct invocation failed, explicitly enqueue to resume-worker queue
+              if (!resumeEnqueue?.invoked && !resumeEnqueue?.queued && resumeCompanyIds.length > 0) {
+                console.log(`[import-start] Direct enrichment failed, attempting fallback queue for session ${sessionId}`);
+                const fallbackQueue = await enqueueResumeRun({
+                  session_id: sessionId,
+                  company_ids: resumeCompanyIds,
+                  reason: "company_url_seed_fallback_queue",
+                  requested_by: "import_start",
+                }).catch((qErr) => {
+                  console.error(`[import-start] Fallback queue also failed: ${qErr?.message || qErr}`);
+                  return null;
+                });
+                if (fallbackQueue?.ok) {
+                  console.log(`[import-start] Fallback queue succeeded: ${JSON.stringify(fallbackQueue)}`);
+                  resumeEnqueue = {
+                    queued: true,
+                    enqueued: true,
+                    queue: fallbackQueue.queue,
+                    message_id: fallbackQueue.message_id,
+                    fallback: true,
+                  };
+                }
+              }
 
               const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
 
@@ -9759,14 +9786,30 @@ Output JSON only:
                 )
               );
 
-              await maybeQueueAndInvokeMandatoryEnrichment({
+              const enqueueResult = await maybeQueueAndInvokeMandatoryEnrichment({
                 sessionId,
                 requestId,
                 context,
                 companyIds: mandatoryCompanyIds,
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
-              }).catch(() => null);
+              }).catch((err) => {
+                console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
+                return { queued: false, invoked: false, error: err?.message };
+              });
+
+              // Fallback: if direct invocation failed, explicitly enqueue to resume-worker queue
+              if (!enqueueResult?.invoked && !enqueueResult?.queued && mandatoryCompanyIds.length > 0) {
+                console.log(`[import-start] Direct enrichment failed, attempting fallback queue for session ${sessionId}`);
+                await enqueueResumeRun({
+                  session_id: sessionId,
+                  company_ids: mandatoryCompanyIds,
+                  reason: "seed_complete_fallback_queue",
+                  requested_by: "import_start",
+                }).catch((qErr) => {
+                  console.error(`[import-start] Fallback queue also failed: ${qErr?.message || qErr}`);
+                });
+              }
             } catch {}
           }
 
@@ -10626,7 +10669,34 @@ Return ONLY the JSON array, no other text.`,
                   companyIds: resumeCompanyIds,
                   reason: "seed_complete_auto_enrich",
                   cosmosEnabled,
-                }).catch(() => null);
+                }).catch((err) => {
+                  console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
+                  return { queued: false, invoked: false, error: err?.message };
+                });
+
+                // Fallback: if direct invocation failed, explicitly enqueue to resume-worker queue
+                if (!resumeEnqueue?.invoked && !resumeEnqueue?.queued && resumeCompanyIds.length > 0) {
+                  console.log(`[import-start] Direct enrichment failed, attempting fallback queue for session ${sessionId}`);
+                  const fallbackQueue = await enqueueResumeRun({
+                    session_id: sessionId,
+                    company_ids: resumeCompanyIds,
+                    reason: "auto_enrich_fallback_queue",
+                    requested_by: "import_start",
+                  }).catch((qErr) => {
+                    console.error(`[import-start] Fallback queue also failed: ${qErr?.message || qErr}`);
+                    return null;
+                  });
+                  if (fallbackQueue?.ok) {
+                    console.log(`[import-start] Fallback queue succeeded: ${JSON.stringify(fallbackQueue)}`);
+                    resumeEnqueue = {
+                      queued: true,
+                      enqueued: true,
+                      queue: fallbackQueue.queue,
+                      message_id: fallbackQueue.message_id,
+                      fallback: true,
+                    };
+                  }
+                }
               }
             } catch {}
 

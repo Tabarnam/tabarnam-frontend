@@ -1104,8 +1104,12 @@ async function resumeWorkerHandler(req, context) {
           resume_worker_last_result: reason,
           updated_at: updatedAt,
         },
-      }).catch(() => null);
-    } catch {}
+      }).catch((err) => {
+        console.error(`[resume-worker] gracefulExit session doc patch failed for session ${sessionId}: ${err?.message || err}`);
+      });
+    } catch (err) {
+      console.error(`[resume-worker] gracefulExit failed for session ${sessionId}: ${err?.message || err}`);
+    }
 
     return json(
       {
@@ -1777,6 +1781,31 @@ async function resumeWorkerHandler(req, context) {
     let lastFieldAttemptedThisRun = null;
     let lastFieldResultThisRun = null;
 
+    // Heartbeat tracking - update session doc periodically during long enrichment loops
+    let lastHeartbeatWrite = Date.now();
+    const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
+
+    const maybeWriteHeartbeat = async () => {
+      const now = Date.now();
+      if (now - lastHeartbeatWrite > HEARTBEAT_INTERVAL_MS) {
+        const nowIsoStr = nowIso();
+        try {
+          await bestEffortPatchSessionDoc({
+            container,
+            sessionId,
+            patch: {
+              resume_worker_heartbeat_at: nowIsoStr,
+              updated_at: nowIsoStr,
+            },
+          }).catch(() => null);
+          lastHeartbeatWrite = now;
+          console.log(`[resume-worker] heartbeat written at ${nowIsoStr}`);
+        } catch (err) {
+          console.warn(`[resume-worker] heartbeat write failed: ${err?.message || err}`);
+        }
+      }
+    };
+
     const updateLastXaiAttempt = async (nowIsoStr, meta = {}) => {
       try {
         await bestEffortPatchSessionDoc({
@@ -1798,6 +1827,9 @@ async function resumeWorkerHandler(req, context) {
 
     for (const entry of plannedByCompany) {
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
+
+      // Write heartbeat to session doc periodically to signal progress
+      await maybeWriteHeartbeat();
 
       const companyId = String(entry?.company_id || "").trim();
       if (!companyId) continue;
@@ -2458,7 +2490,9 @@ async function resumeWorkerHandler(req, context) {
       container,
       sessionId,
       patch: sessionPatch,
-    }).catch(() => null);
+    }).catch((err) => {
+      console.error(`[resume-worker] Session doc patch failed for session ${sessionId}: ${err?.message || err}`);
+    });
 
     return json(
       {
