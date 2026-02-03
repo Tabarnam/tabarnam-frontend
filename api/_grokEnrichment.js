@@ -396,7 +396,9 @@ Hard rules:
 - Use web search.
 - 2 reviews MUST be YouTube videos focused on the company or one of its products.
 - 1 review MUST be a magazine or blog review (NOT the company website).
-- Ensure that the reviews are legitimate with working URLs.
+- CRITICAL: Verify that each URL is functional and accessible. Test that it loads correctly.
+- For YouTube videos: The video MUST exist and be accessible. Verify the video ID is valid.
+- Provide the actual review URL (e.g., https://www.youtube.com/watch?v=XXXXX), NOT a redirect or search results page.
 - Provide MORE than 3 candidates (up to 20) so we can verify URLs.
 - Exclude sources from these domains or subdomains: ${excludeDomains.join(", ")}
 - Do NOT hallucinate or embellish review titles or anything else. Accuracy is paramount.
@@ -406,7 +408,7 @@ Hard rules:
 Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "review_candidates"):
 {
   "reviews_url_candidates": [
-    { "source_url": "https://...", "category": "youtube" },
+    { "source_url": "https://www.youtube.com/watch?v=...", "category": "youtube" },
     { "source_url": "https://...", "category": "blog" }
   ]
 }`.trim();

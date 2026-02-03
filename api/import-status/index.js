@@ -2061,58 +2061,64 @@ async function handler(req, context) {
 
         // Hard stall detector: queued forever with no handler entry marker => label stalled.
         // Increased from 90s to 180s to allow more time for XAI enrichment calls
-        if (resumeDoc && resumeStatus === "queued" && resumeAgeMs > 180_000) {
-          const sessionDocId = `_import_session_${sessionId}`;
-          const sessionDocForStall = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
-          const enteredTs = Date.parse(String(sessionDocForStall?.resume_worker_handler_entered_at || "")) || 0;
-          const heartbeatTs = Date.parse(String(sessionDocForStall?.resume_worker_heartbeat_at || "")) || 0;
-          // Check for last_finished_at - if set recently, worker completed successfully
-          const finishedTs = Date.parse(String(
-            sessionDocForStall?.resume_worker_last_finished_at ||
-            resumeDoc?.last_finished_at || ""
-          )) || 0;
+        // Wrapped in try-catch to prevent 500 errors from crashing the status endpoint
+        try {
+          if (resumeDoc && resumeStatus === "queued" && resumeAgeMs > 180_000) {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocForStall = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+            const enteredTs = Date.parse(String(sessionDocForStall?.resume_worker_handler_entered_at || "")) || 0;
+            const heartbeatTs = Date.parse(String(sessionDocForStall?.resume_worker_heartbeat_at || "")) || 0;
+            // Check for last_finished_at - if set recently, worker completed successfully
+            const finishedTs = Date.parse(String(
+              sessionDocForStall?.resume_worker_last_finished_at ||
+              resumeDoc?.last_finished_at || ""
+            )) || 0;
 
-          // Check for recent activity: handler entry OR heartbeat OR completion within 180s
-          const mostRecentActivityTs = Math.max(enteredTs, heartbeatTs, finishedTs);
-          const hasRecentActivity = mostRecentActivityTs && (Date.now() - mostRecentActivityTs < 180_000);
+            // Check for recent activity: handler entry OR heartbeat OR completion within 180s
+            const mostRecentActivityTs = Math.max(enteredTs, heartbeatTs, finishedTs);
+            const hasRecentActivity = mostRecentActivityTs && (Date.now() - mostRecentActivityTs < 180_000);
 
-          // Check if resume doc indicates completion (don't mark completed work as stalled)
-          const resumeIsComplete = resumeDoc?.status === "complete" ||
-                                   (finishedTs && finishedTs >= resumeUpdatedTs);
+            // Check if resume doc indicates completion (don't mark completed work as stalled)
+            const resumeIsComplete = resumeDoc?.status === "complete" ||
+                                     (finishedTs && finishedTs >= resumeUpdatedTs);
 
-          // If the worker never reached the handler after the resume doc was queued/updated, it's a gateway/host-key rejection.
-          // Also don't mark as stalled if we have a recent heartbeat (worker is still running)
-          // Also don't mark as stalled if the worker actually completed successfully
-          if (!hasRecentActivity && !resumeIsComplete && (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs))) {
-            const stalledAt = nowIso();
-            resumeStatus = "stalled";
+            // If the worker never reached the handler after the resume doc was queued/updated, it's a gateway/host-key rejection.
+            // Also don't mark as stalled if we have a recent heartbeat (worker is still running)
+            // Also don't mark as stalled if the worker actually completed successfully
+            if (!hasRecentActivity && !resumeIsComplete && (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs))) {
+              const stalledAt = nowIso();
+              resumeStatus = "stalled";
 
-            await upsertDoc(container, {
-              ...resumeDoc,
-              status: "stalled",
-              stalled_at: stalledAt,
-              last_error: {
-                code: "resume_stalled_no_worker_entry",
-                message: "Resume doc queued > 180s with no resume-worker handler entry marker",
-              },
-              updated_at: stalledAt,
-              lock_expires_at: null,
-            }).catch(() => null);
-
-            if (sessionDocForStall && typeof sessionDocForStall === "object") {
               await upsertDoc(container, {
-                ...sessionDocForStall,
-                resume_error: "resume_stalled_no_worker_entry",
-                resume_error_details: {
-                  root_cause: "resume_stalled_no_worker_entry",
-                  message: "Resume doc queued > 180s and resume-worker handler entry marker never updated",
-                  updated_at: stalledAt,
+                ...resumeDoc,
+                status: "stalled",
+                stalled_at: stalledAt,
+                last_error: {
+                  code: "resume_stalled_no_worker_entry",
+                  message: "Resume doc queued > 180s with no resume-worker handler entry marker",
                 },
-                resume_needed: true,
                 updated_at: stalledAt,
+                lock_expires_at: null,
               }).catch(() => null);
+
+              if (sessionDocForStall && typeof sessionDocForStall === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocForStall,
+                  resume_error: "resume_stalled_no_worker_entry",
+                  resume_error_details: {
+                    root_cause: "resume_stalled_no_worker_entry",
+                    message: "Resume doc queued > 180s and resume-worker handler entry marker never updated",
+                    updated_at: stalledAt,
+                  },
+                  resume_needed: true,
+                  updated_at: stalledAt,
+                }).catch(() => null);
+              }
             }
           }
+        } catch (stallCheckErr) {
+          console.error(`[import-status] Stall check error for session ${sessionId}: ${stallCheckErr?.message}`, stallCheckErr?.stack);
+          // Don't re-throw - continue with other processing to avoid 500 errors
         }
 
         let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
