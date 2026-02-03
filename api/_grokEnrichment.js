@@ -387,17 +387,20 @@ async function fetchCuratedReviews({
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   // Required query language (basis for prompt):
-  // “For the company (https://www.xxxxxxxxxxxx.com/) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.”
+  // "For the company (https://www.xxxxxxxxxxxx.com/) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews."
   const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
 
-Task: Find EXACTLY 4 third-party product/company reviews we can show in the UI.
+Task: Find EXACTLY 3 third-party product/company reviews we can show in the UI.
 
 Hard rules:
 - Use web search.
-- 2 reviews must be YouTube videos focused on the company or one of its products.
-- 2 reviews must be magazine or blog reviews (NOT the company website).
-- Provide MORE than 4 candidates (up to 20) so we can verify URLs.
+- 2 reviews MUST be YouTube videos focused on the company or one of its products.
+- 1 review MUST be a magazine or blog review (NOT the company website).
+- Ensure that the reviews are legitimate with working URLs.
+- Provide MORE than 3 candidates (up to 20) so we can verify URLs.
 - Exclude sources from these domains or subdomains: ${excludeDomains.join(", ")}
+- Do NOT hallucinate or embellish review titles or anything else. Accuracy is paramount.
+- Do NOT include the same author more than once.
 - Do NOT invent titles/authors/dates/excerpts; we will extract metadata ourselves.
 
 Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "review_candidates"):
@@ -534,10 +537,11 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
 
   for (const c of deduped) {
     if (Date.now() - started > budgetMs - 1500) break;
-    if (verified_youtube.length >= 2 && verified_blog.length >= 2) break;
+    // Need 2 YouTube + 1 blog = 3 total reviews
+    if (verified_youtube.length >= 2 && verified_blog.length >= 1) break;
 
     const needsYoutube = verified_youtube.length < 2;
-    const needsBlog = verified_blog.length < 2;
+    const needsBlog = verified_blog.length < 1;
 
     if (c.category === "youtube" && !needsYoutube) continue;
     if (c.category === "blog" && !needsBlog) continue;
@@ -577,18 +581,19 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
     }
   }
 
-  const curated_reviews = [...verified_youtube.slice(0, 2), ...verified_blog.slice(0, 2)];
+  // Need 2 YouTube + 1 blog = 3 total reviews
+  const curated_reviews = [...verified_youtube.slice(0, 2), ...verified_blog.slice(0, 1)];
   const hasTwoYoutube = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 2;
-  const hasTwoBlog =
-    curated_reviews.length - curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 2;
+  const hasOneBlog =
+    curated_reviews.length - curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 1;
 
-  const ok = curated_reviews.length === 4 && hasTwoYoutube && hasTwoBlog;
+  const ok = curated_reviews.length === 3 && hasTwoYoutube && hasOneBlog;
 
   if (!ok) {
     const reasonParts = [];
     if (!hasTwoYoutube) reasonParts.push("missing_youtube_reviews");
-    if (!hasTwoBlog) reasonParts.push("missing_blog_reviews");
-    if (curated_reviews.length < 4) reasonParts.push("insufficient_verified_reviews");
+    if (!hasOneBlog) reasonParts.push("missing_blog_review");
+    if (curated_reviews.length < 3) reasonParts.push("insufficient_verified_reviews");
 
     const value = {
       curated_reviews,
@@ -651,11 +656,13 @@ Task: Determine the company's HEADQUARTERS location.
 
 Rules:
 - Use web search (do not rely only on the company website).
+- Do deep dives for HQ location if necessary.
+- Having the actual city within the United States is crucial.
+- Use initials for state or province (e.g., "Austin, TX" not "Austin, Texas").
+- Format: "City, ST" for US/Canada, "City, Country" for international.
+- If only country is known, return "Country".
+- No explanatory info – just the location.
 - Prefer authoritative sources like LinkedIn, official filings, reputable business directories.
-- Return best available HQ as a single formatted string: "City, State/Province, Country".
-  - If state/province is not applicable, use "City, Country".
-  - If only country is known, return "Country".
-- Provide the supporting URLs you used for the HQ determination.
 - Output STRICT JSON only.
 
 Return:
@@ -797,15 +804,20 @@ Task: Determine the company's MANUFACTURING locations.
 
 Rules:
 - Use web search (do not rely only on the company website).
-- Return an array of one or more locations. Include city + country when known; include multiple cities when applicable.
+- Do deep dives for manufacturing locations if necessary.
+- Having the actual cities within the United States is crucial.
+- Use initials for state or province (e.g., "Los Angeles, CA" not "Los Angeles, California").
+- Format: "City, ST" for US/Canada, "City, Country" for international.
+- Return an array of one or more locations. Include multiple cities when applicable.
 - If only country-level is available, country-only entries are acceptable.
-- If manufacturing is not publicly disclosed after searching, return ["Not disclosed"].
+- No explanatory info – just locations.
+- If manufacturing is not publicly disclosed after thorough searching, return ["Not disclosed"].
 - Provide the supporting URLs you used for the manufacturing determination.
 - Output STRICT JSON only.
 
 Return:
 {
-  "manufacturing_locations": ["City, Country"],
+  "manufacturing_locations": ["City, ST", "City, Country"],
   "location_source_urls": { "mfg_source_urls": ["https://...", "https://..."] }
 }
 `.trim();
@@ -946,12 +958,15 @@ async function fetchTagline({
 
   const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
 
-Task: Provide ONLY the company tagline/slogan.
+Task: Provide the company's official tagline or slogan.
 
 Rules:
 - Use web search.
-- Return a short marketing-style tagline (a sentence fragment is fine).
-- Do NOT return navigation labels, promos, or legal text.
+- Return the company's actual marketing tagline/slogan.
+- A sentence fragment is acceptable.
+- Do NOT return navigation labels, promotional text, or legal text.
+- Do NOT hallucinate or embellish. Accuracy is paramount.
+- If no tagline is found, return empty string.
 - Output STRICT JSON only.
 
 Return:
@@ -1075,13 +1090,14 @@ Task: Identify the company's industries.
 
 Rules:
 - Use web search.
-- Return a list of industries/categories that best describe what the company makes/sells.
+- Return an array of industries/categories that best describe what the company makes or sells.
+- Be thorough and complete in identifying all relevant industries.
 - Avoid store navigation terms (e.g. "New Arrivals", "Shop", "Sale") and legal terms.
-- Prefer industry labels that can be mapped to an internal taxonomy.
+- Prefer industry labels that can be mapped to standard business taxonomies.
 - Output STRICT JSON only.
 
 Return:
-{ "industries": ["..."] }
+{ "industries": ["Industry 1", "Industry 2", "..."] }
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
@@ -1191,10 +1207,11 @@ async function fetchProductKeywords({
 
   const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
 
-Task: Provide an EXHAUSTIVE list of the PRODUCTS (SKUs/product names/product lines) this company sells.
+Task: Provide an EXHAUSTIVE, COMPLETE, and ALL-INCLUSIVE list of the PRODUCTS (SKUs/product names/product lines) this company sells.
 
 Hard rules:
 - Use web search (not just the company website).
+- Keywords should be exhaustive, complete and all-inclusive – ALL the products that the company produces.
 - Return ONLY products/product lines. Do NOT include navigation/UX taxonomy such as: Shop All, Collections, New, Best Sellers, Sale, Account, Cart, Store Locator, FAQ, Shipping, Returns, Contact, About, Blog.
 - Do NOT include generic category labels unless they are actual product lines.
 - The list should be materially more complete than the top nav.
@@ -1206,7 +1223,7 @@ Hard rules:
 
 Return:
 {
-  "product_keywords": ["Product 1", "Product 2"],
+  "product_keywords": ["Product 1", "Product 2", "..."],
   "completeness": "complete" | "incomplete",
   "incomplete_reason": null | "..."
 }

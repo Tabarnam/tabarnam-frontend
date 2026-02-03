@@ -479,6 +479,7 @@ export default function AdminImport() {
 
   const startImportRequestInFlightRef = useRef(false);
   const activeStatusRef = useRef(activeStatus);
+  const importReportRef = useRef(null);
   activeStatusRef.current = activeStatus;
 
   const activeRun = useMemo(() => {
@@ -3030,6 +3031,12 @@ export default function AdminImport() {
     }
   }, [activeReportPayload]);
 
+  useEffect(() => {
+    if (importReportRef.current && activeReportText) {
+      importReportRef.current.scrollTop = importReportRef.current.scrollHeight;
+    }
+  }, [activeReportText]);
+
   const activeDebugPayload = useMemo(() => {
     if (!activeRun) return null;
 
@@ -3222,12 +3229,98 @@ export default function AdminImport() {
       <div className="min-h-screen bg-slate-50">
         <AdminHeader />
 
-        <main className="container mx-auto py-6 px-4 space-y-6">
+        <main className="container mx-auto py-6 px-4 pb-96 space-y-6">
           <header className="flex flex-col gap-2">
             <h1 className="text-3xl font-bold text-slate-900">Company Import</h1>
             <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
           </header>
 
+          {/* Live status indicator */}
+          {activeRun && !activeRun.completed && !activeRun.stopped && !activeRun.timedOut && activeStatus !== "idle" ? (
+            <div className="rounded-lg border border-blue-300 bg-blue-50 p-4 flex items-center gap-4">
+              <div className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-blue-900">
+                  {(() => {
+                    const stageBeacon = asString(activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
+                    const resumeNeeded = Boolean(activeRun.resume_needed);
+                    const resumeStatus = asString(activeRun.resume?.status || activeRun.last_status_body?.resume?.status).trim();
+                    const savedCount = Number(activeRun.saved ?? 0) || 0;
+                    const missingFields = activeRun.saved_companies?.[0]?.enrichment_health?.missing_fields || [];
+                    const lastFieldAttempted = asString(activeRun.resume_worker?.last_field_attempted).trim();
+                    const lastFieldResult = asString(activeRun.resume_worker?.last_field_result).trim();
+                    const resumeError = asString(activeRun.resume_error || activeRun.last_status_body?.resume_error).trim();
+
+                    if (resumeError) {
+                      return `Enrichment stalled: ${resumeError.replace(/_/g, " ")}`;
+                    }
+
+                    if (resumeNeeded && missingFields.length > 0) {
+                      const fieldList = missingFields.join(", ");
+                      if (lastFieldAttempted) {
+                        return `Enriching: ${lastFieldAttempted}${lastFieldResult ? ` (${lastFieldResult})` : ""} — still need: ${fieldList}`;
+                      }
+                      if (resumeStatus === "queued") {
+                        return `Waiting for enrichment worker — missing: ${fieldList}`;
+                      }
+                      return `Fetching missing fields: ${fieldList}`;
+                    }
+
+                    if (stageBeacon) {
+                      return toEnglishImportStage(stageBeacon);
+                    }
+
+                    if (savedCount > 0) {
+                      return `Company saved, completing enrichment...`;
+                    }
+
+                    return "Import in progress...";
+                  })()}
+                </div>
+                <div className="text-xs text-blue-700 mt-0.5">
+                  {(() => {
+                    const parts = [];
+                    const savedCount = Number(activeRun.saved ?? 0) || 0;
+                    const elapsedMs = Number(activeRun.elapsed_ms);
+                    const companyName = activeRun.saved_companies?.[0]?.company_name || activeRun.items?.[0]?.company_name;
+
+                    if (companyName) parts.push(companyName);
+                    if (savedCount > 0) parts.push(`${savedCount} saved`);
+                    if (Number.isFinite(elapsedMs) && elapsedMs > 0) parts.push(`${Math.round(elapsedMs / 1000)}s elapsed`);
+
+                    return parts.length > 0 ? parts.join(" · ") : "Starting...";
+                  })()}
+                </div>
+              </div>
+              {activeRun.progress_notice ? (
+                <div className="text-xs text-blue-600 max-w-xs truncate" title={activeRun.progress_notice}>
+                  {activeRun.progress_notice}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Completed status */}
+          {activeRun?.completed && !activeRun.start_error ? (
+            <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 flex items-center gap-4">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-medium text-emerald-900">
+                  Import complete — {Number(activeRun.saved ?? 0) || 0} company saved
+                </div>
+                {activeRun.saved_companies?.[0]?.company_name ? (
+                  <div className="text-xs text-emerald-700 mt-0.5">{activeRun.saved_companies[0].company_name}</div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {!API_BASE ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 flex items-start gap-3">
@@ -3486,99 +3579,6 @@ export default function AdminImport() {
             {activeAsyncPrimaryMessage ? (
               <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
                 {activeAsyncPrimaryMessage}
-              </div>
-            ) : null}
-
-            {activeRun ? (
-              <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-xs font-medium text-slate-700">Import report</div>
-                    <div className="mt-0.5 text-[11px] text-slate-600">
-                      Includes report + save result (if any). Use Copy Debug / Download JSON to share with support.
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!activeReportText}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(activeReportText);
-                          toast.success("Report copied");
-                        } catch {
-                          toast.error("Could not copy");
-                        }
-                      }}
-                    >
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copy report
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!activeDebugText}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(activeDebugText);
-                          toast.success("Debug JSON copied");
-                        } catch {
-                          toast.error("Could not copy");
-                        }
-                      }}
-                    >
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copy debug
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!activeReportPayload}
-                      onClick={() => {
-                        try {
-                          const sid = asString(activeRun?.session_id).trim() || "session";
-                          downloadJsonFile({ filename: `import-report-${sid}.json`, value: activeReportPayload });
-                        } catch {
-                          toast.error("Download failed");
-                        }
-                      }}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download report
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!activeDebugPayload}
-                      onClick={() => {
-                        try {
-                          const sid = asString(activeRun?.session_id).trim() || "session";
-                          downloadJsonFile({ filename: `import-debug-${sid}.json`, value: activeDebugPayload });
-                        } catch {
-                          toast.error("Download failed");
-                        }
-                      }}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download debug
-                    </Button>
-                  </div>
-                </div>
-
-                {activeReportText ? (
-                  <pre className="max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
-                    {toDisplayText(activeReportText)}
-                  </pre>
-                ) : (
-                  <div className="rounded bg-white p-2 text-[11px] leading-relaxed text-slate-700">
-                    No report yet. Run an import (or click Poll now) to populate the report.
-                  </div>
-                )}
               </div>
             ) : null}
 
@@ -5163,6 +5163,79 @@ export default function AdminImport() {
             </div>
           </section>
         </main>
+
+        {/* Fixed bottom import report panel */}
+        <div className="fixed bottom-0 left-0 right-0 border-t border-slate-300 bg-slate-100 shadow-lg z-50">
+          <div className="container mx-auto px-4 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div>
+                <div className="text-xs font-medium text-slate-700">Import report</div>
+                <div className="text-[10px] text-slate-500">
+                  Live report — auto-scrolls to bottom. Use buttons to copy/download.
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!activeReportText}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(activeReportText);
+                      toast.success("Report copied");
+                    } catch {
+                      toast.error("Could not copy");
+                    }
+                  }}
+                >
+                  <Copy className="h-3 w-3 mr-1" />
+                  Copy
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!activeDebugText}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(activeDebugText);
+                      toast.success("Debug JSON copied");
+                    } catch {
+                      toast.error("Could not copy");
+                    }
+                  }}
+                >
+                  <Copy className="h-3 w-3 mr-1" />
+                  Debug
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!activeReportPayload}
+                  onClick={() => {
+                    try {
+                      const sid = asString(activeRun?.session_id).trim() || "session";
+                      downloadJsonFile({ filename: `import-report-${sid}.json`, value: activeReportPayload });
+                    } catch {
+                      toast.error("Download failed");
+                    }
+                  }}
+                >
+                  <Download className="h-3 w-3 mr-1" />
+                  JSON
+                </Button>
+              </div>
+            </div>
+            <pre
+              ref={importReportRef}
+              className="h-[358px] overflow-y-scroll rounded border border-slate-300 bg-white p-2 text-[11px] leading-relaxed text-slate-900 font-mono"
+            >
+              {activeReportText ? toDisplayText(activeReportText) : "No report yet. Run an import to populate."}
+            </pre>
+          </div>
+        </div>
       </div>
     </>
   );

@@ -1278,7 +1278,7 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
     };
   }
 
-  const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 20_000, maxMs: 25_000 });
+  const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 15_000, maxMs: 20_000 });
 
   const telemetry = {
     budget_ms: budget.budget_ms,

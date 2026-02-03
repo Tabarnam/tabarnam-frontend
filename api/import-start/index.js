@@ -1915,7 +1915,9 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
     };
   }
 
-  if (budget != null && budget < 900) {
+  // Only skip if budget is critically low (< 2000ms)
+  // Logo discovery needs at least 2s for HTML fetch + parsing + candidate validation
+  if (budget != null && budget < 2000) {
     return {
       ok: true,
       logo_status: "not_found_on_site",
@@ -1926,7 +1928,7 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
       logo_source_domain: null,
       logo_source_type: null,
       logo_url: null,
-      logo_error: "Skipped logo import due to low remaining time budget",
+      logo_error: `Skipped logo import due to low remaining time budget (${budget}ms < 2000ms minimum)`,
       logo_discovery_strategy: "",
       logo_discovery_page_url: "",
       logo_telemetry: {
@@ -4162,10 +4164,13 @@ async function saveCompaniesToCosmos({
                       ? Number(axiosTimeout)
                       : DEFAULT_UPSTREAM_TIMEOUT_MS;
 
+                // Logo fetching is important - give it a generous budget
+                // Minimum 5000ms to ensure logo discovery + upload can complete
+                // Maximum 15000ms to avoid blocking other work
                 const logoBudgetMs = Math.max(
-                  0,
+                  5000,
                   Math.min(
-                    8000,
+                    15000,
                     Math.trunc(remainingForLogo - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS)
                   )
                 );
