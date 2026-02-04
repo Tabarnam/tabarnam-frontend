@@ -542,41 +542,39 @@ async function handleImportOne(req, context) {
                 });
               }
 
-              // Immediately invoke resume-worker to process enrichment
+              // NON-BLOCKING: Enqueue resume-worker to process enrichment asynchronously
+              // This avoids the Azure SWA 4-minute gateway timeout that was causing HTTP 500 errors
+              // The frontend will poll for status updates as enrichment progresses
               if (missingByCompany && missingByCompany.length > 0) {
                 try {
-                  const invokeRes = await invokeResumeWorkerInProcess({
+                  await enqueueResumeRun({
                     session_id: sessionId,
-                    context,
-                    deadline_ms: 900000, // 15 minutes - allows all 7 fields to complete with thorough xAI research
+                    company_ids: seededCompanyIds,
+                    reason: "import_one_enqueued",
+                    requested_by: "import_one",
                   });
-                  console.log("[import-one] resume_worker_invoked", {
+                  console.log("[import-one] resume_enqueued", {
                     session_id: sessionId,
-                    ok: invokeRes?.ok,
-                    invocation: invokeRes?.invocation,
+                    company_count: seededCompanyIds.length,
                   });
-                } catch (err) {
-                  console.log("[import-one] resume_worker_invoke_failed", {
+                } catch (qErr) {
+                  console.log("[import-one] resume_enqueue_failed", {
                     session_id: sessionId,
-                    error: String(err?.message || err),
+                    error: String(qErr?.message || qErr),
                   });
-
-                  // Fallback: enqueue to resume-worker queue
-                  try {
-                    await enqueueResumeRun({
-                      session_id: sessionId,
-                      company_ids: seededCompanyIds,
-                      reason: "import_one_fallback_queue",
-                      requested_by: "import_one",
-                    });
-                    console.log("[import-one] resume_enqueued_fallback", { session_id: sessionId });
-                  } catch (qErr) {
-                    console.log("[import-one] resume_enqueue_fallback_failed", {
-                      session_id: sessionId,
-                      error: String(qErr?.message || qErr),
-                    });
-                  }
                 }
+
+                // Return immediately with 202 Accepted - don't wait for enrichment
+                // This prevents the Azure SWA gateway timeout (4 min) from triggering HTTP 500
+                return json({
+                  ok: true,
+                  completed: false,
+                  session_id: sessionId,
+                  saved_count: seededCompanyIds.length,
+                  status: "in_progress",
+                  message: "Company seeded, enrichment in progress. Poll for status updates.",
+                  build_id: BUILD_STAMP,
+                }, 202);
               }
             }
           }

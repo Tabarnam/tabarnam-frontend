@@ -393,20 +393,44 @@ function buildHomeUrlCandidates(domain, websiteUrl) {
   return out;
 }
 
-async function fetchText(url, timeoutMs) {
+// User-agent rotation to avoid bot detection on websites that block automated requests
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+  "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+];
+
+function getRandomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+async function fetchText(url, timeoutMs, retryCount = 0) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    // Use browser-like user agent first, fall back to bot user agent on retry
+    const userAgent = retryCount === 0 ? USER_AGENTS[0] : getRandomUserAgent();
     const res = await fetch(url, {
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
-        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": userAgent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
       },
     });
     const text = await res.text();
     return { ok: res.ok, status: res.status, url: res.url, text };
+  } catch (e) {
+    // Retry once with a different user agent if first attempt fails
+    if (retryCount === 0) {
+      clearTimeout(timeout);
+      await sleep(500);
+      return fetchText(url, timeoutMs, retryCount + 1);
+    }
+    throw e;
   } finally {
     clearTimeout(timeout);
   }
@@ -442,12 +466,15 @@ async function fetchImageBufferWithRetries(
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      // Use browser-like user agent, rotating on retries to avoid bot detection
+      const userAgent = USER_AGENTS[attempt % USER_AGENTS.length];
       const res = await fetch(u, {
         redirect: "follow",
         signal: controller.signal,
         headers: {
-          Accept: "image/svg+xml,image/png,image/jpeg,*/*",
-          "User-Agent": "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+          Accept: "image/svg+xml,image/png,image/jpeg,image/webp,image/gif,*/*",
+          "User-Agent": userAgent,
+          "Accept-Language": "en-US,en;q=0.9",
         },
       });
 
@@ -604,13 +631,15 @@ async function headProbeImage(url, { timeoutMs = 6000 } = {}) {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    // Use browser-like user agent to avoid bot detection
     const res = await fetch(url, {
       method: "HEAD",
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        Accept: "image/svg+xml,image/png,image/jpeg,image/*,*/*",
-        "User-Agent": "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+        Accept: "image/svg+xml,image/png,image/jpeg,image/webp,image/*,*/*",
+        "User-Agent": USER_AGENTS[0],
+        "Accept-Language": "en-US,en;q=0.9",
       },
     });
 
