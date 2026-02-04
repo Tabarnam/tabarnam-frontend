@@ -548,7 +548,7 @@ async function handleImportOne(req, context) {
                   const invokeRes = await invokeResumeWorkerInProcess({
                     session_id: sessionId,
                     context,
-                    deadline_ms: 300000, // 5 minutes
+                    deadline_ms: 900000, // 15 minutes - allows all 7 fields to complete with thorough xAI research
                   });
                   console.log("[import-one] resume_worker_invoked", {
                     session_id: sessionId,

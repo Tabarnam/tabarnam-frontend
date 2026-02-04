@@ -7387,7 +7387,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     const invokeRes = await invokeResumeWorkerInProcess({
                       session_id: sessionId,
                       context,
-                      deadline_ms: 300000, // 5 minutes
+                      deadline_ms: 900000, // 15 minutes - allows all 7 fields to complete with thorough xAI research
                     });
                     console.log(`[import-start] company_url_seed_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
                     resumeEnqueue.invoked = Boolean(invokeRes?.ok);
@@ -9831,7 +9831,7 @@ Output JSON only:
                     const invokeRes = await invokeResumeWorkerInProcess({
                       session_id: sessionId,
                       context,
-                      deadline_ms: 300000, // 5 minutes
+                      deadline_ms: 900000, // 15 minutes - allows all 7 fields to complete with thorough xAI research
                     });
                     console.log(`[import-start] seed_complete_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
                   } catch (invokeErr) {
@@ -10730,7 +10730,7 @@ Return ONLY the JSON array, no other text.`,
                       const invokeRes = await invokeResumeWorkerInProcess({
                         session_id: sessionId,
                         context,
-                        deadline_ms: 300000, // 5 minutes
+                        deadline_ms: 900000, // 15 minutes - allows all 7 fields to complete with thorough xAI research
                       });
                       console.log(`[import-start] auto_enrich_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
                       resumeEnqueue.invoked = Boolean(invokeRes?.ok);
