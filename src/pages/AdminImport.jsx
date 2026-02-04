@@ -4235,6 +4235,16 @@ export default function AdminImport() {
                           const key = asString(f).trim();
                           if (key) missing.add(key);
                         }
+                        // Add logo status to issues if logo_url is missing
+                        const logoUrl = c?.logo_url;
+                        const logoStatus = asString(c?.logo_stage_status || c?.logo_status || "").toLowerCase();
+                        if (!logoUrl && !missing.has("logo")) {
+                          if (logoStatus === "not_found_on_site" || logoStatus === "not_found") {
+                            missing.add("logo (not found on site)");
+                          } else if (!logoStatus || logoStatus === "incomplete" || logoStatus === "deferred") {
+                            missing.add("logo");
+                          }
+                        }
                       }
                       return Array.from(missing);
                     })();
@@ -4595,6 +4605,16 @@ export default function AdminImport() {
                           for (const f of fields) {
                             const key = asString(f).trim();
                             if (key) missing.add(key);
+                          }
+                          // Add logo status to issues if logo_url is missing
+                          const logoUrl = c?.logo_url;
+                          const logoStatus = asString(c?.logo_stage_status || c?.logo_status || "").toLowerCase();
+                          if (!logoUrl && !missing.has("logo")) {
+                            if (logoStatus === "not_found_on_site" || logoStatus === "not_found") {
+                              missing.add("logo (not found on site)");
+                            } else if (!logoStatus || logoStatus === "incomplete" || logoStatus === "deferred") {
+                              missing.add("logo");
+                            }
                           }
                         }
                         return Array.from(missing);

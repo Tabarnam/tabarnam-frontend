@@ -14,6 +14,73 @@ const DEFAULT_REVIEW_EXCLUDE_DOMAINS = [
   "yelp.",
 ];
 
+// US state abbreviations for country inference from "City, ST" format
+const US_STATE_ABBREVIATIONS = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas",
+  CA: "California", CO: "Colorado", CT: "Connecticut", DE: "Delaware",
+  FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho",
+  IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas",
+  KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi",
+  MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada",
+  NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico", NY: "New York",
+  NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma",
+  OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah",
+  VT: "Vermont", VA: "Virginia", WA: "Washington", WV: "West Virginia",
+  WI: "Wisconsin", WY: "Wyoming", DC: "District of Columbia"
+};
+
+// Canadian province abbreviations
+const CA_PROVINCE_ABBREVIATIONS = {
+  AB: "Alberta", BC: "British Columbia", MB: "Manitoba", NB: "New Brunswick",
+  NL: "Newfoundland and Labrador", NS: "Nova Scotia", NT: "Northwest Territories",
+  NU: "Nunavut", ON: "Ontario", PE: "Prince Edward Island", QC: "Quebec",
+  SK: "Saskatchewan", YT: "Yukon"
+};
+
+/**
+ * Infer country from "City, ST" format where ST is a US state or Canadian province abbreviation.
+ * Returns null if the format doesn't match or the abbreviation is not recognized.
+ */
+function inferCountryFromStateAbbreviation(location) {
+  if (!location || typeof location !== "string") return null;
+  const trimmed = location.trim();
+
+  // Match "City, ST" pattern (2-letter state/province code)
+  const match = trimmed.match(/^(.+?),\s*([A-Z]{2})$/i);
+  if (!match) return null;
+
+  const [, city, stateCode] = match;
+  const codeUpper = stateCode.toUpperCase();
+
+  // Check US states first
+  if (US_STATE_ABBREVIATIONS[codeUpper]) {
+    return {
+      city: city.trim(),
+      state: US_STATE_ABBREVIATIONS[codeUpper],
+      state_code: codeUpper,
+      country: "United States",
+      country_code: "US",
+      formatted: `${city.trim()}, ${US_STATE_ABBREVIATIONS[codeUpper]}, United States`
+    };
+  }
+
+  // Check Canadian provinces
+  if (CA_PROVINCE_ABBREVIATIONS[codeUpper]) {
+    return {
+      city: city.trim(),
+      state: CA_PROVINCE_ABBREVIATIONS[codeUpper],
+      state_code: codeUpper,
+      country: "Canada",
+      country_code: "CA",
+      formatted: `${city.trim()}, ${CA_PROVINCE_ABBREVIATIONS[codeUpper]}, Canada`
+    };
+  }
+
+  return null;
+}
+
 function clampInt(value, { min, max, fallback }) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -223,6 +290,20 @@ function isYouTubeUrl(raw) {
   return host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be";
 }
 
+/**
+ * Check if two hosts belong to the same domain family (same root domain or subdomain relationship).
+ * Used to detect cross-domain redirects that likely indicate URL recycling or content migration.
+ */
+function areSameDomainFamily(host1, host2) {
+  const norm1 = normalizeHostForDedupe(host1);
+  const norm2 = normalizeHostForDedupe(host2);
+  if (!norm1 || !norm2) return false;
+  if (norm1 === norm2) return true;
+  // Check if one is a subdomain of the other
+  if (norm1.endsWith(`.${norm2}`) || norm2.endsWith(`.${norm1}`)) return true;
+  return false;
+}
+
 function parseHtmlMeta(html, { key, property } = {}) {
   const source = asString(html);
   if (!source) return null;
@@ -311,9 +392,26 @@ async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 12_000
       return { ok: false, url: attempted, status, reason: `http_${status}` };
     }
 
+    // Detect cross-domain redirects (e.g., thekitchn.com → apartmenttherapy.com)
+    // This catches URL recycling where old article IDs redirect to unrelated content on different sites
+    const finalUrl = res.url || attempted;
+    const originalHost = urlHost(attempted);
+    const finalHost = urlHost(finalUrl);
+    if (originalHost && finalHost && !areSameDomainFamily(originalHost, finalHost)) {
+      return {
+        ok: false,
+        url: attempted,
+        final_url: finalUrl,
+        status,
+        reason: "cross_domain_redirect",
+        original_host: originalHost,
+        final_host: finalHost,
+      };
+    }
+
     const ct = asString(res.headers?.get ? res.headers.get("content-type") : "").toLowerCase();
     const isHtml = ct.includes("text/html") || ct.includes("application/xhtml");
-    if (!isHtml) return { ok: true, url: attempted, status };
+    if (!isHtml) return { ok: true, url: attempted, status, final_url: finalUrl };
 
     const text = await res.text();
     const head = text.slice(0, soft404Bytes);
@@ -328,7 +426,7 @@ async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 12_000
 
     if (soft404) return { ok: false, url: attempted, status, reason: "soft_404" };
 
-    return { ok: true, url: attempted, status, html_preview: head };
+    return { ok: true, url: attempted, status, html_preview: head, final_url: finalUrl };
   } catch (e) {
     return { ok: false, url: attempted, status: 0, reason: asString(e?.message || e || "fetch_failed") };
   }
@@ -960,7 +1058,20 @@ Return:
     return valueOut;
   }
 
-  const valueOut = { headquarters_location: value, hq_status: "ok", source_urls, location_source_urls };
+  // Infer country from US state or Canadian province abbreviation (e.g., "Chicago, IL" → "Chicago, Illinois, United States")
+  const inferred = inferCountryFromStateAbbreviation(value);
+  const valueOut = {
+    headquarters_location: inferred ? inferred.formatted : value,
+    hq_status: "ok",
+    source_urls,
+    location_source_urls,
+    ...(inferred ? {
+      headquarters_city: inferred.city,
+      headquarters_state: inferred.state,
+      headquarters_country: inferred.country,
+      headquarters_country_code: inferred.country_code,
+    } : {}),
+  };
   if (cacheKey) writeStageCache(cacheKey, valueOut);
   return valueOut;
 }

@@ -574,6 +574,11 @@ async function getImageMetadata(buf, isSvg) {
 
 function isLikelyHeroDimensions({ width, height }) {
   if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+
+  // Square images (aspect ratio 0.8-1.25) are likely logos, not hero banners
+  const aspectRatio = width / height;
+  if (aspectRatio >= 0.8 && aspectRatio <= 1.25) return false;
+
   if (width >= 1600 && height >= 700) return true;
   if (width >= 1200 && height >= 600) return true;
   if (width >= 1000 && height >= 500) return true;
@@ -585,8 +590,11 @@ function isLikelyNonLogoByContentType(contentType, candidate) {
   const ct = String(contentType || "").toLowerCase();
   if (!ct) return false;
   if (ct.includes("image/jpeg") || ct.includes("image/jpg")) {
-    if (!candidate?.strong_signal) return true;
-    if (!hasAnyToken(candidate.url, ["logo", "wordmark", "logotype"])) return true;
+    if (candidate?.strong_signal) return false;
+    // Case-insensitive check for logo tokens in URL
+    const urlLower = String(candidate?.url || "").toLowerCase();
+    if (hasAnyToken(urlLower, ["logo", "wordmark", "logotype"])) return false;
+    return true;
   }
   return false;
 }
