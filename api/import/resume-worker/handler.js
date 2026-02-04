@@ -2595,6 +2595,10 @@ async function resumeWorkerHandler(req, context) {
       resume_last_backoff_ms: lastBackoffMs,
       // Also write to session doc for easier retrieval
       resume_worker_budget_debug: nextResumeDoc._budget_debug,
+      // Track which companies have been enriched - this fixes the admin UI "Persisted: 0, Verified: 0" issue
+      saved_company_ids_verified: plannedIds,
+      saved_verified_count: plannedIds.length,
+      saved_company_ids: plannedIds,
       ...(enqueueRes?.ok
         ? {
             resume_worker_last_enqueued_at: updatedAt,

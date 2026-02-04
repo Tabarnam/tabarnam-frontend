@@ -583,7 +583,7 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
 
     // Retry once for blogs if first attempt failed (but not soft-404)
     if (!verified.ok && c.category === "blog" && verified.reason !== "soft_404") {
-      await sleep(400);
+      await sleepMs(400);
       verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
     }
 
