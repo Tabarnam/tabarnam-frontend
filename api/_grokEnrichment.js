@@ -334,6 +334,122 @@ async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 12_000
   }
 }
 
+/**
+ * Extract YouTube video ID from various URL formats
+ */
+function extractYouTubeVideoId(url) {
+  if (!url) return null;
+  const str = String(url).trim();
+
+  // Handle youtu.be/VIDEO_ID
+  const shortMatch = str.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+  if (shortMatch) return shortMatch[1];
+
+  // Handle youtube.com/watch?v=VIDEO_ID
+  const watchMatch = str.match(/youtube\.com\/watch\?[^#]*v=([a-zA-Z0-9_-]{11})/);
+  if (watchMatch) return watchMatch[1];
+
+  // Handle youtube.com/embed/VIDEO_ID
+  const embedMatch = str.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/);
+  if (embedMatch) return embedMatch[1];
+
+  // Handle youtube.com/v/VIDEO_ID
+  const vMatch = str.match(/youtube\.com\/v\/([a-zA-Z0-9_-]{11})/);
+  if (vMatch) return vMatch[1];
+
+  return null;
+}
+
+/**
+ * Check if a YouTube video is actually available using oEmbed endpoint
+ * Returns { ok: true } if available, { ok: false, reason: "..." } if not
+ */
+async function verifyYouTubeVideoAvailable(url, { timeoutMs = 5000 } = {}) {
+  const videoId = extractYouTubeVideoId(url);
+  if (!videoId) {
+    return { ok: false, reason: "invalid_video_id" };
+  }
+
+  try {
+    // YouTube oEmbed endpoint returns 404 for unavailable videos
+    const oEmbedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+    const res = await fetchWithTimeout(oEmbedUrl, {
+      method: "GET",
+      timeoutMs,
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+
+    const status = Number(res.status || 0) || 0;
+
+    // 404 = video doesn't exist or is private
+    // 401 = embedding disabled (but video may exist)
+    if (status === 404) {
+      return { ok: false, reason: "video_not_found" };
+    }
+
+    if (status === 401) {
+      // Video exists but embedding is disabled - check if it's actually watchable
+      // by trying to get the watch page
+      try {
+        const watchRes = await fetchWithTimeout(`https://www.youtube.com/watch?v=${videoId}`, {
+          method: "GET",
+          timeoutMs,
+          headers: { "User-Agent": "Mozilla/5.0" },
+        });
+        const watchHtml = await watchRes.text().catch(() => "");
+        // Check for "Video unavailable" message
+        if (watchHtml.includes("Video unavailable") || watchHtml.includes("This video isn't available")) {
+          return { ok: false, reason: "video_unavailable" };
+        }
+        // Video exists, just embedding disabled
+        return { ok: true, video_id: videoId, embed_disabled: true };
+      } catch {
+        return { ok: false, reason: "video_check_failed" };
+      }
+    }
+
+    if (status >= 200 && status < 300) {
+      return { ok: true, video_id: videoId };
+    }
+
+    return { ok: false, reason: `youtube_oembed_http_${status}` };
+  } catch (e) {
+    return { ok: false, reason: asString(e?.message || e || "youtube_check_failed") };
+  }
+}
+
+/**
+ * Check if the fetched HTML content actually mentions the company name
+ * This helps filter out irrelevant blog posts
+ */
+function validateBlogContentRelevance(html, companyName) {
+  if (!html || !companyName) return { relevant: false, reason: "missing_inputs" };
+
+  const lowerHtml = html.toLowerCase();
+  const lowerName = companyName.toLowerCase().trim();
+
+  // Check for exact company name
+  if (lowerHtml.includes(lowerName)) {
+    return { relevant: true, match_type: "exact_name" };
+  }
+
+  // Check for company name without common suffixes (Co., Inc., LLC, etc.)
+  const strippedName = lowerName
+    .replace(/\s+(co\.?|inc\.?|llc\.?|ltd\.?|corp\.?|company|corporation)$/i, "")
+    .trim();
+  if (strippedName.length >= 3 && lowerHtml.includes(strippedName)) {
+    return { relevant: true, match_type: "stripped_name" };
+  }
+
+  // Check for first word of company name if it's distinctive (4+ chars)
+  const firstWord = lowerName.split(/\s+/)[0];
+  if (firstWord.length >= 4 && lowerHtml.includes(firstWord)) {
+    return { relevant: true, match_type: "first_word" };
+  }
+
+  return { relevant: false, reason: "company_not_mentioned" };
+}
+
 function buildReviewMetadataFromHtml(url, html) {
   const host = normalizeHostForDedupe(urlHost(url));
   const source_name = host ? host.replace(/^www\./, "") : "";
@@ -585,6 +701,27 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
     if (!verified.ok && c.category === "blog" && verified.reason !== "soft_404") {
       await sleepMs(400);
       verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
+    }
+
+    // YouTube-specific: Check if the video is actually available (not deleted/private)
+    if (verified.ok && c.category === "youtube") {
+      const ytCheck = await verifyYouTubeVideoAvailable(c.source_url, { timeoutMs: 5000 });
+      if (!ytCheck.ok) {
+        console.log(`[grokEnrichment] reviews: YouTube video unavailable: ${c.source_url} (${ytCheck.reason})`);
+        verified = { ok: false, reason: ytCheck.reason || "youtube_unavailable" };
+      }
+    }
+
+    // Blog-specific: Check if the page actually mentions the company name
+    if (verified.ok && c.category === "blog") {
+      const html = typeof verified.html_preview === "string" ? verified.html_preview : "";
+      if (html) {
+        const relevanceCheck = validateBlogContentRelevance(html, name);
+        if (!relevanceCheck.relevant) {
+          console.log(`[grokEnrichment] reviews: Blog doesn't mention company: ${c.source_url}`);
+          verified = { ok: false, reason: "company_not_mentioned" };
+        }
+      }
     }
 
     if (!verified.ok) {

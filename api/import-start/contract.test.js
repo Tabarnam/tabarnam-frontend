@@ -128,8 +128,8 @@ function makeFetchResponse({ status = 200, headers = {}, body = "" } = {}) {
 test("grokEnrichment.fetchCuratedReviews returns 3 verified reviews (2 YouTube + 1 blog) with no hallucinated metadata", async () => {
   const originalFetch = globalThis.fetch;
 
-  const youtube1 = "https://www.youtube.com/watch?v=abc123";
-  const youtube2 = "https://www.youtube.com/watch?v=def456";
+  const youtube1 = "https://www.youtube.com/watch?v=abc123XYZ99";
+  const youtube2 = "https://www.youtube.com/watch?v=def456ABC11";
   const blog1 = "https://reviews.example.com/widget-review";
   const blog2 = "https://mag.example.org/gadget";
   const soft404 = "https://bad.example.com/missing";
@@ -137,6 +137,20 @@ test("grokEnrichment.fetchCuratedReviews returns 3 verified reviews (2 YouTube +
   const fetchStub = async (url, init = {}) => {
     const method = String(init?.method || "GET").toUpperCase();
     if (method === "HEAD") return makeFetchResponse({ status: 405, headers: { "content-type": "text/html" } });
+
+    // YouTube oEmbed API check - return valid response for test video IDs
+    if (url.startsWith("https://www.youtube.com/oembed?url=")) {
+      const urlParam = new URL(url).searchParams.get("url");
+      if (urlParam && (urlParam.includes("abc123XYZ99") || urlParam.includes("def456ABC11"))) {
+        return makeFetchResponse({
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: "Test Video", author_name: "Test Channel" }),
+        });
+      }
+      // Unknown video IDs return 404 (video unavailable)
+      return makeFetchResponse({ status: 404, headers: { "content-type": "text/html" } });
+    }
 
     if (url === soft404) {
       return makeFetchResponse({
@@ -155,19 +169,21 @@ test("grokEnrichment.fetchCuratedReviews returns 3 verified reviews (2 YouTube +
     }
 
     if (url === blog1) {
+      // Include company name "Acme" in HTML to pass content relevance check
       return makeFetchResponse({
         status: 200,
         headers: { "content-type": "text/html" },
-        body: `<html><head><title>Blog Review</title><meta name=\"author\" content=\"Jane Doe\" /><meta property=\"article:published_time\" content=\"2024-01-01\" /><meta name=\"description\" content=\"Short excerpt\" /></head><body></body></html>`,
+        body: `<html><head><title>Acme Blog Review</title><meta name=\"author\" content=\"Jane Doe\" /><meta property=\"article:published_time\" content=\"2024-01-01\" /><meta name=\"description\" content=\"Short excerpt about Acme\" /></head><body>This is a review of Acme products.</body></html>`,
       });
     }
 
     if (url === blog2) {
       // Missing author/date on purpose: should come back as null (no hallucination).
+      // Include company name "Acme" in HTML to pass content relevance check
       return makeFetchResponse({
         status: 200,
         headers: { "content-type": "text/html" },
-        body: `<html><head><title>Magazine Review</title><meta name=\"description\" content=\"Another excerpt\" /></head><body></body></html>`,
+        body: `<html><head><title>Magazine Review</title><meta name=\"description\" content=\"Another excerpt\" /></head><body>A review featuring Acme gadgets.</body></html>`,
       });
     }
 

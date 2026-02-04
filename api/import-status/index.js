@@ -2709,6 +2709,17 @@ async function handler(req, context) {
                     }),
                 updated_at: nowIso(),
               }).catch(() => null);
+
+              // After resume-worker completes, refresh saved_company_ids from the updated session doc
+              // This fixes the timing race where the response would show stale zeros
+              if (triggerOk && Array.isArray(sessionDocAfter.saved_company_ids_verified) && sessionDocAfter.saved_company_ids_verified.length > 0) {
+                saved_company_ids_verified = sessionDocAfter.saved_company_ids_verified;
+                if (typeof sessionDocAfter.saved_verified_count === "number" && Number.isFinite(sessionDocAfter.saved_verified_count)) {
+                  saved_verified_count = sessionDocAfter.saved_verified_count;
+                } else {
+                  saved_verified_count = saved_company_ids_verified.length;
+                }
+              }
             }
           } catch {}
 
@@ -4755,6 +4766,17 @@ async function handler(req, context) {
                     }),
                 updated_at: nowIso(),
               }).catch(() => null);
+
+              // After resume-worker completes, refresh saved_company_ids from the updated session doc
+              // This fixes the timing race where the response would show stale zeros
+              if (triggerOk && Array.isArray(sessionDocAfter.saved_company_ids_verified) && sessionDocAfter.saved_company_ids_verified.length > 0) {
+                saved_company_ids_verified = sessionDocAfter.saved_company_ids_verified;
+                if (typeof sessionDocAfter.saved_verified_count === "number" && Number.isFinite(sessionDocAfter.saved_verified_count)) {
+                  saved_verified_count = sessionDocAfter.saved_verified_count;
+                } else {
+                  saved_verified_count = saved_company_ids_verified.length;
+                }
+              }
             }
           } catch {}
 
