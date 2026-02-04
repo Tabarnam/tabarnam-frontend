@@ -62,7 +62,8 @@ function inferCountryFromStateAbbreviation(location) {
       state_code: codeUpper,
       country: "United States",
       country_code: "US",
-      formatted: `${city.trim()}, ${US_STATE_ABBREVIATIONS[codeUpper]}, United States`
+      // Use abbreviation (MO) in formatted string for display, not full name (Missouri)
+      formatted: `${city.trim()}, ${codeUpper}, United States`
     };
   }
 
@@ -74,7 +75,8 @@ function inferCountryFromStateAbbreviation(location) {
       state_code: codeUpper,
       country: "Canada",
       country_code: "CA",
-      formatted: `${city.trim()}, ${CA_PROVINCE_ABBREVIATIONS[codeUpper]}, Canada`
+      // Use abbreviation (ON) in formatted string for display, not full name (Ontario)
+      formatted: `${city.trim()}, ${codeUpper}, Canada`
     };
   }
 
@@ -879,6 +881,11 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
     if (!hasOneBlog) reasonParts.push("missing_blog_review");
     if (curated_reviews.length < 3) reasonParts.push("insufficient_verified_reviews");
 
+    // Mark as exhausted after good-faith attempt: tried 5+ URLs, or have 1+ verified and tried 3+ URLs
+    // This prevents infinite retries when XAI returns mostly invalid YouTube videos
+    const isExhausted = attempted_urls.length >= 5 ||
+      (curated_reviews.length > 0 && attempted_urls.length >= 3);
+
     const value = {
       curated_reviews,
       reviews_stage_status: "incomplete",
@@ -889,6 +896,7 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
         verified_count: curated_reviews.length,
         youtube_verified: verified_youtube.length,
         blog_verified: verified_blog.length,
+        exhausted: isExhausted,
       },
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,

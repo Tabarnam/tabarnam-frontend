@@ -38,6 +38,8 @@ const { enqueueResumeRun } = require("../../_enrichmentQueue");
 
 const { importCompanyLogo } = require("../../_logoImport");
 
+const { geocodeLocationString } = require("../../_geocode");
+
 const HANDLER_ID = "import-resume-worker";
 
 const BUILD_INFO = (() => {
@@ -2145,6 +2147,38 @@ async function resumeWorkerHandler(req, context) {
               doc.headquarters_location = value;
               doc.hq_unknown = false;
               doc.import_missing_reason.headquarters_location = "ok";
+
+              // Copy structured fields if available (city, state, country from inference)
+              if (r?.headquarters_city) doc.headquarters_city = r.headquarters_city;
+              if (r?.headquarters_state) doc.headquarters_state = r.headquarters_state;
+              if (r?.headquarters_country) doc.headquarters_country = r.headquarters_country;
+              if (r?.headquarters_country_code) doc.headquarters_country_code = r.headquarters_country_code;
+
+              // Also populate headquarters_locations array for admin compatibility
+              if (r?.headquarters_city || r?.headquarters_country) {
+                doc.headquarters_locations = [{
+                  city: r?.headquarters_city || value,
+                  state: r?.headquarters_state || "",
+                  state_code: r?.headquarters_state_code || "",
+                  country: r?.headquarters_country || "",
+                  country_code: r?.headquarters_country_code || "",
+                }];
+              }
+
+              // Geocode the HQ location to get lat/lng for distance calculations
+              if (!doc.hq_lat || !doc.hq_lng) {
+                try {
+                  const coords = await geocodeLocationString(value, { timeoutMs: 5000 });
+                  if (coords?.lat && coords?.lng) {
+                    doc.hq_lat = coords.lat;
+                    doc.hq_lng = coords.lng;
+                    console.log(`[resume-worker] geocoded HQ: ${value} → (${coords.lat}, ${coords.lng})`);
+                  }
+                } catch (geoErr) {
+                  console.log(`[resume-worker] geocode failed for HQ: ${value}`, { error: geoErr?.message || String(geoErr) });
+                }
+              }
+
               markFieldSuccess(doc, "headquarters_location");
               fieldProgress.status = "ok";
               savedFieldsThisRun.push("headquarters_location");
@@ -2306,7 +2340,9 @@ async function resumeWorkerHandler(req, context) {
               fieldProgress.status = "ok";
               savedFieldsThisRun.push("reviews");
             } else {
-              const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
+              // Mark as terminal if: max attempts reached OR diagnostics says exhausted (good-faith attempt made)
+              const diagnosticsExhausted = Boolean(r?.diagnostics?.exhausted);
+              const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS || diagnosticsExhausted;
               if (curated.length > 0) {
                 doc.curated_reviews = curated.slice(0, 10);
                 doc.review_count = curated.length;
@@ -2332,6 +2368,12 @@ async function resumeWorkerHandler(req, context) {
                     upstream_http_status,
                   }
                 : null;
+
+              // Set exhausted flag on review_cursor when diagnostics indicates exhausted
+              if (diagnosticsExhausted) {
+                doc.review_cursor.exhausted = true;
+                doc.review_cursor.exhausted_at = nowIso();
+              }
 
               fieldProgress.status = terminal ? "terminal" : "retryable";
               fieldProgress.last_error = upstreamFailure ? status : "incomplete";
