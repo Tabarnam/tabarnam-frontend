@@ -1707,6 +1707,7 @@ async function resumeWorkerHandler(req, context) {
       "manufacturing_locations",
       "industries",
       "product_keywords",
+      "logo",       // Added before reviews - lighter field that should run before heavy reviews
       "reviews",
     ];
 
@@ -1719,6 +1720,7 @@ async function resumeWorkerHandler(req, context) {
       manufacturing_locations: 25_000,  // 25 seconds min (location field)
       industries: 20_000,               // 20 seconds min (light field)
       product_keywords: 35_000,         // 35 seconds min (keywords field)
+      logo: 15_000,                     // 15 seconds min (logo discovery + download)
       reviews: 65_000,                  // 65 seconds min (reviews - multi-step)
     };
 
@@ -1980,6 +1982,24 @@ async function resumeWorkerHandler(req, context) {
           if (field === "manufacturing_locations") r = await fetchManufacturingLocations(grokArgsForField);
           if (field === "industries") r = await fetchIndustries(grokArgsForField);
           if (field === "product_keywords") r = await fetchProductKeywords(grokArgsForField);
+          if (field === "logo") {
+            // Logo fetch - uses importCompanyLogo utility
+            const logoBudgetMs = Math.min(15000, grokArgsForField?.budgetMs || 15000);
+            console.log(`[resume-worker] logo fetch: budgetMs=${logoBudgetMs}, companyId=${companyId}`);
+            const logoResult = await importCompanyLogo({
+              companyId: doc.id,
+              domain: normalizedDomain,
+              websiteUrl: doc.website_url || doc.url,
+              companyName: companyName,
+              logoSourceUrl: null,
+            }, console, { budgetMs: logoBudgetMs });
+            r = {
+              logo_url: logoResult?.logo_url || "",
+              logo_status: logoResult?.logo_url ? "ok" : (logoResult?.logo_stage_status || "not_found"),
+              diagnostics: { logo_source_type: logoResult?.logo_source_type || null },
+            };
+            console.log(`[resume-worker] logo result: status=${r?.logo_status}, url=${r?.logo_url || "(none)"}`);
+          }
           if (field === "reviews") {
             console.log(`[resume-worker] reviews budget: freshSeedBudgetMs=${freshSeedBudgetMs}, grokArgsForField.budgetMs=${grokArgsForField?.budgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}`);
             r = await fetchCuratedReviews(grokArgsForField);
@@ -1996,6 +2016,7 @@ async function resumeWorkerHandler(req, context) {
         else if (field === "manufacturing_locations") status = normalizeKey(r?.mfg_status || r?._failure || "");
         else if (field === "industries") status = normalizeKey(r?.industries_status || r?._failure || "");
         else if (field === "product_keywords") status = normalizeKey(r?.keywords_status || r?._failure || "");
+        else if (field === "logo") status = normalizeKey(r?.logo_status || r?._failure || "");
         else if (field === "reviews") status = normalizeKey(r?.reviews_stage_status || r?._failure || "");
 
         upstream_http_status = r?.diagnostics?.upstream_http_status ?? r?.diagnostics?.upstream_status ?? null;
@@ -2218,6 +2239,29 @@ async function resumeWorkerHandler(req, context) {
               fieldProgress.status = terminal ? "terminal" : "retryable";
               fieldProgress.last_error = status || "not_found";
               if (terminal) terminalizeNonGrokField(doc, "product_keywords", "not_found_terminal");
+            }
+          }
+
+          if (field === "logo") {
+            bumpFieldAttempt(doc, "logo", requestId);
+            const logoUrl = typeof r?.logo_url === "string" ? r.logo_url.trim() : "";
+            if (status === "ok" && logoUrl) {
+              doc.logo_url = logoUrl;
+              doc.logo_source_url = r?.logo_source_url || null;
+              doc.logo_source_type = r?.diagnostics?.logo_source_type || "discovered";
+              doc.logo_stage_status = "ok";
+              doc.import_missing_reason.logo = "ok";
+              markFieldSuccess(doc, "logo");
+              fieldProgress.status = "ok";
+              savedFieldsThisRun.push("logo");
+            } else {
+              const terminal = attemptsFor(doc, "logo") >= MAX_ATTEMPTS_LOGO;
+              doc.logo_url = "";
+              doc.logo_stage_status = terminal ? "not_found_terminal" : status || "not_found";
+              doc.import_missing_reason.logo = terminal ? "not_found_terminal" : status || "not_found";
+              fieldProgress.status = terminal ? "terminal" : "retryable";
+              fieldProgress.last_error = status || "not_found";
+              if (terminal) terminalizeNonGrokField(doc, "logo", "not_found_terminal");
             }
           }
 
