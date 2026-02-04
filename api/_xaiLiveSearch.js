@@ -79,6 +79,21 @@ function isTimeoutLikeMessage(message) {
   return /\b(canceled|cancelled|timeout|timed out|abort|aborted)\b/i.test(m);
 }
 
+// Hard timeout wrapper to prevent indefinite hangs when AbortController doesn't trigger
+// This is a safety net for cases where the upstream connection hangs without the abort signal firing
+function withHardTimeout(promise, ms, label = "operation") {
+  const timeoutMs = Math.max(1000, Math.trunc(Number(ms) || 60000));
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Hard timeout (${timeoutMs}ms) exceeded for ${label}`));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
 function extractTextFromXaiResponse(resp) {
   const r = resp && typeof resp === "object" ? resp : {};
 
@@ -270,12 +285,18 @@ async function xaiLiveSearch({
         headers.Authorization = `Bearer ${key}`;
       }
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
+      // Wrap fetch with hard timeout as safety net for cases where AbortController doesn't fire
+      const hardTimeoutMs = timeoutUsedMs + 5000; // 5 seconds longer than soft timeout
+      const res = await withHardTimeout(
+        fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        }),
+        hardTimeoutMs,
+        "xAI fetch"
+      );
 
       const text = await res.text();
       const json = (() => {
@@ -329,12 +350,18 @@ async function xaiLiveSearch({
       headers.Authorization = `Bearer ${key}`;
     }
 
-    const resp = await axios.post(url, payload, {
-      headers,
-      signal: controller.signal,
-      timeout: timeoutUsedMs,
-      validateStatus: () => true,
-    });
+    // Wrap axios with hard timeout as safety net
+    const hardTimeoutMs = timeoutUsedMs + 5000;
+    const resp = await withHardTimeout(
+      axios.post(url, payload, {
+        headers,
+        signal: controller.signal,
+        timeout: timeoutUsedMs,
+        validateStatus: () => true,
+      }),
+      hardTimeoutMs,
+      "xAI axios"
+    );
 
     const status = Number(resp?.status || 0) || 0;
     const upstreamRequestId = pickUpstreamRequestId(resp?.headers);

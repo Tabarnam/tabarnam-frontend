@@ -1827,8 +1827,24 @@ async function resumeWorkerHandler(req, context) {
       } catch {}
     };
 
+    // Hard timeout guard: leave 1 min buffer before Azure Function timeout (10 min max)
+    const HANDLER_HARD_TIMEOUT_MS = 9 * 60 * 1000; // 9 minutes
+    const handlerStartedAt = startedAtMs;
+
     for (const entry of plannedByCompany) {
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
+
+      // Hard timeout check: exit loop before Azure Function timeout kills us
+      const handlerElapsed = Date.now() - handlerStartedAt;
+      if (handlerElapsed > HANDLER_HARD_TIMEOUT_MS) {
+        console.log(`[resume-worker] hard_timeout_reached`, {
+          session_id: sessionId,
+          elapsed_ms: handlerElapsed,
+          hard_timeout_ms: HANDLER_HARD_TIMEOUT_MS,
+          companies_remaining: plannedByCompany.length - plannedByCompany.indexOf(entry),
+        });
+        break; // Exit enrichment loop gracefully, let next invocation continue
+      }
 
       // Write heartbeat to session doc periodically to signal progress
       await maybeWriteHeartbeat();
@@ -1947,6 +1963,16 @@ async function resumeWorkerHandler(req, context) {
         let r = null;
         let status = "";
         let upstream_http_status = null;
+        const fieldFetchStartMs = Date.now();
+
+        // Log before starting field fetch to track hangs
+        console.log(`[resume-worker] field_fetch_start`, {
+          session_id: sessionId,
+          company_id: companyId,
+          field,
+          budget_ms: grokArgsForField?.budgetMs,
+          cycle_count: cycleCount,
+        });
 
         try {
           if (field === "tagline") r = await fetchTagline(grokArgsForField);
@@ -1973,6 +1999,16 @@ async function resumeWorkerHandler(req, context) {
         else if (field === "reviews") status = normalizeKey(r?.reviews_stage_status || r?._failure || "");
 
         upstream_http_status = r?.diagnostics?.upstream_http_status ?? r?.diagnostics?.upstream_status ?? null;
+
+        // Log after field fetch completes (success or failure)
+        console.log(`[resume-worker] field_fetch_end`, {
+          session_id: sessionId,
+          company_id: companyId,
+          field,
+          status: status || r?._failure || "unknown",
+          elapsed_ms: Date.now() - fieldFetchStartMs,
+          upstream_http_status,
+        });
 
         fieldProgress.xai_diag = {
           xai_request_id:
