@@ -39,6 +39,14 @@ const CA_PROVINCE_ABBREVIATIONS = {
   SK: "Saskatchewan", YT: "Yukon"
 };
 
+// Reverse lookup: full name → abbreviation (for normalizing "Texas" → "TX")
+const US_STATE_NAME_TO_ABBREV = Object.fromEntries(
+  Object.entries(US_STATE_ABBREVIATIONS).map(([abbr, full]) => [full.toLowerCase(), abbr])
+);
+const CA_PROVINCE_NAME_TO_ABBREV = Object.fromEntries(
+  Object.entries(CA_PROVINCE_ABBREVIATIONS).map(([abbr, full]) => [full.toLowerCase(), abbr])
+);
+
 /**
  * Infer country from "City, ST" format where ST is a US state or Canadian province abbreviation.
  * Returns null if the format doesn't match or the abbreviation is not recognized.
@@ -81,6 +89,40 @@ function inferCountryFromStateAbbreviation(location) {
   }
 
   return null;
+}
+
+/**
+ * Normalize a location string to use state/province abbreviations.
+ * Converts "Austin, Texas" → "Austin, TX" and "Toronto, Ontario" → "Toronto, ON".
+ * Returns the original string if no state/province is recognized.
+ */
+function normalizeLocationWithStateAbbrev(location) {
+  if (!location || typeof location !== "string") return location;
+  const trimmed = location.trim();
+
+  // Already in abbreviated format (City, ST) - validate and return normalized
+  const abbrevMatch = trimmed.match(/^(.+?),\s*([A-Z]{2})$/i);
+  if (abbrevMatch) {
+    const codeUpper = abbrevMatch[2].toUpperCase();
+    if (US_STATE_ABBREVIATIONS[codeUpper] || CA_PROVINCE_ABBREVIATIONS[codeUpper]) {
+      return `${abbrevMatch[1].trim()}, ${codeUpper}`;
+    }
+  }
+
+  // Try to match "City, StateName" or "City, StateName, Country"
+  const fullMatch = trimmed.match(/^(.+?),\s*([A-Za-z\s]+?)(?:,\s*(.+))?$/);
+  if (fullMatch) {
+    const [, city, potentialState, country] = fullMatch;
+    const stateNorm = potentialState.trim().toLowerCase();
+    const abbrev = US_STATE_NAME_TO_ABBREV[stateNorm] || CA_PROVINCE_NAME_TO_ABBREV[stateNorm];
+    if (abbrev) {
+      return country
+        ? `${city.trim()}, ${abbrev}, ${country.trim()}`
+        : `${city.trim()}, ${abbrev}`;
+    }
+  }
+
+  return trimmed;
 }
 
 function clampInt(value, { min, max, fallback }) {
@@ -1066,7 +1108,7 @@ Return:
     return valueOut;
   }
 
-  // Infer country from US state or Canadian province abbreviation (e.g., "Chicago, IL" → "Chicago, Illinois, United States")
+  // Infer country from US state or Canadian province abbreviation (e.g., "Chicago, IL" → "Chicago, IL, United States")
   const inferred = inferCountryFromStateAbbreviation(value);
   const valueOut = {
     headquarters_location: inferred ? inferred.formatted : value,
@@ -1075,7 +1117,8 @@ Return:
     location_source_urls,
     ...(inferred ? {
       headquarters_city: inferred.city,
-      headquarters_state: inferred.state,
+      headquarters_state: inferred.state_code,       // Use abbreviation (TX, not Texas)
+      headquarters_state_code: inferred.state_code,  // Explicit abbreviation field
       headquarters_country: inferred.country,
       headquarters_country_code: inferred.country_code,
     } : {}),
@@ -1212,7 +1255,10 @@ Return:
   const location_source_urls = { mfg_source_urls: source_urls };
 
   const arr = Array.isArray(out?.manufacturing_locations) ? out.manufacturing_locations : [];
-  const cleaned = arr.map((x) => asString(x).trim()).filter(Boolean);
+  const cleaned = arr
+    .map((x) => asString(x).trim())
+    .filter(Boolean)
+    .map(normalizeLocationWithStateAbbrev);  // Normalize state names to abbreviations
 
   if (cleaned.length === 0) {
     const valueOut = { manufacturing_locations: [], mfg_status: "not_found", source_urls, location_source_urls };
@@ -1660,4 +1706,7 @@ module.exports = {
   fetchTagline,
   fetchIndustries,
   fetchProductKeywords,
+  // Helpers for location normalization
+  normalizeLocationWithStateAbbrev,
+  inferCountryFromStateAbbreviation,
 };

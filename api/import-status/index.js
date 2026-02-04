@@ -3117,6 +3117,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];
@@ -5118,6 +5121,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];
@@ -5371,6 +5377,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];
@@ -5605,6 +5614,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];
@@ -5925,6 +5937,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];

@@ -1806,6 +1806,10 @@ async function resumeWorkerHandler(req, context) {
     let lastFieldAttemptedThisRun = null;
     let lastFieldResultThisRun = null;
 
+    // Current enrichment tracking - exposed to UI for real-time status
+    let currentEnrichmentField = null;
+    let currentEnrichmentCompanyName = null;
+
     // Heartbeat tracking - update session doc periodically during long enrichment loops
     let lastHeartbeatWrite = Date.now();
     const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
@@ -1820,11 +1824,13 @@ async function resumeWorkerHandler(req, context) {
             sessionId,
             patch: {
               resume_worker_heartbeat_at: nowIsoStr,
+              resume_worker_current_field: currentEnrichmentField || null,
+              resume_worker_current_company: currentEnrichmentCompanyName || null,
               updated_at: nowIsoStr,
             },
           }).catch(() => null);
           lastHeartbeatWrite = now;
-          console.log(`[resume-worker] heartbeat written at ${nowIsoStr}`);
+          console.log(`[resume-worker] heartbeat written at ${nowIsoStr} (field=${currentEnrichmentField || "none"})`);
         } catch (err) {
           console.warn(`[resume-worker] heartbeat write failed: ${err?.message || err}`);
         }
@@ -1988,6 +1994,10 @@ async function resumeWorkerHandler(req, context) {
         let upstream_http_status = null;
         const fieldFetchStartMs = Date.now();
 
+        // Track current enrichment for real-time UI status
+        currentEnrichmentField = field;
+        currentEnrichmentCompanyName = doc?.company_name || companyId;
+
         // Log before starting field fetch to track hangs
         console.log(`[resume-worker] field_fetch_start`, {
           session_id: sessionId,
@@ -2051,6 +2061,9 @@ async function resumeWorkerHandler(req, context) {
           elapsed_ms: Date.now() - fieldFetchStartMs,
           upstream_http_status,
         });
+
+        // Clear current enrichment field after fetch completes
+        currentEnrichmentField = null;
 
         fieldProgress.xai_diag = {
           xai_request_id:
@@ -2158,8 +2171,8 @@ async function resumeWorkerHandler(req, context) {
               if (r?.headquarters_city || r?.headquarters_country) {
                 doc.headquarters_locations = [{
                   city: r?.headquarters_city || value,
-                  state: r?.headquarters_state || "",
-                  state_code: r?.headquarters_state_code || "",
+                  state: r?.headquarters_state || "",                                    // Now contains abbreviation (TX)
+                  state_code: r?.headquarters_state_code || r?.headquarters_state || "", // Fallback to state if state_code missing
                   country: r?.headquarters_country || "",
                   country_code: r?.headquarters_country_code || "",
                 }];

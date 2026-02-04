@@ -354,6 +354,17 @@ const IMPORT_ERROR_CODE_TO_REASON = Object.freeze({
   stalled_worker: "Import worker stalled (heartbeat stale)",
 });
 
+// Enrichment field display labels for real-time status
+const ENRICH_FIELD_TO_DISPLAY = Object.freeze({
+  tagline: "Fetching tagline",
+  headquarters_location: "Finding headquarters",
+  manufacturing_locations: "Finding manufacturing locations",
+  industries: "Analyzing industries",
+  product_keywords: "Extracting keywords",
+  logo: "Finding logo",
+  reviews: "Searching for reviews",
+});
+
 function humanizeImportCode(raw) {
   const input = asString(raw).trim();
   if (!input) return "";
@@ -2677,14 +2688,30 @@ export default function AdminImport() {
       if (!res.ok) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Stop failed (${res.status})`);
         toast.error(msg);
-      } else {
-        toast.success("Stop signal sent");
+        setActiveStatus("running"); // Revert if stop failed
+        return;
       }
+
+      toast.success("Stop signal sent");
+
+      // Mark the run as stopped and update UI
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.session_id === activeSessionId
+            ? { ...r, stopped: true, progress_notice: "Import stopped by user" }
+            : r
+        )
+      );
+
+      // Brief delay to show "Stopping..." state, then set to idle
+      setTimeout(() => {
+        stopPolling();
+        setActiveStatus("idle");
+      }, 1500);
+
     } catch (e) {
       toast.error(toErrorString(e) || "Stop failed");
-    } finally {
-      stopPolling();
-      setActiveStatus("idle");
+      setActiveStatus("running"); // Revert on error
     }
   }, [activeSessionId, stopPolling]);
 
@@ -3317,8 +3344,8 @@ export default function AdminImport() {
             <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
           </header>
 
-          {/* Live status indicator */}
-          {activeRun && !activeRun.completed && !activeRun.stopped && !activeRun.timedOut && activeStatus !== "idle" ? (
+          {/* Live status indicator - keep visible during enrichment even after company is created */}
+          {activeRun && activeStatus !== "idle" && (activeStatus === "running" || activeStatus === "stopping" || activeRun.resume_needed || (!activeRun.completed && !activeRun.stopped && !activeRun.timedOut)) ? (
             <div className="rounded-lg border border-blue-300 bg-blue-50 p-4 flex items-center gap-4">
               <div className="relative flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
@@ -3591,12 +3618,23 @@ export default function AdminImport() {
               <Button
                 type="button"
                 variant="outline"
-                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                className={`border-red-600 text-red-600 hover:bg-red-600 hover:text-white ${
+                  activeStatus === "stopping" ? "opacity-70" : ""
+                }`}
                 onClick={stopImport}
-                disabled={!activeSessionId || !activeRun?.session_id_confirmed || activeStatus !== "running"}
+                disabled={!activeSessionId || !activeRun?.session_id_confirmed || (activeStatus !== "running" && activeStatus !== "stopping" && !activeRun?.resume_needed)}
               >
-                <Square className="h-4 w-4 mr-2" />
-                Stop
+                {activeStatus === "stopping" ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Stopping...
+                  </>
+                ) : (
+                  <>
+                    <Square className="h-4 w-4 mr-2" />
+                    Stop
+                  </>
+                )}
               </Button>
 
               {canSaveActive ? (
@@ -3855,6 +3893,19 @@ export default function AdminImport() {
 
             {activeRun?.progress_notice ? (
               <div className="rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">{toDisplayText(activeRun.progress_notice)}</div>
+            ) : null}
+
+            {/* Current enrichment field indicator for real-time status */}
+            {activeRun?.resume_worker?.current_field && activeStatus === "running" ? (
+              <div className="flex items-center gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>
+                  {ENRICH_FIELD_TO_DISPLAY[activeRun.resume_worker.current_field] || `Enriching: ${activeRun.resume_worker.current_field}`}
+                  {activeRun.resume_worker.current_company ? (
+                    <span className="font-medium"> for {activeRun.resume_worker.current_company}</span>
+                  ) : null}
+                </span>
+              </div>
             ) : null}
 
             {activeRun?.progress_error ? (
