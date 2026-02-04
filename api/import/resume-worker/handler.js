@@ -808,7 +808,9 @@ async function upsertDoc(container, doc) {
   const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
 
   let lastErr = null;
+  let attemptCount = 0;
   for (const partitionKeyValue of candidates) {
+    attemptCount++;
     try {
       if (partitionKeyValue !== undefined) {
         await container.items.upsert(doc, { partitionKey: partitionKeyValue });
@@ -818,8 +820,25 @@ async function upsertDoc(container, doc) {
       return { ok: true };
     } catch (e) {
       lastErr = e;
+      // Log each failed attempt for debugging
+      console.log(`[resume-worker] upsertDoc_attempt_failed`, {
+        doc_id: id,
+        attempt: attemptCount,
+        partition_key: partitionKeyValue,
+        error: e?.message || String(e),
+        code: e?.code,
+      });
     }
   }
+
+  // Log final failure
+  console.error(`[resume-worker] upsertDoc_all_attempts_failed`, {
+    doc_id: id,
+    attempts: attemptCount,
+    candidates_count: candidates.length,
+    final_error: lastErr?.message || String(lastErr || "upsert_failed"),
+    error_code: lastErr?.code,
+  });
 
   return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
 }
@@ -2323,7 +2342,33 @@ async function resumeWorkerHandler(req, context) {
           doc.import_missing_fields = computeMissingFields(doc);
           doc.updated_at = nowIso();
 
-          await upsertDoc(container, doc).catch(() => null);
+          // Log and handle upsert result - don't silently swallow errors
+          const upsertResult = await upsertDoc(container, doc).catch((err) => {
+            console.error(`[resume-worker] upsert_exception`, {
+              session_id: sessionId,
+              company_id: companyId,
+              field,
+              error: String(err?.message || err),
+            });
+            return { ok: false, error: String(err?.message || err) };
+          });
+
+          if (!upsertResult?.ok) {
+            console.error(`[resume-worker] upsert_failed`, {
+              session_id: sessionId,
+              company_id: companyId,
+              field,
+              error: upsertResult?.error || "unknown_upsert_error",
+            });
+          } else {
+            console.log(`[resume-worker] upsert_success`, {
+              session_id: sessionId,
+              company_id: companyId,
+              field,
+              status,
+            });
+          }
+
           if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
         } catch (e) {
           fieldProgress.status = "retryable";
