@@ -477,17 +477,70 @@ async function fetchImageBufferWithRetries(
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || "fetch failed"));
 }
 
+/**
+ * Parse SVG viewBox or explicit width/height attributes to extract dimensions.
+ * Fallback for when sharp library fails to extract SVG metadata.
+ */
+function parseSvgViewBoxDimensions(buf) {
+  try {
+    const svgText = buf.toString("utf8").slice(0, 4000);
+
+    // Try viewBox first: viewBox="0 0 width height" or viewBox="minX minY width height"
+    const viewBoxMatch = svgText.match(/viewBox=["']([^"']+)["']/i);
+    if (viewBoxMatch) {
+      const parts = viewBoxMatch[1].trim().split(/[\s,]+/).map(Number);
+      if (parts.length >= 4) {
+        const [, , w, h] = parts;
+        if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+          return { width: Math.round(w), height: Math.round(h) };
+        }
+      }
+    }
+
+    // Try explicit width/height attributes (may have units like "px" - extract number only)
+    const widthMatch = svgText.match(/\bwidth=["']([0-9.]+)/i);
+    const heightMatch = svgText.match(/\bheight=["']([0-9.]+)/i);
+    if (widthMatch && heightMatch) {
+      const w = parseFloat(widthMatch[1]);
+      const h = parseFloat(heightMatch[1]);
+      if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+        return { width: Math.round(w), height: Math.round(h) };
+      }
+    }
+
+    return { width: null, height: null };
+  } catch {
+    return { width: null, height: null };
+  }
+}
+
 async function getImageMetadata(buf, isSvg) {
   if (!sharp) {
-    // Sharp unavailable - cannot extract metadata
+    // Sharp unavailable - try SVG viewBox fallback
+    if (isSvg && buf) {
+      const dims = parseSvgViewBoxDimensions(buf);
+      if (dims.width && dims.height) return dims;
+    }
     return { width: null, height: null };
   }
   try {
     const meta = await sharp(buf, isSvg ? { density: 200 } : undefined).metadata();
-    const width = Number.isFinite(meta?.width) ? meta.width : null;
-    const height = Number.isFinite(meta?.height) ? meta.height : null;
+    let width = Number.isFinite(meta?.width) ? meta.width : null;
+    let height = Number.isFinite(meta?.height) ? meta.height : null;
+
+    // SVG viewBox fallback when sharp returns null dimensions
+    if (isSvg && (!width || !height) && buf) {
+      const fallback = parseSvgViewBoxDimensions(buf);
+      width = width || fallback.width;
+      height = height || fallback.height;
+    }
+
     return { width, height };
   } catch {
+    // On error, try SVG viewBox fallback
+    if (isSvg && buf) {
+      return parseSvgViewBoxDimensions(buf);
+    }
     return { width: null, height: null };
   }
 }
@@ -648,9 +701,22 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
     if (isSvg) {
       if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
 
-      const { width, height } = await getImageMetadata(buf, true);
+      let { width, height } = await getImageMetadata(buf, true);
+
+      // For high-confidence SVG sources, assume reasonable dimensions if extraction failed
+      // Header logos with high scores are almost always valid logos
+      const isHighConfidence = candidate?.strong_signal ||
+        (candidate?.source === "header" && (candidate?.score || 0) > 400) ||
+        (sourceUrl && sourceUrl.toLowerCase().includes("/logo"));
+
       if (!Number.isFinite(width) || !Number.isFinite(height)) {
-        return { ok: false, reason: "unknown_svg_dimensions" };
+        if (isHighConfidence) {
+          // Default to reasonable logo dimensions for trusted sources
+          width = width || 200;
+          height = height || 80;
+        } else {
+          return { ok: false, reason: "unknown_svg_dimensions" };
+        }
       }
       if (width < 64 || height < 64) {
         return { ok: false, reason: `too_small_dimensions_${width}x${height}` };

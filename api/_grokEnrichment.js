@@ -275,6 +275,14 @@ async function fetchWithTimeout(url, { method = "GET", timeoutMs = 8000, headers
   }
 }
 
+// Known trusted magazine/blog domains that may have complex pages triggering false soft-404
+const TRUSTED_BLOG_DOMAINS = [
+  "allure.com", "byrdie.com", "vogue.com", "refinery29.com", "harpersbazaar.com",
+  "elle.com", "cosmopolitan.com", "glamour.com", "instyle.com", "marieclaire.com",
+  "wmagazine.com", "nylon.com", "bustle.com", "thecut.com", "teenvogue.com",
+  "popsugar.com", "who what wear", "coveteur.com", "mindbodygreen.com",
+];
+
 async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 12_000 } = {}) {
   const attempted = safeUrl(url);
   if (!attempted) return { ok: false, url: attempted, status: 0, reason: "empty_url" };
@@ -309,9 +317,13 @@ async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 12_000
     const text = await res.text();
     const head = text.slice(0, soft404Bytes);
     const title = parseHtmlTitle(head);
+
+    // Skip soft-404 detection for trusted blog domains (they often have complex pages)
+    const isTrustedBlog = TRUSTED_BLOG_DOMAINS.some((d) => attempted.toLowerCase().includes(d));
     const soft404 =
-      (title && /\b(404|not found|page not found)\b/i.test(title)) ||
-      /\b(404|page not found|sorry, we can\s*'t find)\b/i.test(head);
+      !isTrustedBlog &&
+      ((title && /\b(404|not found|page not found)\b/i.test(title)) ||
+        /\b(404|page not found|sorry, we can\s*'t find)\b/i.test(head));
 
     if (soft404) return { ok: false, url: attempted, status, reason: "soft_404" };
 
@@ -535,7 +547,12 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
   const verified_blog = [];
   const usedBlogHosts = new Set();
 
-  const perUrlTimeoutMs = clampInt(remaining / 6, { min: 2500, max: 9000, fallback: 8000 });
+  // Use longer timeout for blogs (magazines often slower than YouTube)
+  const youtubeTimeoutMs = clampInt(remaining / 8, { min: 2500, max: 8000, fallback: 6000 });
+  const blogTimeoutMs = clampInt(remaining / 5, { min: 4000, max: 12000, fallback: 10000 });
+
+  // Track unverified blog candidates for fallback
+  const unverifiedBlogCandidates = [];
 
   for (const c of deduped) {
     if (Date.now() - started > budgetMs - 1500) break;
@@ -560,8 +577,22 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
     }
 
     attempted_urls.push(c.source_url);
-    const verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
-    if (!verified.ok) continue;
+    const perUrlTimeoutMs = c.category === "youtube" ? youtubeTimeoutMs : blogTimeoutMs;
+    let verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
+
+    // Retry once for blogs if first attempt failed (but not soft-404)
+    if (!verified.ok && c.category === "blog" && verified.reason !== "soft_404") {
+      await sleep(400);
+      verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
+    }
+
+    if (!verified.ok) {
+      // Track unverified blogs for potential fallback
+      if (c.category === "blog") {
+        unverifiedBlogCandidates.push({ ...c, verification_reason: verified.reason });
+      }
+      continue;
+    }
 
     const html = typeof verified.html_preview === "string" ? verified.html_preview : "";
     const meta = buildReviewMetadataFromHtml(c.source_url, html);
@@ -581,6 +612,21 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
       verified_blog.push(review);
       if (host) usedBlogHosts.add(host);
     }
+  }
+
+  // Fallback: If we have 2 YouTube but no verified blogs, use highest-scored unverified blog
+  if (verified_youtube.length >= 2 && verified_blog.length === 0 && unverifiedBlogCandidates.length > 0) {
+    const fallback = unverifiedBlogCandidates[0];
+    console.log(`[grokEnrichment] reviews: using unverified fallback blog: ${fallback.source_url}`);
+    verified_blog.push({
+      source_name: normalizeHostForDedupe(urlHost(fallback.source_url)) || "Unknown",
+      author: null,
+      source_url: fallback.source_url,
+      title: null,
+      date: null,
+      excerpt: null,
+      verification_warning: "unverified_fallback",
+    });
   }
 
   // Need 2 YouTube + 1 blog = 3 total reviews
@@ -659,12 +705,13 @@ Task: Determine the company's HEADQUARTERS location.
 Rules:
 - Use web search (do not rely only on the company website).
 - Do deep dives for HQ location if necessary.
-- Having the actual city within the United States is crucial.
+- Having the actual city within the United States is crucial. Be accurate.
 - Use initials for state or province (e.g., "Austin, TX" not "Austin, Texas").
 - Format: "City, ST" for US/Canada, "City, Country" for international.
 - If only country is known, return "Country".
 - No explanatory info – just the location.
 - Prefer authoritative sources like LinkedIn, official filings, reputable business directories.
+- No guessing or hallucinating. Only report verified information.
 - Output STRICT JSON only.
 
 Return:
@@ -807,7 +854,7 @@ Task: Determine the company's MANUFACTURING locations.
 Rules:
 - Use web search (do not rely only on the company website).
 - Do deep dives for manufacturing locations if necessary.
-- Having the actual cities within the United States is crucial.
+- Having the actual cities within the United States is crucial. Be accurate.
 - Use initials for state or province (e.g., "Los Angeles, CA" not "Los Angeles, California").
 - Format: "City, ST" for US/Canada, "City, Country" for international.
 - Return an array of one or more locations. Include multiple cities when applicable.
@@ -815,6 +862,7 @@ Rules:
 - No explanatory info – just locations.
 - If manufacturing is not publicly disclosed after thorough searching, return ["Not disclosed"].
 - Provide the supporting URLs you used for the manufacturing determination.
+- No guessing or hallucinating. Only report verified information.
 - Output STRICT JSON only.
 
 Return:
@@ -1093,9 +1141,11 @@ Task: Identify the company's industries.
 Rules:
 - Use web search.
 - Return an array of industries/categories that best describe what the company makes or sells.
+- Provide not industry codes but the type of business they do.
 - Be thorough and complete in identifying all relevant industries.
 - Avoid store navigation terms (e.g. "New Arrivals", "Shop", "Sale") and legal terms.
 - Prefer industry labels that can be mapped to standard business taxonomies.
+- No guessing or hallucinating. Only report verified information.
 - Output STRICT JSON only.
 
 Return:
@@ -1221,6 +1271,7 @@ Hard rules:
   (a) justify completeness, OR
   (b) explicitly mark it incomplete with a reason.
 - Do NOT return a short/partial list without marking it incomplete.
+- No guessing or hallucinating. Only report verified product information.
 - Output STRICT JSON only.
 
 Return:
