@@ -166,6 +166,15 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
   light: { min: 30_000, max: 60_000 },         // 30s-1 min for simpler fields (tagline, industries)
 });
 
+// Shorter timeouts for admin refresh to stay within Azure SWA gateway timeout (~4 min)
+// Admin refresh runs 6 enrichments in 3 batches: total ~60-90s with these limits
+const XAI_ADMIN_REFRESH_TIMEOUTS_MS = Object.freeze({
+  reviews: { min: 15_000, max: 20_000 },     // 15-20 seconds (not used in admin refresh)
+  keywords: { min: 15_000, max: 20_000 },     // 15-20 seconds
+  location: { min: 15_000, max: 20_000 },     // 15-20 seconds
+  light: { min: 10_000, max: 15_000 },        // 10-15 seconds
+});
+
 // Short-TTL cache to avoid re-paying the same Grok searches on resume cycles.
 // This is best-effort (in-memory) and only caches non-transient outcomes.
 const GROK_STAGE_CACHE = new Map();
@@ -1057,11 +1066,15 @@ Return:
 }
 `.trim();
 
-  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
-
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
   const hasAdminBypass = isAdminRefreshBypass();
+
+  // Use shorter timeouts for admin refresh to stay within Azure SWA gateway timeout
+  const stageTimeout = hasAdminBypass
+    ? XAI_ADMIN_REFRESH_TIMEOUTS_MS.location
+    : XAI_STAGE_TIMEOUTS_MS.location;
+
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1223,11 +1236,15 @@ Return:
 }
 `.trim();
 
-  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
-
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
   const hasAdminBypass = isAdminRefreshBypass();
+
+  // Use shorter timeouts for admin refresh to stay within Azure SWA gateway timeout
+  const stageTimeout = hasAdminBypass
+    ? XAI_ADMIN_REFRESH_TIMEOUTS_MS.location
+    : XAI_STAGE_TIMEOUTS_MS.location;
+
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1378,11 +1395,15 @@ Return:
 { "tagline": "..." }
 `.trim();
 
-  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
-
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
   const hasAdminBypass = isAdminRefreshBypass();
+
+  // Use shorter timeouts for admin refresh to stay within Azure SWA gateway timeout
+  const stageTimeout = hasAdminBypass
+    ? XAI_ADMIN_REFRESH_TIMEOUTS_MS.light
+    : XAI_STAGE_TIMEOUTS_MS.light;
+
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1508,11 +1529,15 @@ Return:
 { "industries": ["Industry 1", "Industry 2", "..."] }
 `.trim();
 
-  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
-
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
   const hasAdminBypass = isAdminRefreshBypass();
+
+  // Use shorter timeouts for admin refresh to stay within Azure SWA gateway timeout
+  const stageTimeout = hasAdminBypass
+    ? XAI_ADMIN_REFRESH_TIMEOUTS_MS.light
+    : XAI_STAGE_TIMEOUTS_MS.light;
+
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1639,12 +1664,16 @@ Return:
 }
 `.trim();
 
-  // Use keywords-specific timeout (2x light) since keywords must accumulate all products
-  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.keywords;
-
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
   const hasAdminBypass = isAdminRefreshBypass();
+
+  // Use shorter timeouts for admin refresh to stay within Azure SWA gateway timeout
+  // Use keywords-specific timeout (2x light) since keywords must accumulate all products
+  const stageTimeout = hasAdminBypass
+    ? XAI_ADMIN_REFRESH_TIMEOUTS_MS.keywords
+    : XAI_STAGE_TIMEOUTS_MS.keywords;
+
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1805,11 +1834,15 @@ Output STRICT JSON only:
   "confidence": "high" | "medium" | "low"
 }`.trim();
 
-  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
-
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
   const hasAdminBypass = isAdminRefreshBypass();
+
+  // Use shorter timeouts for admin refresh to stay within Azure SWA gateway timeout
+  const stageTimeout = hasAdminBypass
+    ? XAI_ADMIN_REFRESH_TIMEOUTS_MS.light
+    : XAI_STAGE_TIMEOUTS_MS.light;
+
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
