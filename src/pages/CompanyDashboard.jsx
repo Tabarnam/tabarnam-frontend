@@ -843,10 +843,19 @@ function getContractMissingFields(company) {
 
   const list = Array.isArray(raw) ? raw : [];
 
-  return list
+  const fields = list
     .filter((v) => typeof v === "string")
     .map((v) => v.trim())
     .filter(Boolean);
+
+  // Check for missing Amazon URL (unless marked as "no_amazon_store")
+  const hasAmazonUrl = Boolean(asString(company?.amazon_url).trim());
+  const noAmazonStore = Boolean(company?.no_amazon_store);
+  if (!hasAmazonUrl && !noAmazonStore) {
+    fields.push("amazon_url");
+  }
+
+  return fields;
 }
 
 function formatContractMissingField(field) {
@@ -860,6 +869,8 @@ function formatContractMissingField(field) {
       return "MFG";
     case "product_keywords":
       return "keywords";
+    case "amazon_url":
+      return "Amz";
     default:
       return f.replace(/_/g, " ");
   }
@@ -5904,15 +5915,20 @@ export default function CompanyDashboard() {
                                 value={asString(editorDraft.amazon_url)}
                                 onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
                               />
+                              <label className="flex items-center gap-2 text-sm text-slate-700 mt-2">
+                                <Checkbox
+                                  checked={Boolean(editorDraft.no_amazon_store)}
+                                  onCheckedChange={(v) =>
+                                    setEditorDraft((d) => ({
+                                      ...(d || {}),
+                                      no_amazon_store: Boolean(v),
+                                    }))
+                                  }
+                                />
+                                <span>No Amazon Store</span>
+                              </label>
                             </div>
 
-                            <div className="space-y-1">
-                              <label className="text-sm text-slate-700">Amazon store URL</label>
-                              <Input
-                                value={asString(editorDraft.amazon_store_url)}
-                                onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_store_url: e.target.value }))}
-                              />
-                            </div>
                           </div>
 
                           <div className="space-y-2">
