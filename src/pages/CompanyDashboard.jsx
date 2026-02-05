@@ -5052,6 +5052,16 @@ export default function CompanyDashboard() {
   const columns = useMemo(() => {
     return [
       {
+        name: "Edit",
+        button: true,
+        cell: (row) => (
+          <Button size="sm" variant="outline" onClick={() => openEditorForCompany(row)}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+        ),
+        width: "70px",
+      },
+      {
         name: "Name",
         selector: (row) => getCompanyName(row),
         sortable: true,
@@ -5060,8 +5070,22 @@ export default function CompanyDashboard() {
         cell: (row) => {
           const name = getCompanyName(row);
           return (
-            <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 min-w-0 group/name">
               <span className={isDeletedCompany(row) ? "text-slate-500 line-through" : "text-slate-900"}>{name || "(missing)"}</span>
+              {name && (
+                <button
+                  type="button"
+                  className="opacity-0 group-hover/name:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(name);
+                    toast.success("Name copied to clipboard");
+                  }}
+                  title="Copy name"
+                >
+                  <Copy className="h-3 w-3 text-slate-500" />
+                </button>
+              )}
               {isDeletedCompany(row) ? (
                 <span className="rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
                   deleted
@@ -5076,6 +5100,28 @@ export default function CompanyDashboard() {
         selector: (row) => asString(row?.normalized_domain).trim(),
         sortable: true,
         wrap: true,
+        cell: (row) => {
+          const domain = asString(row?.normalized_domain).trim();
+          return (
+            <div className="flex items-center gap-2 group/domain">
+              <span>{domain}</span>
+              {domain && (
+                <button
+                  type="button"
+                  className="opacity-0 group-hover/domain:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(domain);
+                    toast.success("Domain copied to clipboard");
+                  }}
+                  title="Copy domain"
+                >
+                  <Copy className="h-3 w-3 text-slate-500" />
+                </button>
+              )}
+            </div>
+          );
+        },
       },
       {
         name: "HQ",
@@ -5179,7 +5225,7 @@ export default function CompanyDashboard() {
         width: "240px",
       },
       {
-        name: "Actions",
+        name: "Delete",
         button: true,
         cell: (row) => {
           const id = getCompanyId(row);
@@ -5187,26 +5233,21 @@ export default function CompanyDashboard() {
 
           return (
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => openEditorForCompany(row)}>
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                  onClick={() =>
-                    openDeleteConfirm({
-                      kind: "single",
-                      company_id: id,
-                      company_name: getCompanyName(row),
-                    })
-                  }
-                  disabled={!id}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                onClick={() =>
+                  openDeleteConfirm({
+                    kind: "single",
+                    company_id: id,
+                    company_name: getCompanyName(row),
+                  })
+                }
+                disabled={!id}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
 
               {rowError ? (
                 <div className="max-w-[520px] rounded border border-red-200 bg-red-50 p-2 text-[11px] text-red-900">
@@ -5227,7 +5268,7 @@ export default function CompanyDashboard() {
             </div>
           );
         },
-        width: "140px",
+        width: "80px",
       },
     ];
   }, [openDeleteConfirm, openEditorForCompany, rowErrors]);
@@ -5401,14 +5442,12 @@ export default function CompanyDashboard() {
               paginationPerPage={25}
               paginationRowsPerPageOptions={[10, 25, 50, 100]}
               highlightOnHover
-              pointerOnHover
               dense
               theme={tableTheme}
               selectableRows
               onSelectedRowsChange={(state) => setSelectedRows(state?.selectedRows || [])}
               clearSelectedRows={selectedRows.length === 0}
               contextActions={contextActions}
-              onRowClicked={(row) => openEditorForCompany(row)}
               noDataComponent={noDataComponent}
             />
           </section>
