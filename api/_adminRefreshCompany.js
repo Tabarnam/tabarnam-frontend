@@ -31,6 +31,7 @@ const {
   fetchIndustries,
   fetchProductKeywords,
   fetchLogo,
+  setAdminRefreshBypass,
 } = require("./_grokEnrichment");
 
 // Helper: Check if the URL is an xAI /responses endpoint (vs /chat/completions)
@@ -852,7 +853,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     // Set bypass flag for admin refresh - the outer handler manages overall deadline
     // This bypasses the per-function minimum budget validation that would otherwise
     // cause all functions to return "deferred" status
-    globalThis.__adminRefreshBypass = true;
+    setAdminRefreshBypass(true);
 
     let taglineResult, hqResult, mfgResult, industriesResult, keywordsResult, logoResult;
     try {
@@ -874,7 +875,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       ]);
     } finally {
       // Always clear the bypass flag
-      globalThis.__adminRefreshBypass = false;
+      setAdminRefreshBypass(false);
     }
 
     pushBreadcrumb("enrich_complete", {

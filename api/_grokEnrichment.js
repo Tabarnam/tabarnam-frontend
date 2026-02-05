@@ -5,6 +5,21 @@ const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch"
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 
+// ============================================================================
+// Module-level bypass flag for admin refresh
+// Used to skip per-function budget validation when called from admin refresh,
+// which manages its own overall deadline.
+// ============================================================================
+let _adminRefreshBypass = false;
+
+function setAdminRefreshBypass(value) {
+  _adminRefreshBypass = Boolean(value);
+}
+
+function isAdminRefreshBypass() {
+  return _adminRefreshBypass;
+}
+
 const DEFAULT_REVIEW_EXCLUDE_DOMAINS = [
   "amazon.",
   "amzn.to",
@@ -1046,7 +1061,7 @@ Return:
 
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
-  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
+  const hasAdminBypass = isAdminRefreshBypass();
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1212,7 +1227,7 @@ Return:
 
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
-  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
+  const hasAdminBypass = isAdminRefreshBypass();
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1367,7 +1382,7 @@ Return:
 
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
-  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
+  const hasAdminBypass = isAdminRefreshBypass();
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1497,7 +1512,7 @@ Return:
 
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
-  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
+  const hasAdminBypass = isAdminRefreshBypass();
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1629,7 +1644,7 @@ Return:
 
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
-  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
+  const hasAdminBypass = isAdminRefreshBypass();
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1794,7 +1809,7 @@ Output STRICT JSON only:
 
   // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
-  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
+  const hasAdminBypass = isAdminRefreshBypass();
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
@@ -1904,4 +1919,7 @@ module.exports = {
   // Helpers for location normalization
   normalizeLocationWithStateAbbrev,
   inferCountryFromStateAbbreviation,
+  // Admin refresh bypass flag
+  setAdminRefreshBypass,
+  isAdminRefreshBypass,
 };
