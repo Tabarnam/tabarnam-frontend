@@ -2509,7 +2509,11 @@ async function handler(req, context) {
               }
             } catch {}
           }
-        } catch {}
+        } catch (policyErr) {
+          // Log but don't fail the entire status call - policy check is non-critical
+          console.error("[import-status] Exception in single-company policy check:", policyErr?.message || policyErr);
+          try { console.log("[import-status] policy_error_stack:", policyErr?.stack); } catch {}
+        }
 
         if (!STATUS_NO_ORCHESTRATION &&
           canTrigger &&
@@ -4569,7 +4573,11 @@ async function handler(req, context) {
               }
             } catch {}
           }
-        } catch {}
+        } catch (policyErr) {
+          // Log but don't fail the entire status call - policy check is non-critical
+          console.error("[import-status] Exception in single-company policy check:", policyErr?.message || policyErr);
+          try { console.log("[import-status] policy_error_stack:", policyErr?.stack); } catch {}
+        }
 
         if (!STATUS_NO_ORCHESTRATION &&
           canTrigger &&

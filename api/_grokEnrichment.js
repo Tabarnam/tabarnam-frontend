@@ -657,30 +657,43 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // Required query language (basis for prompt):
-  // "For the company (https://www.xxxxxxxxxxxx.com/) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews."
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  // Enhanced prompt for reviews - includes company name for relevance verification
+  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find third-party reviews.
 
-Task: Find EXACTLY 3 third-party product/company reviews we can show in the UI.
+Task: Find at least 3 unique third-party reviews about this company or its products.
 
-Hard rules:
-- Use web search.
-- 2 reviews MUST be YouTube videos focused on the company or one of its products.
-- 1 review MUST be a magazine or blog review (NOT the company website).
+Requirements:
+- Reviews can be YouTube videos OR magazine/blog articles (any mix is acceptable)
+- Each review must ACTUALLY be about this specific company - verify the content mentions "${name}"
 - CRITICAL: Verify that each URL is functional and accessible. Test that it loads correctly.
-- For YouTube videos: The video MUST exist and be accessible. Verify the video ID is valid.
-- Provide the actual review URL (e.g., https://www.youtube.com/watch?v=XXXXX), NOT a redirect or search results page.
-- Provide MORE than 3 candidates (up to 20) so we can verify URLs.
-- Exclude sources from these domains or subdomains: ${excludeDomains.join(", ")}
-- Do NOT hallucinate or embellish review titles or anything else. Accuracy is paramount.
-- Do NOT include the same author more than once.
-- Do NOT invent titles/authors/dates/excerpts; we will extract metadata ourselves.
+- For YouTube videos: The video MUST exist, be accessible, and actually feature this company/products
+- Do NOT return unrelated videos (e.g., music videos with similar names, videos about different companies)
+- Provide MORE than 3 candidates (up to 20) so we can verify URLs
+- Exclude sources from these domains: ${excludeDomains.join(", ")}
+- Do NOT hallucinate or embellish. Accuracy is paramount.
+- Do NOT include the same author more than once
 
-Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "review_candidates"):
+For each review, include:
+- source_name: The publication or channel name
+- source_url: Direct URL to the article/video (NOT a search results page)
+- category: "youtube" or "blog"
+- excerpt: A brief quote or summary from the review (1-2 sentences, no ellipses)
+
+Output STRICT JSON only:
 {
   "reviews_url_candidates": [
-    { "source_url": "https://www.youtube.com/watch?v=...", "category": "youtube" },
-    { "source_url": "https://...", "category": "blog" }
+    {
+      "source_url": "https://www.youtube.com/watch?v=...",
+      "source_name": "Channel Name",
+      "category": "youtube",
+      "excerpt": "Quote or summary from the review..."
+    },
+    {
+      "source_url": "https://...",
+      "source_name": "Publication Name",
+      "category": "blog",
+      "excerpt": "Quote or summary from the review..."
+    }
   ]
 }`.trim();
 
@@ -722,7 +735,7 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 1400,
+    maxTokens: 2000,  // Increased to accommodate excerpts in response
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,
@@ -981,7 +994,7 @@ async function fetchHeadquartersLocation({ companyName, normalizedDomain, budget
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) determine the headquarters location.
 
 Task: Determine the company's HEADQUARTERS location.
 
@@ -1144,7 +1157,7 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
 
 Task: Determine the company's MANUFACTURING locations.
 
@@ -1306,7 +1319,7 @@ async function fetchTagline({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) provide the tagline.
 
 Task: Provide the company's official tagline or slogan.
 
@@ -1434,7 +1447,7 @@ async function fetchIndustries({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) identify the industries.
 
 Task: Identify the company's industries.
 
@@ -1557,7 +1570,7 @@ async function fetchProductKeywords({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) provide the product keywords.
 
 Task: Provide an EXHAUSTIVE, COMPLETE, and ALL-INCLUSIVE list of the PRODUCTS (SKUs/product names/product lines) this company sells.
 
@@ -1613,7 +1626,7 @@ Return:
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 300,
+    maxTokens: 600,  // Increased to accommodate exhaustive product lists
     model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
