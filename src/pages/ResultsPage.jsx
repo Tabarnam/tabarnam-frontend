@@ -22,7 +22,7 @@ export default function ResultsPage() {
   const navigate = useNavigate();
 
   const qParam = (searchParams.get("q") ?? "").toString();
-  const sortParam = (searchParams.get("sort") ?? "manu").toString();
+  const sortParam = (searchParams.get("sort") ?? "stars").toString();
   const countryParam = (searchParams.get("country") ?? "").toString();
   const stateParam = (searchParams.get("state") ?? "").toString();
   const cityParam = (searchParams.get("city") ?? "").toString();
@@ -35,7 +35,7 @@ export default function ResultsPage() {
   const [totalCount, setTotalCount] = useState(null);
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
-  const [sortBy, setSortBy] = useState("manu");
+  const [sortBy, setSortBy] = useState("stars");
 
   // Load reviews for companies
   async function loadReviews(companies) {
@@ -117,7 +117,7 @@ export default function ResultsPage() {
       }
       if (!cancelled && loc) setUserLoc({ lat: loc.lat, lng: loc.lng });
 
-      setSortBy(sortParam === "hq" || sortParam === "stars" ? sortParam : "manu");
+      setSortBy(sortParam === "hq" || sortParam === "manu" ? sortParam : "stars");
 
       if (!cancelled && qParam) {
         await doSearch({
@@ -144,7 +144,7 @@ export default function ResultsPage() {
   // Called by the top search bar
   async function handleInlineSearch(params) {
     const q = (params.q ?? "").toString();
-    const sort = (params.sort ?? "manu").toString();
+    const sort = (params.sort ?? "stars").toString();
     const country = (params.country ?? "").toString();
     const state = (params.state ?? "").toString();
     const city = (params.city ?? "").toString();
@@ -175,7 +175,7 @@ export default function ResultsPage() {
       // ignore
     }
 
-    setSortBy(sort === "hq" || sort === "stars" ? sort : "manu");
+    setSortBy(sort === "hq" || sort === "manu" ? sort : "stars");
     await doSearch({ q, sort, country, state, city, take: 50, skip: 0, append: false, location: searchLocation });
   }
 
