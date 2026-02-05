@@ -1,5 +1,6 @@
 const { app } = require("../../_app");
 const { resumeWorkerHandler } = require("./handler");
+const { processAdminRefresh } = require("../../_adminRefreshWorker");
 
 // HTTP endpoint for manual triggers or testing
 app.http("import-resume-worker", {
@@ -70,6 +71,41 @@ if (IS_DEDICATED_WORKER) {
         return {
           status: 400,
           body: JSON.stringify({ ok: false, error: "Failed to parse queue message", parse_error: parseError }),
+        };
+      }
+
+      // Route admin_refresh messages to the dedicated admin refresh worker
+      if (messageReason === "admin_refresh") {
+        console.log("[import-resume-worker-queue] routing_to_admin_refresh", {
+          invocation_id: invocationId,
+          session_id: sessionId || null,
+          reason: messageReason,
+        });
+
+        let adminResult = null;
+        let adminError = null;
+        try {
+          adminResult = await processAdminRefresh(queueBody, context);
+        } catch (e) {
+          adminError = String(e?.message || e);
+        }
+
+        const adminFinishedAt = new Date().toISOString();
+        const adminElapsedMs = Date.now() - Date.parse(handlerEnteredAt);
+
+        console.log("[import-resume-worker-queue] admin_refresh_finished", {
+          handler_finished_at: adminFinishedAt,
+          invocation_id: invocationId,
+          session_id: sessionId || null,
+          elapsed_ms: adminElapsedMs,
+          result: adminError ? "error" : (adminResult?.ok ? "ok" : "failed"),
+          error: adminError,
+          success_count: adminResult?.success_count ?? null,
+        });
+
+        return {
+          status: adminResult?.ok ? 200 : 500,
+          body: JSON.stringify(adminResult || { ok: false, error: adminError }),
         };
       }
 

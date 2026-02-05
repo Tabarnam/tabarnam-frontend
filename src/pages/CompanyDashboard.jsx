@@ -4236,6 +4236,113 @@ export default function CompanyDashboard() {
         return;
       }
 
+      // Handle 202 Accepted: poll for results
+      if (res.status === 202 && jsonBody?.status === "in_progress" && jsonBody?.refresh_job_id) {
+        const jobId = jsonBody.refresh_job_id;
+        toast.success("Refresh started. Waiting for results...");
+
+        // Poll for completion
+        const maxPollAttempts = 60; // 5 minutes at 5-second intervals
+        const pollIntervalMs = 5000;
+        let pollAttempt = 0;
+        let pollResult = null;
+
+        while (pollAttempt < maxPollAttempts) {
+          pollAttempt++;
+          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+
+          try {
+            const statusRes = await apiFetchParsed(`/refresh-status?job_id=${encodeURIComponent(jobId)}`, {
+              method: "GET",
+            });
+
+            const statusData = statusRes.data;
+            if (!statusData) continue;
+
+            if (statusData.status === "complete" && statusData.proposed) {
+              pollResult = statusData;
+              break;
+            } else if (statusData.status === "failed") {
+              const errMsg = statusData.error || "Refresh failed";
+              setRefreshError({
+                status: 500,
+                message: errMsg,
+                debug: statusData,
+              });
+              setRefreshMetaByCompany((prev) => ({
+                ...(prev || {}),
+                [companyId]: {
+                  lastRefreshAt: startedAt,
+                  lastRefreshStatus: { kind: "error", code: 500 },
+                  lastRefreshDebug: statusData,
+                },
+              }));
+              toast.error(errMsg);
+              return;
+            }
+            // Still in_progress or pending - continue polling
+          } catch (pollErr) {
+            console.warn("[refreshCompany] Poll error:", pollErr);
+            // Continue polling on transient errors
+          }
+        }
+
+        if (!pollResult) {
+          setRefreshError({
+            status: 408,
+            message: "Refresh timed out waiting for results",
+            debug: { job_id: jobId, poll_attempts: pollAttempt },
+          });
+          setRefreshMetaByCompany((prev) => ({
+            ...(prev || {}),
+            [companyId]: {
+              lastRefreshAt: startedAt,
+              lastRefreshStatus: { kind: "error", code: 408 },
+              lastRefreshDebug: { job_id: jobId, timeout: true },
+            },
+          }));
+          toast.error("Refresh timed out");
+          return;
+        }
+
+        // Use the poll result as the jsonBody for the rest of the handler
+        const polledProposed = pollResult.proposed;
+        const polledEnrichmentStatus = pollResult.enrichment_status;
+
+        const draft = deepClone(polledProposed);
+        setRefreshProposed(polledProposed);
+        setProposedDraft(draft);
+
+        const nextText = {};
+        for (const f of refreshDiffFields) {
+          if (!Object.prototype.hasOwnProperty.call(draft, f.key)) continue;
+          nextText[f.key] = proposedValueToInputText(f.key, draft[f.key]);
+        }
+        setProposedDraftText(nextText);
+
+        const defaults = {};
+        for (const f of refreshDiffFields) {
+          if (!Object.prototype.hasOwnProperty.call(polledProposed, f.key)) continue;
+          const a = normalizeForDiff(f.key, editorDraft?.[f.key]);
+          const b = normalizeForDiff(f.key, polledProposed?.[f.key]);
+          if (JSON.stringify(a) !== JSON.stringify(b)) defaults[f.key] = true;
+        }
+        setRefreshSelection(defaults);
+
+        setRefreshMetaByCompany((prev) => ({
+          ...(prev || {}),
+          [companyId]: {
+            lastRefreshAt: startedAt,
+            lastRefreshStatus: { kind: "success", code: 200 },
+            lastRefreshDebug: null,
+          },
+        }));
+
+        setRefreshError(null);
+        toast.success("Proposed updates loaded");
+        return;
+      }
+
       // Some refresh responses return { ok:false, ... } with useful diagnostics.
       if (jsonBody?.ok !== true) {
         const debug =

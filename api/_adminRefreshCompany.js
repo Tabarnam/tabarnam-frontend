@@ -24,16 +24,7 @@ const {
 } = require("./_cosmosPartitionKey");
 const { fetchConfirmedCompanyTagline } = require("./_taglineXai");
 const { getBuildInfo } = require("./_buildInfo");
-const {
-  fetchTagline,
-  fetchHeadquartersLocation,
-  fetchManufacturingLocations,
-  fetchIndustries,
-  fetchProductKeywords,
-  fetchLogo,
-  setAdminRefreshBypass,
-} = require("./_grokEnrichment");
-const { geocodeLocationArray } = require("./_geocode");
+const { enqueueResumeRun } = require("./_enrichmentQueue");
 
 // Helper: Check if the URL is an xAI /responses endpoint (vs /chat/completions)
 function isResponsesEndpoint(rawUrl) {
@@ -842,406 +833,149 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     // ========================================================================
-    // BATCHED ENRICHMENT with per-call timeouts to avoid Azure gateway timeout
-    // Each function uses live web search for better accuracy
-    // Running in batches of 2 to reduce concurrent load and stay within timeout
+    // NON-BLOCKING REFRESH: Create job document and enqueue to background worker
+    // This avoids the Azure SWA 4-minute gateway timeout by returning immediately
+    // and letting the resume-worker handle enrichment with proper timeouts
     // ========================================================================
-    stage = "enrich_batched";
+    stage = "create_refresh_job";
     pushBreadcrumb(stage, { company_id: companyId });
 
-    // Per-call timeout: 25 seconds max per enrichment call
-    const PER_CALL_TIMEOUT_MS = 25000;
+    // Generate a unique refresh job ID
+    const refreshJobId = `refresh_job_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
-    // Helper: wrap a promise with a timeout that resolves to a fallback value
-    const withTimeout = (promise, ms, fallbackValue) => {
-      return Promise.race([
-        promise,
-        new Promise(resolve => setTimeout(() => resolve(fallbackValue), ms))
-      ]);
+    // Create the refresh job document in Cosmos
+    const refreshJobDoc = {
+      id: refreshJobId,
+      type: "refresh_job",
+      company_id: companyId,
+      company_name: companyName,
+      normalized_domain: normalizedDomain,
+      website_url: websiteUrl,
+      status: "pending",
+      created_at: new Date().toISOString(),
+      completed_at: null,
+      proposed: null,
+      enrichment_status: null,
+      error: null,
+      xai_config: {
+        xai_url: xaiUrl,
+        xai_model: xaiModel,
+        xai_config_source,
+      },
     };
 
-    // Log that we're starting enrichment (helps debug if we never get here)
-    console.log(JSON.stringify({
-      stage: "refresh_company",
-      event: "enrichment_start_batched",
-      company_id: companyId,
-      per_call_timeout_ms: PER_CALL_TIMEOUT_MS,
-      build_id: BUILD_INFO.build_id || null,
-    }));
-
-    // Set bypass flag for admin refresh - the outer handler manages overall deadline
-    // This bypasses the per-function minimum budget validation that would otherwise
-    // cause all functions to return "deferred" status
-    setAdminRefreshBypass(true);
-
-    let taglineResult, hqResult, mfgResult, industriesResult, keywordsResult, logoResult;
     try {
-      // BATCH 1: Tagline + Logo (typically faster)
-      console.log(JSON.stringify({
-        stage: "refresh_company",
-        event: "batch_1_start",
-        company_id: companyId,
-        batch: ["tagline", "logo"],
-        build_id: BUILD_INFO.build_id || null,
-      }));
-
-      [taglineResult, logoResult] = await Promise.allSettled([
-        withTimeout(
-          fetchTagline({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
-          PER_CALL_TIMEOUT_MS,
-          { tagline_status: "timeout" }
-        ),
-        withTimeout(
-          fetchLogo({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
-          PER_CALL_TIMEOUT_MS,
-          { logo_status: "timeout" }
-        ),
-      ]);
-
-      console.log(JSON.stringify({
-        stage: "refresh_company",
-        event: "batch_1_complete",
-        company_id: companyId,
-        tagline_status: taglineResult?.status,
-        logo_status: logoResult?.status,
-        build_id: BUILD_INFO.build_id || null,
-      }));
-
-      // BATCH 2: HQ + Manufacturing locations
-      console.log(JSON.stringify({
-        stage: "refresh_company",
-        event: "batch_2_start",
-        company_id: companyId,
-        batch: ["hq", "manufacturing"],
-        build_id: BUILD_INFO.build_id || null,
-      }));
-
-      [hqResult, mfgResult] = await Promise.allSettled([
-        withTimeout(
-          fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
-          PER_CALL_TIMEOUT_MS,
-          { hq_status: "timeout" }
-        ),
-        withTimeout(
-          fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
-          PER_CALL_TIMEOUT_MS,
-          { mfg_status: "timeout" }
-        ),
-      ]);
-
-      console.log(JSON.stringify({
-        stage: "refresh_company",
-        event: "batch_2_complete",
-        company_id: companyId,
-        hq_status: hqResult?.status,
-        mfg_status: mfgResult?.status,
-        build_id: BUILD_INFO.build_id || null,
-      }));
-
-      // BATCH 3: Industries + Keywords
-      console.log(JSON.stringify({
-        stage: "refresh_company",
-        event: "batch_3_start",
-        company_id: companyId,
-        batch: ["industries", "keywords"],
-        build_id: BUILD_INFO.build_id || null,
-      }));
-
-      [industriesResult, keywordsResult] = await Promise.allSettled([
-        withTimeout(
-          fetchIndustries({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
-          PER_CALL_TIMEOUT_MS,
-          { industries_status: "timeout" }
-        ),
-        withTimeout(
-          fetchProductKeywords({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
-          PER_CALL_TIMEOUT_MS,
-          { keywords_status: "timeout" }
-        ),
-      ]);
-
-      console.log(JSON.stringify({
-        stage: "refresh_company",
-        event: "batch_3_complete",
-        company_id: companyId,
-        industries_status: industriesResult?.status,
-        keywords_status: keywordsResult?.status,
-        build_id: BUILD_INFO.build_id || null,
-      }));
-
-    } finally {
-      // Always clear the bypass flag
-      setAdminRefreshBypass(false);
+      await container.items.upsert(refreshJobDoc, { partitionKey: normalizedDomain || "unknown" });
+    } catch (upsertErr) {
+      // Try without explicit partition key
+      try {
+        await container.items.upsert(refreshJobDoc);
+      } catch (fallbackErr) {
+        await releaseRefreshLockBestEffort();
+        pushBreadcrumb("refresh_job_create_failed", { error: fallbackErr?.message });
+        return json({
+          ok: false,
+          stage: "refresh_company",
+          root_cause: "refresh_job_create_failed",
+          retryable: true,
+          error: "Failed to create refresh job",
+          company_id: companyId,
+          diagnostics: {
+            message: fallbackErr?.message || String(fallbackErr),
+          },
+          config,
+          build_id: String(BUILD_INFO.build_id || ""),
+          elapsed_ms: Date.now() - startedAt,
+        });
+      }
     }
 
     console.log(JSON.stringify({
       stage: "refresh_company",
-      event: "enrichment_complete",
+      event: "refresh_job_created",
+      refresh_job_id: refreshJobId,
       company_id: companyId,
-      tagline_status: taglineResult?.status,
-      hq_status: hqResult?.status,
-      mfg_status: mfgResult?.status,
-      industries_status: industriesResult?.status,
-      keywords_status: keywordsResult?.status,
-      logo_status: logoResult?.status,
       build_id: BUILD_INFO.build_id || null,
     }));
 
-    pushBreadcrumb("enrich_complete", {
-      tagline: taglineResult.status,
-      hq: hqResult.status,
-      mfg: mfgResult.status,
-      industries: industriesResult.status,
-      keywords: keywordsResult.status,
-      logo: logoResult.status,
+    // Enqueue work to the resume-worker queue
+    stage = "enqueue_refresh";
+    pushBreadcrumb(stage, { refresh_job_id: refreshJobId });
+
+    const enqueueResult = await enqueueResumeRun({
+      session_id: refreshJobId,
+      company_ids: [companyId],
+      reason: "admin_refresh",
+      requested_by: "admin_refresh_company",
     });
 
-    // Build proposed object from enrichment results
-    stage = "build_proposed";
-    const proposed = {
-      company_name: companyName,
-      website_url: websiteUrl,
-      normalized_domain: normalizedDomain,
-    };
-
-    const enrichment_status = {
-      tagline: "error",
-      headquarters: "error",
-      manufacturing: "error",
-      industries: "error",
-      keywords: "error",
-      logo: "error",
-    };
-
-    // Extract tagline
-    if (taglineResult.status === "fulfilled" && taglineResult.value) {
-      const tData = taglineResult.value;
-      if (tData.tagline) {
-        proposed.tagline = tData.tagline;
-        enrichment_status.tagline = tData.tagline_status || "ok";
-      } else {
-        enrichment_status.tagline = tData.tagline_status || "empty";
-      }
-    }
-
-    // Extract HQ locations
-    if (hqResult.status === "fulfilled" && hqResult.value) {
-      const hData = hqResult.value;
-      if (hData.headquarters_location) {
-        proposed.headquarters_location = hData.headquarters_location;
-        // Normalize to structured format
-        proposed.headquarters_locations = [{
-          location: hData.headquarters_location,
-          formatted: hData.headquarters_location,
-          is_hq: true,
-          source: "xai_refresh",
-        }];
-        enrichment_status.headquarters = hData.hq_status || "ok";
-      } else {
-        enrichment_status.headquarters = hData.hq_status || "empty";
-      }
-      // Include source URLs if available
-      if (hData.location_source_urls?.hq_source_urls) {
-        proposed.location_sources = (proposed.location_sources || []).concat(
-          hData.location_source_urls.hq_source_urls.map(url => ({
-            source_url: url,
-            location_type: "hq",
-          }))
-        );
-      }
-    }
-
-    // Extract manufacturing locations
-    if (mfgResult.status === "fulfilled" && mfgResult.value) {
-      const mData = mfgResult.value;
-      if (Array.isArray(mData.manufacturing_locations) && mData.manufacturing_locations.length > 0) {
-        proposed.manufacturing_locations = mData.manufacturing_locations.map(loc => ({
-          location: typeof loc === "string" ? loc : loc.location || loc,
-          formatted: typeof loc === "string" ? loc : loc.location || loc,
-          source: "xai_refresh",
-        }));
-        enrichment_status.manufacturing = mData.mfg_status || "ok";
-      } else {
-        enrichment_status.manufacturing = mData.mfg_status || "empty";
-      }
-      // Include source URLs if available
-      if (mData.location_source_urls?.mfg_source_urls) {
-        proposed.location_sources = (proposed.location_sources || []).concat(
-          mData.location_source_urls.mfg_source_urls.map(url => ({
-            source_url: url,
-            location_type: "manufacturing",
-          }))
-        );
-      }
-    }
-
-    // Extract industries
-    if (industriesResult.status === "fulfilled" && industriesResult.value) {
-      const iData = industriesResult.value;
-      if (Array.isArray(iData.industries) && iData.industries.length > 0) {
-        proposed.industries = iData.industries;
-        enrichment_status.industries = iData.industries_status || "ok";
-      } else {
-        enrichment_status.industries = iData.industries_status || "empty";
-      }
-    }
-
-    // Extract keywords
-    if (keywordsResult.status === "fulfilled" && keywordsResult.value) {
-      const kData = keywordsResult.value;
-      const keywords = kData.product_keywords || kData.keywords;
-      if (Array.isArray(keywords) && keywords.length > 0) {
-        proposed.keywords = keywords;
-        enrichment_status.keywords = kData.keywords_status || "ok";
-      } else {
-        enrichment_status.keywords = kData.keywords_status || "empty";
-      }
-    }
-
-    // Extract logo
-    if (logoResult.status === "fulfilled" && logoResult.value) {
-      const lData = logoResult.value;
-      if (lData.logo_url) {
-        proposed.logo_url = lData.logo_url;
-        proposed.logo_source = lData.logo_source;
-        proposed.logo_confidence = lData.logo_confidence;
-        enrichment_status.logo = lData.logo_status || "ok";
-      } else {
-        enrichment_status.logo = lData.logo_status || "empty";
-      }
-    }
-
-    // ========================================================================
-    // GEOCODING: Add lat/lng to manufacturing and HQ locations
-    // ========================================================================
-    stage = "geocoding";
-    pushBreadcrumb(stage, { company_id: companyId });
-
-    // Geocode manufacturing locations
-    if (Array.isArray(proposed.manufacturing_locations) && proposed.manufacturing_locations.length > 0) {
+    if (!enqueueResult.ok) {
+      // Failed to enqueue - mark job as failed and return error
       try {
-        const locationStrings = proposed.manufacturing_locations
-          .map(loc => typeof loc === "string" ? loc : loc.location || loc.formatted || "")
-          .filter(Boolean);
-
-        if (locationStrings.length > 0) {
-          const geocoded = await geocodeLocationArray(locationStrings, {
-            timeoutMs: 5000,
-            concurrency: 4,
-          });
-
-          // Merge geocode data into proposed locations
-          proposed.manufacturing_locations = proposed.manufacturing_locations.map((loc, i) => ({
-            ...loc,
-            ...(geocoded[i] || {}),
-          }));
-        }
-      } catch (geoErr) {
-        console.log(JSON.stringify({
-          stage: "refresh_company",
-          event: "geocoding_error",
-          location_type: "manufacturing",
-          error: geoErr?.message || String(geoErr),
-          build_id: BUILD_INFO.build_id || null,
-        }));
-        // Continue without geocoding - don't fail the whole refresh
-      }
-    }
-
-    // Geocode HQ location
-    if (proposed.headquarters_location) {
-      try {
-        const geocoded = await geocodeLocationArray([proposed.headquarters_location], {
-          timeoutMs: 5000,
-          concurrency: 1,
+        await patchCompanyById(container, refreshJobId, refreshJobDoc, {
+          status: "failed",
+          error: enqueueResult.error || "Failed to enqueue",
+          completed_at: new Date().toISOString(),
         });
-
-        if (geocoded[0]) {
-          // Add geocode data to HQ
-          proposed.headquarters_geocode = geocoded[0];
-          if (geocoded[0].lat && geocoded[0].lng) {
-            proposed.hq_lat = geocoded[0].lat;
-            proposed.hq_lng = geocoded[0].lng;
-          }
-        }
-      } catch (geoErr) {
-        console.log(JSON.stringify({
-          stage: "refresh_company",
-          event: "geocoding_error",
-          location_type: "hq",
-          error: geoErr?.message || String(geoErr),
-          build_id: BUILD_INFO.build_id || null,
-        }));
-        // Continue without geocoding - don't fail the whole refresh
+      } catch {
+        // Ignore patch failure
       }
-    }
 
-    pushBreadcrumb("geocoding_complete", { company_id: companyId });
-
-    // Count successful enrichments
-    const successCount = Object.values(enrichment_status).filter(s => s === "ok").length;
-
-    // If no fields were enriched, return an error
-    if (successCount === 0) {
       await releaseRefreshLockBestEffort();
-      pushBreadcrumb("no_fields_enriched");
+      pushBreadcrumb("enqueue_failed", { error: enqueueResult.error });
       return json({
         ok: false,
         stage: "refresh_company",
-        root_cause: "no_fields_enriched",
+        root_cause: "enqueue_failed",
         retryable: true,
-        error: "No fields could be enriched",
+        error: "Failed to enqueue refresh job",
         company_id: companyId,
-        enrichment_status,
-        attempts,
-        breadcrumbs,
+        refresh_job_id: refreshJobId,
         diagnostics: {
-          message: "All enrichment calls failed or returned empty",
+          message: enqueueResult.error || "Queue unavailable",
+          queue: enqueueResult.queue,
         },
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
-        budget_ms: budgetMs,
-        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
-    stage = "done";
+    console.log(JSON.stringify({
+      stage: "refresh_company",
+      event: "refresh_job_enqueued",
+      refresh_job_id: refreshJobId,
+      company_id: companyId,
+      message_id: enqueueResult.message_id,
+      queue: enqueueResult.queue?.name,
+      build_id: BUILD_INFO.build_id || null,
+    }));
 
-    try {
-      await patchCompanyById(container, companyId, existing, {
-        company_refresh_lock_until: 0,
-      });
-    } catch {
-      // ignore
-    }
+    // Release the refresh lock - the background worker will handle the rest
+    await releaseRefreshLockBestEffort();
 
-    pushBreadcrumb("done", { company_id: companyId });
+    pushBreadcrumb("enqueued", { refresh_job_id: refreshJobId });
 
+    // Return 202 Accepted immediately - frontend will poll for results
     return json({
       ok: true,
+      status: "in_progress",
       company_id: companyId,
+      refresh_job_id: refreshJobId,
+      message: "Refresh started. Poll /api/refresh-status for results.",
+      poll_url: `/api/refresh-status?job_id=${encodeURIComponent(refreshJobId)}`,
       elapsed_ms: Date.now() - startedAt,
-      budget_ms: budgetMs,
-      remaining_budget_ms: getRemainingBudgetMs(),
-      xai_config_source,
-      resolved_upstream_host: upstreamMeta.resolved_upstream_host,
-      resolved_upstream_path: upstreamMeta.resolved_upstream_path,
-      proposed,
-      enrichment_status,
-      attempts,
-      breadcrumbs,
-      diagnostics: {},
       build_id: String(BUILD_INFO.build_id || ""),
       hints: {
         company_name: companyName,
         website_url: websiteUrl,
         normalized_domain: normalizedDomain,
       },
-      enrichment: {
-        sources: Array.isArray(proposed.location_sources) ? proposed.location_sources : [],
+      queue: {
+        message_id: enqueueResult.message_id,
+        queue_name: enqueueResult.queue?.name,
       },
-    });
+    }, 202);
   } catch (e) {
     context?.log?.("[admin-refresh-company] error", {
       stage,
