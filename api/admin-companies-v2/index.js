@@ -361,21 +361,42 @@ async function maybeGeocodeLocationsForCompanyDoc(doc, { timeoutMs = 5000 } = {}
     }
   }
 
-  // Manufacturing
+  // Manufacturing - geocode locations that don't have coordinates yet
   const manuSeed = buildManufacturingSeedFromDoc(next);
-  const hasManuCoords = hasAnyLatLng(manuSeed);
 
-  if (!hasManuCoords && manuSeed.length > 0) {
-    // Geocode all manufacturing locations
-    const geocoded = await geocodeLocationArray(manuSeed, { timeoutMs, concurrency: 4 });
-    // Always save geocoded results (they include address, formatted fields, and coordinates if available)
-    next.manufacturing_geocodes = geocoded;
-  } else if (hasManuCoords && manuSeed.length > 0) {
-    // If manuSeed already has coordinates, use it directly
-    next.manufacturing_geocodes = manuSeed;
-  } else if (manuSeed.length > 0 && (!Array.isArray(next.manufacturing_geocodes) || next.manufacturing_geocodes.length === 0)) {
-    // Ensure manufacturing_geocodes is present when the editor sends structured entries
-    next.manufacturing_geocodes = manuSeed;
+  if (manuSeed.length > 0) {
+    // Find locations that need geocoding (no lat/lng)
+    const needsGeocoding = [];
+    const needsGeocodingIndices = [];
+
+    for (let i = 0; i < manuSeed.length; i++) {
+      const loc = manuSeed[i];
+      const coords = extractLatLng(loc);
+      if (!coords || coords.lat == null || coords.lng == null) {
+        needsGeocoding.push(loc);
+        needsGeocodingIndices.push(i);
+      }
+    }
+
+    if (needsGeocoding.length > 0) {
+      // Geocode only the locations that need it
+      const geocoded = await geocodeLocationArray(needsGeocoding, { timeoutMs, concurrency: 4 });
+
+      // Merge geocoded results back into the original array (preserving order)
+      const result = [...manuSeed];
+      for (let i = 0; i < needsGeocodingIndices.length; i++) {
+        const originalIndex = needsGeocodingIndices[i];
+        const geocodedLoc = geocoded[i];
+        if (geocodedLoc) {
+          // Merge original location data with geocoded data
+          result[originalIndex] = { ...manuSeed[originalIndex], ...geocodedLoc };
+        }
+      }
+      next.manufacturing_geocodes = result;
+    } else {
+      // All locations already have coordinates
+      next.manufacturing_geocodes = manuSeed;
+    }
   }
 
   return next;
