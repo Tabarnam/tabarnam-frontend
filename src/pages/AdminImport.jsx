@@ -3148,15 +3148,31 @@ export default function AdminImport() {
       const body = await readJsonOrText(res);
 
       if (!res.ok || !body.ok) {
+        const errorCode = body?.error?.code;
         const msg = typeof body?.error?.message === "string" ? body.error.message : `Failed (HTTP ${res.status})`;
+
+        // Handle duplicate company error with more context
+        const isDuplicate = errorCode === "duplicate_company" || res.status === 409;
+        const existingCompany = body?.error?.existing_company;
+
         setRuns((prev) =>
           prev.map((r) =>
             r.session_id === uiSessionId
-              ? { ...r, start_error: msg, updatedAt: new Date().toISOString() }
+              ? {
+                  ...r,
+                  start_error: msg,
+                  updatedAt: new Date().toISOString(),
+                  ...(isDuplicate && existingCompany ? { duplicate_company: existingCompany } : {}),
+                }
               : r
           )
         );
-        toast.error(msg);
+
+        if (isDuplicate) {
+          toast.error(msg, { duration: 6000 });
+        } else {
+          toast.error(msg);
+        }
         setActiveStatus("error");
         return;
       }
