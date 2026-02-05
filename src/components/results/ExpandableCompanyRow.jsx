@@ -634,7 +634,7 @@ export default function ExpandableCompanyRow({
         <div className="mt-6 col-span-5 space-y-4">
           {Array.isArray(company?.notes_entries) && company.notes_entries.some((n) => n?.is_public) && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="text-sm font-semibold text-gray-800 mb-2">Notes</div>
+              <div className="text-sm font-semibold text-gray-800 mb-2">Notes from Tabarnam</div>
               <div className="space-y-3">
                 {company.notes_entries
                   .filter((n) => n && typeof n === "object" && (n.is_public === true || String(n.is_public).toLowerCase() === "true"))
