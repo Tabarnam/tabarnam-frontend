@@ -117,7 +117,7 @@ const safeHandler = async (req, context) => {
       const normalized = normalizeSafePayload(rawBody, { original_status: result.status, url: req?.url });
       return {
         ...result,
-        status: 200,
+        status: typeof result.status === "number" ? result.status : 200,
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify(normalized),
       };
@@ -148,7 +148,7 @@ const safeHandler = async (req, context) => {
 
       return {
         ...result,
-        status: 200,
+        status: typeof result.status === "number" ? result.status : 200,
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify(normalized),
       };
