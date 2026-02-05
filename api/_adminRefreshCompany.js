@@ -842,21 +842,30 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     // ========================================================================
-    // PARALLEL ENRICHMENT using the same functions as import flow
+    // BATCHED ENRICHMENT with per-call timeouts to avoid Azure gateway timeout
     // Each function uses live web search for better accuracy
+    // Running in batches of 2 to reduce concurrent load and stay within timeout
     // ========================================================================
-    stage = "enrich_parallel";
+    stage = "enrich_batched";
     pushBreadcrumb(stage, { company_id: companyId });
 
-    // Reserve time for response assembly
-    const enrichmentBudgetMs = Math.max(5000, getRemainingBudgetMs() - 2500);
+    // Per-call timeout: 25 seconds max per enrichment call
+    const PER_CALL_TIMEOUT_MS = 25000;
+
+    // Helper: wrap a promise with a timeout that resolves to a fallback value
+    const withTimeout = (promise, ms, fallbackValue) => {
+      return Promise.race([
+        promise,
+        new Promise(resolve => setTimeout(() => resolve(fallbackValue), ms))
+      ]);
+    };
 
     // Log that we're starting enrichment (helps debug if we never get here)
     console.log(JSON.stringify({
       stage: "refresh_company",
-      event: "enrichment_start",
+      event: "enrichment_start_batched",
       company_id: companyId,
-      budget_ms: enrichmentBudgetMs,
+      per_call_timeout_ms: PER_CALL_TIMEOUT_MS,
       build_id: BUILD_INFO.build_id || null,
     }));
 
@@ -867,22 +876,99 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     let taglineResult, hqResult, mfgResult, industriesResult, keywordsResult, logoResult;
     try {
-      // Run all enrichment functions in parallel (NO reviews - disabled by design)
-      [
-        taglineResult,
-        hqResult,
-        mfgResult,
-        industriesResult,
-        keywordsResult,
-        logoResult,
-      ] = await Promise.allSettled([
-        fetchTagline({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchIndustries({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchProductKeywords({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchLogo({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+      // BATCH 1: Tagline + Logo (typically faster)
+      console.log(JSON.stringify({
+        stage: "refresh_company",
+        event: "batch_1_start",
+        company_id: companyId,
+        batch: ["tagline", "logo"],
+        build_id: BUILD_INFO.build_id || null,
+      }));
+
+      [taglineResult, logoResult] = await Promise.allSettled([
+        withTimeout(
+          fetchTagline({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
+          PER_CALL_TIMEOUT_MS,
+          { tagline_status: "timeout" }
+        ),
+        withTimeout(
+          fetchLogo({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
+          PER_CALL_TIMEOUT_MS,
+          { logo_status: "timeout" }
+        ),
       ]);
+
+      console.log(JSON.stringify({
+        stage: "refresh_company",
+        event: "batch_1_complete",
+        company_id: companyId,
+        tagline_status: taglineResult?.status,
+        logo_status: logoResult?.status,
+        build_id: BUILD_INFO.build_id || null,
+      }));
+
+      // BATCH 2: HQ + Manufacturing locations
+      console.log(JSON.stringify({
+        stage: "refresh_company",
+        event: "batch_2_start",
+        company_id: companyId,
+        batch: ["hq", "manufacturing"],
+        build_id: BUILD_INFO.build_id || null,
+      }));
+
+      [hqResult, mfgResult] = await Promise.allSettled([
+        withTimeout(
+          fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
+          PER_CALL_TIMEOUT_MS,
+          { hq_status: "timeout" }
+        ),
+        withTimeout(
+          fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
+          PER_CALL_TIMEOUT_MS,
+          { mfg_status: "timeout" }
+        ),
+      ]);
+
+      console.log(JSON.stringify({
+        stage: "refresh_company",
+        event: "batch_2_complete",
+        company_id: companyId,
+        hq_status: hqResult?.status,
+        mfg_status: mfgResult?.status,
+        build_id: BUILD_INFO.build_id || null,
+      }));
+
+      // BATCH 3: Industries + Keywords
+      console.log(JSON.stringify({
+        stage: "refresh_company",
+        event: "batch_3_start",
+        company_id: companyId,
+        batch: ["industries", "keywords"],
+        build_id: BUILD_INFO.build_id || null,
+      }));
+
+      [industriesResult, keywordsResult] = await Promise.allSettled([
+        withTimeout(
+          fetchIndustries({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
+          PER_CALL_TIMEOUT_MS,
+          { industries_status: "timeout" }
+        ),
+        withTimeout(
+          fetchProductKeywords({ companyName, normalizedDomain, budgetMs: PER_CALL_TIMEOUT_MS, xaiUrl, xaiKey }),
+          PER_CALL_TIMEOUT_MS,
+          { keywords_status: "timeout" }
+        ),
+      ]);
+
+      console.log(JSON.stringify({
+        stage: "refresh_company",
+        event: "batch_3_complete",
+        company_id: companyId,
+        industries_status: industriesResult?.status,
+        keywords_status: keywordsResult?.status,
+        build_id: BUILD_INFO.build_id || null,
+      }));
+
     } finally {
       // Always clear the bypass flag
       setAdminRefreshBypass(false);
