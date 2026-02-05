@@ -815,14 +815,9 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
 
   for (const c of deduped) {
     if (Date.now() - started > budgetMs - 1500) break;
-    // Need 2 YouTube + 1 blog = 3 total reviews
-    if (verified_youtube.length >= 2 && verified_blog.length >= 1) break;
-
-    const needsYoutube = verified_youtube.length < 2;
-    const needsBlog = verified_blog.length < 1;
-
-    if (c.category === "youtube" && !needsYoutube) continue;
-    if (c.category === "blog" && !needsBlog) continue;
+    // Need 3 total reviews (any combination of YouTube + blog)
+    const totalVerified = verified_youtube.length + verified_blog.length;
+    if (totalVerified >= 3) break;
 
     const host = normalizeHostForDedupe(urlHost(c.source_url));
     if (
@@ -894,34 +889,36 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
     }
   }
 
-  // Fallback: If we have 2 YouTube but no verified blogs, use highest-scored unverified blog
-  if (verified_youtube.length >= 2 && verified_blog.length === 0 && unverifiedBlogCandidates.length > 0) {
-    const fallback = unverifiedBlogCandidates[0];
-    console.log(`[grokEnrichment] reviews: using unverified fallback blog: ${fallback.source_url}`);
-    verified_blog.push({
-      source_name: normalizeHostForDedupe(urlHost(fallback.source_url)) || "Unknown",
-      author: null,
-      source_url: fallback.source_url,
-      title: null,
-      date: null,
-      excerpt: null,
-      verification_warning: "unverified_fallback",
-    });
+  // Fallback: If we need more reviews and have unverified blogs, use them
+  const totalVerifiedSoFar = verified_youtube.length + verified_blog.length;
+  if (totalVerifiedSoFar < 3 && unverifiedBlogCandidates.length > 0) {
+    const needed = 3 - totalVerifiedSoFar;
+    for (let i = 0; i < Math.min(needed, unverifiedBlogCandidates.length); i++) {
+      const fallback = unverifiedBlogCandidates[i];
+      console.log(`[grokEnrichment] reviews: using unverified fallback blog: ${fallback.source_url}`);
+      verified_blog.push({
+        source_name: normalizeHostForDedupe(urlHost(fallback.source_url)) || "Unknown",
+        author: null,
+        source_url: fallback.source_url,
+        title: null,
+        date: null,
+        excerpt: null,
+        verification_warning: "unverified_fallback",
+      });
+    }
   }
 
-  // Need 2 YouTube + 1 blog = 3 total reviews
-  const curated_reviews = [...verified_youtube.slice(0, 2), ...verified_blog.slice(0, 1)];
-  const hasTwoYoutube = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 2;
-  const hasOneBlog =
-    curated_reviews.length - curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 1;
+  // Best 3 reviews (prefer YouTube, then blogs)
+  const curated_reviews = [...verified_youtube, ...verified_blog].slice(0, 3);
+  const youtubeCount = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length;
+  const blogCount = curated_reviews.length - youtubeCount;
 
-  const ok = curated_reviews.length === 3 && hasTwoYoutube && hasOneBlog;
+  const ok = curated_reviews.length >= 3;
 
   if (!ok) {
     const reasonParts = [];
-    if (!hasTwoYoutube) reasonParts.push("missing_youtube_reviews");
-    if (!hasOneBlog) reasonParts.push("missing_blog_review");
     if (curated_reviews.length < 3) reasonParts.push("insufficient_verified_reviews");
+    if (youtubeCount === 0 && blogCount === 0) reasonParts.push("no_verified_reviews");
 
     // Mark as exhausted after good-faith attempt: tried 5+ URLs, or have 1+ verified and tried 3+ URLs
     // This prevents infinite retries when XAI returns mostly invalid YouTube videos
@@ -936,8 +933,8 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
       diagnostics: {
         candidate_count: candidates.length,
         verified_count: curated_reviews.length,
-        youtube_verified: verified_youtube.length,
-        blog_verified: verified_blog.length,
+        youtube_verified: youtubeCount,
+        blog_verified: blogCount,
         exhausted: isExhausted,
       },
       search_telemetry: searchBuild.telemetry,
@@ -953,8 +950,8 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
     diagnostics: {
       candidate_count: candidates.length,
       verified_count: curated_reviews.length,
-      youtube_verified: verified_youtube.length,
-      blog_verified: verified_blog.length,
+      youtube_verified: youtubeCount,
+      blog_verified: blogCount,
     },
     attempted_urls,
     search_telemetry: searchBuild.telemetry,
