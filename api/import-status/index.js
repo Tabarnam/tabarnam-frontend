@@ -1325,7 +1325,14 @@ async function handler(req, context) {
   const method = String(req?.method || "").toUpperCase();
   if (method === "OPTIONS") return { status: 200, headers: cors(req) };
 
-  const url = new URL(req.url);
+  // Wrap URL parsing to prevent 500 errors from malformed URLs
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch (urlErr) {
+    console.error("[import-status] Invalid URL:", req.url, urlErr?.message);
+    return json({ ok: false, error: "Invalid request URL", code: "INVALID_URL" }, 400, req);
+  }
   const sessionId = String(url.searchParams.get("session_id") || "").trim();
   const take = Number(url.searchParams.get("take") || "10") || 10;
   const forceResume =

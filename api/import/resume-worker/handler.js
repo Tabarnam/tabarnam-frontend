@@ -32,6 +32,7 @@ const {
   fetchTagline,
   fetchIndustries,
   fetchProductKeywords,
+  fetchLogo,
 } = require("../../_grokEnrichment");
 
 const { enqueueResumeRun } = require("../../_enrichmentQueue");
@@ -3526,9 +3527,34 @@ async function resumeWorkerHandler(req, context) {
           changed = true;
           console.log(`[resume-worker] Logo fetched for ${doc.id}: ${logoResult.logo_url}`);
         } else {
-          doc.logo_stage_status = logoResult?.logo_stage_status || "not_found";
-          changed = true;
-          console.log(`[resume-worker] Logo not found for ${doc.id}: ${logoResult?.logo_stage_status || "no result"}`);
+          // HTML-based detection failed - try Grok fallback
+          console.log(`[resume-worker] HTML logo detection failed for ${doc.id}, trying Grok fallback`);
+          try {
+            const grokLogoResult = await fetchLogo({
+              companyName: doc.company_name || doc.name,
+              normalizedDomain: doc.normalized_domain,
+              budgetMs: Math.min(15000, Math.max(3000, budgetRemainingMs() - 2000)),
+              xaiUrl: getXAIEndpoint(),
+              xaiKey: getXAIKey(),
+            });
+
+            if (grokLogoResult?.logo_url && grokLogoResult.logo_status === "ok") {
+              doc.logo_url = grokLogoResult.logo_url;
+              doc.logo_source_type = "grok_fallback";
+              doc.logo_stage_status = "ok";
+              doc.logo_confidence = grokLogoResult.logo_confidence || null;
+              changed = true;
+              console.log(`[resume-worker] Logo found via Grok fallback for ${doc.id}: ${grokLogoResult.logo_url}`);
+            } else {
+              doc.logo_stage_status = "not_found";
+              changed = true;
+              console.log(`[resume-worker] Logo not found (Grok fallback) for ${doc.id}: ${grokLogoResult?.logo_status || "no result"}`);
+            }
+          } catch (grokLogoErr) {
+            console.warn(`[resume-worker] Grok logo fallback error for ${doc.id}: ${grokLogoErr?.message}`);
+            doc.logo_stage_status = "not_found";
+            changed = true;
+          }
         }
       } catch (logoErr) {
         console.warn(`[resume-worker] Logo fetch error for ${doc.id}: ${logoErr?.message}`);

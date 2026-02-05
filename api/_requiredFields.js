@@ -586,15 +586,10 @@ function isRealValue(field, value, doc) {
 
   if (f === "logo") {
     const logoUrl = asMeaningfulString(doc?.logo_url);
-    if (logoUrl) return true;
+    if (logoUrl) return true;  // Has actual logo URL - field is present
 
-    const stage = normalizeKey(doc?.logo_stage_status);
-    const status = normalizeKey(doc?.logo_status);
-
-    // Contract: explicitly recording "not found" is a valid terminal state.
-    if (stage === "not_found_on_site" || stage === "not_found" || stage === "missing") return true;
-    if (status === "not_found_on_site" || status === "not_found" || status === "missing") return true;
-
+    // Logo is missing if no URL, regardless of stage status
+    // "not_found_on_site" should show as a missing field in Issues column
     return false;
   }
 

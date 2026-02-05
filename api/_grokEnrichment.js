@@ -657,27 +657,42 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // Enhanced prompt for reviews - includes company name for relevance verification
+  // Enhanced prompt for reviews - stronger verification and more candidates
   const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find third-party reviews.
 
 Task: Find at least 3 unique third-party reviews about this company or its products.
 
-Requirements:
-- Reviews can be YouTube videos OR magazine/blog articles (any mix is acceptable)
-- Each review must ACTUALLY be about this specific company - verify the content mentions "${name}"
-- CRITICAL: Verify that each URL is functional and accessible. Test that it loads correctly.
-- For YouTube videos: The video MUST exist, be accessible, and actually feature this company/products
-- Do NOT return unrelated videos (e.g., music videos with similar names, videos about different companies)
-- Provide MORE than 3 candidates (up to 20) so we can verify URLs
-- Exclude sources from these domains: ${excludeDomains.join(", ")}
-- Do NOT hallucinate or embellish. Accuracy is paramount.
-- Do NOT include the same author more than once
+CRITICAL REQUIREMENTS:
+- Each review MUST actually be about "${name}" - verify the page content mentions this company
+- Every URL MUST be functional and load correctly - test each one
+- Do NOT return 404 pages, redirects, or paywalled content
+- Do NOT hallucinate or invent URLs - accuracy is paramount
+
+Review Sources (any mix acceptable):
+- YouTube videos featuring this company or its products
+- Magazine articles or blog posts reviewing this company
+- News coverage or interviews about this company
+
+For YouTube videos:
+- The video MUST exist and be publicly accessible
+- The video title and content MUST mention "${name}" or its products
+- Do NOT return music videos, unrelated content, or deleted videos
+- Provide the full watch URL (not playlist or channel URLs)
+
+For blogs/magazines:
+- The article MUST specifically review or feature "${name}"
+- Verify the page loads and contains actual content about this company
+- Prefer established publications over obscure blogs
+
+Provide 20-30 candidates to ensure sufficient verified results.
+Exclude sources from these domains: ${excludeDomains.join(", ")}
 
 For each review, include:
-- source_name: The publication or channel name
-- source_url: Direct URL to the article/video (NOT a search results page)
+- source_name: Exact channel name (YouTube) or publication name (blog)
+- source_url: Direct URL to the video/article (NOT search results)
 - category: "youtube" or "blog"
-- excerpt: A brief quote or summary from the review (1-2 sentences, no ellipses)
+- title: Exact title of the video/article (do NOT paraphrase)
+- excerpt: Direct quote from the review (1-2 sentences, no ellipses)
 
 Output STRICT JSON only:
 {
@@ -686,13 +701,15 @@ Output STRICT JSON only:
       "source_url": "https://www.youtube.com/watch?v=...",
       "source_name": "Channel Name",
       "category": "youtube",
-      "excerpt": "Quote or summary from the review..."
+      "title": "Exact Video Title",
+      "excerpt": "Direct quote from the review..."
     },
     {
       "source_url": "https://...",
       "source_name": "Publication Name",
       "category": "blog",
-      "excerpt": "Quote or summary from the review..."
+      "title": "Exact Article Title",
+      "excerpt": "Direct quote from the review..."
     }
   ]
 }`.trim();
@@ -788,7 +805,14 @@ Output STRICT JSON only:
       const url = safeUrl(x.source_url || x.url || x.link);
       const categoryRaw = asString(x.category || x.type || "").trim().toLowerCase();
       const category = categoryRaw === "youtube" || isYouTubeUrl(url) ? "youtube" : "blog";
-      return { source_url: url, category };
+      return {
+        source_url: url,
+        category,
+        // Capture XAI-provided metadata for fallback
+        source_name: asString(x.source_name || "").trim() || null,
+        title: asString(x.title || "").trim() || null,
+        excerpt: asString(x.excerpt || "").trim() || null,
+      };
     })
     .filter((x) => x.source_url)
     .filter((x) => !excludeDomains.some((d) => x.source_url.includes(d)));
@@ -885,13 +909,14 @@ Output STRICT JSON only:
     const html = typeof verified.html_preview === "string" ? verified.html_preview : "";
     const meta = buildReviewMetadataFromHtml(c.source_url, html);
 
+    // Use XAI-provided data as fallback when HTML metadata is missing
     const review = {
-      source_name: isYouTubeUrl(c.source_url) ? "YouTube" : meta.source_name,
-      author: meta.author,
+      source_name: isYouTubeUrl(c.source_url) ? "YouTube" : (c.source_name || meta.source_name),
+      author: meta.author || c.source_name,
       source_url: meta.source_url,
-      title: meta.title,
+      title: c.title || meta.title,  // XAI title as fallback
       date: meta.date,
-      excerpt: meta.excerpt,
+      excerpt: c.excerpt || meta.excerpt,  // XAI excerpt as fallback
     };
 
     if (c.category === "youtube") {
@@ -1708,6 +1733,158 @@ Return:
   return valueOut;
 }
 
+/**
+ * Grok-based logo detection fallback when HTML parsing fails to find a logo.
+ * Uses AI to identify the company's official logo URL from the website.
+ */
+async function fetchLogo({
+  companyName,
+  normalizedDomain,
+  budgetMs = 15000,
+  xaiUrl,
+  xaiKey,
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
+} = {}) {
+  const started = Date.now();
+
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain);
+
+  const cacheKey = domain ? `logo:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
+
+  const websiteUrlForPrompt = domain ? `https://${domain}` : "";
+
+  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find the company logo.
+
+Task: Find the direct URL to this company's official logo image.
+
+Requirements:
+- The logo must be the company's official brand logo or wordmark
+- Look for it in the website header, navigation, footer, or about page
+- The URL should be a direct link to an image file (PNG, SVG, JPG, WebP)
+- Do NOT return favicon.ico or generic placeholder images
+- Do NOT return product images, hero banners, or promotional graphics
+- The image should be the primary brand identifier used across the site
+- If multiple logo variants exist (light/dark, horizontal/stacked), prefer the main/primary version
+- Verify the URL actually returns an image
+
+Output STRICT JSON only:
+{
+  "logo_url": "https://..." | null,
+  "logo_source": "header" | "nav" | "footer" | "about" | "meta" | "schema" | null,
+  "confidence": "high" | "medium" | "low"
+}`.trim();
+
+  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
+
+  const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  const remaining = budgetMs - (Date.now() - started);
+  if (!hasStub) {
+    const minRequired = stageTimeout.min + 1_200;
+    if (remaining < minRequired) {
+      return {
+        logo_url: null,
+        logo_status: "deferred",
+        diagnostics: {
+          reason: "budget_too_low",
+          remaining_ms: Math.max(0, remaining),
+          min_required_ms: minRequired,
+        },
+      };
+    }
+  }
+
+  const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
+
+  const r = await xaiLiveSearchWithRetry({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: remaining,
+      minMs: stageTimeout.min,
+      maxMs: maxTimeoutMs,
+      safetyMarginMs: 1_200,
+    }),
+    maxTokens: 250,
+    model: resolveSearchModel(model),
+    xaiUrl,
+    xaiKey,
+    search_parameters: { mode: "on" },
+  });
+
+  if (!r.ok) {
+    const failure = classifyXaiFailure(r);
+    return {
+      logo_url: null,
+      logo_status: failure,
+      diagnostics: {
+        error: r.error,
+        error_code: failure,
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+      },
+    };
+  }
+
+  const out = parseJsonFromXaiResponse(r.resp);
+
+  if (!out || typeof out !== "object" || Array.isArray(out)) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      logo_url: null,
+      logo_status: "invalid_json",
+      diagnostics: {
+        reason: "invalid_json_response",
+        raw_preview: rawText ? rawText.slice(0, 600) : null,
+      },
+    };
+  }
+
+  const logoUrl = asString(out?.logo_url).trim() || null;
+  const logoSource = asString(out?.logo_source).trim().toLowerCase() || null;
+  const confidence = asString(out?.confidence).trim().toLowerCase() || "low";
+
+  if (!logoUrl) {
+    const valueOut = {
+      logo_url: null,
+      logo_status: "not_found",
+      logo_source: null,
+      logo_confidence: null,
+    };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
+  }
+
+  // Basic URL validation
+  const validUrl = safeUrl(logoUrl);
+  if (!validUrl) {
+    const valueOut = {
+      logo_url: null,
+      logo_status: "invalid_url",
+      diagnostics: { raw_url: logoUrl },
+    };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
+  }
+
+  const valueOut = {
+    logo_url: validUrl,
+    logo_status: "ok",
+    logo_source: logoSource,
+    logo_confidence: confidence,
+  };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
+}
+
 module.exports = {
   DEFAULT_REVIEW_EXCLUDE_DOMAINS,
   fetchCuratedReviews,
@@ -1716,6 +1893,7 @@ module.exports = {
   fetchTagline,
   fetchIndustries,
   fetchProductKeywords,
+  fetchLogo,
   // Helpers for location normalization
   normalizeLocationWithStateAbbrev,
   inferCountryFromStateAbbreviation,
