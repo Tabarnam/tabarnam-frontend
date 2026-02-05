@@ -156,10 +156,14 @@ function safeErrorMessage(err, limit = 500) {
   }
 }
 
+// Feature flag: Set to false to exclude reviews from import workflow
+// Reviews code is preserved but skipped during enrichment
+const REVIEWS_ENABLED = false;
+
 const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
   "manufacturing_locations",
-  "reviews",
+  ...(REVIEWS_ENABLED ? ["reviews"] : []),
   "industries",
   "product_keywords",
 ]);
@@ -2811,7 +2815,7 @@ async function resumeWorkerHandler(req, context) {
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
 
     const fieldsPlanned = (() => {
-      const HEAVY_FIELDS = ["headquarters_location", "manufacturing_locations", "reviews", "industries", "product_keywords"];
+      const HEAVY_FIELDS = ["headquarters_location", "manufacturing_locations", ...(REVIEWS_ENABLED ? ["reviews"] : []), "industries", "product_keywords"];
       const heavyMissing = HEAVY_FIELDS.some((f) => missingNow.includes(f));
 
       // Single-company mode must eventually attempt heavy fields across cycles.
@@ -2843,7 +2847,7 @@ async function resumeWorkerHandler(req, context) {
       const priority = [
         "headquarters_location",
         "manufacturing_locations",
-        "reviews",
+        ...(REVIEWS_ENABLED ? ["reviews"] : []),
         "tagline",
         "industries",
         "product_keywords",
@@ -2873,7 +2877,7 @@ async function resumeWorkerHandler(req, context) {
           const heavy =
             field === "headquarters_location" ||
             field === "manufacturing_locations" ||
-            field === "reviews" ||
+            (REVIEWS_ENABLED && field === "reviews") ||
             field === "industries" ||
             field === "product_keywords";
           if (heavy || out.length >= 2) break;

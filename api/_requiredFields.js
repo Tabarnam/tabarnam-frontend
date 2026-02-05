@@ -2,6 +2,10 @@ function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
+// Feature flag: Set to false to exclude reviews from required fields
+// Reviews code is preserved but not checked during import completion
+const REVIEWS_ENABLED = false;
+
 function normalizeKey(value) {
   return asString(value).trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -612,7 +616,7 @@ function isRealValue(field, value, doc) {
   return Boolean(asMeaningfulString(value));
 }
 
-function computeMissingFields(company, { includeReviews = true } = {}) {
+function computeMissingFields(company, { includeReviews = REVIEWS_ENABLED } = {}) {
   const c = company && typeof company === "object" ? company : {};
   const missing = [];
 

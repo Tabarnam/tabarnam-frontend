@@ -21,6 +21,10 @@ import {
   toErrorString,
 } from "@/lib/api";
 
+// Feature flag: Reviews are excluded from import workflow
+// Set to true to re-enable reviews in the UI
+const REVIEWS_ENABLED = false;
+
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
@@ -1619,7 +1623,9 @@ export default function AdminImport() {
     const dryRun = false;
 
     return {
-      pipeline: "primary → keywords → reviews → location → save → expand",
+      pipeline: REVIEWS_ENABLED
+        ? "primary → keywords → reviews → location → save → expand"
+        : "primary → keywords → location → save → expand",
       overridesLabel: "None",
       maxStage,
       skipStages,
@@ -2927,7 +2933,7 @@ export default function AdminImport() {
     const skipStages = Array.isArray(request?.skip_stages) ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean) : [];
     if (skipStages.length === 0) return null;
 
-    const enrichmentStages = new Set(["keywords", "reviews", "location"]);
+    const enrichmentStages = new Set(["keywords", ...(REVIEWS_ENABLED ? ["reviews"] : []), "location"]);
     const skippedEnrichment = skipStages.filter((s) => enrichmentStages.has(s));
     if (skippedEnrichment.length === 0) return null;
 
