@@ -498,7 +498,8 @@ function hasNonPlaceholderLocationEntry(list) {
         asString(loc.formatted).trim() ||
         asString(loc.full_address).trim() ||
         asString(loc.address).trim() ||
-        asString(loc.location).trim();
+        asString(loc.location).trim() ||
+        asString(loc.country).trim();  // Also accept country-only locations (e.g., "USA", "China")
 
       const key = normalizeKey(raw);
       if (!key) continue;
