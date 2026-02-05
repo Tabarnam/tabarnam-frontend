@@ -916,6 +916,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const whereClauses = [
           "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)",
           "NOT STARTSWITH(c.id, '_import_')",
+          "NOT STARTSWITH(c.id, 'refresh_job_')",
           "(NOT IS_DEFINED(c.type) OR c.type != 'import_control')",
         ];
 
