@@ -32,7 +32,7 @@ export default function SearchCard({
   const [country, setCountry] = useState('');
   const [stateCode, setStateCode] = useState('');
   const [city, setCity] = useState('');
-  const [sortBy, setSortBy] = useState('manu'); // default
+  const [sortBy, setSortBy] = useState('stars'); // default
 
   const [countries, setCountries] = useState([]);
 
@@ -72,7 +72,7 @@ export default function SearchCard({
     if (p.has('country')) setCountry(p.get('country') || '');
     if (p.has('state')) setStateCode(p.get('state') || '');
     if (p.has('city')) setCity(p.get('city') || '');
-    if (p.has('sort')) setSortBy(p.get('sort') || 'manu');
+    if (p.has('sort')) setSortBy(p.get('sort') || 'stars');
   }, [search]);
 
   useEffect(() => {
