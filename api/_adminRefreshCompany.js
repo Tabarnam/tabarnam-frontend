@@ -33,6 +33,7 @@ const {
   fetchLogo,
   setAdminRefreshBypass,
 } = require("./_grokEnrichment");
+const { geocodeLocationArray } = require("./_geocode");
 
 // Helper: Check if the URL is an xAI /responses endpoint (vs /chat/completions)
 function isResponsesEndpoint(rawUrl) {
@@ -866,19 +867,22 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     let taglineResult, hqResult, mfgResult, industriesResult, keywordsResult, logoResult;
     try {
-      // Run ONLY tagline first to test basic flow (reduced from 6 parallel calls)
-      // TODO: Re-enable other enrichments once basic flow is verified
-      [taglineResult] = await Promise.allSettled([
+      // Run all enrichment functions in parallel (NO reviews - disabled by design)
+      [
+        taglineResult,
+        hqResult,
+        mfgResult,
+        industriesResult,
+        keywordsResult,
+        logoResult,
+      ] = await Promise.allSettled([
         fetchTagline({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchIndustries({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchProductKeywords({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchLogo({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
       ]);
-
-      // Set other results to mock "skipped" values
-      const skippedResult = { status: "fulfilled", value: { status: "skipped" } };
-      hqResult = skippedResult;
-      mfgResult = skippedResult;
-      industriesResult = skippedResult;
-      keywordsResult = skippedResult;
-      logoResult = skippedResult;
     } finally {
       // Always clear the bypass flag
       setAdminRefreshBypass(false);
@@ -889,6 +893,11 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       event: "enrichment_complete",
       company_id: companyId,
       tagline_status: taglineResult?.status,
+      hq_status: hqResult?.status,
+      mfg_status: mfgResult?.status,
+      industries_status: industriesResult?.status,
+      keywords_status: keywordsResult?.status,
+      logo_status: logoResult?.status,
       build_id: BUILD_INFO.build_id || null,
     }));
 
@@ -1015,6 +1024,73 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         enrichment_status.logo = lData.logo_status || "empty";
       }
     }
+
+    // ========================================================================
+    // GEOCODING: Add lat/lng to manufacturing and HQ locations
+    // ========================================================================
+    stage = "geocoding";
+    pushBreadcrumb(stage, { company_id: companyId });
+
+    // Geocode manufacturing locations
+    if (Array.isArray(proposed.manufacturing_locations) && proposed.manufacturing_locations.length > 0) {
+      try {
+        const locationStrings = proposed.manufacturing_locations
+          .map(loc => typeof loc === "string" ? loc : loc.location || loc.formatted || "")
+          .filter(Boolean);
+
+        if (locationStrings.length > 0) {
+          const geocoded = await geocodeLocationArray(locationStrings, {
+            timeoutMs: 5000,
+            concurrency: 4,
+          });
+
+          // Merge geocode data into proposed locations
+          proposed.manufacturing_locations = proposed.manufacturing_locations.map((loc, i) => ({
+            ...loc,
+            ...(geocoded[i] || {}),
+          }));
+        }
+      } catch (geoErr) {
+        console.log(JSON.stringify({
+          stage: "refresh_company",
+          event: "geocoding_error",
+          location_type: "manufacturing",
+          error: geoErr?.message || String(geoErr),
+          build_id: BUILD_INFO.build_id || null,
+        }));
+        // Continue without geocoding - don't fail the whole refresh
+      }
+    }
+
+    // Geocode HQ location
+    if (proposed.headquarters_location) {
+      try {
+        const geocoded = await geocodeLocationArray([proposed.headquarters_location], {
+          timeoutMs: 5000,
+          concurrency: 1,
+        });
+
+        if (geocoded[0]) {
+          // Add geocode data to HQ
+          proposed.headquarters_geocode = geocoded[0];
+          if (geocoded[0].lat && geocoded[0].lng) {
+            proposed.hq_lat = geocoded[0].lat;
+            proposed.hq_lng = geocoded[0].lng;
+          }
+        }
+      } catch (geoErr) {
+        console.log(JSON.stringify({
+          stage: "refresh_company",
+          event: "geocoding_error",
+          location_type: "hq",
+          error: geoErr?.message || String(geoErr),
+          build_id: BUILD_INFO.build_id || null,
+        }));
+        // Continue without geocoding - don't fail the whole refresh
+      }
+    }
+
+    pushBreadcrumb("geocoding_complete", { company_id: companyId });
 
     // Count successful enrichments
     const successCount = Object.values(enrichment_status).filter(s => s === "ok").length;
