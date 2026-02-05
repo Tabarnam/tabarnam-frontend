@@ -192,7 +192,8 @@ test("grokEnrichment.fetchCuratedReviews returns 3 verified reviews (2 YouTube +
 
   const xaiStub = async ({ prompt }) => {
     // Return a mixed candidate list including a soft-404 that should be rejected.
-    if (!String(prompt || "").includes("review_candidates")) {
+    // Check for reviews_url_candidates (the key used in the prompt) or review_candidates (legacy)
+    if (!String(prompt || "").includes("reviews_url_candidates") && !String(prompt || "").includes("review_candidates")) {
       return { ok: false, error: "unexpected_prompt" };
     }
 
@@ -203,7 +204,7 @@ test("grokEnrichment.fetchCuratedReviews returns 3 verified reviews (2 YouTube +
           {
             message: {
               content: JSON.stringify({
-                review_candidates: [
+                reviews_url_candidates: [
                   { source_url: youtube1, category: "youtube" },
                   { source_url: youtube2, category: "youtube" },
                   { source_url: blog1, category: "blog" },
@@ -263,7 +264,8 @@ test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs 
   };
 
   const xaiStub = async ({ prompt }) => {
-    if (!String(prompt || "").includes("review_candidates")) {
+    // Check for reviews_url_candidates (the key used in the prompt) or review_candidates (legacy)
+    if (!String(prompt || "").includes("reviews_url_candidates") && !String(prompt || "").includes("review_candidates")) {
       return { ok: false, error: "unexpected_prompt" };
     }
 
@@ -274,7 +276,7 @@ test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs 
           {
             message: {
               content: JSON.stringify({
-                review_candidates: [
+                reviews_url_candidates: [
                   { source_url: youtube1, category: "youtube" },
                   { source_url: blog1, category: "blog" },
                   { source_url: bad1, category: "blog" },
