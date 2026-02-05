@@ -3713,6 +3713,7 @@ export default function CompanyDashboard() {
       { key: "company_name", label: "Company name" },
       { key: "website_url", label: "Website URL" },
       { key: "tagline", label: "Tagline" },
+      { key: "logo_url", label: "Logo URL" },
       { key: "headquarters_locations", label: "HQ locations" },
       { key: "manufacturing_locations", label: "Manufacturing locations" },
       { key: "industries", label: "Industries" },
@@ -4098,8 +4099,8 @@ export default function CompanyDashboard() {
 
     const requestPayload = {
       company_id: companyId,
-      timeout_ms: 20000,
-      deadline_ms: 20000,
+      timeout_ms: 90000,
+      deadline_ms: 90000,
     };
 
     try {

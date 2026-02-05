@@ -24,6 +24,14 @@ const {
 } = require("./_cosmosPartitionKey");
 const { fetchConfirmedCompanyTagline } = require("./_taglineXai");
 const { getBuildInfo } = require("./_buildInfo");
+const {
+  fetchTagline,
+  fetchHeadquartersLocation,
+  fetchManufacturingLocations,
+  fetchIndustries,
+  fetchProductKeywords,
+  fetchLogo,
+} = require("./_grokEnrichment");
 
 // Helper: Check if the URL is an xAI /responses endpoint (vs /chat/completions)
 function isResponsesEndpoint(rawUrl) {
@@ -580,12 +588,9 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
   };
 
-  let budgetMs = 20000;
+  let budgetMs = 90000; // 90 seconds for parallel enrichment
   let deadlineAtMs = startedAt + budgetMs;
   const getRemainingBudgetMs = () => Math.max(0, deadlineAtMs - Date.now());
-
-  // Derive per-call timeouts from the remaining total budget.
-  const computeUpstreamTimeoutMs = () => Math.max(3500, Math.min(12000, getRemainingBudgetMs() - 1500));
 
   const config = {
     COSMOS_DB_ENDPOINT_SET: Boolean(asString(process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_ENDPOINT).trim()),
@@ -605,7 +610,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     stage = "parse_body";
     const body = await readJsonBody(req);
 
-    budgetMs = Math.max(5000, Math.min(25000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? 20000) || 20000)));
+    budgetMs = Math.max(10000, Math.min(180000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? 90000) || 90000)));
     deadlineAtMs = startedAt + budgetMs;
 
     const companyId = asString(body.company_id || body.id).trim();
@@ -834,301 +839,183 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       });
     }
 
-    const prompt = buildPrompt({ companyName, websiteUrl, normalizedDomain });
-    const chatPayload = {
-      messages: [{ role: "user", content: prompt }],
-      model: xaiModel,
-      temperature: 0.1,
-      stream: false,
-    };
-
-    // Convert to /responses format if using that endpoint
-    const payload = isResponsesEndpoint(xaiUrl) ? convertToResponsesPayload(chatPayload) : chatPayload;
-
-    stage = "call_xai";
+    // ========================================================================
+    // PARALLEL ENRICHMENT using the same functions as import flow
+    // Each function uses live web search for better accuracy
+    // ========================================================================
+    stage = "enrich_parallel";
     pushBreadcrumb(stage, { company_id: companyId });
 
-    const axiosPost = deps.axiosPost || (axios ? axios.post.bind(axios) : null);
-    if (!axiosPost) {
-      await releaseRefreshLockBestEffort();
-      return json({
-        ok: false,
-        stage: "refresh_company",
-        root_cause: "missing_dependency",
-        retryable: false,
-        company_id: companyId,
-        upstream_status: null,
-        attempts,
-        breadcrumbs,
-        diagnostics: {
-          message: "Axios not available",
-          config,
-        },
-        build_id: String(BUILD_INFO.build_id || ""),
-        elapsed_ms: Date.now() - startedAt,
-        budget_ms: budgetMs,
-        remaining_budget_ms: getRemainingBudgetMs(),
-      });
-    }
+    // Reserve time for response assembly
+    const enrichmentBudgetMs = Math.max(5000, getRemainingBudgetMs() - 2500);
 
-    let resp = null;
+    // Run all enrichment functions in parallel
+    const [
+      taglineResult,
+      hqResult,
+      mfgResult,
+      industriesResult,
+      keywordsResult,
+      logoResult,
+    ] = await Promise.allSettled([
+      fetchTagline({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+      fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+      fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+      fetchIndustries({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+      fetchProductKeywords({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+      fetchLogo({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+    ]);
 
-    // Single retry (budget-aware): only for unreachable upstream or 5xx.
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const timeoutMsUsed = computeUpstreamTimeoutMs();
-      const attemptEntry = {
-        attempt,
-        timeout_ms: timeoutMsUsed,
-        ok: false,
-        root_cause: "",
-        upstream_status: null,
-      };
-      attempts.push(attemptEntry);
+    pushBreadcrumb("enrich_complete", {
+      tagline: taglineResult.status,
+      hq: hqResult.status,
+      mfg: mfgResult.status,
+      industries: industriesResult.status,
+      keywords: keywordsResult.status,
+      logo: logoResult.status,
+    });
 
-      if (timeoutMsUsed < 3500) {
-        attemptEntry.root_cause = "upstream_timeout_budget_exhausted";
-        attemptEntry.message = "Total budget exhausted before calling upstream";
-        break;
-      }
-
-      pushBreadcrumb(`call_xai_attempt_${attempt}`, { timeout_ms: timeoutMsUsed });
-
-      try {
-        const r = await axiosPost(xaiUrl, payload, {
-          headers: buildXaiHeaders(xaiUrl, xaiKey),
-          timeout: timeoutMsUsed,
-          validateStatus: () => true,
-        });
-
-        const status = Number(r?.status) || 0;
-        attemptEntry.upstream_status = status;
-
-        // Treat 5xx as retryable once if we still have budget.
-        if (status >= 500 && attempt === 1 && getRemainingBudgetMs() > 6500) {
-          attemptEntry.root_cause = `upstream_http_${status}`;
-          attemptEntry.message = `Upstream returned HTTP ${status}`;
-          continue;
-        }
-
-        attemptEntry.ok = status >= 200 && status < 300;
-        attemptEntry.root_cause = attemptEntry.ok ? "" : `upstream_http_${status || 0}`;
-
-        resp = r;
-        break;
-      } catch (e) {
-        attemptEntry.root_cause = asString(e?.root_cause).trim() || "upstream_unreachable";
-        attemptEntry.message = asString(e?.message || e).trim() || "Upstream request failed";
-
-        // Retry once for unreachable upstream if we still have time budget.
-        if (attempt === 1 && getRemainingBudgetMs() > 6500) {
-          continue;
-        }
-
-        break;
-      }
-    }
-
-    if (!resp) {
-      stage = "upstream_error";
-      pushBreadcrumb(stage);
-
-      try {
-        await patchCompanyById(container, companyId, existing, {
-          company_refresh_lock_until: 0,
-        });
-      } catch {
-        // ignore
-      }
-
-      const lastAttempt = attempts.length ? attempts[attempts.length - 1] : null;
-
-      return json({
-        ok: false,
-        stage: "refresh_company",
-        root_cause: asString(lastAttempt?.root_cause).trim() || "upstream_unreachable",
-        retryable: true,
-        company_id: companyId,
-        upstream_status: 0,
-        xai_config_source,
-        resolved_upstream_host: upstreamMeta.resolved_upstream_host,
-        resolved_upstream_path: upstreamMeta.resolved_upstream_path,
-        attempts,
-        breadcrumbs,
-        diagnostics: {
-          message: asString(lastAttempt?.message).trim() || "Request failed",
-          resolved_xai_endpoint: xaiUrl || null,
-          budget_ms: budgetMs,
-          remaining_budget_ms: getRemainingBudgetMs(),
-        },
-        config,
-        build_id: String(BUILD_INFO.build_id || ""),
-        elapsed_ms: Date.now() - startedAt,
-        budget_ms: budgetMs,
-        remaining_budget_ms: getRemainingBudgetMs(),
-      });
-    }
-
-    const getAxiosHeader = (headers, name) => {
-      if (!headers || typeof headers !== "object") return "";
-      const target = asString(name).toLowerCase();
-      const key = Object.keys(headers).find((k) => asString(k).toLowerCase() === target);
-      return key ? asString(headers[key]).trim() : "";
+    // Build proposed object from enrichment results
+    stage = "build_proposed";
+    const proposed = {
+      company_name: companyName,
+      website_url: websiteUrl,
+      normalized_domain: normalizedDomain,
     };
 
-    const request_id =
-      getAxiosHeader(resp.headers, "x-request-id") ||
-      getAxiosHeader(resp.headers, "x-requestid") ||
-      getAxiosHeader(resp.headers, "request-id") ||
-      getAxiosHeader(resp.headers, "x-correlation-id") ||
-      "";
+    const enrichment_status = {
+      tagline: "error",
+      headquarters: "error",
+      manufacturing: "error",
+      industries: "error",
+      keywords: "error",
+      logo: "error",
+    };
 
-    stage = "parse_xai";
-    // Use helper that handles both /responses and /chat/completions formats
-    const responseText =
-      extractXaiResponseText(resp?.data) ||
-      (typeof resp?.data === "string" ? resp.data : JSON.stringify(resp.data || {}));
-
-    const upstream_preview = asString(responseText).slice(0, 8000);
-
-    const { value: extractedValue, parse_error } = extractJsonFromText(responseText);
-    const normalized = normalizeXaiEnrichmentValue(extractedValue);
-
-    if (normalized.error) {
-      stage = "upstream_error";
-      await releaseRefreshLockBestEffort();
-      pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
-      return json({
-        ok: false,
-        stage: "refresh_company",
-        root_cause: "upstream_error_object",
-        retryable: false,
-        error: "Upstream returned error",
-        upstream_status: Number(resp.status) || 0,
-        request_id: request_id || null,
-        attempts,
-        breadcrumbs,
-        diagnostics: {
-          upstream_code: normalized.error.code ?? null,
-          upstream_message: normalized.error.message || null,
-          upstream_preview,
-        },
-        config,
-        build_id: String(BUILD_INFO.build_id || ""),
-        elapsed_ms: Date.now() - startedAt,
-        budget_ms: budgetMs,
-        remaining_budget_ms: getRemainingBudgetMs(),
-      });
-    }
-
-    if (resp.status < 200 || resp.status >= 300) {
-      stage = "upstream_error";
-      await releaseRefreshLockBestEffort();
-      pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
-      return json({
-        ok: false,
-        stage: "refresh_company",
-        root_cause: `upstream_http_${Number(resp.status) || 0}`,
-        retryable: Number(resp.status) >= 500,
-        error: `Upstream enrichment failed (HTTP ${Number(resp.status) || "?"})`,
-        upstream_status: Number(resp.status) || 0,
-        request_id: request_id || null,
-        attempts,
-        breadcrumbs,
-        diagnostics: {
-          parse_error: parse_error || null,
-          upstream_preview,
-        },
-        config,
-        build_id: String(BUILD_INFO.build_id || ""),
-        elapsed_ms: Date.now() - startedAt,
-        budget_ms: budgetMs,
-        remaining_budget_ms: getRemainingBudgetMs(),
-      });
-    }
-
-    if (!normalized.company || typeof normalized.company !== "object") {
-      stage = "parse_xai";
-      await releaseRefreshLockBestEffort();
-      pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
-      return json({
-        ok: false,
-        stage: "refresh_company",
-        root_cause: "upstream_bad_response",
-        retryable: true,
-        error: "No proposed company returned",
-        upstream_status: Number(resp.status) || 0,
-        request_id: request_id || null,
-        attempts,
-        breadcrumbs,
-        diagnostics: {
-          parse_error: parse_error || "No company object found",
-          upstream_preview,
-        },
-        config,
-        build_id: String(BUILD_INFO.build_id || ""),
-        elapsed_ms: Date.now() - startedAt,
-        budget_ms: budgetMs,
-        remaining_budget_ms: getRemainingBudgetMs(),
-      });
-    }
-
-    stage = "build_proposed";
-    const proposed = buildProposedCompanyFromXaiResult(normalized.company);
-
-    // Tagline acquisition fix:
-    // 1) confirm company name, 2) fetch official tagline for that confirmed name.
-    // This is best-effort and must not break the refresh flow.
-    stage = "tagline_confirm";
-    let tagline_meta = null;
-    try {
-      const remainingForTagline = getRemainingBudgetMs();
-      const taglineTimeout = Math.min(12000, Math.max(4000, remainingForTagline - 1500));
-
-      if (taglineTimeout < 4000) {
-        tagline_meta = { status: "skipped_budget" };
+    // Extract tagline
+    if (taglineResult.status === "fulfilled" && taglineResult.value) {
+      const tData = taglineResult.value;
+      if (tData.tagline) {
+        proposed.tagline = tData.tagline;
+        enrichment_status.tagline = tData.tagline_status || "ok";
       } else {
-        const info = await fetchConfirmedCompanyTagline({
-          axiosPost,
-          xaiUrl,
-          xaiKey,
-          companyName,
-          websiteUrl,
-          timeoutMs: taglineTimeout,
-        });
-
-        tagline_meta = {
-          confirmed_company_name: info.confirmed_company_name,
-          confirm_confidence: info.confirm_confidence,
-          confirm_reason: info.confirm_reason,
-          tagline_confidence: info.tagline_confidence,
-          tagline_reason: info.tagline_reason,
-        };
-
-        if (info.tagline) {
-          proposed.tagline = info.tagline;
-        }
-
-        try {
-          console.log(
-            JSON.stringify({
-              stage: "refresh_company_tagline",
-              company_id: companyId,
-              website_url: websiteUrl,
-              input_company_name: companyName,
-              confirmed_company_name: info.confirmed_company_name,
-              tagline: info.tagline,
-              confirm_confidence: info.confirm_confidence,
-              tagline_confidence: info.tagline_confidence,
-            })
-          );
-        } catch {
-          // ignore
-        }
+        enrichment_status.tagline = tData.tagline_status || "empty";
       }
-    } catch (e) {
-      tagline_meta = {
-        error: asString(e?.message || e),
-      };
+    }
+
+    // Extract HQ locations
+    if (hqResult.status === "fulfilled" && hqResult.value) {
+      const hData = hqResult.value;
+      if (hData.headquarters_location) {
+        proposed.headquarters_location = hData.headquarters_location;
+        // Normalize to structured format
+        proposed.headquarters_locations = [{
+          location: hData.headquarters_location,
+          formatted: hData.headquarters_location,
+          is_hq: true,
+          source: "xai_refresh",
+        }];
+        enrichment_status.headquarters = hData.hq_status || "ok";
+      } else {
+        enrichment_status.headquarters = hData.hq_status || "empty";
+      }
+      // Include source URLs if available
+      if (hData.location_source_urls?.hq_source_urls) {
+        proposed.location_sources = (proposed.location_sources || []).concat(
+          hData.location_source_urls.hq_source_urls.map(url => ({
+            source_url: url,
+            location_type: "hq",
+          }))
+        );
+      }
+    }
+
+    // Extract manufacturing locations
+    if (mfgResult.status === "fulfilled" && mfgResult.value) {
+      const mData = mfgResult.value;
+      if (Array.isArray(mData.manufacturing_locations) && mData.manufacturing_locations.length > 0) {
+        proposed.manufacturing_locations = mData.manufacturing_locations.map(loc => ({
+          location: typeof loc === "string" ? loc : loc.location || loc,
+          formatted: typeof loc === "string" ? loc : loc.location || loc,
+          source: "xai_refresh",
+        }));
+        enrichment_status.manufacturing = mData.mfg_status || "ok";
+      } else {
+        enrichment_status.manufacturing = mData.mfg_status || "empty";
+      }
+      // Include source URLs if available
+      if (mData.location_source_urls?.mfg_source_urls) {
+        proposed.location_sources = (proposed.location_sources || []).concat(
+          mData.location_source_urls.mfg_source_urls.map(url => ({
+            source_url: url,
+            location_type: "manufacturing",
+          }))
+        );
+      }
+    }
+
+    // Extract industries
+    if (industriesResult.status === "fulfilled" && industriesResult.value) {
+      const iData = industriesResult.value;
+      if (Array.isArray(iData.industries) && iData.industries.length > 0) {
+        proposed.industries = iData.industries;
+        enrichment_status.industries = iData.industries_status || "ok";
+      } else {
+        enrichment_status.industries = iData.industries_status || "empty";
+      }
+    }
+
+    // Extract keywords
+    if (keywordsResult.status === "fulfilled" && keywordsResult.value) {
+      const kData = keywordsResult.value;
+      const keywords = kData.product_keywords || kData.keywords;
+      if (Array.isArray(keywords) && keywords.length > 0) {
+        proposed.keywords = keywords;
+        enrichment_status.keywords = kData.keywords_status || "ok";
+      } else {
+        enrichment_status.keywords = kData.keywords_status || "empty";
+      }
+    }
+
+    // Extract logo
+    if (logoResult.status === "fulfilled" && logoResult.value) {
+      const lData = logoResult.value;
+      if (lData.logo_url) {
+        proposed.logo_url = lData.logo_url;
+        proposed.logo_source = lData.logo_source;
+        proposed.logo_confidence = lData.logo_confidence;
+        enrichment_status.logo = lData.logo_status || "ok";
+      } else {
+        enrichment_status.logo = lData.logo_status || "empty";
+      }
+    }
+
+    // Count successful enrichments
+    const successCount = Object.values(enrichment_status).filter(s => s === "ok").length;
+
+    // If no fields were enriched, return an error
+    if (successCount === 0) {
+      await releaseRefreshLockBestEffort();
+      pushBreadcrumb("no_fields_enriched");
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "no_fields_enriched",
+        retryable: true,
+        error: "No fields could be enriched",
+        company_id: companyId,
+        enrichment_status,
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          message: "All enrichment calls failed or returned empty",
+        },
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
     }
 
     stage = "done";
@@ -1153,8 +1040,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       resolved_upstream_host: upstreamMeta.resolved_upstream_host,
       resolved_upstream_path: upstreamMeta.resolved_upstream_path,
       proposed,
-      upstream_status: Number(resp?.status) || 0,
-      request_id: request_id || null,
+      enrichment_status,
       attempts,
       breadcrumbs,
       diagnostics: {},
@@ -1165,10 +1051,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         normalized_domain: normalizedDomain,
       },
       enrichment: {
-        sources: Array.isArray(normalized.sources) ? normalized.sources : [],
-        confidence: normalized.confidence && typeof normalized.confidence === "object" ? normalized.confidence : null,
+        sources: Array.isArray(proposed.location_sources) ? proposed.location_sources : [],
       },
-      ...(tagline_meta ? { tagline_meta } : {}),
     });
   } catch (e) {
     context?.log?.("[admin-refresh-company] error", {
