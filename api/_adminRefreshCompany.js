@@ -850,6 +850,15 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     // Reserve time for response assembly
     const enrichmentBudgetMs = Math.max(5000, getRemainingBudgetMs() - 2500);
 
+    // Log that we're starting enrichment (helps debug if we never get here)
+    console.log(JSON.stringify({
+      stage: "refresh_company",
+      event: "enrichment_start",
+      company_id: companyId,
+      budget_ms: enrichmentBudgetMs,
+      build_id: BUILD_INFO.build_id || null,
+    }));
+
     // Set bypass flag for admin refresh - the outer handler manages overall deadline
     // This bypasses the per-function minimum budget validation that would otherwise
     // cause all functions to return "deferred" status
@@ -857,26 +866,31 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     let taglineResult, hqResult, mfgResult, industriesResult, keywordsResult, logoResult;
     try {
-      // Run all enrichment functions in parallel
-      [
-        taglineResult,
-        hqResult,
-        mfgResult,
-        industriesResult,
-        keywordsResult,
-        logoResult,
-      ] = await Promise.allSettled([
+      // Run ONLY tagline first to test basic flow (reduced from 6 parallel calls)
+      // TODO: Re-enable other enrichments once basic flow is verified
+      [taglineResult] = await Promise.allSettled([
         fetchTagline({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchIndustries({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchProductKeywords({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-        fetchLogo({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
       ]);
+
+      // Set other results to mock "skipped" values
+      const skippedResult = { status: "fulfilled", value: { status: "skipped" } };
+      hqResult = skippedResult;
+      mfgResult = skippedResult;
+      industriesResult = skippedResult;
+      keywordsResult = skippedResult;
+      logoResult = skippedResult;
     } finally {
       // Always clear the bypass flag
       setAdminRefreshBypass(false);
     }
+
+    console.log(JSON.stringify({
+      stage: "refresh_company",
+      event: "enrichment_complete",
+      company_id: companyId,
+      tagline_status: taglineResult?.status,
+      build_id: BUILD_INFO.build_id || null,
+    }));
 
     pushBreadcrumb("enrich_complete", {
       tagline: taglineResult.status,
