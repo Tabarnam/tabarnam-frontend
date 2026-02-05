@@ -1044,10 +1044,11 @@ Return:
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
 
-  // Skip budget check when test stub is active
+  // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
   const remaining = budgetMs - (Date.now() - started);
-  if (!hasStub) {
+  if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
     if (remaining < minRequired) {
       return {
@@ -1209,10 +1210,11 @@ Return:
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
 
-  // Skip budget check when test stub is active
+  // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
   const remaining = budgetMs - (Date.now() - started);
-  if (!hasStub) {
+  if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
     if (remaining < minRequired) {
       return {
@@ -1363,10 +1365,11 @@ Return:
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
 
-  // Skip budget check when test stub is active
+  // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
   const remaining = budgetMs - (Date.now() - started);
-  if (!hasStub) {
+  if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
     if (remaining < minRequired) {
       return {
@@ -1492,10 +1495,11 @@ Return:
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
 
-  // Skip budget check when test stub is active
+  // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
   const remaining = budgetMs - (Date.now() - started);
-  if (!hasStub) {
+  if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
     if (remaining < minRequired) {
       return {
@@ -1623,10 +1627,11 @@ Return:
   // Use keywords-specific timeout (2x light) since keywords must accumulate all products
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.keywords;
 
-  // Skip budget check when test stub is active
+  // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
   const remaining = budgetMs - (Date.now() - started);
-  if (!hasStub) {
+  if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
     if (remaining < minRequired) {
       return {
@@ -1787,9 +1792,11 @@ Output STRICT JSON only:
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
 
+  // Skip budget check when test stub is active or admin refresh bypass is set
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  const hasAdminBypass = globalThis && globalThis.__adminRefreshBypass === true;
   const remaining = budgetMs - (Date.now() - started);
-  if (!hasStub) {
+  if (!hasStub && !hasAdminBypass) {
     const minRequired = stageTimeout.min + 1_200;
     if (remaining < minRequired) {
       return {

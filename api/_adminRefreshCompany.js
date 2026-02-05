@@ -849,22 +849,33 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     // Reserve time for response assembly
     const enrichmentBudgetMs = Math.max(5000, getRemainingBudgetMs() - 2500);
 
-    // Run all enrichment functions in parallel
-    const [
-      taglineResult,
-      hqResult,
-      mfgResult,
-      industriesResult,
-      keywordsResult,
-      logoResult,
-    ] = await Promise.allSettled([
-      fetchTagline({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-      fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-      fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-      fetchIndustries({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-      fetchProductKeywords({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-      fetchLogo({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
-    ]);
+    // Set bypass flag for admin refresh - the outer handler manages overall deadline
+    // This bypasses the per-function minimum budget validation that would otherwise
+    // cause all functions to return "deferred" status
+    globalThis.__adminRefreshBypass = true;
+
+    let taglineResult, hqResult, mfgResult, industriesResult, keywordsResult, logoResult;
+    try {
+      // Run all enrichment functions in parallel
+      [
+        taglineResult,
+        hqResult,
+        mfgResult,
+        industriesResult,
+        keywordsResult,
+        logoResult,
+      ] = await Promise.allSettled([
+        fetchTagline({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchIndustries({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchProductKeywords({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+        fetchLogo({ companyName, normalizedDomain, budgetMs: enrichmentBudgetMs, xaiUrl, xaiKey }),
+      ]);
+    } finally {
+      // Always clear the bypass flag
+      globalThis.__adminRefreshBypass = false;
+    }
 
     pushBreadcrumb("enrich_complete", {
       tagline: taglineResult.status,
