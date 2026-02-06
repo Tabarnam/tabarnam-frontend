@@ -386,10 +386,15 @@ function buildLegacySearchFilterWithTerms(terms_norm, terms_compact, params) {
   }
 
   const conditions = [];
+  // Strip special characters from DB values to match normalizeQuery behavior.
+  // normalizeQuery removes [^\w\s] (e.g. &, +, ', ., etc.) so the DB values
+  // must be cleaned the same way for CONTAINS to find matches.
+  const stripSpecial = (expr) =>
+    `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(${expr}), "&", ""), "+", ""), "'", ""), ".", ""), ",", ""), "-", " "), "_", " "), "/", "")`;
   const fieldChecker = (fieldName, paramName) =>
-    `(IS_DEFINED(c.${fieldName}) AND IS_STRING(c.${fieldName}) AND CONTAINS(LOWER(c.${fieldName}), ${paramName}))`;
+    `(IS_DEFINED(c.${fieldName}) AND IS_STRING(c.${fieldName}) AND CONTAINS(${stripSpecial(`c.${fieldName}`)}, ${paramName}))`;
   const fieldArrayChecker = (arrayField, paramName) =>
-    `(IS_ARRAY(c.${arrayField}) AND ARRAY_LENGTH(ARRAY(SELECT VALUE item FROM item IN c.${arrayField} WHERE IS_STRING(item) AND CONTAINS(LOWER(item), ${paramName}))) > 0)`;
+    `(IS_ARRAY(c.${arrayField}) AND ARRAY_LENGTH(ARRAY(SELECT VALUE item FROM item IN c.${arrayField} WHERE IS_STRING(item) AND CONTAINS(${stripSpecial("item")}, ${paramName}))) > 0)`;
 
   const stringFields = ["company_name", "display_name", "name", "normalized_domain", "amazon_url", "product_keywords", "keywords", "industries", "tagline"];
   const arrayFields = ["product_keywords", "keywords", "industries"];
