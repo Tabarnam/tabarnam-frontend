@@ -576,6 +576,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: refresh-status");
+  require("./refresh-status/index.js");
+  console.log("[api] ✓ refresh-status registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load refresh-status:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-refresh-reviews");
   require("./admin-refresh-reviews/index.js");
   console.log("[api] ✓ admin-refresh-reviews registered");

@@ -80,8 +80,11 @@ async function refreshStatusHandler(req, context) {
     }, 405);
   }
 
-  // Get job_id from query params
-  const jobId = asString(req.query?.job_id || req.query?.refresh_job_id || "").trim();
+  // Get job_id from query params (handle both URLSearchParams and plain object)
+  const q = req.query && typeof req.query.get === "function"
+    ? Object.fromEntries(req.query.entries())
+    : (req.query || {});
+  const jobId = asString(q.job_id || q.refresh_job_id || "").trim();
   if (!jobId) {
     return json({
       ok: false,
