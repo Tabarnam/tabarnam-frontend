@@ -337,6 +337,10 @@ const IMPORT_LIMIT_MIN = 1;
 const IMPORT_LIMIT_MAX = 25;
 const IMPORT_LIMIT_DEFAULT = 1;
 
+const SUCCESSION_MIN = 1;
+const SUCCESSION_MAX = 50;
+const SUCCESSION_DEFAULT = 1;
+
 const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
   primary_enqueued: "Queued primary search",
   primary_search_started: "Searching for matching companies",
@@ -448,12 +452,31 @@ function normalizeImportLimit(raw, fallback = IMPORT_LIMIT_DEFAULT) {
   return Math.max(IMPORT_LIMIT_MIN, Math.min(IMPORT_LIMIT_MAX, truncated));
 }
 
+function normalizeSuccessionCount(raw, fallback = SUCCESSION_DEFAULT) {
+  const s = String(raw ?? "").trim();
+  if (!s) return fallback;
+
+  const n = Number(s);
+  if (!Number.isFinite(n)) return fallback;
+
+  const truncated = Math.trunc(n);
+  return Math.max(SUCCESSION_MIN, Math.min(SUCCESSION_MAX, truncated));
+}
+
 export default function AdminImport() {
   const [query, setQuery] = useState("");
   const [companyUrl, setCompanyUrl] = useState("");
   const [queryTypes, setQueryTypes] = useState(["product_keyword"]);
   const [location, setLocation] = useState("");
-  const [limitInput, setLimitInput] = useState(String(IMPORT_LIMIT_DEFAULT));
+
+  // Succession import state
+  const [successionCountInput, setSuccessionCountInput] = useState(String(SUCCESSION_DEFAULT));
+  const [successionRows, setSuccessionRows] = useState([{ companyName: "", companyUrl: "" }]);
+  const [successionQueue, setSuccessionQueue] = useState([]);
+  const [successionIndex, setSuccessionIndex] = useState(-1);
+  const [successionResults, setSuccessionResults] = useState([]);
+  const successionTriggerRef = useRef(false);
+  const successionCount = normalizeSuccessionCount(successionCountInput);
 
 
   const importConfigured = Boolean(API_BASE);
@@ -504,6 +527,36 @@ export default function AdminImport() {
   const activeStatusRef = useRef(activeStatus);
   const importReportRef = useRef(null);
   activeStatusRef.current = activeStatus;
+
+  const isSuccessionRunning = successionIndex >= 0;
+
+  const handleSuccessionCountChange = useCallback((rawValue) => {
+    const s = String(rawValue ?? "").trim();
+    if (s === "") {
+      setSuccessionCountInput("");
+      return;
+    }
+    if (!/^\d+$/.test(s)) return;
+    setSuccessionCountInput(s);
+    const n = normalizeSuccessionCount(s);
+    setSuccessionRows((prev) => {
+      if (n === prev.length) return prev;
+      if (n < prev.length) return prev.slice(0, n);
+      const extended = [...prev];
+      while (extended.length < n) {
+        extended.push({ companyName: "", companyUrl: "" });
+      }
+      return extended;
+    });
+  }, []);
+
+  const updateSuccessionRow = useCallback((index, field, value) => {
+    setSuccessionRows((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+    if (index === 0) {
+      if (field === "companyName") setQuery(value);
+      if (field === "companyUrl") setCompanyUrl(value);
+    }
+  }, []);
 
   const activeRun = useMemo(() => {
     if (!activeSessionId) return null;
@@ -1786,7 +1839,7 @@ export default function AdminImport() {
 
     const uiSessionIdBefore = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    const normalizedLimit = normalizeImportLimit(limitInput);
+    const normalizedLimit = 1;
 
     const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
 
@@ -2619,7 +2672,6 @@ export default function AdminImport() {
     }
   }, [
     importConfigured,
-    limitInput,
     location,
     query,
     queryTypes,
@@ -2650,7 +2702,7 @@ export default function AdminImport() {
     const session_id =
       globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    const normalizedLimit = normalizeImportLimit(limitInput);
+    const normalizedLimit = 1;
     const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
 
     const requestPayload = {
@@ -2691,7 +2743,7 @@ export default function AdminImport() {
     } finally {
       setExplainLoading(false);
     }
-  }, [importConfigured, limitInput, location, query, queryTypes, urlTypeValidationError]);
+  }, [importConfigured, location, query, queryTypes, urlTypeValidationError]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -3290,6 +3342,69 @@ export default function AdminImport() {
     [handleStartImportStaged]
   );
 
+  // Succession import: start handler
+  const handleStartSuccession = useCallback(() => {
+    if (startImportDisabled) return;
+
+    if (successionCount <= 1) {
+      handleStartImportStaged();
+      return;
+    }
+
+    const validRows = successionRows.filter(
+      (row) => row.companyName.trim() || row.companyUrl.trim()
+    );
+
+    if (validRows.length === 0) {
+      toast.error("Enter at least one company name or URL.");
+      return;
+    }
+
+    setSuccessionQueue(validRows);
+    setSuccessionResults([]);
+    setSuccessionIndex(0);
+
+    const first = validRows[0];
+    setQuery(first.companyName);
+    setCompanyUrl(first.companyUrl);
+    successionTriggerRef.current = true;
+  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged]);
+
+  // Succession import: trigger effect — fires the import after state has updated
+  useEffect(() => {
+    if (successionIndex < 0 || successionIndex >= successionQueue.length) return;
+    if (!successionTriggerRef.current) return;
+
+    successionTriggerRef.current = false;
+    handleStartImportStaged();
+  }, [successionIndex, query, companyUrl, handleStartImportStaged, successionQueue]);
+
+  // Succession import: advancement effect — when current import completes, start next
+  useEffect(() => {
+    if (successionIndex < 0) return;
+    if (activeStatus !== "done" && activeStatus !== "error") return;
+
+    setSuccessionResults((prev) => [
+      ...prev,
+      { index: successionIndex, status: activeStatus === "done" ? "done" : "error", sessionId: activeSessionId },
+    ]);
+
+    const nextIndex = successionIndex + 1;
+
+    if (nextIndex >= successionQueue.length) {
+      const doneCount = successionResults.length + 1;
+      setSuccessionIndex(-1);
+      toast.success(`Succession import complete: ${doneCount} imports processed`);
+      return;
+    }
+
+    const next = successionQueue[nextIndex];
+    setQuery(next.companyName);
+    setCompanyUrl(next.companyUrl);
+    setSuccessionIndex(nextIndex);
+    successionTriggerRef.current = true;
+  }, [activeStatus, successionIndex, successionQueue, activeSessionId, successionResults]);
+
   // Bulk import handlers
   const bulkUrlCount = useMemo(() => {
     return bulkUrls.split("\n").map((s) => s.trim()).filter(Boolean).length;
@@ -3480,26 +3595,44 @@ export default function AdminImport() {
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
-              <div className="lg:col-span-2 space-y-1">
-                <label className="text-sm text-slate-700">Company Name</label>
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onEnter={handleQueryInputEnter}
-                  placeholder="e.g. Acme Widgets"
-                />
-              </div>
+              {successionCount <= 1 ? (
+                <>
+                  <div className="lg:col-span-2 space-y-1">
+                    <label className="text-sm text-slate-700">Company Name</label>
+                    <Input
+                      value={query}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setSuccessionRows((prev) => {
+                          const updated = [...prev];
+                          updated[0] = { ...updated[0], companyName: e.target.value };
+                          return updated;
+                        });
+                      }}
+                      onEnter={handleQueryInputEnter}
+                      placeholder="e.g. Acme Widgets"
+                    />
+                  </div>
 
-              <div className="space-y-1">
-                <label className="text-sm text-slate-700">Company URL</label>
-                <Input
-                  value={companyUrl}
-                  onChange={(e) => setCompanyUrl(e.target.value)}
-                  placeholder="e.g. acmewidgets.com"
-                />
-              </div>
+                  <div className="space-y-1">
+                    <label className="text-sm text-slate-700">Company URL</label>
+                    <Input
+                      value={companyUrl}
+                      onChange={(e) => {
+                        setCompanyUrl(e.target.value);
+                        setSuccessionRows((prev) => {
+                          const updated = [...prev];
+                          updated[0] = { ...updated[0], companyUrl: e.target.value };
+                          return updated;
+                        });
+                      }}
+                      placeholder="e.g. acmewidgets.com"
+                    />
+                  </div>
+                </>
+              ) : null}
 
-              <div className="space-y-1">
+              <div className={successionCount > 1 ? "lg:col-span-3 space-y-1" : "space-y-1"}>
                 <label className="text-sm text-slate-700">Location (optional)</label>
                 <Input
                   value={location}
@@ -3509,20 +3642,50 @@ export default function AdminImport() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm text-slate-700">Limit (1–25)</label>
+                <label className="text-sm text-slate-700"># of Imports to Run in Succession</label>
                 <Input
-                  value={limitInput}
+                  value={successionCountInput}
                   onChange={(e) => {
                     const next = e.target.value;
                     if (next === "" || /^\d+$/.test(next)) {
-                      setLimitInput(next);
+                      handleSuccessionCountChange(next);
                     }
                   }}
-                  onBlur={() => setLimitInput((prev) => String(normalizeImportLimit(prev)))}
+                  onBlur={() => setSuccessionCountInput((prev) => String(normalizeSuccessionCount(prev)))}
                   inputMode="numeric"
+                  disabled={isSuccessionRunning}
                 />
               </div>
             </div>
+
+            {successionCount > 1 ? (
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-700">Import queue ({successionCount} companies)</div>
+                {successionRows.map((row, i) => (
+                  <div key={i} className="grid grid-cols-[2rem_2fr_1fr] gap-2 items-end">
+                    <div className="text-xs text-slate-500 text-right pb-2">{i + 1}.</div>
+                    <div className="space-y-1">
+                      {i === 0 ? <label className="text-xs text-slate-500">Company Name</label> : null}
+                      <Input
+                        value={row.companyName}
+                        onChange={(e) => updateSuccessionRow(i, "companyName", e.target.value)}
+                        placeholder="e.g. Acme Widgets"
+                        disabled={isSuccessionRunning}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      {i === 0 ? <label className="text-xs text-slate-500">Company URL</label> : null}
+                      <Input
+                        value={row.companyUrl}
+                        onChange={(e) => updateSuccessionRow(i, "companyUrl", e.target.value)}
+                        placeholder="e.g. acmewidgets.com"
+                        disabled={isSuccessionRunning}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               <div className="text-sm font-medium text-slate-700">Query types</div>
@@ -3621,10 +3784,37 @@ export default function AdminImport() {
               </div>
             ) : null}
 
+            {isSuccessionRunning ? (
+              <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 space-y-2">
+                <div className="font-medium">
+                  Succession import: {successionIndex + 1} of {successionQueue.length}
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  {successionResults.map((r, i) => (
+                    <span
+                      key={i}
+                      className={`inline-block h-2 w-4 rounded ${r.status === "done" ? "bg-emerald-400" : "bg-red-400"}`}
+                      title={`Import ${i + 1}: ${r.status}`}
+                    />
+                  ))}
+                  <span className="inline-block h-2 w-4 rounded bg-blue-400 animate-pulse" title={`Import ${successionIndex + 1}: running`} />
+                  {Array.from({ length: successionQueue.length - successionIndex - 1 }).map((_, i) => (
+                    <span key={`pending-${i}`} className="inline-block h-2 w-4 rounded bg-slate-200" title="Pending" />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" onClick={handleStartImportStaged} disabled={startImportDisabled}>
+              <Button type="button" onClick={handleStartSuccession} disabled={startImportDisabled || isSuccessionRunning}>
                 <Play className="h-4 w-4 mr-2" />
-                {activeStatus === "running" ? "Running…" : "Start import"}
+                {isSuccessionRunning
+                  ? `Running ${successionIndex + 1}/${successionQueue.length}…`
+                  : activeStatus === "running"
+                    ? "Running…"
+                    : successionCount > 1
+                      ? `Start ${successionCount} imports`
+                      : "Start import"}
               </Button>
 
               <Button
@@ -3669,7 +3859,13 @@ export default function AdminImport() {
                 className={`border-red-600 text-red-600 hover:bg-red-600 hover:text-white ${
                   activeStatus === "stopping" ? "opacity-70" : ""
                 }`}
-                onClick={stopImport}
+                onClick={() => {
+                  if (isSuccessionRunning) {
+                    setSuccessionIndex(-1);
+                    setSuccessionQueue([]);
+                  }
+                  stopImport();
+                }}
                 disabled={!activeSessionId || !activeRun?.session_id_confirmed || (activeStatus !== "running" && activeStatus !== "stopping" && !activeRun?.resume_needed)}
               >
                 {activeStatus === "stopping" ? (
