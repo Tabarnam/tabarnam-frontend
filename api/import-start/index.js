@@ -5936,11 +5936,13 @@ const importStartHandlerInner = async (req, context) => {
 
         const queryType = String(bodyObj.queryType || queryTypes[0] || "product_keyword").trim() || "product_keyword";
         const location = String(bodyObj.location || "").trim();
+        const companyUrlHint = String(bodyObj.company_url_hint || "").trim();
 
         const xaiPayload = {
           queryType: queryTypes.length > 0 ? queryTypes.join(", ") : queryType,
           queryTypes: queryTypes.length > 0 ? queryTypes : [queryType],
           query,
+          company_url_hint: companyUrlHint || undefined,
           location,
           limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
           expand_if_few: bodyObj.expand_if_few ?? true,
@@ -6285,11 +6287,16 @@ const importStartHandlerInner = async (req, context) => {
         let promptString = "";
 
         if (queryTypes.includes("company_url")) {
+          // When company_url_hint is provided, the query field contains the company name
+          // and the URL is in the hint. Otherwise, the query IS the URL.
+          const urlForPrompt = xaiPayload.company_url_hint || query;
+          const nameForPrompt = xaiPayload.company_url_hint ? query : "";
+
           promptString = `You are a business research assistant specializing in manufacturing location extraction.
 
-Company website URL: ${query}
-
-Extract the company details represented by this URL.
+Company website URL: ${urlForPrompt}
+${nameForPrompt ? `Company name: ${nameForPrompt}\n` : ""}
+Extract the company details represented by this URL.${nameForPrompt ? ` The company is known as "${nameForPrompt}".` : ""}
 
 Return ONLY a valid JSON array (no markdown, no prose). The array should contain 1 item.
 Each item must follow this schema:
@@ -6329,7 +6336,9 @@ Return strictly valid JSON only.`;
 
 Search query: "${xaiPayload.query}"
 Search type(s): ${xaiPayload.queryType}
-${xaiPayload.location ? `
+${xaiPayload.company_url_hint ? `Known website: ${xaiPayload.company_url_hint}
+- Use this website as the primary source for the company. The search query is the company's real name.
+` : ""}${xaiPayload.location ? `
 Location boost: "${xaiPayload.location}"
 - If you can, prefer and rank higher companies whose HQ or manufacturing locations match this location.
 - The location is OPTIONAL; do not block the import if it is empty.
@@ -6898,7 +6907,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           // best source for HQ + manufacturing), but we must NOT ever return 202 for company_url.
           // If primary times out, we fall back to a local URL seed and continue downstream enrichment inline.
           function buildCompanyUrlSeedFromQuery(rawQuery) {
-            const q = String(rawQuery || "").trim();
+            // When company_url_hint is provided, the URL source is the hint
+            // and the rawQuery contains the real company name.
+            const hintUrl = String(xaiPayload.company_url_hint || "").trim();
+            const urlSource = hintUrl || String(rawQuery || "").trim();
+            const q = urlSource;
 
             let parsed = null;
             try {
@@ -6928,7 +6941,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
             const canonicalUrl = cleanHost ? `https://${cleanHost}/` : inputUrl;
 
-            const companyName = (() => {
+            // Use real company name when provided via company_url_hint flow;
+            // otherwise guess from domain as before.
+            const realName = hintUrl ? String(rawQuery || "").trim() : "";
+            const companyName = realName || (() => {
               const base = cleanHost ? cleanHost.split(".")[0] : "";
               if (!base) return cleanHost || canonicalUrl || inputUrl;
               return base.charAt(0).toUpperCase() + base.slice(1);
@@ -8056,6 +8072,37 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           setStage("enrichCompany");
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
+
+          // When company_url_hint was provided, ensure the result set includes a company
+          // with the hinted URL. If the primary search found it by name, patch its website_url
+          // to match the hint. If not found, inject a seed with the real name + URL.
+          if (xaiPayload.company_url_hint) {
+            const hintDomain = String(xaiPayload.company_url_hint || "")
+              .replace(/^https?:\/\//i, "").replace(/^www\./, "").split("/")[0].toLowerCase().trim();
+
+            if (hintDomain) {
+              const matchIdx = enriched.findIndex((c) => {
+                const d = String(c?.normalized_domain || c?.website_url || c?.url || "")
+                  .replace(/^https?:\/\//i, "").replace(/^www\./, "").split("/")[0].toLowerCase().trim();
+                return d === hintDomain;
+              });
+
+              if (matchIdx >= 0) {
+                // Grok found the company — ensure website_url and normalized_domain are set
+                const match = enriched[matchIdx];
+                if (!match.website_url) match.website_url = `https://${hintDomain}/`;
+                if (!match.normalized_domain) match.normalized_domain = hintDomain;
+                console.log(`[import-start] company_url_hint matched enriched[${matchIdx}] "${match.company_name}" (${hintDomain})`);
+              } else {
+                // Grok didn't return a company matching the hint domain — inject a seed
+                const hintSeed = buildCompanyUrlSeedFromQuery(query);
+                if (hintSeed) {
+                  enriched.unshift(hintSeed);
+                  console.log(`[import-start] company_url_hint injected seed for "${hintSeed.company_name}" (${hintDomain})`);
+                }
+              }
+            }
+          }
 
           // For company_url imports, XAI can legitimately return an empty array (or parsing can fail).
           // In that case we still want to proceed with a deterministic URL seed so the session can

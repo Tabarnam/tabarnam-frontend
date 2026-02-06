@@ -450,6 +450,7 @@ function normalizeImportLimit(raw, fallback = IMPORT_LIMIT_DEFAULT) {
 
 export default function AdminImport() {
   const [query, setQuery] = useState("");
+  const [companyUrl, setCompanyUrl] = useState("");
   const [queryTypes, setQueryTypes] = useState(["product_keyword"]);
   const [location, setLocation] = useState("");
   const [limitInput, setLimitInput] = useState(String(IMPORT_LIMIT_DEFAULT));
@@ -1842,6 +1843,7 @@ export default function AdminImport() {
         session_id: uiSessionIdBefore,
         query: q,
         queryTypes: selectedTypes,
+        company_url_hint: asString(companyUrl).trim() || undefined,
         location: asString(location).trim() || undefined,
         limit: normalizedLimit,
         expand_if_few: true,
@@ -3464,7 +3466,7 @@ export default function AdminImport() {
           ) : null}
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
               <div className="lg:col-span-2 space-y-1">
                 <label className="text-sm text-slate-700">Search query</label>
                 <Input
@@ -3472,6 +3474,15 @@ export default function AdminImport() {
                   onChange={(e) => setQuery(e.target.value)}
                   onEnter={handleQueryInputEnter}
                   placeholder="e.g. running shoes"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm text-slate-700">Company URL (optional)</label>
+                <Input
+                  value={companyUrl}
+                  onChange={(e) => setCompanyUrl(e.target.value)}
+                  placeholder="e.g. honeygardens.com"
                 />
               </div>
 
