@@ -746,7 +746,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         whereTextFilter = buildNormalizedSearchFilter(terms_norm, terms_compact, params);
       }
 
-      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
+      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
 
       if (sort === "manu") {
         // Build search filter using expanded terms
