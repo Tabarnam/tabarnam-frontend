@@ -257,15 +257,22 @@ export default function ResultsPage() {
   }
 
   // Secondary sort (client-side)
+  // Primary key: name-match relevance (exact name hits first), then by chosen metric
   const sorted = useMemo(() => {
     const arr = [...results];
-    if (sortBy === "stars") {
-      arr.sort((a, b) => (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity));
-    } else if (sortBy === "manu") {
-      arr.sort((a, b) => (a._nearestManuDist ?? Infinity) - (b._nearestManuDist ?? Infinity));
-    } else {
-      arr.sort((a, b) => (a._hqDist ?? Infinity) - (b._hqDist ?? Infinity));
-    }
+    arr.sort((a, b) => {
+      const aName = a._nameMatchScore ?? 0;
+      const bName = b._nameMatchScore ?? 0;
+      if (aName !== bName) return bName - aName;
+
+      if (sortBy === "stars") {
+        return (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity);
+      } else if (sortBy === "manu") {
+        return (a._nearestManuDist ?? Infinity) - (b._nearestManuDist ?? Infinity);
+      } else {
+        return (a._hqDist ?? Infinity) - (b._hqDist ?? Infinity);
+      }
+    });
     return arr;
   }, [results, sortBy]);
 
