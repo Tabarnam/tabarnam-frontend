@@ -122,6 +122,8 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
               const sourceUrl = r.source_url || r.url || null;
               const normalizedSourceUrl = normalizeExternalUrl(String(sourceUrl || ""));
               const text = r.text || r.abstract || "";
+              const author = (r.author || "").toString().trim();
+              const title = (r.title || "").toString().trim();
               const truncateUrl = (url, maxLen = 40) => {
                 if (!url) return null;
                 return url.length > maxLen ? url.substring(0, maxLen) + "…" : url;
@@ -135,6 +137,14 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
                       {formatReviewDate(pickReviewDate(r))}
                     </div>
                   </div>
+
+                  {author && (
+                    <div className="text-xs text-gray-500 mt-0.5">by {author}</div>
+                  )}
+
+                  {title && (
+                    <div className="font-semibold text-sm text-gray-900 mt-1">{title}</div>
+                  )}
 
                   <div className="mt-2">
                     <p className="text-sm text-gray-700 mb-2">{text}</p>
