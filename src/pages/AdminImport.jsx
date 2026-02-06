@@ -3486,7 +3486,7 @@ export default function AdminImport() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onEnter={handleQueryInputEnter}
-                  placeholder="e.g. Guru Nada"
+                  placeholder="e.g. Acme Widgets"
                 />
               </div>
 
