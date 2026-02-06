@@ -1609,6 +1609,19 @@ export default function AdminImport() {
     });
   }, [isUrlLikeQuery]);
 
+  // Auto-select optimal query types when both name + URL are provided
+  const isNamePlusUrlMode = useMemo(() => {
+    const urlFilled = asString(companyUrl).trim().length > 0;
+    const queryIsName = query.trim().length > 0 && !looksLikeUrlOrDomain(query);
+    return urlFilled && queryIsName;
+  }, [companyUrl, query]);
+
+  useEffect(() => {
+    if (isNamePlusUrlMode) {
+      setQueryTypes(["company_name", "company_url"]);
+    }
+  }, [isNamePlusUrlMode]);
+
   const urlTypeValidationError = useMemo(() => {
     if (!isUrlLikeQuery) return "";
     return queryTypes.includes("company_url")
@@ -3543,7 +3556,9 @@ export default function AdminImport() {
                   </label>
                 ))}
               </div>
-              {urlTypeValidationError ? (
+              {isNamePlusUrlMode ? (
+                <div className="text-xs text-emerald-700">Name + URL provided — query types auto-selected for best results.</div>
+              ) : urlTypeValidationError ? (
                 <div className="text-xs text-red-700">{urlTypeValidationError}</div>
               ) : (
                 <div className="text-xs text-slate-600">If you provide a location, results that match it are ranked higher.</div>
