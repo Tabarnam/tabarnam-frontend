@@ -25,6 +25,16 @@ const {
 const { fetchConfirmedCompanyTagline } = require("./_taglineXai");
 const { getBuildInfo } = require("./_buildInfo");
 const { enqueueResumeRun } = require("./_enrichmentQueue");
+const {
+  fetchTagline,
+  fetchHeadquartersLocation,
+  fetchManufacturingLocations,
+  fetchIndustries,
+  fetchProductKeywords,
+  fetchLogo,
+  setAdminRefreshBypass,
+} = require("./_grokEnrichment");
+const { geocodeLocationArray } = require("./_geocode");
 
 // Helper: Check if the URL is an xAI /responses endpoint (vs /chat/completions)
 function isResponsesEndpoint(rawUrl) {
@@ -603,7 +613,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     stage = "parse_body";
     const body = await readJsonBody(req);
 
-    budgetMs = Math.max(10000, Math.min(180000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? 90000) || 90000)));
+    budgetMs = Math.max(10000, Math.min(210000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? 200000) || 200000)));
     deadlineAtMs = startedAt + budgetMs;
 
     const companyId = asString(body.company_id || body.id).trim();
@@ -719,7 +729,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     try {
-      const lockWindowMs = Math.max(8000, Math.min(25000, budgetMs + 2000));
+      const lockWindowMs = Math.max(8000, Math.min(250000, budgetMs + 10000));
       const lockUntil = nowMs + lockWindowMs;
       await patchCompanyById(container, companyId, existing, {
         company_refresh_lock_key: `company_refresh_lock::${companyId}`,
@@ -833,149 +843,227 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     // ========================================================================
-    // NON-BLOCKING REFRESH: Create job document and enqueue to background worker
-    // This avoids the Azure SWA 4-minute gateway timeout by returning immediately
-    // and letting the resume-worker handle enrichment with proper timeouts
+    // SYNCHRONOUS PARALLEL ENRICHMENT
+    // Run all 6 enrichments in parallel via Promise.allSettled. Wall-clock
+    // time = max(stages) ≈ 2-3 min, within the 4-min SWA gateway timeout.
+    // A Promise.race safety net caps total time at budgetMs.
     // ========================================================================
-    stage = "create_refresh_job";
-    pushBreadcrumb(stage, { company_id: companyId });
+    stage = "parallel_enrichment";
+    pushBreadcrumb(stage, { company_id: companyId, budget_ms: budgetMs });
 
-    // Generate a unique refresh job ID
-    const refreshJobId = `refresh_job_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const enrichmentArgs = { companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey };
 
-    // Create the refresh job document in Cosmos
-    const refreshJobDoc = {
-      id: refreshJobId,
-      type: "refresh_job",
-      company_id: companyId,
+    const enrichment_status = {
+      tagline: "pending",
+      headquarters: "pending",
+      manufacturing: "pending",
+      industries: "pending",
+      keywords: "pending",
+      logo: "pending",
+    };
+
+    const proposed = {
       company_name: companyName,
       normalized_domain: normalizedDomain,
-      website_url: websiteUrl,
-      status: "pending",
-      created_at: new Date().toISOString(),
-      completed_at: null,
-      proposed: null,
-      enrichment_status: null,
-      error: null,
-      xai_config: {
-        xai_url: xaiUrl,
-        xai_model: xaiModel,
-        xai_config_source,
-      },
     };
 
     try {
-      await container.items.upsert(refreshJobDoc, { partitionKey: normalizedDomain || "unknown" });
-    } catch (upsertErr) {
-      // Try without explicit partition key
-      try {
-        await container.items.upsert(refreshJobDoc);
-      } catch (fallbackErr) {
-        await releaseRefreshLockBestEffort();
-        pushBreadcrumb("refresh_job_create_failed", { error: fallbackErr?.message });
-        return json({
-          ok: false,
-          stage: "refresh_company",
-          root_cause: "refresh_job_create_failed",
-          retryable: true,
-          error: "Failed to create refresh job",
-          company_id: companyId,
-          diagnostics: {
-            message: fallbackErr?.message || String(fallbackErr),
-          },
-          config,
-          build_id: String(BUILD_INFO.build_id || ""),
-          elapsed_ms: Date.now() - startedAt,
-        });
+      setAdminRefreshBypass(true);
+
+      // Run all enrichments in parallel with a hard deadline
+      const enrichmentPromises = Promise.allSettled([
+        fetchTagline(enrichmentArgs),
+        fetchHeadquartersLocation(enrichmentArgs),
+        fetchManufacturingLocations(enrichmentArgs),
+        fetchIndustries(enrichmentArgs),
+        fetchProductKeywords(enrichmentArgs),
+        fetchLogo(enrichmentArgs),
+      ]);
+
+      const timeoutPromise = new Promise((resolve) =>
+        setTimeout(() => resolve("__timeout__"), Math.max(5000, getRemainingBudgetMs() - 15000))
+      );
+
+      const raceResult = await Promise.race([enrichmentPromises, timeoutPromise]);
+
+      let results;
+      if (raceResult === "__timeout__") {
+        // Timed out - collect whatever has settled so far
+        pushBreadcrumb("enrichment_timeout", { elapsed_ms: Date.now() - startedAt });
+        results = [
+          { status: "rejected", reason: "timeout" },
+          { status: "rejected", reason: "timeout" },
+          { status: "rejected", reason: "timeout" },
+          { status: "rejected", reason: "timeout" },
+          { status: "rejected", reason: "timeout" },
+          { status: "rejected", reason: "timeout" },
+        ];
+      } else {
+        results = raceResult;
       }
+
+      // Process results: tagline
+      if (results[0]?.status === "fulfilled" && results[0].value?.tagline) {
+        proposed.tagline = results[0].value.tagline;
+        enrichment_status.tagline = "ok";
+      } else {
+        enrichment_status.tagline = results[0]?.status === "fulfilled"
+          ? (results[0].value?.tagline_status || "empty")
+          : "error";
+      }
+
+      // Process results: HQ
+      if (results[1]?.status === "fulfilled" && results[1].value?.headquarters_location) {
+        proposed.headquarters_location = results[1].value.headquarters_location;
+        proposed.headquarters_locations = [{
+          location: results[1].value.headquarters_location,
+          formatted: results[1].value.headquarters_location,
+          is_hq: true,
+          source: "xai_refresh",
+        }];
+        enrichment_status.headquarters = "ok";
+      } else {
+        enrichment_status.headquarters = results[1]?.status === "fulfilled"
+          ? (results[1].value?.hq_status || "empty")
+          : "error";
+      }
+
+      // Process results: Manufacturing
+      if (results[2]?.status === "fulfilled") {
+        const mfgLocs = results[2].value?.manufacturing_locations;
+        if (Array.isArray(mfgLocs) && mfgLocs.length > 0) {
+          proposed.manufacturing_locations = mfgLocs.map(loc => ({
+            location: typeof loc === "string" ? loc : loc.location || loc,
+            formatted: typeof loc === "string" ? loc : loc.location || loc,
+            source: "xai_refresh",
+          }));
+          enrichment_status.manufacturing = "ok";
+        } else {
+          enrichment_status.manufacturing = results[2].value?.mfg_status || "empty";
+        }
+      } else {
+        enrichment_status.manufacturing = "error";
+      }
+
+      // Process results: Industries
+      if (results[3]?.status === "fulfilled") {
+        const ind = results[3].value?.industries;
+        if (Array.isArray(ind) && ind.length > 0) {
+          proposed.industries = ind;
+          enrichment_status.industries = "ok";
+        } else {
+          enrichment_status.industries = results[3].value?.industries_status || "empty";
+        }
+      } else {
+        enrichment_status.industries = "error";
+      }
+
+      // Process results: Keywords
+      if (results[4]?.status === "fulfilled") {
+        const kw = results[4].value?.product_keywords || results[4].value?.keywords;
+        if (Array.isArray(kw) && kw.length > 0) {
+          proposed.keywords = kw;
+          enrichment_status.keywords = "ok";
+        } else {
+          enrichment_status.keywords = results[4].value?.keywords_status || "empty";
+        }
+      } else {
+        enrichment_status.keywords = "error";
+      }
+
+      // Process results: Logo
+      if (results[5]?.status === "fulfilled" && results[5].value?.logo_url) {
+        proposed.logo_url = results[5].value.logo_url;
+        proposed.logo_source = results[5].value.logo_source;
+        proposed.logo_confidence = results[5].value.logo_confidence;
+        enrichment_status.logo = "ok";
+      } else {
+        enrichment_status.logo = results[5]?.status === "fulfilled"
+          ? (results[5].value?.logo_status || "empty")
+          : "error";
+      }
+
+      // Geocoding (only if time permits)
+      if (getRemainingBudgetMs() > 20000) {
+        try {
+          // Geocode manufacturing locations
+          if (Array.isArray(proposed.manufacturing_locations) && proposed.manufacturing_locations.length > 0) {
+            const locationStrings = proposed.manufacturing_locations
+              .map(loc => typeof loc === "string" ? loc : loc.location || loc.formatted || "")
+              .filter(Boolean);
+            if (locationStrings.length > 0) {
+              const geocoded = await geocodeLocationArray(locationStrings, { timeoutMs: 10000, concurrency: 4 });
+              proposed.manufacturing_locations = proposed.manufacturing_locations.map((loc, i) => ({
+                ...loc,
+                ...(geocoded[i] || {}),
+              }));
+            }
+          }
+
+          // Geocode HQ
+          if (proposed.headquarters_location) {
+            const geocoded = await geocodeLocationArray([proposed.headquarters_location], { timeoutMs: 10000, concurrency: 1 });
+            if (geocoded[0]) {
+              proposed.headquarters_geocode = geocoded[0];
+              if (geocoded[0].lat && geocoded[0].lng) {
+                proposed.hq_lat = geocoded[0].lat;
+                proposed.hq_lng = geocoded[0].lng;
+              }
+            }
+          }
+        } catch (geoErr) {
+          pushBreadcrumb("geocoding_error", { error: geoErr?.message || String(geoErr) });
+        }
+      }
+
+    } finally {
+      setAdminRefreshBypass(false);
     }
 
-    console.log(JSON.stringify({
-      stage: "refresh_company",
-      event: "refresh_job_created",
-      refresh_job_id: refreshJobId,
-      company_id: companyId,
-      build_id: BUILD_INFO.build_id || null,
-    }));
+    const successCount = Object.values(enrichment_status).filter(s => s === "ok").length;
 
-    // Enqueue work to the resume-worker queue
-    stage = "enqueue_refresh";
-    pushBreadcrumb(stage, { refresh_job_id: refreshJobId });
+    await releaseRefreshLockBestEffort();
 
-    const enqueueResult = await enqueueResumeRun({
-      session_id: refreshJobId,
-      company_ids: [companyId],
-      reason: "admin_refresh",
-      requested_by: "admin_refresh_company",
+    pushBreadcrumb("enrichment_done", {
+      success_count: successCount,
+      enrichment_status,
+      elapsed_ms: Date.now() - startedAt,
     });
 
-    if (!enqueueResult.ok) {
-      // Failed to enqueue - mark job as failed and return error
-      try {
-        await patchCompanyById(container, refreshJobId, refreshJobDoc, {
-          status: "failed",
-          error: enqueueResult.error || "Failed to enqueue",
-          completed_at: new Date().toISOString(),
-        });
-      } catch {
-        // Ignore patch failure
-      }
-
-      await releaseRefreshLockBestEffort();
-      pushBreadcrumb("enqueue_failed", { error: enqueueResult.error });
+    if (successCount === 0) {
       return json({
         ok: false,
         stage: "refresh_company",
-        root_cause: "enqueue_failed",
+        root_cause: "no_fields_enriched",
         retryable: true,
-        error: "Failed to enqueue refresh job",
+        error: "No fields could be enriched",
         company_id: companyId,
-        refresh_job_id: refreshJobId,
-        diagnostics: {
-          message: enqueueResult.error || "Queue unavailable",
-          queue: enqueueResult.queue,
-        },
+        enrichment_status,
+        attempts,
+        breadcrumbs,
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
-    console.log(JSON.stringify({
-      stage: "refresh_company",
-      event: "refresh_job_enqueued",
-      refresh_job_id: refreshJobId,
-      company_id: companyId,
-      message_id: enqueueResult.message_id,
-      queue: enqueueResult.queue?.name,
-      build_id: BUILD_INFO.build_id || null,
-    }));
-
-    // Release the refresh lock - the background worker will handle the rest
-    await releaseRefreshLockBestEffort();
-
-    pushBreadcrumb("enqueued", { refresh_job_id: refreshJobId });
-
-    // Return 202 Accepted immediately - frontend will poll for results
     return json({
       ok: true,
-      status: "in_progress",
+      proposed,
+      enrichment_status,
       company_id: companyId,
-      refresh_job_id: refreshJobId,
-      message: "Refresh started. Poll /api/refresh-status for results.",
-      poll_url: `/api/refresh-status?job_id=${encodeURIComponent(refreshJobId)}`,
-      elapsed_ms: Date.now() - startedAt,
+      company_name: companyName,
+      partial: successCount < 6,
+      success_count: successCount,
+      attempts,
+      breadcrumbs,
       build_id: String(BUILD_INFO.build_id || ""),
-      hints: {
-        company_name: companyName,
-        website_url: websiteUrl,
-        normalized_domain: normalizedDomain,
-      },
-      queue: {
-        message_id: enqueueResult.message_id,
-        queue_name: enqueueResult.queue?.name,
-      },
-    }, 202);
+      elapsed_ms: Date.now() - startedAt,
+      budget_ms: budgetMs,
+      remaining_budget_ms: getRemainingBudgetMs(),
+    });
   } catch (e) {
     context?.log?.("[admin-refresh-company] error", {
       stage,
