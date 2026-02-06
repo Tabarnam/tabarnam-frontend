@@ -2,7 +2,7 @@
  * _directEnrichment.js
  *
  * Direct HTTP enrichment orchestrator - NO Azure Queue dependency.
- * Calls enrichment functions directly via HTTP, managing budget and retries.
+ * Uses the unified enrichCompanyFields() orchestrator (single Grok prompt + verification + fallback).
  */
 
 const {
@@ -12,6 +12,7 @@ const {
   fetchIndustries,
   fetchProductKeywords,
   fetchCuratedReviews,
+  enrichCompanyFields,
 } = require("./_grokEnrichment");
 
 const { getXAIEndpoint, getXAIKey } = require("./_shared");
@@ -102,7 +103,11 @@ function isFieldComplete(fieldKey, value, status) {
 }
 
 /**
- * Run direct enrichment for a single company (no queue)
+ * Run direct enrichment for a single company (no queue).
+ *
+ * Primary path: enrichCompanyFields() (unified Grok prompt + verification + individual fallback).
+ * The return shape is kept compatible with the legacy per-field format so callers
+ * (import-start/index.js, applyEnrichmentToCompany) work unchanged.
  *
  * @param {Object} params
  * @param {Object} params.company - Company document with company_name, website_url, normalized_domain
@@ -155,72 +160,90 @@ async function runDirectEnrichment({
     elapsed_ms: 0,
     fields_completed: [],
     fields_failed: [],
+    enrichment_method: null,
+    last_enrichment_raw_response: null,
     started_at: nowIso(),
     finished_at: null,
   };
 
-  // Filter fields if specific ones requested
-  const fieldsToProcess = fieldsToEnrich
-    ? ENRICHMENT_FIELDS.filter((f) => fieldsToEnrich.includes(f.key))
-    : ENRICHMENT_FIELDS;
+  try {
+    // ── Primary path: unified enrichCompanyFields() orchestrator ──
+    const ecf = await enrichCompanyFields({
+      companyName,
+      websiteUrl,
+      normalizedDomain,
+      budgetMs: budgetMs - 5000, // reserve 5s for final bookkeeping
+      xaiUrl: resolvedXaiUrl,
+      xaiKey: resolvedXaiKey,
+    });
 
-  // Sort by priority
-  const sortedFields = [...fieldsToProcess].sort((a, b) => a.priority - b.priority);
+    result.enrichment_method = ecf.method || "unified";
+    result.last_enrichment_raw_response = ecf.raw_response || null;
 
-  for (const field of sortedFields) {
-    const elapsed = Date.now() - startedAt;
-    const remaining = budgetMs - elapsed;
+    const proposed = ecf.proposed || {};
+    const fieldStatuses = ecf.field_statuses || {};
 
-    // Check if we have enough budget
-    if (remaining < field.minBudgetMs) {
-      result.deferred.push(field.key);
-      continue;
-    }
+    // All possible enrichment fields
+    const ALL_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"];
 
-    // Check if max attempts reached
-    const currentAttempts = result.attempts[field.key] || 0;
-    if (currentAttempts >= field.maxAttempts) {
-      result.skipped.push(field.key);
-      continue;
-    }
+    // Determine which fields we were asked to enrich
+    const targetFields = fieldsToEnrich
+      ? ALL_FIELDS.filter((f) => fieldsToEnrich.includes(f))
+      : ALL_FIELDS;
 
-    // Increment attempt count
-    result.attempts[field.key] = currentAttempts + 1;
+    // Map unified output back to the legacy per-field enriched shape
+    for (const fieldKey of targetFields) {
+      const status = fieldStatuses[fieldKey] || "unknown";
+      const value = proposed[fieldKey];
 
-    try {
-      const fetchResult = await field.fetcher({
-        companyName,
-        websiteUrl,
-        normalizedDomain,
-        budgetMs: remaining,
-        xaiUrl: resolvedXaiUrl,
-        xaiKey: resolvedXaiKey,
-      });
+      // Build the per-field sub-object that applyEnrichmentToCompany expects
+      const fieldResult = {
+        [fieldKey]: value,
+        [`${fieldKey}_status`]: status,
+        searched_at: nowIso(),
+      };
 
-      // Store the result
-      result.enriched[field.key] = fetchResult;
-
-      // Check if complete
-      const status = fetchResult?.[`${field.key}_status`] || fetchResult?.status;
-      const value = fetchResult?.[field.key];
-
-      if (isFieldComplete(field.key, value, status)) {
-        result.fields_completed.push(field.key);
-      } else if (status === "upstream_timeout" || status === "upstream_unreachable") {
-        // Retryable error - don't count as failed yet
-        result.errors[field.key] = status;
-      } else {
-        result.fields_failed.push(field.key);
+      // Attach source URLs for locations if present
+      if (fieldKey === "headquarters_location" && proposed.hq_source_urls) {
+        fieldResult.location_source_urls = { hq_source_urls: proposed.hq_source_urls };
       }
-    } catch (err) {
-      result.errors[field.key] = asString(err?.message || err) || "unknown_error";
-      result.fields_failed.push(field.key);
+      if (fieldKey === "manufacturing_locations" && proposed.mfg_source_urls) {
+        fieldResult.location_source_urls = { mfg_source_urls: proposed.mfg_source_urls };
+      }
+
+      result.enriched[fieldKey] = fieldResult;
+      result.attempts[fieldKey] = (existingAttempts[fieldKey] || 0) + 1;
+
+      if (isFieldComplete(fieldKey, value, status)) {
+        result.fields_completed.push(fieldKey);
+      } else if (status === "upstream_timeout" || status === "upstream_unreachable") {
+        result.errors[fieldKey] = status;
+      } else {
+        result.fields_failed.push(fieldKey);
+      }
     }
+
+    result.ok = ecf.ok !== false && result.fields_failed.length === 0;
+
+  } catch (err) {
+    // Catastrophic failure of unified orchestrator - record and mark all fields failed
+    const errorMsg = asString(err?.message || err) || "enrichment_orchestrator_failed";
+    console.error(`[runDirectEnrichment] enrichCompanyFields threw: ${errorMsg}`);
+
+    const ALL_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"];
+    const targetFields = fieldsToEnrich
+      ? ALL_FIELDS.filter((f) => fieldsToEnrich.includes(f))
+      : ALL_FIELDS;
+
+    for (const fieldKey of targetFields) {
+      result.errors[fieldKey] = errorMsg;
+      result.fields_failed.push(fieldKey);
+    }
+    result.ok = false;
   }
 
   result.elapsed_ms = Date.now() - startedAt;
   result.finished_at = nowIso();
-  result.ok = result.fields_failed.length === 0;
 
   return result;
 }
@@ -291,6 +314,15 @@ function applyEnrichmentToCompany(company, enrichmentResult) {
   updated.enrichment_completed_at = enrichmentResult.finished_at;
   updated.enrichment_elapsed_ms = enrichmentResult.elapsed_ms;
   updated.enrichment_attempts = enrichmentResult.attempts;
+
+  // Track unified enrichment metadata (from enrichCompanyFields)
+  if (enrichmentResult.enrichment_method) {
+    updated.enrichment_method = enrichmentResult.enrichment_method;
+  }
+  if (enrichmentResult.last_enrichment_raw_response) {
+    updated.last_enrichment_raw_response = enrichmentResult.last_enrichment_raw_response;
+  }
+  updated.last_enrichment_at = enrichmentResult.finished_at || new Date().toISOString();
 
   return updated;
 }

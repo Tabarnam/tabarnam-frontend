@@ -32,6 +32,7 @@ const {
   fetchIndustries,
   fetchProductKeywords,
   fetchLogo,
+  enrichCompanyFields,
   setAdminRefreshBypass,
 } = require("./_grokEnrichment");
 const { geocodeLocationArray } = require("./_geocode");
@@ -683,28 +684,42 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     // Best-effort per-company lock so repeated clicks don't overlap.
+    // Stale locks (older than 5 minutes) are auto-released to prevent permanent lockouts
+    // from crashed or timed-out refreshes.
     stage = "lock_check";
     const nowMs = Date.now();
     const lockUntilExisting = Number(existing.company_refresh_lock_until || 0) || 0;
+    const STALE_LOCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
     if (lockUntilExisting > nowMs) {
       const retryAfterMs = Math.max(0, lockUntilExisting - nowMs);
-      pushBreadcrumb("locked", { company_id: companyId, retry_after_ms: retryAfterMs });
-      return json({
-        ok: false,
-        stage: "refresh_company",
-        root_cause: "locked",
-        retryable: true,
-        company_id: companyId,
-        lock_until_ms: lockUntilExisting,
-        retry_after_ms: retryAfterMs,
-        attempts,
-        breadcrumbs,
-        diagnostics: { message: "Refresh already in progress" },
-        build_id: String(BUILD_INFO.build_id || ""),
-        elapsed_ms: Date.now() - startedAt,
-        budget_ms: budgetMs,
-        remaining_budget_ms: getRemainingBudgetMs(),
-      });
+      // If the lock expires more than 5 minutes from now, it was set with a very large
+      // window and is likely from a crashed/hung refresh. Auto-release it.
+      if (retryAfterMs <= STALE_LOCK_THRESHOLD_MS) {
+        pushBreadcrumb("locked", { company_id: companyId, retry_after_ms: retryAfterMs });
+        return json({
+          ok: false,
+          stage: "refresh_company",
+          root_cause: "locked",
+          retryable: true,
+          company_id: companyId,
+          lock_until_ms: lockUntilExisting,
+          retry_after_ms: retryAfterMs,
+          attempts,
+          breadcrumbs,
+          diagnostics: { message: "Refresh already in progress" },
+          build_id: String(BUILD_INFO.build_id || ""),
+          elapsed_ms: Date.now() - startedAt,
+          budget_ms: budgetMs,
+          remaining_budget_ms: getRemainingBudgetMs(),
+        });
+      }
+      // Stale lock detected - auto-release and proceed
+      pushBreadcrumb("stale_lock_released", { company_id: companyId, lock_age_ms: retryAfterMs });
+      try {
+        await patchCompanyById(container, companyId, existing, { company_refresh_lock_until: 0 });
+      } catch {
+        // ignore - proceed anyway
+      }
     }
 
     stage = "budget_guard";
@@ -843,26 +858,15 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     // ========================================================================
-    // SYNCHRONOUS PARALLEL ENRICHMENT
-    // Run all 6 enrichments in parallel via Promise.allSettled. Wall-clock
-    // time = max(stages) ≈ 2-3 min, within the 4-min SWA gateway timeout.
-    // A Promise.race safety net caps total time at budgetMs.
+    // UNIFIED ENRICHMENT ENGINE
+    // Single Grok prompt for all fields (mirrors manual query for accuracy),
+    // with verification pipeline and individual-prompt fallback for gaps.
     // ========================================================================
-    stage = "parallel_enrichment";
+    stage = "unified_enrichment";
     pushBreadcrumb(stage, { company_id: companyId, budget_ms: budgetMs });
 
-    const enrichmentArgs = { companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey };
-
-    const enrichment_status = {
-      tagline: "pending",
-      headquarters: "pending",
-      manufacturing: "pending",
-      industries: "pending",
-      keywords: "pending",
-      logo: "pending",
-    };
-
-    const proposed = {
+    let enrichment_status = {};
+    let proposed = {
       company_name: companyName,
       normalized_domain: normalizedDomain,
     };
@@ -870,123 +874,68 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     try {
       setAdminRefreshBypass(true);
 
-      // Run all enrichments in parallel with a hard deadline
-      const enrichmentPromises = Promise.allSettled([
-        fetchTagline(enrichmentArgs),
-        fetchHeadquartersLocation(enrichmentArgs),
-        fetchManufacturingLocations(enrichmentArgs),
-        fetchIndustries(enrichmentArgs),
-        fetchProductKeywords(enrichmentArgs),
-        fetchLogo(enrichmentArgs),
-      ]);
+      const enrichmentResult = await enrichCompanyFields({
+        companyName,
+        websiteUrl,
+        normalizedDomain,
+        budgetMs: Math.max(30000, getRemainingBudgetMs() - 20000), // Reserve 20s for geocoding + save
+        xaiUrl,
+        xaiKey,
+      });
 
-      const timeoutPromise = new Promise((resolve) =>
-        setTimeout(() => resolve("__timeout__"), Math.max(5000, getRemainingBudgetMs() - 15000))
-      );
+      enrichment_status = enrichmentResult.field_statuses || {};
 
-      const raceResult = await Promise.race([enrichmentPromises, timeoutPromise]);
+      if (enrichmentResult.proposed && typeof enrichmentResult.proposed === "object") {
+        // Map enrichment result into proposed changeset
+        const ep = enrichmentResult.proposed;
 
-      let results;
-      if (raceResult === "__timeout__") {
-        // Timed out - collect whatever has settled so far
-        pushBreadcrumb("enrichment_timeout", { elapsed_ms: Date.now() - startedAt });
-        results = [
-          { status: "rejected", reason: "timeout" },
-          { status: "rejected", reason: "timeout" },
-          { status: "rejected", reason: "timeout" },
-          { status: "rejected", reason: "timeout" },
-          { status: "rejected", reason: "timeout" },
-          { status: "rejected", reason: "timeout" },
-        ];
-      } else {
-        results = raceResult;
-      }
+        if (ep.tagline) proposed.tagline = ep.tagline;
 
-      // Process results: tagline
-      if (results[0]?.status === "fulfilled" && results[0].value?.tagline) {
-        proposed.tagline = results[0].value.tagline;
-        enrichment_status.tagline = "ok";
-      } else {
-        enrichment_status.tagline = results[0]?.status === "fulfilled"
-          ? (results[0].value?.tagline_status || "empty")
-          : "error";
-      }
+        if (ep.headquarters_location) {
+          proposed.headquarters_location = ep.headquarters_location;
+          proposed.headquarters_locations = [{
+            location: ep.headquarters_location,
+            formatted: ep.headquarters_location,
+            is_hq: true,
+            source: "xai_refresh",
+          }];
+          if (ep.headquarters_city) proposed.headquarters_city = ep.headquarters_city;
+          if (ep.headquarters_state_code) proposed.headquarters_state_code = ep.headquarters_state_code;
+          if (ep.headquarters_country) proposed.headquarters_country = ep.headquarters_country;
+          if (ep.headquarters_country_code) proposed.headquarters_country_code = ep.headquarters_country_code;
+        }
 
-      // Process results: HQ
-      if (results[1]?.status === "fulfilled" && results[1].value?.headquarters_location) {
-        proposed.headquarters_location = results[1].value.headquarters_location;
-        proposed.headquarters_locations = [{
-          location: results[1].value.headquarters_location,
-          formatted: results[1].value.headquarters_location,
-          is_hq: true,
-          source: "xai_refresh",
-        }];
-        enrichment_status.headquarters = "ok";
-      } else {
-        enrichment_status.headquarters = results[1]?.status === "fulfilled"
-          ? (results[1].value?.hq_status || "empty")
-          : "error";
-      }
-
-      // Process results: Manufacturing
-      if (results[2]?.status === "fulfilled") {
-        const mfgLocs = results[2].value?.manufacturing_locations;
-        if (Array.isArray(mfgLocs) && mfgLocs.length > 0) {
-          proposed.manufacturing_locations = mfgLocs.map(loc => ({
+        if (Array.isArray(ep.manufacturing_locations) && ep.manufacturing_locations.length > 0) {
+          proposed.manufacturing_locations = ep.manufacturing_locations.map(loc => ({
             location: typeof loc === "string" ? loc : loc.location || loc,
             formatted: typeof loc === "string" ? loc : loc.location || loc,
             source: "xai_refresh",
           }));
-          enrichment_status.manufacturing = "ok";
-        } else {
-          enrichment_status.manufacturing = results[2].value?.mfg_status || "empty";
         }
-      } else {
-        enrichment_status.manufacturing = "error";
-      }
 
-      // Process results: Industries
-      if (results[3]?.status === "fulfilled") {
-        const ind = results[3].value?.industries;
-        if (Array.isArray(ind) && ind.length > 0) {
-          proposed.industries = ind;
-          enrichment_status.industries = "ok";
-        } else {
-          enrichment_status.industries = results[3].value?.industries_status || "empty";
+        if (Array.isArray(ep.industries) && ep.industries.length > 0) {
+          proposed.industries = ep.industries;
         }
-      } else {
-        enrichment_status.industries = "error";
-      }
 
-      // Process results: Keywords
-      if (results[4]?.status === "fulfilled") {
-        const kw = results[4].value?.product_keywords || results[4].value?.keywords;
-        if (Array.isArray(kw) && kw.length > 0) {
-          proposed.keywords = kw;
-          enrichment_status.keywords = "ok";
-        } else {
-          enrichment_status.keywords = results[4].value?.keywords_status || "empty";
+        if (Array.isArray(ep.product_keywords) && ep.product_keywords.length > 0) {
+          proposed.keywords = ep.product_keywords;
         }
-      } else {
-        enrichment_status.keywords = "error";
-      }
 
-      // Process results: Logo
-      if (results[5]?.status === "fulfilled" && results[5].value?.logo_url) {
-        proposed.logo_url = results[5].value.logo_url;
-        proposed.logo_source = results[5].value.logo_source;
-        proposed.logo_confidence = results[5].value.logo_confidence;
-        enrichment_status.logo = "ok";
-      } else {
-        enrichment_status.logo = results[5]?.status === "fulfilled"
-          ? (results[5].value?.logo_status || "empty")
-          : "error";
+        if (Array.isArray(ep.reviews) && ep.reviews.length > 0) {
+          proposed.curated_reviews = ep.reviews;
+        }
+
+        // Store raw response and enrichment metadata for debugging
+        if (enrichmentResult.raw_response) {
+          proposed.last_enrichment_raw_response = enrichmentResult.raw_response;
+        }
+        proposed.last_enrichment_at = new Date().toISOString();
+        proposed.enrichment_method = enrichmentResult.method || "unknown";
       }
 
       // Geocoding (only if time permits)
       if (getRemainingBudgetMs() > 20000) {
         try {
-          // Geocode manufacturing locations
           if (Array.isArray(proposed.manufacturing_locations) && proposed.manufacturing_locations.length > 0) {
             const locationStrings = proposed.manufacturing_locations
               .map(loc => typeof loc === "string" ? loc : loc.location || loc.formatted || "")
@@ -1000,7 +949,6 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
             }
           }
 
-          // Geocode HQ
           if (proposed.headquarters_location) {
             const geocoded = await geocodeLocationArray([proposed.headquarters_location], { timeoutMs: 10000, concurrency: 1 });
             if (geocoded[0]) {
@@ -1013,6 +961,29 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
           }
         } catch (geoErr) {
           pushBreadcrumb("geocoding_error", { error: geoErr?.message || String(geoErr) });
+        }
+      }
+
+      // Also fetch logo separately (not part of unified prompt since it's visual)
+      if (getRemainingBudgetMs() > 15000) {
+        try {
+          const logoResult = await fetchLogo({
+            companyName,
+            normalizedDomain,
+            budgetMs: getRemainingBudgetMs() - 5000,
+            xaiUrl,
+            xaiKey,
+          });
+          if (logoResult?.logo_url) {
+            proposed.logo_url = logoResult.logo_url;
+            proposed.logo_source = logoResult.logo_source;
+            proposed.logo_confidence = logoResult.logo_confidence;
+            enrichment_status.logo = "ok";
+          } else {
+            enrichment_status.logo = logoResult?.logo_status || "empty";
+          }
+        } catch {
+          enrichment_status.logo = "error";
         }
       }
 
@@ -1055,7 +1026,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       enrichment_status,
       company_id: companyId,
       company_name: companyName,
-      partial: successCount < 6,
+      partial: successCount < 7,
       success_count: successCount,
       attempts,
       breadcrumbs,

@@ -61,51 +61,51 @@ test("/api/xadmin-api-refresh-company returns 200 with ok/proposed for stubbed u
     },
   });
 
-  const upstreamCompany = {
-    company_name: "Acme Corp",
-    website_url: "https://acme.example",
-    industries: ["Manufacturing"],
-    product_keywords: "widgets, gadgets",
-    headquarters_location: "Austin, TX, United States",
-    manufacturing_locations: ["United States"],
-    location_sources: [
-      {
-        location: "Austin, TX, United States",
-        source_url: "https://acme.example/about",
-        source_type: "official_website",
-        location_type: "headquarters",
-      },
-    ],
-    red_flag: false,
-    red_flag_reason: "",
+  // The unified enrichment engine uses xaiLiveSearch which checks for a global stub.
+  // Provide a deterministic response that mimics Grok returning all fields as JSON.
+  const unifiedResponse = JSON.stringify({
     tagline: "We build things",
-  };
+    headquarters_location: "Austin, TX",
+    manufacturing_locations: ["United States"],
+    industries: ["Manufacturing"],
+    product_keywords: ["widgets", "gadgets"],
+    reviews: [],
+  });
 
-  const axiosPost = async () => {
-    return {
-      status: 200,
+  const originalStub = globalThis.__xaiLiveSearchStub;
+  globalThis.__xaiLiveSearchStub = async () => ({
+    ok: true,
+    resp: {
       data: {
-        choices: [{ message: { content: JSON.stringify([upstreamCompany]) } }],
+        output: [{ content: [{ type: "output_text", text: unifiedResponse }] }],
       },
-    };
-  };
+    },
+    diagnostics: { elapsed_ms: 100, timeout_ms: 60000 },
+  });
 
-  const res = await _test.adminRefreshCompanyHandler(
-    makeReq({ json: async () => ({ company_id: "company_1" }) }),
-    { log() {} },
-    {
-      companiesContainer,
-      xaiUrl: "https://xai.test/api",
-      xaiKey: "xai_test_key",
-      axiosPost,
+  try {
+    const res = await _test.adminRefreshCompanyHandler(
+      makeReq({ json: async () => ({ company_id: "company_1" }) }),
+      { log() {} },
+      {
+        companiesContainer,
+        xaiUrl: "https://xai.test/v1/responses",
+        xaiKey: "xai_test_key",
+      }
+    );
+
+    assert.equal(res.status, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.ok, true);
+    assert.equal(body.company_id, "company_1");
+    assert.ok(body.proposed && typeof body.proposed === "object");
+    assert.equal(body.proposed.company_name, "Acme Corp");
+  } finally {
+    // Restore original stub state
+    if (originalStub === undefined) {
+      delete globalThis.__xaiLiveSearchStub;
+    } else {
+      globalThis.__xaiLiveSearchStub = originalStub;
     }
-  );
-
-  assert.equal(res.status, 200);
-  const body = JSON.parse(res.body);
-  assert.equal(body.ok, true);
-  assert.equal(body.company_id, "company_1");
-  assert.ok(body.proposed && typeof body.proposed === "object");
-  assert.equal(body.proposed.company_name, "Acme Corp");
-  assert.equal(body.proposed.website_url, "https://acme.example");
+  }
 });

@@ -3718,6 +3718,7 @@ export default function CompanyDashboard() {
       { key: "manufacturing_locations", label: "Manufacturing locations" },
       { key: "industries", label: "Industries" },
       { key: "keywords", label: "Keywords" },
+      { key: "curated_reviews", label: "Reviews" },
       { key: "red_flag", label: "Red flag" },
       { key: "red_flag_reason", label: "Red flag reason" },
       { key: "location_confidence", label: "Location confidence" },
@@ -3762,6 +3763,18 @@ export default function CompanyDashboard() {
           .filter(Boolean)
           .sort();
       }
+      case "curated_reviews": {
+        const list = Array.isArray(value) ? value : [];
+        return list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            const url = asString(v.source_url || v.url || "").trim().toLowerCase();
+            const title = asString(v.title || "").trim().toLowerCase();
+            return `${url}|${title}`;
+          })
+          .filter(Boolean)
+          .sort();
+      }
       case "red_flag": {
         return Boolean(value);
       }
@@ -3796,6 +3809,21 @@ export default function CompanyDashboard() {
           .filter(Boolean);
         return lines.length ? lines.join("\n") : "(empty)";
       }
+      case "curated_reviews": {
+        const list = Array.isArray(value) ? value : [];
+        const lines = list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            const source = asString(v.source_name || "").trim();
+            const title = asString(v.title || "").trim();
+            const url = asString(v.source_url || v.url || "").trim();
+            const author = asString(v.author || "").trim();
+            const parts = [title || source, author ? `by ${author}` : "", url].filter(Boolean);
+            return parts.join(" — ");
+          })
+          .filter(Boolean);
+        return lines.length ? lines.join("\n") : "(no reviews)";
+      }
       case "red_flag": {
         return Boolean(value) ? "true" : "false";
       }
@@ -3829,6 +3857,21 @@ export default function CompanyDashboard() {
               const source_type = asString(v.source_type).trim();
               const location_type = asString(v.location_type).trim();
               return [location, source_type, location_type, source_url].filter(Boolean).join(" — ");
+            })
+            .filter(Boolean);
+          return lines.length ? lines.join("\n") : "";
+        }
+        case "curated_reviews": {
+          const list = Array.isArray(value) ? value : [];
+          const lines = list
+            .filter((v) => v && typeof v === "object")
+            .map((v) => {
+              const source = asString(v.source_name || "").trim();
+              const title = asString(v.title || "").trim();
+              const url = asString(v.source_url || v.url || "").trim();
+              const author = asString(v.author || "").trim();
+              const parts = [title || source, author ? `by ${author}` : "", url].filter(Boolean);
+              return parts.join(" — ");
             })
             .filter(Boolean);
           return lines.length ? lines.join("\n") : "";
@@ -3942,6 +3985,47 @@ export default function CompanyDashboard() {
             if (obj.location || obj.source_type || obj.location_type || obj.source_url) next.push(obj);
           }
 
+          return next;
+        }
+        case "curated_reviews": {
+          const existing = Array.isArray(prevValue) ? prevValue.filter((v) => v && typeof v === "object") : [];
+          const lines = raw.split(/\r?\n/).map((v) => v.trim()).filter(Boolean);
+
+          // Try to match each edited line back to an existing review object
+          const used = new Set();
+          const next = [];
+          for (const line of lines) {
+            // Check if this line matches an existing review
+            let found = null;
+            for (let i = 0; i < existing.length; i++) {
+              if (used.has(i)) continue;
+              const r = existing[i];
+              const source = asString(r.source_name || "").trim();
+              const title = asString(r.title || "").trim();
+              const url = asString(r.source_url || r.url || "").trim();
+              const author = asString(r.author || "").trim();
+              const parts = [title || source, author ? `by ${author}` : "", url].filter(Boolean);
+              if (parts.join(" — ") === line) {
+                found = r;
+                used.add(i);
+                break;
+              }
+            }
+            if (found) {
+              next.push(found);
+            } else {
+              // Parse new review from text: "title — by author — url"
+              const parts = line.split(/\s*—\s*/).map((p) => p.trim()).filter(Boolean);
+              const obj = { source_name: "", author: "", source_url: "", title: "", date: "", excerpt: "" };
+              for (const part of parts) {
+                if (/^https?:\/\//i.test(part)) obj.source_url = part;
+                else if (/^by\s+/i.test(part)) obj.author = part.replace(/^by\s+/i, "").trim();
+                else if (!obj.title) obj.title = part;
+                else obj.source_name = part;
+              }
+              if (obj.title || obj.source_url) next.push(obj);
+            }
+          }
           return next;
         }
         case "red_flag": {
@@ -5766,6 +5850,7 @@ export default function CompanyDashboard() {
                                     "manufacturing_locations",
                                     "location_sources",
                                     "red_flag_reason",
+                                    "curated_reviews",
                                   ].includes(row.key);
 
                                   return (
@@ -5854,6 +5939,50 @@ export default function CompanyDashboard() {
                                 <div className="text-xs text-slate-600">
                                   Selected rows will be written on Save. Protected fields are never overwritten: logo, structured notes, and manual stars.
                                 </div>
+
+                                {/* Raw Grok response viewer */}
+                                {refreshProposed?.last_enrichment_raw_response ? (
+                                  <details className="rounded-lg border border-slate-200 bg-slate-50">
+                                    <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                                      Raw Grok response
+                                      {refreshProposed?.enrichment_method ? (
+                                        <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] text-slate-600">
+                                          {refreshProposed.enrichment_method}
+                                        </span>
+                                      ) : null}
+                                      {refreshProposed?.last_enrichment_at ? (
+                                        <span className="ml-2 text-[10px] text-slate-500">
+                                          {new Date(refreshProposed.last_enrichment_at).toLocaleTimeString()}
+                                        </span>
+                                      ) : null}
+                                    </summary>
+                                    <div className="border-t border-slate-200 p-3">
+                                      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-slate-200 bg-white p-3 text-[11px] text-slate-800 leading-relaxed">
+                                        {typeof refreshProposed.last_enrichment_raw_response === "string"
+                                          ? refreshProposed.last_enrichment_raw_response
+                                          : JSON.stringify(refreshProposed.last_enrichment_raw_response, null, 2)}
+                                      </pre>
+                                      <div className="mt-2 flex gap-2">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={async () => {
+                                            const text = typeof refreshProposed.last_enrichment_raw_response === "string"
+                                              ? refreshProposed.last_enrichment_raw_response
+                                              : JSON.stringify(refreshProposed.last_enrichment_raw_response, null, 2);
+                                            const ok = await copyToClipboard(text);
+                                            if (ok) toast.success("Raw response copied");
+                                            else toast.error("Copy failed");
+                                          }}
+                                        >
+                                          <Copy className="h-3 w-3 mr-1" />
+                                          Copy raw response
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </details>
+                                ) : null}
                               </div>
                             ) : (
                               <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">

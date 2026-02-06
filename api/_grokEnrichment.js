@@ -1034,7 +1034,7 @@ async function fetchHeadquartersLocation({ companyName, normalizedDomain, budget
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) determine the headquarters location.
+  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the headquarters location.
 
 Task: Determine the company's HEADQUARTERS location.
 
@@ -1199,7 +1199,7 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
+  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
 
 Task: Determine the company's MANUFACTURING locations.
 
@@ -1363,7 +1363,7 @@ async function fetchTagline({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) provide the tagline.
+  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) provide the tagline.
 
 Task: Provide the company's official tagline or slogan.
 
@@ -1493,7 +1493,7 @@ async function fetchIndustries({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) identify the industries.
+  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) identify the industries.
 
 Task: Identify the company's industries.
 
@@ -1618,7 +1618,7 @@ async function fetchProductKeywords({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) provide the product keywords.
+  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) provide the product keywords.
 
 Task: Provide an EXHAUSTIVE, COMPLETE, and ALL-INCLUSIVE list of the PRODUCTS (SKUs/product names/product lines) this company sells.
 
@@ -1676,7 +1676,7 @@ Return:
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 600,  // Increased to accommodate exhaustive product lists
+    maxTokens: 1200,  // Increased to accommodate exhaustive product lists
     model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
@@ -1913,6 +1913,579 @@ Output STRICT JSON only:
   return valueOut;
 }
 
+// ============================================================================
+// UNIFIED ENRICHMENT: Single Grok prompt for all fields (mirrors manual query)
+// ============================================================================
+
+/**
+ * Fetch all company fields in a single Grok call.
+ * This mirrors the manual Grok prompt that produces accurate results.
+ * Returns raw response text + parsed fields for transparency/debugging.
+ */
+async function fetchAllFieldsUnified({
+  companyName,
+  websiteUrl,
+  normalizedDomain,
+  budgetMs = 300000,
+  xaiUrl,
+  xaiKey,
+  model,
+} = {}) {
+  const started = Date.now();
+
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain || websiteUrl);
+  const websiteUrlForPrompt = websiteUrl
+    ? asString(websiteUrl).trim()
+    : domain
+      ? `https://${domain}`
+      : "";
+
+  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) please provide their tagline, HQ, manufacturing, industries, keywords (products), and reviews.
+
+LOCATIONS: Do deep dives for hq and manufacturing locations if necessary. Including city or cities. Having the actual cities within the United States is crucial. No explanatory info - just locations. Use initials for state or province in location info.
+
+INDUSTRIES: Return as a JSON array of industry strings.
+
+KEYWORDS: Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.
+
+REVIEWS: Ensure that the reviews are legitimate with working URLs. We need three unique reviews with links. Use 2 youtube reviews that focus on the company or a company product. The other review should be magazines or blog. Confirm that the url is functional. Fields for the review should include "source_name", "author", "source_url" (the actual URL of the review, not the root URL), "title", "date", "excerpt" (an excerpt or summary of the review). Do not hallucinate or embellish review titles or anything else. Accuracy is paramount. Do not include the same author more than once.
+
+Return STRICT JSON only:
+{
+  "tagline": "...",
+  "headquarters_location": "City, ST",
+  "manufacturing_locations": ["City, ST", "City, Country"],
+  "industries": ["Industry 1", "Industry 2"],
+  "product_keywords": ["Product 1", "Product 2"],
+  "reviews": [
+    {
+      "source_name": "Channel or Publication Name",
+      "author": "Author Name",
+      "source_url": "https://...",
+      "title": "Exact Title",
+      "date": "YYYY-MM-DD or approximate",
+      "excerpt": "Brief excerpt or summary"
+    }
+  ]
+}`.trim();
+
+  const r = await xaiLiveSearchWithRetry({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: budgetMs,
+      minMs: 60_000,
+      maxMs: 300_000,
+      safetyMarginMs: 5_000,
+    }),
+    maxTokens: 4000,
+    model: resolveSearchModel(model),
+    xaiUrl,
+    xaiKey,
+    search_parameters: { mode: "on" },
+  });
+
+  const elapsedMs = Date.now() - started;
+
+  if (!r.ok) {
+    const failure = classifyXaiFailure(r);
+    return {
+      ok: false,
+      method: "unified",
+      raw_response_text: "",
+      parsed_fields: null,
+      field_statuses: {},
+      error: r.error,
+      error_code: failure,
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+      },
+    };
+  }
+
+  const rawText = asString(extractTextFromXaiResponse(r.resp));
+  console.log(`[fetchAllFieldsUnified] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
+  const parsed = parseJsonFromXaiResponse(r.resp);
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.log(`[fetchAllFieldsUnified] Failed to parse JSON from response`);
+
+    return {
+      ok: false,
+      method: "unified",
+      raw_response_text: rawText,
+      parsed_fields: null,
+      field_statuses: {},
+      error: "invalid_json",
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        reason: "could_not_parse_unified_response",
+        raw_preview: rawText ? rawText.slice(0, 2000) : null,
+      },
+    };
+  }
+
+  // Extract and normalize each field from the unified response
+  const field_statuses = {};
+
+  const tagline = asString(parsed.tagline || parsed.slogan || "").trim();
+  field_statuses.tagline = tagline ? "ok" : "empty";
+
+  const hq_raw = asString(parsed.headquarters_location || parsed.hq || "").trim();
+  const hq_normalized = hq_raw ? normalizeLocationWithStateAbbrev(hq_raw) : "";
+  field_statuses.headquarters = hq_normalized ? "ok" : "empty";
+
+  const mfg_raw = Array.isArray(parsed.manufacturing_locations) ? parsed.manufacturing_locations : [];
+  const mfg_cleaned = mfg_raw
+    .map((x) => asString(x).trim())
+    .filter(Boolean)
+    .map(normalizeLocationWithStateAbbrev);
+  field_statuses.manufacturing = mfg_cleaned.length > 0 ? "ok" : "empty";
+
+  const industries_raw = Array.isArray(parsed.industries) ? parsed.industries : [];
+  const industries_cleaned = industries_raw.map((x) => asString(x).trim()).filter(Boolean);
+  field_statuses.industries = industries_cleaned.length > 0 ? "ok" : "empty";
+
+  const kw_raw = Array.isArray(parsed.product_keywords)
+    ? parsed.product_keywords
+    : Array.isArray(parsed.keywords)
+      ? parsed.keywords
+      : [];
+  const kw_cleaned = Array.from(new Set(kw_raw.map((x) => asString(x).trim()).filter(Boolean)));
+  field_statuses.keywords = kw_cleaned.length > 0 ? "ok" : "empty";
+
+  const reviews_raw = Array.isArray(parsed.reviews) ? parsed.reviews : [];
+  const reviews_cleaned = reviews_raw
+    .filter((x) => x && typeof x === "object")
+    .map((x) => ({
+      source_name: asString(x.source_name || "").trim() || null,
+      author: asString(x.author || "").trim() || null,
+      source_url: safeUrl(x.source_url || x.url || x.link || ""),
+      title: asString(x.title || "").trim() || null,
+      date: asString(x.date || "").trim() || null,
+      excerpt: asString(x.excerpt || "").trim() || null,
+    }))
+    .filter((x) => x.source_url);
+  field_statuses.reviews = reviews_cleaned.length > 0 ? "ok" : "empty";
+
+  const parsed_fields = {
+    tagline,
+    headquarters_location: hq_normalized,
+    manufacturing_locations: mfg_cleaned,
+    industries: industries_cleaned,
+    product_keywords: kw_cleaned,
+    reviews: reviews_cleaned,
+  };
+
+  // Infer HQ country
+  if (hq_normalized) {
+    const inferred = inferCountryFromStateAbbreviation(hq_normalized);
+    if (inferred) {
+      parsed_fields.headquarters_location = inferred.formatted;
+      parsed_fields.headquarters_city = inferred.city;
+      parsed_fields.headquarters_state_code = inferred.state_code;
+      parsed_fields.headquarters_country = inferred.country;
+      parsed_fields.headquarters_country_code = inferred.country_code;
+    }
+  }
+
+  console.log(`[fetchAllFieldsUnified] Parsed fields summary: tagline=${tagline ? "yes" : "no"}, hq=${hq_normalized || "none"}, mfg=${mfg_cleaned.length}, industries=${industries_cleaned.length}, keywords=${kw_cleaned.length}, reviews=${reviews_cleaned.length}`);
+
+  return {
+    ok: true,
+    method: "unified",
+    raw_response_text: rawText,
+    parsed_fields,
+    field_statuses,
+    elapsed_ms: elapsedMs,
+    diagnostics: {
+      ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+    },
+  };
+}
+
+// ============================================================================
+// VERIFICATION PIPELINE: Validate fields returned by unified or individual calls
+// ============================================================================
+
+/**
+ * Verify enrichment fields - especially review URLs and locations.
+ * Returns verified fields + verification status per field.
+ */
+async function verifyEnrichmentFields(parsed, { companyName, budgetMs = 60000 } = {}) {
+  const started = Date.now();
+  const verified = { ...parsed };
+  const verification_status = {};
+  const name = asString(companyName).trim();
+
+  const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
+
+  // --- Verify review URLs ---
+  if (Array.isArray(parsed.reviews) && parsed.reviews.length > 0) {
+    const excludeDomains = normalizeExcludeDomains({ normalizedDomain: normalizeDomain(parsed.headquarters_location || "") });
+    const verifiedReviews = [];
+    const unverifiedReviews = [];
+    const seenAuthors = new Set();
+
+    for (const review of parsed.reviews) {
+      if (verifiedReviews.length + unverifiedReviews.length >= 6) break;
+
+      // Skip duplicate authors
+      const authorKey = asString(review.author).trim().toLowerCase();
+      if (authorKey && seenAuthors.has(authorKey)) continue;
+
+      // Skip excluded domains
+      if (excludeDomains.some((d) => (review.source_url || "").includes(d))) continue;
+
+      // If budget is running low, keep remaining reviews as unverified
+      if (getRemainingMs() < 3000) {
+        review.verified = false;
+        review.verification_failure = "budget_exhausted";
+        console.log(`[verifyEnrichmentFields] Review "${review.source_url}" → UNVERIFIED (budget_exhausted)`);
+        if (authorKey) seenAuthors.add(authorKey);
+        unverifiedReviews.push(review);
+        continue;
+      }
+
+      const isYT = isYouTubeUrl(review.source_url);
+      const timeoutMs = isYT ? 6000 : 10000;
+
+      // Verify URL is reachable
+      const urlCheck = await verifyUrlReachable(review.source_url, { timeoutMs });
+
+      if (!urlCheck.ok) {
+        review.verified = false;
+        review.verification_failure = "url_unreachable";
+        console.log(`[verifyEnrichmentFields] Review "${review.source_url}" → UNVERIFIED (url_unreachable)`);
+        if (authorKey) seenAuthors.add(authorKey);
+        unverifiedReviews.push(review);
+        continue;
+      }
+
+      // YouTube: verify video actually exists
+      if (isYT) {
+        const ytCheck = await verifyYouTubeVideoAvailable(review.source_url, { timeoutMs: 5000 });
+        if (!ytCheck.ok) {
+          review.verified = false;
+          review.verification_failure = "youtube_unavailable";
+          console.log(`[verifyEnrichmentFields] Review "${review.source_url}" → UNVERIFIED (youtube_unavailable)`);
+          if (authorKey) seenAuthors.add(authorKey);
+          unverifiedReviews.push(review);
+          continue;
+        }
+      }
+
+      // Blog: verify content mentions the company
+      if (!isYT && urlCheck.html_preview && name) {
+        const relevance = validateBlogContentRelevance(urlCheck.html_preview, name);
+        if (!relevance.relevant) {
+          review.verified = false;
+          review.verification_failure = "content_not_relevant";
+          console.log(`[verifyEnrichmentFields] Review "${review.source_url}" → UNVERIFIED (content_not_relevant)`);
+          if (authorKey) seenAuthors.add(authorKey);
+          unverifiedReviews.push(review);
+          continue;
+        }
+        // Enrich with HTML metadata when available
+        const meta = buildReviewMetadataFromHtml(review.source_url, urlCheck.html_preview);
+        if (meta.title && !review.title) review.title = meta.title;
+        if (meta.author && !review.author) review.author = meta.author;
+        if (meta.date && !review.date) review.date = meta.date;
+        if (meta.excerpt && !review.excerpt) review.excerpt = meta.excerpt;
+      }
+
+      review.verified = true;
+      console.log(`[verifyEnrichmentFields] Review "${review.source_url}" → VERIFIED`);
+      if (authorKey) seenAuthors.add(authorKey);
+      verifiedReviews.push(review);
+    }
+
+    // Prefer verified reviews, but include unverified ones so they're not lost.
+    // Take up to 3 verified, then fill remaining slots (up to 3 total) with unverified.
+    const maxReviews = 3;
+    const combined = verifiedReviews.slice(0, maxReviews);
+    if (combined.length < maxReviews && unverifiedReviews.length > 0) {
+      combined.push(...unverifiedReviews.slice(0, maxReviews - combined.length));
+    }
+    verified.reviews = combined;
+    verification_status.reviews = {
+      submitted: parsed.reviews.length,
+      verified: verifiedReviews.length,
+      unverified: unverifiedReviews.length,
+      kept: combined.length,
+    };
+    console.log(`[verifyEnrichmentFields] Reviews: ${parsed.reviews.length} submitted → ${verifiedReviews.length} verified + ${unverifiedReviews.length} unverified → ${combined.length} kept`);
+  }
+
+  // --- Verify/normalize locations (lightweight) ---
+  if (verified.headquarters_location) {
+    verification_status.headquarters = "ok";
+  }
+  if (Array.isArray(verified.manufacturing_locations) && verified.manufacturing_locations.length > 0) {
+    verification_status.manufacturing = "ok";
+  }
+  if (Array.isArray(verified.industries) && verified.industries.length > 0) {
+    verification_status.industries = "ok";
+  }
+  if (Array.isArray(verified.product_keywords) && verified.product_keywords.length > 0) {
+    verification_status.keywords = "ok";
+  }
+  if (verified.tagline) {
+    verification_status.tagline = "ok";
+  }
+
+  return { verified, verification_status };
+}
+
+// ============================================================================
+// ORCHESTRATOR: Unified prompt → verify → fallback for missing fields
+// ============================================================================
+
+/**
+ * Helper: identify which fields are missing/empty from the enrichment result.
+ */
+function findMissingFields(fields) {
+  const missing = [];
+  if (!fields.tagline) missing.push("tagline");
+  if (!fields.headquarters_location) missing.push("headquarters");
+  if (!Array.isArray(fields.manufacturing_locations) || fields.manufacturing_locations.length === 0) missing.push("manufacturing");
+  if (!Array.isArray(fields.industries) || fields.industries.length === 0) missing.push("industries");
+  if (!Array.isArray(fields.product_keywords) || fields.product_keywords.length === 0) missing.push("keywords");
+  if (!Array.isArray(fields.reviews) || fields.reviews.length === 0) missing.push("reviews");
+  return missing;
+}
+
+/**
+ * Fill specific missing fields using individual prompt functions.
+ */
+async function fillMissingFieldsIndividually(missingFields, {
+  companyName,
+  normalizedDomain,
+  budgetMs = 120000,
+  xaiUrl,
+  xaiKey,
+} = {}) {
+  const started = Date.now();
+  const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
+  const filled = {};
+  const field_statuses = {};
+
+  const promises = [];
+  const fieldNames = [];
+
+  for (const field of missingFields) {
+    if (getRemainingMs() < 10000) break;
+
+    const args = { companyName, normalizedDomain, budgetMs: getRemainingMs(), xaiUrl, xaiKey };
+
+    switch (field) {
+      case "tagline":
+        promises.push(fetchTagline(args));
+        fieldNames.push("tagline");
+        break;
+      case "headquarters":
+        promises.push(fetchHeadquartersLocation(args));
+        fieldNames.push("headquarters");
+        break;
+      case "manufacturing":
+        promises.push(fetchManufacturingLocations(args));
+        fieldNames.push("manufacturing");
+        break;
+      case "industries":
+        promises.push(fetchIndustries(args));
+        fieldNames.push("industries");
+        break;
+      case "keywords":
+        promises.push(fetchProductKeywords(args));
+        fieldNames.push("keywords");
+        break;
+      case "reviews":
+        promises.push(fetchCuratedReviews(args));
+        fieldNames.push("reviews");
+        break;
+    }
+  }
+
+  if (promises.length === 0) return { filled, field_statuses };
+
+  const results = await Promise.allSettled(promises);
+
+  for (let i = 0; i < results.length; i++) {
+    const field = fieldNames[i];
+    const result = results[i];
+
+    if (result.status !== "fulfilled" || !result.value) {
+      field_statuses[field] = "error";
+      continue;
+    }
+
+    const val = result.value;
+
+    switch (field) {
+      case "tagline":
+        if (val.tagline) {
+          filled.tagline = val.tagline;
+          field_statuses.tagline = "ok";
+        } else {
+          field_statuses.tagline = val.tagline_status || "empty";
+        }
+        break;
+      case "headquarters":
+        if (val.headquarters_location) {
+          filled.headquarters_location = val.headquarters_location;
+          if (val.headquarters_city) filled.headquarters_city = val.headquarters_city;
+          if (val.headquarters_state_code) filled.headquarters_state_code = val.headquarters_state_code;
+          if (val.headquarters_country) filled.headquarters_country = val.headquarters_country;
+          if (val.headquarters_country_code) filled.headquarters_country_code = val.headquarters_country_code;
+          field_statuses.headquarters = "ok";
+        } else {
+          field_statuses.headquarters = val.hq_status || "empty";
+        }
+        break;
+      case "manufacturing":
+        if (Array.isArray(val.manufacturing_locations) && val.manufacturing_locations.length > 0) {
+          filled.manufacturing_locations = val.manufacturing_locations;
+          field_statuses.manufacturing = "ok";
+        } else {
+          field_statuses.manufacturing = val.mfg_status || "empty";
+        }
+        break;
+      case "industries":
+        if (Array.isArray(val.industries) && val.industries.length > 0) {
+          filled.industries = val.industries;
+          field_statuses.industries = "ok";
+        } else {
+          field_statuses.industries = val.industries_status || "empty";
+        }
+        break;
+      case "keywords":
+        if (Array.isArray(val.product_keywords) && val.product_keywords.length > 0) {
+          filled.product_keywords = val.product_keywords;
+          field_statuses.keywords = "ok";
+        } else if (Array.isArray(val.keywords) && val.keywords.length > 0) {
+          filled.product_keywords = val.keywords;
+          field_statuses.keywords = "ok";
+        } else {
+          field_statuses.keywords = val.keywords_status || "empty";
+        }
+        break;
+      case "reviews":
+        if (Array.isArray(val.curated_reviews) && val.curated_reviews.length > 0) {
+          filled.reviews = val.curated_reviews;
+          field_statuses.reviews = "ok";
+        } else {
+          field_statuses.reviews = val.reviews_stage_status || "empty";
+        }
+        break;
+    }
+  }
+
+  return { filled, field_statuses };
+}
+
+/**
+ * Main enrichment orchestrator.
+ * Phase 1: Unified Grok prompt (single call, all fields)
+ * Phase 2: Verify (review URLs, locations, etc.)
+ * Phase 3: Fill missing fields with individual calls as fallback
+ */
+async function enrichCompanyFields({
+  companyName,
+  websiteUrl,
+  normalizedDomain,
+  budgetMs = 240000,
+  xaiUrl,
+  xaiKey,
+} = {}) {
+  const started = Date.now();
+  const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
+
+  const domain = normalizeDomain(normalizedDomain || websiteUrl);
+
+  // Phase 1: Unified prompt
+  console.log(`[enrichCompanyFields] Phase 1: unified prompt for "${companyName}" (${domain}), budget=${budgetMs}ms`);
+  const unified = await fetchAllFieldsUnified({
+    companyName,
+    websiteUrl,
+    normalizedDomain: domain,
+    budgetMs: Math.min(getRemainingMs() - 30000, 300000), // Reserve 30s for verification + fallback
+    xaiUrl,
+    xaiKey,
+  });
+
+  if (unified.ok && unified.parsed_fields) {
+    // Phase 2: Verify
+    console.log(`[enrichCompanyFields] Phase 2: verifying fields, remaining=${getRemainingMs()}ms`);
+    const { verified, verification_status } = await verifyEnrichmentFields(
+      unified.parsed_fields,
+      { companyName, budgetMs: Math.min(getRemainingMs() - 15000, 120000) }
+    );
+
+    // Phase 3: Fill gaps with individual calls
+    const missing = findMissingFields(verified);
+    let fallback_statuses = {};
+
+    if (missing.length > 0 && getRemainingMs() > 30000) {
+      console.log(`[enrichCompanyFields] Phase 3: filling missing fields [${missing.join(", ")}], remaining=${getRemainingMs()}ms`);
+      const { filled, field_statuses: fStatuses } = await fillMissingFieldsIndividually(
+        missing,
+        { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
+      );
+      Object.assign(verified, filled);
+      fallback_statuses = fStatuses;
+    }
+
+    // Merge field statuses
+    const field_statuses = { ...unified.field_statuses };
+    for (const [k, v] of Object.entries(verification_status)) {
+      field_statuses[k] = v;
+    }
+    for (const [k, v] of Object.entries(fallback_statuses)) {
+      if (field_statuses[k] !== "ok") field_statuses[k] = v;
+    }
+
+    const totalElapsed = Date.now() - started;
+    console.log(`[enrichCompanyFields] Done (unified). field_statuses=${JSON.stringify(field_statuses)}, missing_after_unified=[${missing.join(", ")}], reviews_in_proposed=${Array.isArray(verified.reviews) ? verified.reviews.length : 0}, elapsed=${totalElapsed}ms`);
+
+    return {
+      ok: true,
+      method: "unified",
+      proposed: verified,
+      raw_response: unified.raw_response_text,
+      field_statuses,
+      missing_after_unified: missing,
+      elapsed_ms: totalElapsed,
+    };
+  }
+
+  // Unified failed completely - fall back to all individual calls in parallel
+  console.log(`[enrichCompanyFields] Unified failed (${unified.error || "unknown"}), falling back to individual calls, remaining=${getRemainingMs()}ms`);
+
+  const args = { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey };
+
+  const allFields = [
+    "tagline", "headquarters", "manufacturing", "industries", "keywords", "reviews",
+  ];
+  const { filled, field_statuses } = await fillMissingFieldsIndividually(
+    allFields,
+    args
+  );
+
+  const totalElapsed = Date.now() - started;
+  console.log(`[enrichCompanyFields] Done (individual_fallback). field_statuses=${JSON.stringify(field_statuses)}, unified_error=${unified.error || "none"}, elapsed=${totalElapsed}ms`);
+
+  return {
+    ok: Object.values(field_statuses).some((s) => s === "ok"),
+    method: "individual_fallback",
+    proposed: filled,
+    raw_response: unified.raw_response_text || "",
+    field_statuses,
+    unified_error: unified.error || null,
+    elapsed_ms: totalElapsed,
+  };
+}
+
 module.exports = {
   DEFAULT_REVIEW_EXCLUDE_DOMAINS,
   fetchCuratedReviews,
@@ -1922,6 +2495,10 @@ module.exports = {
   fetchIndustries,
   fetchProductKeywords,
   fetchLogo,
+  // Unified enrichment engine
+  fetchAllFieldsUnified,
+  verifyEnrichmentFields,
+  enrichCompanyFields,
   // Helpers for location normalization
   normalizeLocationWithStateAbbrev,
   inferCountryFromStateAbbreviation,
