@@ -3495,7 +3495,7 @@ export default function AdminImport() {
                 <Input
                   value={companyUrl}
                   onChange={(e) => setCompanyUrl(e.target.value)}
-                  placeholder="e.g. honeygardens.com"
+                  placeholder="e.g. acmewidgets.com"
                 />
               </div>
 
