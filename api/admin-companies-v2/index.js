@@ -260,10 +260,14 @@ function normalizeManufacturingLocationsForSeed(value) {
         return s ? { location: s } : null;
       }
       if (v && typeof v === "object") {
-        // If it has only a country field, convert it to location field
-        // so that getLocationAddress can properly extract the country name
+        // If it has no address-like fields, build a location string from available parts
         if (v.country && !v.location && !v.address && !v.formatted && !v.full_address) {
-          return { ...v, location: v.country };
+          const state = typeof v.state === "string" ? v.state.trim() : "";
+          const region = typeof v.region === "string" ? v.region.trim() : "";
+          const stateOrRegion = state || region;
+          const country = typeof v.country === "string" ? v.country.trim() : "";
+          const locationParts = [stateOrRegion, country].filter(Boolean);
+          return { ...v, location: locationParts.join(", ") };
         }
         return v;
       }

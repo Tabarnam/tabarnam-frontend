@@ -158,6 +158,9 @@ function normalizeLocationInput(loc) {
 
 function getLocationAddress(loc) {
   if (!loc || typeof loc !== "object") return "";
+  const stateOrRegion = typeof loc.state === "string" ? loc.state.trim()
+    : typeof loc.region === "string" ? loc.region.trim()
+    : "";
   const candidates = [
     loc.address,
     loc.full_address,
@@ -165,6 +168,8 @@ function getLocationAddress(loc) {
     loc.location,
     loc.city && loc.state && loc.country ? `${loc.city}, ${loc.state}, ${loc.country}` : "",
     loc.city && loc.country ? `${loc.city}, ${loc.country}` : "",
+    stateOrRegion && loc.country ? `${stateOrRegion}, ${loc.country}` : "",
+    loc.country || "",
   ];
   for (const c of candidates) {
     const s = typeof c === "string" ? c.trim() : "";
@@ -402,6 +407,32 @@ async function geocodeLocationEntry(locRaw, { timeoutMs = 5000 } = {}) {
         geocode_formatted_address: loc.country,
         geocode_result_types: ["country"],
       };
+    }
+  }
+
+  // Check if this is a state/region + country location (no city)
+  const stateOrRegion = loc.state || loc.region;
+  const stateCountryOnly = stateOrRegion && loc.country && !loc.city && !loc.address && !loc.location;
+  if (stateCountryOnly) {
+    const stateStr = typeof stateOrRegion === "string" ? stateOrRegion.trim() : "";
+    const countryStr = typeof loc.country === "string" ? loc.country.trim() : "";
+    if (stateStr && countryStr) {
+      const compositeAddress = `${stateStr}, ${countryStr}`;
+      const stateCoords = tryGetStateCenterCoords(compositeAddress);
+      if (stateCoords) {
+        return {
+          ...loc,
+          lat: stateCoords.lat,
+          lng: stateCoords.lng,
+          geocode_status: "ok",
+          geocode_source: stateCoords.geocode_source || "state_center",
+          geocoded_at: now,
+          geocode_confidence: "low",
+          geocode_precision: stateCoords.geocode_precision || "administrative_area_level_1",
+          geocode_formatted_address: stateCoords.name || compositeAddress,
+          geocode_result_types: ["administrative_area_level_1"],
+        };
+      }
     }
   }
 

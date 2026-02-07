@@ -78,6 +78,23 @@ const CA_PROVINCE_CENTERS = {
   "YT": { lat: 64.2823, lng: -135.0000, name: "Yukon" },
 };
 
+// Known country aliases for disambiguation in composite "state, country" strings
+const US_COUNTRY_ALIASES = new Set([
+  "US", "USA", "UNITED STATES", "UNITED STATES OF AMERICA", "U.S.", "U.S.A.",
+]);
+
+const CA_COUNTRY_ALIASES = new Set([
+  "CA", "CAN", "CANADA",
+]);
+
+function isKnownUSCountryAlias(s) {
+  return US_COUNTRY_ALIASES.has(s);
+}
+
+function isKnownCACountryAlias(s) {
+  return CA_COUNTRY_ALIASES.has(s);
+}
+
 // State name to code mapping (includes common variations)
 const STATE_NAME_TO_CODE = {
   // US States
@@ -205,6 +222,52 @@ function tryGetStateCenterCoords(address) {
     }
   }
 
+  // Try parsing composite "state, country" strings (e.g., "UT, USA", "Ontario, Canada")
+  const commaIndex = normalized.indexOf(",");
+  if (commaIndex > 0) {
+    const parts = normalized.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 2) {
+      const statePart = parts[0];
+      const countryPart = parts[1];
+
+      if (isKnownUSCountryAlias(countryPart)) {
+        if (US_STATE_CENTERS[statePart]) {
+          return {
+            ...US_STATE_CENTERS[statePart],
+            geocode_source: "state_center",
+            geocode_precision: "administrative_area_level_1",
+          };
+        }
+        const usCode = STATE_NAME_TO_CODE[statePart];
+        if (usCode && US_STATE_CENTERS[usCode]) {
+          return {
+            ...US_STATE_CENTERS[usCode],
+            geocode_source: "state_center",
+            geocode_precision: "administrative_area_level_1",
+          };
+        }
+      }
+
+      if (isKnownCACountryAlias(countryPart)) {
+        if (CA_PROVINCE_CENTERS[statePart]) {
+          return {
+            ...CA_PROVINCE_CENTERS[statePart],
+            geocode_source: "province_center",
+            geocode_precision: "administrative_area_level_1",
+          };
+        }
+        const caCode = STATE_NAME_TO_CODE[statePart];
+        if (caCode && CA_PROVINCE_CENTERS[caCode]) {
+          return {
+            ...CA_PROVINCE_CENTERS[caCode],
+            geocode_source: "province_center",
+            geocode_precision: "administrative_area_level_1",
+          };
+        }
+      }
+    }
+  }
+
   return null;
 }
 
@@ -239,4 +302,6 @@ module.exports = {
   STATE_NAME_TO_CODE,
   tryGetStateCenterCoords,
   isStateOnlyLocation,
+  isKnownUSCountryAlias,
+  isKnownCACountryAlias,
 };
