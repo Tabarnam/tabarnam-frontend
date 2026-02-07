@@ -4327,6 +4327,95 @@ export default function CompanyDashboard() {
 
       // Some refresh responses return { ok:false, ... } with useful diagnostics.
       if (jsonBody?.ok !== true) {
+        // ── Auto-retry for "locked" responses ──
+        // When the SWA gateway returns a 500 on the first attempt, the fallback
+        // retry may find the lock held by the still-running original request.
+        // Instead of surfacing a confusing "Refresh already in progress" error,
+        // wait for the lock to expire and retry automatically (once).
+        const isLocked = jsonBody?.root_cause === "locked" && jsonBody?.retryable === true;
+        const retryAfterMs = isLocked ? Number(jsonBody?.retry_after_ms || 0) : 0;
+        const MAX_AUTO_RETRY_WAIT_MS = 180_000; // 3 minutes max
+
+        if (isLocked && retryAfterMs > 0 && retryAfterMs <= MAX_AUTO_RETRY_WAIT_MS) {
+          toast.info(`Refresh in progress — waiting ${Math.ceil(retryAfterMs / 1000)}s for lock to release…`);
+          setRefreshMetaByCompany((prev) => ({
+            ...(prev || {}),
+            [companyId]: {
+              lastRefreshAt: startedAt,
+              lastRefreshStatus: { kind: "running", code: null },
+              lastRefreshDebug: { auto_retry_waiting: true, retry_after_ms: retryAfterMs },
+            },
+          }));
+
+          await new Promise((resolve) => setTimeout(resolve, retryAfterMs + 2000));
+
+          // Retry the request once after the lock should have expired
+          try {
+            const retryResult = await apiFetchParsed(usedPath, {
+              method: "POST",
+              body: requestPayload,
+            });
+            const retryJson = retryResult.data && typeof retryResult.data === "object" ? retryResult.data : null;
+
+            if (retryJson?.ok === true && retryJson?.proposed) {
+              // Success on retry — fall through to the success handling below
+              // by reassigning result and continuing
+              result = retryResult;
+              // Re-read response variables for success path
+              const retryRes = retryResult.response;
+              const retryApiBuildId = normalizeBuildIdString(retryRes.headers.get("x-api-build-id"));
+              const retryProposed = retryJson.proposed;
+              const draft = deepClone(retryProposed);
+              setRefreshProposed(retryProposed);
+              setProposedDraft(draft);
+
+              const nextTaglineMeta = retryJson?.tagline_meta && typeof retryJson.tagline_meta === "object" ? retryJson.tagline_meta : null;
+              setRefreshTaglineMeta(nextTaglineMeta);
+
+              if (nextTaglineMeta?.error) {
+                toast.warning(`Tagline verification issue: ${asString(nextTaglineMeta.error).trim().slice(0, 160)}`);
+              }
+
+              const nextText = {};
+              for (const f of refreshDiffFields) {
+                if (!Object.prototype.hasOwnProperty.call(draft, f.key)) continue;
+                nextText[f.key] = proposedValueToInputText(f.key, draft[f.key]);
+              }
+              setProposedDraftText(nextText);
+
+              const defaults = {};
+              for (const f of refreshDiffFields) {
+                if (!Object.prototype.hasOwnProperty.call(retryProposed, f.key)) continue;
+                const a = normalizeForDiff(f.key, editorDraft?.[f.key]);
+                const b = normalizeForDiff(f.key, retryProposed?.[f.key]);
+                if (JSON.stringify(a) !== JSON.stringify(b)) defaults[f.key] = true;
+              }
+              setRefreshSelection(defaults);
+
+              setRefreshMetaByCompany((prev) => ({
+                ...(prev || {}),
+                [companyId]: {
+                  lastRefreshAt: startedAt,
+                  lastRefreshStatus: { kind: "success", code: retryRes.status },
+                  lastRefreshDebug: null,
+                },
+              }));
+
+              setRefreshError(null);
+              if (retryJson?.recovered_from_pending) {
+                toast.info("Refresh results recovered from a previous attempt.");
+              } else {
+                toast.success("Proposed updates loaded (after retry)");
+              }
+              playNotification();
+              return;
+            }
+            // Retry also failed — fall through to normal error handling below
+          } catch {
+            // Retry network error — fall through to show original locked error
+          }
+        }
+
         const debug =
           jsonBody?.response && typeof jsonBody.response === "object"
             ? jsonBody.response

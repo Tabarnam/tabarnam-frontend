@@ -11,6 +11,7 @@ const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { computeEnrichmentHealth, isRealValue } = require("../_requiredFields");
+const { patchCompanyWithSearchText } = require("../_computeSearchText");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -1162,6 +1163,18 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           doc.profile_completeness_version = completeness.profile_completeness_version;
           doc.profile_completeness_meta = completeness.profile_completeness_meta;
         } catch {}
+
+        // Recompute search text so that changes to keywords, industries, tagline,
+        // etc. (from refresh-apply, import, or manual edits) are immediately
+        // searchable without requiring a separate backfill run.
+        try {
+          patchCompanyWithSearchText(doc);
+        } catch (e) {
+          context.log("[admin-companies-v2] search_text_patch_failed", {
+            company_id: String(doc.company_id || doc.id || "").trim(),
+            error: e?.message || String(e),
+          });
+        }
 
         context.log("[admin-companies-v2] Upserting company", {
           id: partitionKeyValue,
