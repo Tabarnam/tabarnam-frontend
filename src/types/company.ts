@@ -127,6 +127,7 @@ export interface Company {
   location_confidence?: "low" | "medium" | "high";
   amazon_store_url?: string;
   amazon_url?: string;
+  no_amazon_store?: boolean;
   tagline?: string;
   logo_url?: string;
   notes_entries?: CompanyNote[];

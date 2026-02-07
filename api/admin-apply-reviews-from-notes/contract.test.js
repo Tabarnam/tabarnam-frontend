@@ -230,3 +230,147 @@ test("replace mode overwrites curated_reviews", async () => {
   assert.equal(updatedDoc.curated_reviews.length, 1);
   assert.equal(updatedDoc.curated_reviews[0].text, "Only one");
 });
+
+test("parseNotesToCandidates parses Grok-style output with Source and Text fields", () => {
+  const input = [
+    "Source: YouTube",
+    "Author: Studio H",
+    "URL: https://www.youtube.com/watch?v=9KNsKJgWnG0",
+    "Title: Joey On The Hill: Herbaria Soap Factory",
+    "Date: Jun 19, 2024",
+    "Text: Herbaria Soap Factory produces all-natural soaps.",
+    "",
+    "",
+    "Source: Vegan Beauty Review",
+    "Author: Sunny",
+    "URL: https://veganbeautyreview.com/herbaria-review",
+    "Title: Herbaria Soaps Review",
+    "Date: November 27, 2007",
+    "Text: Herbaria Soaps are vegan, made with olive and hemp seed oils.",
+  ].join("\n");
+
+  const { candidates, format } = _test.parseNotesToCandidates(input);
+  assert.equal(format, "yaml");
+  assert.equal(candidates.length, 2);
+
+  assert.equal(candidates[0].source_name, "YouTube");
+  assert.equal(candidates[0].author, "Studio H");
+  assert.equal(candidates[0].url, "https://www.youtube.com/watch?v=9KNsKJgWnG0");
+  assert.equal(candidates[0].title, "Joey On The Hill: Herbaria Soap Factory");
+  assert.equal(candidates[0].date, "Jun 19, 2024");
+  assert.equal(candidates[0].text, "Herbaria Soap Factory produces all-natural soaps.");
+
+  assert.equal(candidates[1].source_name, "Vegan Beauty Review");
+  assert.equal(candidates[1].author, "Sunny");
+});
+
+test("parseNotesToCandidates handles markdown bold headers from Grok output", () => {
+  const input = [
+    "**Review 1**",
+    "Source: YouTube",
+    "Author: Studio H",
+    "URL: https://www.youtube.com/watch?v=abc123",
+    "Title: Test Video",
+    "Date: Jan 1, 2025",
+    "Text: Great review of the product.",
+    "",
+    "",
+    "**Review 2**",
+    "Source: Some Blog",
+    "Author: Jane Doe",
+    "URL: https://blog.example.com/review",
+    "Title: Blog Post Title",
+    "Date: Feb 15, 2025",
+    "Text: Detailed blog review.",
+  ].join("\n");
+
+  const { candidates, format } = _test.parseNotesToCandidates(input);
+  assert.equal(format, "yaml");
+  assert.equal(candidates.length, 2);
+  assert.equal(candidates[0].source_name, "YouTube");
+  assert.equal(candidates[0].text, "Great review of the product.");
+  assert.equal(candidates[1].source_name, "Some Blog");
+  assert.equal(candidates[1].text, "Detailed blog review.");
+});
+
+test("Excerpt field maps to text in YAML-ish format", () => {
+  const input = [
+    "Source: YouTube",
+    "Author: Test Author",
+    "URL: https://example.com/review",
+    "Title: Test Review",
+    "Date: Jan 1, 2025",
+    "Excerpt: This is the excerpt content.",
+  ].join("\n");
+
+  const { candidates } = _test.parseNotesToCandidates(input);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].text, "This is the excerpt content.");
+});
+
+test("normalizeManualReview propagates source_name", () => {
+  const result = _test.normalizeManualReview({
+    source_name: "YouTube",
+    text: "Great video review.",
+    title: "Test",
+    author: "Reviewer",
+    date: "2025-01-01",
+    url: "https://youtube.com/watch?v=abc",
+  });
+
+  assert.equal(result.source_name, "YouTube");
+  assert.equal(result.source, "YouTube");
+  assert.equal(result.text, "Great video review.");
+});
+
+test("normalizeManualReview defaults source to manual_notes when no source_name", () => {
+  const result = _test.normalizeManualReview({
+    text: "Just a review.",
+    title: "Title",
+    author: "",
+    date: "",
+  });
+
+  assert.equal(result.source_name, "");
+  assert.equal(result.source, "manual_notes");
+});
+
+test("full pipeline: Grok output saves source_name to curated_reviews", async () => {
+  const notes = [
+    "Source: YouTube",
+    "Author: Studio H",
+    "URL: https://www.youtube.com/watch?v=9KNsKJgWnG0",
+    "Title: Herbaria Soap Factory",
+    "Date: Jun 19, 2024",
+    "Text: Herbaria produces all-natural soaps using traditional methods.",
+  ].join("\n");
+
+  const companiesContainer = makeCompaniesContainer({
+    initialDocsById: {
+      company_1: {
+        id: "company_1",
+        company_id: "company_1",
+        normalized_domain: "acme.example",
+        notes,
+        curated_reviews: [],
+      },
+    },
+  });
+
+  const res = await _test.adminApplyReviewsFromNotesHandler(
+    makeReq({ body: { mode: "append", dry_run: false } }),
+    { log() {}, bindingData: { company_id: "company_1" } },
+    { companiesContainer, nowIso: () => "2026-01-10T00:00:00.000Z" }
+  );
+
+  const body = JSON.parse(res.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.saved_count, 1);
+
+  const doc = companiesContainer._getDoc("company_1");
+  assert.equal(doc.curated_reviews.length, 1);
+  assert.equal(doc.curated_reviews[0].source_name, "YouTube");
+  assert.equal(doc.curated_reviews[0].source, "YouTube");
+  assert.equal(doc.curated_reviews[0].author, "Studio H");
+  assert.equal(doc.curated_reviews[0].title, "Herbaria Soap Factory");
+});

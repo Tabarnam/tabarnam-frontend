@@ -16,6 +16,7 @@ const {
 } = require("../../../api/_internalJobAuth");
 
 const { getBuildInfo } = require("../../../api/_buildInfo");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../../../api/_shared");
 const {
   computeMissingFields,
   deriveMissingReason,
@@ -34,6 +35,8 @@ const {
 } = require("../../../api/_grokEnrichment");
 
 const { enqueueResumeRun } = require("../../../api/_enrichmentQueue");
+
+const { importCompanyLogo } = require("../../../api/_logoImport");
 
 const HANDLER_ID = "import-resume-worker";
 
@@ -911,6 +914,8 @@ async function resumeWorkerHandler(req, context) {
   const cosmosEnabled = !noCosmosMode;
 
   const parseBoundedInt = (value, fallback, { min = 1, max = 50 } = {}) => {
+    // Handle null/undefined/empty string explicitly - these should use fallback
+    if (value === null || value === undefined || value === "") return fallback;
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(min, Math.min(Math.trunc(n), max));
@@ -936,10 +941,12 @@ async function resumeWorkerHandler(req, context) {
     { min: 1, max: 50 }
   );
 
+  // Default deadline is 15 minutes (900000ms) to allow thorough XAI enrichment.
+  // With 6 fields per company, each getting ~2.5 minutes budget, xAI web searches have enough time.
   const deadlineMs = parseBoundedInt(
     body?.deadline_ms ?? body?.deadlineMs ?? url.searchParams.get("deadline_ms") ?? url.searchParams.get("deadlineMs"),
-    25000,
-    { min: 1000, max: 60000 }
+    900000,
+    { min: 1000, max: 1800000 }
   );
 
   const forceTerminalizeSingle =
@@ -1099,8 +1106,12 @@ async function resumeWorkerHandler(req, context) {
           resume_worker_last_result: reason,
           updated_at: updatedAt,
         },
-      }).catch(() => null);
-    } catch {}
+      }).catch((err) => {
+        console.error(`[resume-worker] gracefulExit session doc patch failed for session ${sessionId}: ${err?.message || err}`);
+      });
+    } catch (err) {
+      console.error(`[resume-worker] gracefulExit failed for session ${sessionId}: ${err?.message || err}`);
+    }
 
     return json(
       {
@@ -1696,22 +1707,28 @@ async function resumeWorkerHandler(req, context) {
       "manufacturing_locations",
       "industries",
       "product_keywords",
+      "logo",       // Added before reviews - lighter field that should run before heavy reviews
       "reviews",
     ];
 
+    // Minimum time budgets per field - realistic values based on actual xAI response times.
+    // xAI API calls typically complete within 10-60 seconds.
+    // These must be >= the values in _grokEnrichment.js XAI_STAGE_TIMEOUTS_MS.min + safety margin.
     const MIN_REQUIRED_MS_BY_FIELD = {
-      tagline: 8_000 + 1_200,
-      headquarters_location: 12_000 + 1_200,
-      manufacturing_locations: 12_000 + 1_200,
-      industries: 8_000 + 1_200,
-      product_keywords: 8_000 + 1_200,
-      reviews: 20_000 + 1_200,
+      tagline: 20_000,                  // 20 seconds min (light field)
+      headquarters_location: 25_000,    // 25 seconds min (location field)
+      manufacturing_locations: 25_000,  // 25 seconds min (location field)
+      industries: 20_000,               // 20 seconds min (light field)
+      product_keywords: 35_000,         // 35 seconds min (keywords field)
+      logo: 15_000,                     // 15 seconds min (logo discovery + download)
+      reviews: 65_000,                  // 65 seconds min (reviews - multi-step)
     };
 
     const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
     const isFreshSeed = cycleCount === 0;
 
-    const MAX_XAI_FIELDS_PER_RUN = isFreshSeed ? 9999 : 2;
+    // With 5-minute deadline, we can attempt all fields in a single run
+    const MAX_XAI_FIELDS_PER_RUN = 9999;
     let xaiFieldsAttemptedThisRun = 0;
 
     // Fresh seed invariant: no stage skipping.
@@ -1745,6 +1762,8 @@ async function resumeWorkerHandler(req, context) {
 
     const budgetRemainingMs = () => Math.max(0, deadlineMs - (Date.now() - startedAtMs));
 
+    console.log(`[resume-worker] enrichment block entry: deadlineMs=${deadlineMs}, startedAtMs=${startedAtMs}, initialBudgetRemaining=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
+
     const plannedByCompany = Array.isArray(resumeDoc?.missing_by_company)
       ? resumeDoc.missing_by_company
       : (Array.isArray(resumeDoc?.saved_company_ids) ? resumeDoc.saved_company_ids : []).map((company_id) => ({
@@ -1766,6 +1785,31 @@ async function resumeWorkerHandler(req, context) {
     let lastFieldAttemptedThisRun = null;
     let lastFieldResultThisRun = null;
 
+    // Heartbeat tracking - update session doc periodically during long enrichment loops
+    let lastHeartbeatWrite = Date.now();
+    const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
+
+    const maybeWriteHeartbeat = async () => {
+      const now = Date.now();
+      if (now - lastHeartbeatWrite > HEARTBEAT_INTERVAL_MS) {
+        const nowIsoStr = nowIso();
+        try {
+          await bestEffortPatchSessionDoc({
+            container,
+            sessionId,
+            patch: {
+              resume_worker_heartbeat_at: nowIsoStr,
+              updated_at: nowIsoStr,
+            },
+          }).catch(() => null);
+          lastHeartbeatWrite = now;
+          console.log(`[resume-worker] heartbeat written at ${nowIsoStr}`);
+        } catch (err) {
+          console.warn(`[resume-worker] heartbeat write failed: ${err?.message || err}`);
+        }
+      }
+    };
+
     const updateLastXaiAttempt = async (nowIsoStr, meta = {}) => {
       try {
         await bestEffortPatchSessionDoc({
@@ -1785,8 +1829,27 @@ async function resumeWorkerHandler(req, context) {
       } catch {}
     };
 
+    // Hard timeout guard: leave 1 min buffer before Azure Function timeout (10 min max)
+    const HANDLER_HARD_TIMEOUT_MS = 9 * 60 * 1000; // 9 minutes
+    const handlerStartedAt = startedAtMs;
+
     for (const entry of plannedByCompany) {
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
+
+      // Hard timeout check: exit loop before Azure Function timeout kills us
+      const handlerElapsed = Date.now() - handlerStartedAt;
+      if (handlerElapsed > HANDLER_HARD_TIMEOUT_MS) {
+        console.log(`[resume-worker] hard_timeout_reached`, {
+          session_id: sessionId,
+          elapsed_ms: handlerElapsed,
+          hard_timeout_ms: HANDLER_HARD_TIMEOUT_MS,
+          companies_remaining: plannedByCompany.length - plannedByCompany.indexOf(entry),
+        });
+        break; // Exit enrichment loop gracefully, let next invocation continue
+      }
+
+      // Write heartbeat to session doc periodically to signal progress
+      await maybeWriteHeartbeat();
 
       const companyId = String(entry?.company_id || "").trim();
       if (!companyId) continue;
@@ -1798,13 +1861,19 @@ async function resumeWorkerHandler(req, context) {
       const normalizedDomain = String(doc.normalized_domain || "").trim();
 
       const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, plannedIds.length || 1)));
+      console.log(`[resume-worker] enrichment loop start: companyId=${companyId}, companyName=${companyName}, normalizedDomain=${normalizedDomain}, deadlineMs=${deadlineMs}, plannedIds.length=${plannedIds.length}, perDocBudgetMs=${perDocBudgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
+
+      // Use shared XAI config resolution for consistent endpoint/key handling
+      const xaiEndpointRaw = getXAIEndpoint();
+      const xaiKey = getXAIKey();
+      const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, "grok-4-latest");
 
       const grokArgs = {
         companyName,
         normalizedDomain,
         budgetMs: perDocBudgetMs,
-        xaiUrl: process.env.XAI_API_URL,
-        xaiKey: process.env.XAI_API_KEY,
+        xaiUrl,
+        xaiKey,
       };
 
       progressRoot.enrichment_progress[companyId] =
@@ -1847,8 +1916,12 @@ async function resumeWorkerHandler(req, context) {
           continue;
         }
 
-        const minMs = Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 0;
-        if (!isFreshSeed && minMs && budgetRemainingMs() < minMs) {
+        // Budget check: ensure we have enough time for at least one xAI call.
+        // The grok functions have their own internal budget checks, so we only need a minimum
+        // here to avoid wasting cycles. Use a lower threshold (5s) to allow the grok function
+        // to make the final decision about whether it has enough budget.
+        const budgetCheckMs = Math.min(5000, Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 5000);
+        if (!isFreshSeed && budgetRemainingMs() < budgetCheckMs) {
           fieldProgress.attempts = (Number(fieldProgress.attempts) || 0) + 1;
           fieldProgress.status = "retryable";
           fieldProgress.last_error = "budget_exhausted";
@@ -1871,8 +1944,11 @@ async function resumeWorkerHandler(req, context) {
         const freshSeedBudgetMs = (() => {
           if (!isFreshSeed) return null;
           const remainingFields = Math.max(1, ENRICH_FIELDS.length - Number(fieldIndex || 0));
-          const slice = Math.trunc(budgetRemainingMs() / remainingFields);
-          return Math.max(1500, Math.min(perDocBudgetMs, slice));
+          const budgetRemaining = budgetRemainingMs();
+          const slice = Math.trunc(budgetRemaining / remainingFields);
+          const result = Math.max(1500, Math.min(perDocBudgetMs, slice));
+          console.log(`[resume-worker] freshSeedBudgetMs calc: field=${field}, fieldIndex=${fieldIndex}, remainingFields=${remainingFields}, budgetRemaining=${budgetRemaining}, slice=${slice}, perDocBudgetMs=${perDocBudgetMs}, result=${result}`);
+          return result;
         })();
 
         const grokArgsForField = freshSeedBudgetMs ? { ...grokArgs, budgetMs: freshSeedBudgetMs } : grokArgs;
@@ -1889,6 +1965,16 @@ async function resumeWorkerHandler(req, context) {
         let r = null;
         let status = "";
         let upstream_http_status = null;
+        const fieldFetchStartMs = Date.now();
+
+        // Log before starting field fetch to track hangs
+        console.log(`[resume-worker] field_fetch_start`, {
+          session_id: sessionId,
+          company_id: companyId,
+          field,
+          budget_ms: grokArgsForField?.budgetMs,
+          cycle_count: cycleCount,
+        });
 
         try {
           if (field === "tagline") r = await fetchTagline(grokArgsForField);
@@ -1896,7 +1982,29 @@ async function resumeWorkerHandler(req, context) {
           if (field === "manufacturing_locations") r = await fetchManufacturingLocations(grokArgsForField);
           if (field === "industries") r = await fetchIndustries(grokArgsForField);
           if (field === "product_keywords") r = await fetchProductKeywords(grokArgsForField);
-          if (field === "reviews") r = await fetchCuratedReviews(grokArgsForField);
+          if (field === "logo") {
+            // Logo fetch - uses importCompanyLogo utility
+            const logoBudgetMs = Math.min(15000, grokArgsForField?.budgetMs || 15000);
+            console.log(`[resume-worker] logo fetch: budgetMs=${logoBudgetMs}, companyId=${companyId}`);
+            const logoResult = await importCompanyLogo({
+              companyId: doc.id,
+              domain: normalizedDomain,
+              websiteUrl: doc.website_url || doc.url,
+              companyName: companyName,
+              logoSourceUrl: null,
+            }, console, { budgetMs: logoBudgetMs });
+            r = {
+              logo_url: logoResult?.logo_url || "",
+              logo_status: logoResult?.logo_url ? "ok" : (logoResult?.logo_stage_status || "not_found"),
+              diagnostics: { logo_source_type: logoResult?.logo_source_type || null },
+            };
+            console.log(`[resume-worker] logo result: status=${r?.logo_status}, url=${r?.logo_url || "(none)"}`);
+          }
+          if (field === "reviews") {
+            console.log(`[resume-worker] reviews budget: freshSeedBudgetMs=${freshSeedBudgetMs}, grokArgsForField.budgetMs=${grokArgsForField?.budgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}`);
+            r = await fetchCuratedReviews(grokArgsForField);
+            console.log(`[resume-worker] reviews result: status=${r?.reviews_stage_status}, diagnostics=${JSON.stringify(r?.diagnostics || {})}`);
+          }
         } catch (e) {
           const failure = isTimeoutLikeMessage(e?.message) ? "upstream_timeout" : "upstream_unreachable";
           r = { diagnostics: { message: safeErrorMessage(e), upstream_http_status: null }, _failure: failure };
@@ -1908,9 +2016,20 @@ async function resumeWorkerHandler(req, context) {
         else if (field === "manufacturing_locations") status = normalizeKey(r?.mfg_status || r?._failure || "");
         else if (field === "industries") status = normalizeKey(r?.industries_status || r?._failure || "");
         else if (field === "product_keywords") status = normalizeKey(r?.keywords_status || r?._failure || "");
+        else if (field === "logo") status = normalizeKey(r?.logo_status || r?._failure || "");
         else if (field === "reviews") status = normalizeKey(r?.reviews_stage_status || r?._failure || "");
 
         upstream_http_status = r?.diagnostics?.upstream_http_status ?? r?.diagnostics?.upstream_status ?? null;
+
+        // Log after field fetch completes (success or failure)
+        console.log(`[resume-worker] field_fetch_end`, {
+          session_id: sessionId,
+          company_id: companyId,
+          field,
+          status: status || r?._failure || "unknown",
+          elapsed_ms: Date.now() - fieldFetchStartMs,
+          upstream_http_status,
+        });
 
         fieldProgress.xai_diag = {
           xai_request_id:
@@ -1927,6 +2046,13 @@ async function resumeWorkerHandler(req, context) {
             r?.diagnostics?.code ||
             (status && status !== "ok" ? status : null),
           xai_attempted: false,
+          // Budget diagnostics from grok functions
+          grok_remaining_ms: r?.diagnostics?.remaining_ms ?? null,
+          grok_min_required_ms: r?.diagnostics?.min_required_ms ?? null,
+          grok_reason: r?.diagnostics?.reason ?? null,
+          // Handler budget context
+          handler_budget_passed_ms: grokArgsForField?.budgetMs ?? null,
+          handler_is_fresh_seed: isFreshSeed,
         };
 
         const xaiAttempted = status !== "deferred";
@@ -2050,7 +2176,7 @@ async function resumeWorkerHandler(req, context) {
             const list = Array.isArray(r?.industries) ? r.industries : [];
             const sanitized = (() => {
               try {
-                const { sanitizeIndustries } = require("../../_requiredFields");
+                const { sanitizeIndustries } = require("../../../api/_requiredFields");
                 return sanitizeIndustries(list);
               } catch {
                 return list.map((x) => String(x || "").trim()).filter(Boolean);
@@ -2086,7 +2212,7 @@ async function resumeWorkerHandler(req, context) {
 
             const sanitized = (() => {
               try {
-                const { sanitizeKeywords } = require("../../_requiredFields");
+                const { sanitizeKeywords } = require("../../../api/_requiredFields");
                 const stats = sanitizeKeywords({ product_keywords: list, keywords: list });
                 return Array.isArray(stats?.sanitized) ? stats.sanitized : [];
               } catch {
@@ -2113,6 +2239,29 @@ async function resumeWorkerHandler(req, context) {
               fieldProgress.status = terminal ? "terminal" : "retryable";
               fieldProgress.last_error = status || "not_found";
               if (terminal) terminalizeNonGrokField(doc, "product_keywords", "not_found_terminal");
+            }
+          }
+
+          if (field === "logo") {
+            bumpFieldAttempt(doc, "logo", requestId);
+            const logoUrl = typeof r?.logo_url === "string" ? r.logo_url.trim() : "";
+            if (status === "ok" && logoUrl) {
+              doc.logo_url = logoUrl;
+              doc.logo_source_url = r?.logo_source_url || null;
+              doc.logo_source_type = r?.diagnostics?.logo_source_type || "discovered";
+              doc.logo_stage_status = "ok";
+              doc.import_missing_reason.logo = "ok";
+              markFieldSuccess(doc, "logo");
+              fieldProgress.status = "ok";
+              savedFieldsThisRun.push("logo");
+            } else {
+              const terminal = attemptsFor(doc, "logo") >= MAX_ATTEMPTS_LOGO;
+              doc.logo_url = "";
+              doc.logo_stage_status = terminal ? "not_found_terminal" : status || "not_found";
+              doc.import_missing_reason.logo = terminal ? "not_found_terminal" : status || "not_found";
+              fieldProgress.status = terminal ? "terminal" : "retryable";
+              fieldProgress.last_error = status || "not_found";
+              if (terminal) terminalizeNonGrokField(doc, "logo", "not_found_terminal");
             }
           }
 
@@ -2370,9 +2519,22 @@ async function resumeWorkerHandler(req, context) {
       ...(finalStatus === "complete" ? { completed_at: updatedAt } : {}),
       lock_expires_at: null,
       updated_at: updatedAt,
+      // Debug: track budget values to diagnose deferred fields
+      _budget_debug: {
+        deadlineMs,
+        startedAtMs,
+        elapsed_at_finish: Date.now() - startedAtMs,
+        budget_remaining_at_finish: budgetRemainingMs(),
+        is_fresh_seed: isFreshSeed,
+        cycle_count: cycleCount,
+        planned_ids_count: plannedIds?.length || 0,
+      },
     };
 
-    await upsertDoc(container, nextResumeDoc).catch(() => null);
+    console.log(`[resume-worker] _budget_debug being written: ${JSON.stringify(nextResumeDoc._budget_debug)}`);
+    await upsertDoc(container, nextResumeDoc).catch((err) => {
+      console.log(`[resume-worker] resumeDoc upsert failed: ${err?.message || err}`);
+    });
 
     const sessionPatch = {
       resume_needed: finalResumeNeeded,
@@ -2386,6 +2548,8 @@ async function resumeWorkerHandler(req, context) {
       resume_next_allowed_run_at: nextAllowedRunAt,
       resume_last_backoff_reason: lastBackoffReason,
       resume_last_backoff_ms: lastBackoffMs,
+      // Also write to session doc for easier retrieval
+      resume_worker_budget_debug: nextResumeDoc._budget_debug,
       ...(enqueueRes?.ok
         ? {
             resume_worker_last_enqueued_at: updatedAt,
@@ -2408,7 +2572,9 @@ async function resumeWorkerHandler(req, context) {
       container,
       sessionId,
       patch: sessionPatch,
-    }).catch(() => null);
+    }).catch((err) => {
+      console.error(`[resume-worker] Session doc patch failed for session ${sessionId}: ${err?.message || err}`);
+    });
 
     return json(
       {
@@ -2432,6 +2598,7 @@ async function resumeWorkerHandler(req, context) {
         last_xai_attempt_at: resumeDoc?.last_xai_attempt_at || null,
         last_field_attempted: lastFieldAttemptedThisRun,
         last_field_result: lastFieldResultThisRun,
+        _budget_debug: nextResumeDoc._budget_debug,
       },
       200,
       req
@@ -2502,12 +2669,17 @@ async function resumeWorkerHandler(req, context) {
     const companyName = String(doc.company_name || doc.name || "").trim();
     const normalizedDomain = String(doc.normalized_domain || "").trim();
 
+    // Use shared XAI config resolution for consistent endpoint/key handling
+    const xaiEndpointRaw2 = getXAIEndpoint();
+    const xaiKey2 = getXAIKey();
+    const xaiUrl2 = resolveXaiEndpointForModel(xaiEndpointRaw2, "grok-4-latest");
+
     const grokArgs = {
       companyName,
       normalizedDomain,
       budgetMs: perDocBudgetMs,
-      xaiUrl: process.env.XAI_API_URL,
-      xaiKey: process.env.XAI_API_KEY,
+      xaiUrl: xaiUrl2,
+      xaiKey: xaiKey2,
     };
 
     let changed = false;
@@ -2517,15 +2689,18 @@ async function resumeWorkerHandler(req, context) {
     const remainingRunMs = () => Math.max(0, deadlineMs - (Date.now() - startedEnrichmentAt));
 
     // Field-level planning:
-    // - Avoid doing many missing fields per cycle when the worker has a fixed wall-clock budget.
-    // - Prefer HQ/MFG first, then reviews, then lighter metadata fields.
+    // Minimum time budgets per field - reduced to allow enrichment to proceed.
+    // xAI API calls typically complete within 10-30 seconds.
+    // Minimum required budget per field - set high enough to allow xAI web searches to complete.
+    // xAI searches can take 1-3 minutes, so we need generous minimums.
     const MIN_REQUIRED_MS_BY_FIELD = {
-      reviews: 20_000 + 1_200,
-      headquarters_location: 12_000 + 1_200,
-      manufacturing_locations: 12_000 + 1_200,
-      tagline: 8_000 + 1_200,
-      industries: 8_000 + 1_200,
-      product_keywords: 8_000 + 1_200,
+      reviews: 480_000,          // 8 minutes min (4x - complex web search with URL verification)
+      headquarters_location: 90_000,    // 1.5 minutes min
+      manufacturing_locations: 90_000,  // 1.5 minutes min
+      tagline: 60_000,           // 1 minute min
+      industries: 60_000,        // 1 minute min
+      product_keywords: 180_000, // 3 minutes min (2x - must accumulate all products)
+      logo: 25_000,              // 25 seconds min (logo discovery + download)
     };
 
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
@@ -2748,7 +2923,7 @@ async function resumeWorkerHandler(req, context) {
       const list = Array.isArray(r?.industries) ? r.industries : [];
       const sanitized = (() => {
         try {
-          const { sanitizeIndustries } = require("../../_requiredFields");
+          const { sanitizeIndustries } = require("../../../api/_requiredFields");
           return sanitizeIndustries(list);
         } catch {
           return list.map((x) => String(x || "").trim()).filter(Boolean);
@@ -2823,7 +2998,7 @@ async function resumeWorkerHandler(req, context) {
 
       const sanitized = (() => {
         try {
-          const { sanitizeKeywords } = require("../../_requiredFields");
+          const { sanitizeKeywords } = require("../../../api/_requiredFields");
           const stats = sanitizeKeywords({ product_keywords: list.join(", "), keywords: [] });
           return Array.isArray(stats?.sanitized) ? stats.sanitized : [];
         } catch {
@@ -3222,10 +3397,38 @@ async function resumeWorkerHandler(req, context) {
 
     const logoRetryable = !isRealValue("logo", doc.logo_url, doc) && !isTerminalMissingField(doc, "logo");
 
-    // Logo is handled by import-start, but we still track attempts here so it can terminalize.
+    // Logo enrichment - fetch logo if missing and budget allows
     if (logoRetryable && shouldRunField("logo")) {
       const bumped = bumpFieldAttempt(doc, "logo", requestId);
       if (bumped) changed = true;
+
+      // Actually fetch the logo (previously delegated to import-start which was unreliable)
+      try {
+        const logoBudgetMs = Math.min(20000, Math.max(5000, budgetRemainingMs() - 2000));
+        console.log(`[resume-worker] Fetching logo for ${doc.id} (budget: ${logoBudgetMs}ms)`);
+        const logoResult = await importCompanyLogo({
+          companyId: doc.id,
+          domain: doc.normalized_domain,
+          websiteUrl: doc.website_url || doc.url,
+          companyName: doc.company_name || doc.name,
+          logoSourceUrl: null,
+        }, console, { budgetMs: logoBudgetMs });
+
+        if (logoResult?.logo_url) {
+          doc.logo_url = logoResult.logo_url;
+          doc.logo_source_url = logoResult.logo_source_url || null;
+          doc.logo_source_type = logoResult.logo_source_type || "discovered";
+          doc.logo_stage_status = "ok";
+          changed = true;
+          console.log(`[resume-worker] Logo fetched for ${doc.id}: ${logoResult.logo_url}`);
+        } else {
+          doc.logo_stage_status = logoResult?.logo_stage_status || "not_found";
+          changed = true;
+          console.log(`[resume-worker] Logo not found for ${doc.id}: ${logoResult?.logo_stage_status || "no result"}`);
+        }
+      } catch (logoErr) {
+        console.warn(`[resume-worker] Logo fetch error for ${doc.id}: ${logoErr?.message}`);
+      }
 
       if (attemptsFor(doc, "logo") >= MAX_ATTEMPTS_LOGO) {
         terminalizeNonGrokField(doc, "logo", "not_found_terminal");
@@ -3370,7 +3573,7 @@ async function resumeWorkerHandler(req, context) {
   const startRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
 
   const invokeImportStartDirect = async (startBody, urlOverride) => {
-    const { handler: importStartHandler } = require("../../import-start/index.js");
+    const { handler: importStartHandler } = require("../../../api/import-start/index.js");
 
     const hdrs = new Headers();
     for (const [k, v] of Object.entries(startRequest.headers || {})) {

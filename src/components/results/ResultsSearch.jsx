@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 const ResultsSearch = ({ onSearch, initialParams = {}, isLoading }) => {
   const [searchTerm, setSearchTerm] = useState(initialParams.term || "");
   const [location, setLocation] = useState(initialParams.location || "");
-  const [sortBy, setSortBy] = useState(initialParams.sortBy || "manu");
+  const [sortBy, setSortBy] = useState(initialParams.sortBy || "stars");
   const inputRef = useRef(null);
 
   useEffect(() => {

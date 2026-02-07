@@ -233,6 +233,64 @@ function compareCompanies(sortField, dir, a, b) {
   return dir === "desc" ? -cmp : cmp;
 }
 
+/**
+ * Compute a name-match relevance score for a company against the search query.
+ * Higher scores mean stronger name matches so exact name hits rank above keyword-only hits.
+ *
+ *   100 = exact match (lowered name === lowered query)
+ *    80 = name starts with query
+ *    60 = query appears at a word boundary in the name
+ *    40 = query is a substring of the name
+ *     0 = no name match
+ */
+function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
+  if (!company || (!q_raw && !q_norm && !q_compact)) return 0;
+
+  const names = [
+    asString(company.company_name).trim(),
+    asString(company.display_name).trim(),
+    asString(company.name).trim(),
+  ].filter(Boolean);
+
+  const queries = [
+    q_raw ? q_raw.toLowerCase().trim() : "",
+    q_norm ? q_norm.toLowerCase().trim() : "",
+    q_compact ? q_compact.toLowerCase().trim() : "",
+  ].filter(Boolean);
+
+  const uniqueQueries = [...new Set(queries)];
+  if (!uniqueQueries.length || !names.length) return 0;
+
+  let best = 0;
+
+  for (const rawName of names) {
+    const nameLower = rawName.toLowerCase();
+    const nameCompact = nameLower.replace(/\s+/g, "");
+
+    for (const q of uniqueQueries) {
+      if (nameLower === q || nameCompact === q) {
+        best = Math.max(best, 100);
+        continue;
+      }
+      if (nameLower.startsWith(q) || nameCompact.startsWith(q)) {
+        best = Math.max(best, 80);
+        continue;
+      }
+      // Word boundary: query after start, space, hyphen, or underscore
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`(?:^|[\\s\\-_])${escaped}`).test(nameLower)) {
+        best = Math.max(best, 60);
+        continue;
+      }
+      if (nameLower.includes(q) || nameCompact.includes(q)) {
+        best = Math.max(best, 40);
+      }
+    }
+  }
+
+  return best;
+}
+
 // Helper to build search filter that handles both spaced and non-spaced queries
 // Uses both @q (from first term) and @q_compact to allow flexible matching
 function buildLegacySearchFilter() {
@@ -328,10 +386,15 @@ function buildLegacySearchFilterWithTerms(terms_norm, terms_compact, params) {
   }
 
   const conditions = [];
+  // Strip special characters from DB values to match normalizeQuery behavior.
+  // normalizeQuery removes [^\w\s] (e.g. &, +, ', ., etc.) so the DB values
+  // must be cleaned the same way for CONTAINS to find matches.
+  const stripSpecial = (expr) =>
+    `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(${expr}), "&", ""), "+", ""), "'", ""), ".", ""), ",", ""), "-", " "), "_", " "), "/", "")`;
   const fieldChecker = (fieldName, paramName) =>
-    `(IS_DEFINED(c.${fieldName}) AND IS_STRING(c.${fieldName}) AND CONTAINS(LOWER(c.${fieldName}), ${paramName}))`;
+    `(IS_DEFINED(c.${fieldName}) AND IS_STRING(c.${fieldName}) AND CONTAINS(${stripSpecial(`c.${fieldName}`)}, ${paramName}))`;
   const fieldArrayChecker = (arrayField, paramName) =>
-    `(IS_ARRAY(c.${arrayField}) AND ARRAY_LENGTH(ARRAY(SELECT VALUE item FROM item IN c.${arrayField} WHERE IS_STRING(item) AND CONTAINS(LOWER(item), ${paramName}))) > 0)`;
+    `(IS_ARRAY(c.${arrayField}) AND ARRAY_LENGTH(ARRAY(SELECT VALUE item FROM item IN c.${arrayField} WHERE IS_STRING(item) AND CONTAINS(${stripSpecial("item")}, ${paramName}))) > 0)`;
 
   const stringFields = ["company_name", "display_name", "name", "normalized_domain", "amazon_url", "product_keywords", "keywords", "industries", "tagline"];
   const arrayFields = ["product_keywords", "keywords", "industries"];
@@ -688,7 +751,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         whereTextFilter = buildNormalizedSearchFilter(terms_norm, terms_compact, params);
       }
 
-      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
+      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
 
       if (sort === "manu") {
         // Build search filter using expanded terms
@@ -790,6 +853,13 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         .map(mapCompanyToPublic)
         .filter((c) => c && c.id);
 
+      // Attach name-match relevance score so the frontend can prioritise name hits
+      if (q_norm) {
+        for (const company of mapped) {
+          company._nameMatchScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
+        }
+      }
+
       if (sortField) {
         mapped.sort((a, b) => compareCompanies(sortField, sortDir, a, b));
       }
@@ -839,4 +909,5 @@ module.exports._test = {
   normalizeStringArray,
   mapCompanyToPublic,
   searchCompaniesHandler,
+  computeNameMatchScore,
 };

@@ -2,6 +2,10 @@ function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
+// Feature flag: Set to false to exclude reviews from required fields
+// Reviews code is preserved but not checked during import completion
+const REVIEWS_ENABLED = false;
+
 function normalizeKey(value) {
   return asString(value).trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -494,7 +498,8 @@ function hasNonPlaceholderLocationEntry(list) {
         asString(loc.formatted).trim() ||
         asString(loc.full_address).trim() ||
         asString(loc.address).trim() ||
-        asString(loc.location).trim();
+        asString(loc.location).trim() ||
+        asString(loc.country).trim();  // Also accept country-only locations (e.g., "USA", "China")
 
       const key = normalizeKey(raw);
       if (!key) continue;
@@ -586,15 +591,10 @@ function isRealValue(field, value, doc) {
 
   if (f === "logo") {
     const logoUrl = asMeaningfulString(doc?.logo_url);
-    if (logoUrl) return true;
+    if (logoUrl) return true;  // Has actual logo URL - field is present
 
-    const stage = normalizeKey(doc?.logo_stage_status);
-    const status = normalizeKey(doc?.logo_status);
-
-    // Contract: explicitly recording "not found" is a valid terminal state.
-    if (stage === "not_found_on_site" || stage === "not_found" || stage === "missing") return true;
-    if (status === "not_found_on_site" || status === "not_found" || status === "missing") return true;
-
+    // Logo is missing if no URL, regardless of stage status
+    // "not_found_on_site" should show as a missing field in Issues column
     return false;
   }
 
@@ -617,7 +617,7 @@ function isRealValue(field, value, doc) {
   return Boolean(asMeaningfulString(value));
 }
 
-function computeMissingFields(company, { includeReviews = true } = {}) {
+function computeMissingFields(company, { includeReviews = REVIEWS_ENABLED } = {}) {
   const c = company && typeof company === "object" ? company : {};
   const missing = [];
 

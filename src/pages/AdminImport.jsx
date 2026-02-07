@@ -3,6 +3,7 @@ import { Helmet } from "react-helmet-async";
 import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2 } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
+import useNotificationSound from "@/hooks/useNotificationSound";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
@@ -20,6 +21,10 @@ import {
   readJsonOrText,
   toErrorString,
 } from "@/lib/api";
+
+// Feature flag: Reviews are excluded from import workflow
+// Set to true to re-enable reviews in the UI
+const REVIEWS_ENABLED = false;
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -333,6 +338,10 @@ const IMPORT_LIMIT_MIN = 1;
 const IMPORT_LIMIT_MAX = 25;
 const IMPORT_LIMIT_DEFAULT = 1;
 
+const SUCCESSION_MIN = 1;
+const SUCCESSION_MAX = 50;
+const SUCCESSION_DEFAULT = 1;
+
 const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
   primary_enqueued: "Queued primary search",
   primary_search_started: "Searching for matching companies",
@@ -352,6 +361,17 @@ const IMPORT_ERROR_CODE_TO_REASON = Object.freeze({
   MISSING_XAI_KEY: "Missing XAI API key configuration",
   MISSING_OUTBOUND_BODY: "Missing outbound body (import request payload)",
   stalled_worker: "Import worker stalled (heartbeat stale)",
+});
+
+// Enrichment field display labels for real-time status
+const ENRICH_FIELD_TO_DISPLAY = Object.freeze({
+  tagline: "Fetching tagline",
+  headquarters_location: "Finding headquarters",
+  manufacturing_locations: "Finding manufacturing locations",
+  industries: "Analyzing industries",
+  product_keywords: "Extracting keywords",
+  logo: "Finding logo",
+  reviews: "Searching for reviews",
 });
 
 function humanizeImportCode(raw) {
@@ -433,11 +453,31 @@ function normalizeImportLimit(raw, fallback = IMPORT_LIMIT_DEFAULT) {
   return Math.max(IMPORT_LIMIT_MIN, Math.min(IMPORT_LIMIT_MAX, truncated));
 }
 
+function normalizeSuccessionCount(raw, fallback = SUCCESSION_DEFAULT) {
+  const s = String(raw ?? "").trim();
+  if (!s) return fallback;
+
+  const n = Number(s);
+  if (!Number.isFinite(n)) return fallback;
+
+  const truncated = Math.trunc(n);
+  return Math.max(SUCCESSION_MIN, Math.min(SUCCESSION_MAX, truncated));
+}
+
 export default function AdminImport() {
   const [query, setQuery] = useState("");
+  const [companyUrl, setCompanyUrl] = useState("");
   const [queryTypes, setQueryTypes] = useState(["product_keyword"]);
   const [location, setLocation] = useState("");
-  const [limitInput, setLimitInput] = useState(String(IMPORT_LIMIT_DEFAULT));
+
+  // Succession import state
+  const [successionCountInput, setSuccessionCountInput] = useState(String(SUCCESSION_DEFAULT));
+  const [successionRows, setSuccessionRows] = useState([{ companyName: "", companyUrl: "" }]);
+  const [successionQueue, setSuccessionQueue] = useState([]);
+  const [successionIndex, setSuccessionIndex] = useState(-1);
+  const [successionResults, setSuccessionResults] = useState([]);
+  const successionTriggerRef = useRef(false);
+  const successionCount = normalizeSuccessionCount(successionCountInput);
 
 
   const importConfigured = Boolean(API_BASE);
@@ -468,6 +508,13 @@ export default function AdminImport() {
   const [explainResponseText, setExplainResponseText] = useState("");
   const [explainLoading, setExplainLoading] = useState(false);
 
+  // Bulk import state
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkUrls, setBulkUrls] = useState("");
+  const [activeBatchId, setActiveBatchId] = useState(null);
+  const [batchJobs, setBatchJobs] = useState([]);
+  const [bulkEnqueueLoading, setBulkEnqueueLoading] = useState(false);
+
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
   const pollAttemptsRef = useRef(new Map());
@@ -479,7 +526,67 @@ export default function AdminImport() {
 
   const startImportRequestInFlightRef = useRef(false);
   const activeStatusRef = useRef(activeStatus);
+  const importReportRef = useRef(null);
   activeStatusRef.current = activeStatus;
+
+  const isSuccessionRunning = successionIndex >= 0;
+
+  // Audio notification on import / succession completion
+  const playNotification = useNotificationSound();
+  const prevActiveStatusRef = useRef(activeStatus);
+
+  useEffect(() => {
+    const prev = prevActiveStatusRef.current;
+    prevActiveStatusRef.current = activeStatus;
+
+    if (activeStatus !== "done" || prev === "done") return;
+
+    // During succession, each sub-import hits "done" then immediately starts the next.
+    // Only play when succession is NOT mid-run (successionIndex < 0 means finished or never started).
+    if (successionIndex >= 0) return;
+
+    playNotification();
+  }, [activeStatus, successionIndex, playNotification]);
+
+  // Also play on succession completion (all items processed)
+  const prevSuccessionIndexRef = useRef(successionIndex);
+  useEffect(() => {
+    const prev = prevSuccessionIndexRef.current;
+    prevSuccessionIndexRef.current = successionIndex;
+
+    // Succession just finished: index went from >= 0 to -1
+    if (prev >= 0 && successionIndex < 0) {
+      playNotification();
+    }
+  }, [successionIndex, playNotification]);
+
+  const handleSuccessionCountChange = useCallback((rawValue) => {
+    const s = String(rawValue ?? "").trim();
+    if (s === "") {
+      setSuccessionCountInput("");
+      return;
+    }
+    if (!/^\d+$/.test(s)) return;
+    setSuccessionCountInput(s);
+    const n = normalizeSuccessionCount(s);
+    setSuccessionRows((prev) => {
+      if (n === prev.length) return prev;
+      if (n < prev.length) return prev.slice(0, n);
+      const extended = [...prev];
+      while (extended.length < n) {
+        extended.push({ companyName: "", companyUrl: "" });
+      }
+      return extended;
+    });
+  }, []);
+
+  const updateSuccessionRow = useCallback((index, field, value) => {
+    setSuccessionRows((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+    if (index === 0) {
+      if (field === "companyName") setQuery(value);
+      if (field === "companyUrl") setCompanyUrl(value);
+    }
+  }, []);
 
   const activeRun = useMemo(() => {
     if (!activeSessionId) return null;
@@ -1585,6 +1692,19 @@ export default function AdminImport() {
     });
   }, [isUrlLikeQuery]);
 
+  // Auto-select optimal query types when both name + URL are provided
+  const isNamePlusUrlMode = useMemo(() => {
+    const urlFilled = asString(companyUrl).trim().length > 0;
+    const queryIsName = query.trim().length > 0 && !looksLikeUrlOrDomain(query);
+    return urlFilled && queryIsName;
+  }, [companyUrl, query]);
+
+  useEffect(() => {
+    if (isNamePlusUrlMode) {
+      setQueryTypes(["company_name", "company_url"]);
+    }
+  }, [isNamePlusUrlMode]);
+
   const urlTypeValidationError = useMemo(() => {
     if (!isUrlLikeQuery) return "";
     return queryTypes.includes("company_url")
@@ -1600,7 +1720,9 @@ export default function AdminImport() {
     const dryRun = false;
 
     return {
-      pipeline: "primary → keywords → reviews → location → save → expand",
+      pipeline: REVIEWS_ENABLED
+        ? "primary → keywords → reviews → location → save → expand"
+        : "primary → keywords → location → save → expand",
       overridesLabel: "None",
       maxStage,
       skipStages,
@@ -1747,7 +1869,7 @@ export default function AdminImport() {
 
     const uiSessionIdBefore = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    const normalizedLimit = normalizeImportLimit(limitInput);
+    const normalizedLimit = 1;
 
     const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
 
@@ -1817,6 +1939,7 @@ export default function AdminImport() {
         session_id: uiSessionIdBefore,
         query: q,
         queryTypes: selectedTypes,
+        company_url_hint: asString(companyUrl).trim() || undefined,
         location: asString(location).trim() || undefined,
         limit: normalizedLimit,
         expand_if_few: true,
@@ -2579,7 +2702,6 @@ export default function AdminImport() {
     }
   }, [
     importConfigured,
-    limitInput,
     location,
     query,
     queryTypes,
@@ -2610,7 +2732,7 @@ export default function AdminImport() {
     const session_id =
       globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    const normalizedLimit = normalizeImportLimit(limitInput);
+    const normalizedLimit = 1;
     const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
 
     const requestPayload = {
@@ -2651,7 +2773,7 @@ export default function AdminImport() {
     } finally {
       setExplainLoading(false);
     }
-  }, [importConfigured, limitInput, location, query, queryTypes, urlTypeValidationError]);
+  }, [importConfigured, location, query, queryTypes, urlTypeValidationError]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -2669,14 +2791,30 @@ export default function AdminImport() {
       if (!res.ok) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Stop failed (${res.status})`);
         toast.error(msg);
-      } else {
-        toast.success("Stop signal sent");
+        setActiveStatus("running"); // Revert if stop failed
+        return;
       }
+
+      toast.success("Stop signal sent");
+
+      // Mark the run as stopped and update UI
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.session_id === activeSessionId
+            ? { ...r, stopped: true, progress_notice: "Import stopped by user" }
+            : r
+        )
+      );
+
+      // Brief delay to show "Stopping..." state, then set to idle
+      setTimeout(() => {
+        stopPolling();
+        setActiveStatus("idle");
+      }, 1500);
+
     } catch (e) {
       toast.error(toErrorString(e) || "Stop failed");
-    } finally {
-      stopPolling();
-      setActiveStatus("idle");
+      setActiveStatus("running"); // Revert on error
     }
   }, [activeSessionId, stopPolling]);
 
@@ -2892,7 +3030,7 @@ export default function AdminImport() {
     const skipStages = Array.isArray(request?.skip_stages) ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean) : [];
     if (skipStages.length === 0) return null;
 
-    const enrichmentStages = new Set(["keywords", "reviews", "location"]);
+    const enrichmentStages = new Set(["keywords", ...(REVIEWS_ENABLED ? ["reviews"] : []), "location"]);
     const skippedEnrichment = skipStages.filter((s) => enrichmentStages.has(s));
     if (skippedEnrichment.length === 0) return null;
 
@@ -3030,6 +3168,12 @@ export default function AdminImport() {
     }
   }, [activeReportPayload]);
 
+  useEffect(() => {
+    if (importReportRef.current && activeReportText) {
+      importReportRef.current.scrollTop = importReportRef.current.scrollHeight;
+    }
+  }, [activeReportText]);
+
   const activeDebugPayload = useMemo(() => {
     if (!activeRun) return null;
 
@@ -3101,15 +3245,31 @@ export default function AdminImport() {
       const body = await readJsonOrText(res);
 
       if (!res.ok || !body.ok) {
+        const errorCode = body?.error?.code;
         const msg = typeof body?.error?.message === "string" ? body.error.message : `Failed (HTTP ${res.status})`;
+
+        // Handle duplicate company error with more context
+        const isDuplicate = errorCode === "duplicate_company" || res.status === 409;
+        const existingCompany = body?.error?.existing_company;
+
         setRuns((prev) =>
           prev.map((r) =>
             r.session_id === uiSessionId
-              ? { ...r, start_error: msg, updatedAt: new Date().toISOString() }
+              ? {
+                  ...r,
+                  start_error: msg,
+                  updatedAt: new Date().toISOString(),
+                  ...(isDuplicate && existingCompany ? { duplicate_company: existingCompany } : {}),
+                }
               : r
           )
         );
-        toast.error(msg);
+
+        if (isDuplicate) {
+          toast.error(msg, { duration: 6000 });
+        } else {
+          toast.error(msg);
+        }
         setActiveStatus("error");
         return;
       }
@@ -3212,6 +3372,144 @@ export default function AdminImport() {
     [handleStartImportStaged]
   );
 
+  // Succession import: start handler
+  const handleStartSuccession = useCallback(() => {
+    if (startImportDisabled) return;
+
+    if (successionCount <= 1) {
+      handleStartImportStaged();
+      return;
+    }
+
+    const validRows = successionRows.filter(
+      (row) => row.companyName.trim() || row.companyUrl.trim()
+    );
+
+    if (validRows.length === 0) {
+      toast.error("Enter at least one company name or URL.");
+      return;
+    }
+
+    setSuccessionQueue(validRows);
+    setSuccessionResults([]);
+    setSuccessionIndex(0);
+
+    const first = validRows[0];
+    setQuery(first.companyName);
+    setCompanyUrl(first.companyUrl);
+    successionTriggerRef.current = true;
+  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged]);
+
+  // Succession import: trigger effect — fires the import after state has updated
+  useEffect(() => {
+    if (successionIndex < 0 || successionIndex >= successionQueue.length) return;
+    if (!successionTriggerRef.current) return;
+
+    successionTriggerRef.current = false;
+    handleStartImportStaged();
+  }, [successionIndex, query, companyUrl, handleStartImportStaged, successionQueue]);
+
+  // Succession import: advancement effect — when current import completes, start next
+  useEffect(() => {
+    if (successionIndex < 0) return;
+    if (activeStatus !== "done" && activeStatus !== "error") return;
+
+    setSuccessionResults((prev) => [
+      ...prev,
+      { index: successionIndex, status: activeStatus === "done" ? "done" : "error", sessionId: activeSessionId },
+    ]);
+
+    const nextIndex = successionIndex + 1;
+
+    if (nextIndex >= successionQueue.length) {
+      const doneCount = successionResults.length + 1;
+      setSuccessionIndex(-1);
+      toast.success(`Succession import complete: ${doneCount} imports processed`);
+      return;
+    }
+
+    const next = successionQueue[nextIndex];
+    setQuery(next.companyName);
+    setCompanyUrl(next.companyUrl);
+    setSuccessionIndex(nextIndex);
+    successionTriggerRef.current = true;
+  }, [activeStatus, successionIndex, successionQueue, activeSessionId, successionResults]);
+
+  // Bulk import handlers
+  const bulkUrlCount = useMemo(() => {
+    return bulkUrls.split("\n").map((s) => s.trim()).filter(Boolean).length;
+  }, [bulkUrls]);
+
+  const handleBulkEnqueue = useCallback(async () => {
+    if (bulkEnqueueLoading) return;
+    const urls = bulkUrls.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (urls.length === 0) {
+      toast.error("Enter at least one URL");
+      return;
+    }
+    if (urls.length > 50) {
+      toast.error("Maximum 50 URLs per batch");
+      return;
+    }
+
+    setBulkEnqueueLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/bulk-import/enqueue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        toast.error(data.message || data.error || "Failed to enqueue");
+        return;
+      }
+      setActiveBatchId(data.batch_id);
+      setBatchJobs(data.jobs || []);
+      setBulkUrls("");
+      toast.success(`Queued ${data.summary?.total || urls.length} URLs for import`);
+    } catch (err) {
+      toast.error(err?.message || "Failed to enqueue bulk import");
+    } finally {
+      setBulkEnqueueLoading(false);
+    }
+  }, [bulkUrls, bulkEnqueueLoading]);
+
+  // Poll for batch status
+  useEffect(() => {
+    if (!activeBatchId) return;
+
+    const pollBatchStatus = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/bulk-import/status?batch_id=${activeBatchId}`);
+        const data = await res.json();
+        if (data.ok && data.jobs) {
+          setBatchJobs(data.jobs);
+          // Stop polling when all complete
+          if (data.summary?.queued === 0 && data.summary?.running === 0) {
+            return true; // Done polling
+          }
+        }
+      } catch (err) {
+        console.warn("[bulk-import] Failed to fetch batch status:", err);
+      }
+      return false;
+    };
+
+    // Initial poll
+    pollBatchStatus();
+
+    // Set up interval
+    const interval = setInterval(async () => {
+      const done = await pollBatchStatus();
+      if (done) {
+        clearInterval(interval);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [activeBatchId]);
+
   return (
     <>
       <Helmet>
@@ -3228,6 +3526,92 @@ export default function AdminImport() {
             <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
           </header>
 
+          {/* Live status indicator - keep visible during enrichment even after company is created */}
+          {activeRun && activeStatus !== "idle" && (activeStatus === "running" || activeStatus === "stopping" || activeRun.resume_needed || (!activeRun.completed && !activeRun.stopped && !activeRun.timedOut)) ? (
+            <div className="rounded-lg border border-blue-300 bg-blue-50 p-4 flex items-center gap-4">
+              <div className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-blue-900">
+                  {(() => {
+                    const stageBeacon = asString(activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
+                    const resumeNeeded = Boolean(activeRun.resume_needed);
+                    const resumeStatus = asString(activeRun.resume?.status || activeRun.last_status_body?.resume?.status).trim();
+                    const savedCount = Number(activeRun.saved ?? 0) || 0;
+                    const missingFields = activeRun.saved_companies?.[0]?.enrichment_health?.missing_fields || [];
+                    const lastFieldAttempted = asString(activeRun.resume_worker?.last_field_attempted).trim();
+                    const lastFieldResult = asString(activeRun.resume_worker?.last_field_result).trim();
+                    const resumeError = asString(activeRun.resume_error || activeRun.last_status_body?.resume_error).trim();
+
+                    if (resumeError) {
+                      return `Enrichment stalled: ${resumeError.replace(/_/g, " ")}`;
+                    }
+
+                    if (resumeNeeded && missingFields.length > 0) {
+                      const fieldList = missingFields.join(", ");
+                      if (lastFieldAttempted) {
+                        return `Enriching: ${lastFieldAttempted}${lastFieldResult ? ` (${lastFieldResult})` : ""} — still need: ${fieldList}`;
+                      }
+                      if (resumeStatus === "queued") {
+                        return `Waiting for enrichment worker — missing: ${fieldList}`;
+                      }
+                      return `Fetching missing fields: ${fieldList}`;
+                    }
+
+                    if (stageBeacon) {
+                      return toEnglishImportStage(stageBeacon);
+                    }
+
+                    if (savedCount > 0) {
+                      return `Company saved, completing enrichment...`;
+                    }
+
+                    return "Import in progress...";
+                  })()}
+                </div>
+                <div className="text-xs text-blue-700 mt-0.5">
+                  {(() => {
+                    const parts = [];
+                    const savedCount = Number(activeRun.saved ?? 0) || 0;
+                    const elapsedMs = Number(activeRun.elapsed_ms);
+                    const companyName = activeRun.saved_companies?.[0]?.company_name || activeRun.items?.[0]?.company_name;
+
+                    if (companyName) parts.push(companyName);
+                    if (savedCount > 0) parts.push(`${savedCount} saved`);
+                    if (Number.isFinite(elapsedMs) && elapsedMs > 0) parts.push(`${Math.round(elapsedMs / 1000)}s elapsed`);
+
+                    return parts.length > 0 ? parts.join(" · ") : "Starting...";
+                  })()}
+                </div>
+              </div>
+              {activeRun.progress_notice ? (
+                <div className="text-xs text-blue-600 max-w-xs truncate" title={activeRun.progress_notice}>
+                  {activeRun.progress_notice}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Completed status */}
+          {activeRun?.completed && !activeRun.start_error ? (
+            <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 flex items-center gap-4">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-medium text-emerald-900">
+                  Import complete — {Number(activeRun.saved ?? 0) || 0} company saved
+                </div>
+                {activeRun.saved_companies?.[0]?.company_name ? (
+                  <div className="text-xs text-emerald-700 mt-0.5">{activeRun.saved_companies[0].company_name}</div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {!API_BASE ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 flex items-start gap-3">
@@ -3240,18 +3624,45 @@ export default function AdminImport() {
           ) : null}
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
-              <div className="lg:col-span-2 space-y-1">
-                <label className="text-sm text-slate-700">Search query</label>
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onEnter={handleQueryInputEnter}
-                  placeholder="e.g. running shoes"
-                />
-              </div>
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+              {successionCount <= 1 ? (
+                <>
+                  <div className="lg:col-span-2 space-y-1">
+                    <label className="text-sm text-slate-700">Company Name</label>
+                    <Input
+                      value={query}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        setSuccessionRows((prev) => {
+                          const updated = [...prev];
+                          updated[0] = { ...updated[0], companyName: e.target.value };
+                          return updated;
+                        });
+                      }}
+                      onEnter={handleQueryInputEnter}
+                      placeholder="e.g. Acme Widgets"
+                    />
+                  </div>
 
-              <div className="space-y-1">
+                  <div className="space-y-1">
+                    <label className="text-sm text-slate-700">Company URL</label>
+                    <Input
+                      value={companyUrl}
+                      onChange={(e) => {
+                        setCompanyUrl(e.target.value);
+                        setSuccessionRows((prev) => {
+                          const updated = [...prev];
+                          updated[0] = { ...updated[0], companyUrl: e.target.value };
+                          return updated;
+                        });
+                      }}
+                      placeholder="e.g. acmewidgets.com"
+                    />
+                  </div>
+                </>
+              ) : null}
+
+              <div className={successionCount > 1 ? "lg:col-span-3 space-y-1" : "space-y-1"}>
                 <label className="text-sm text-slate-700">Location (optional)</label>
                 <Input
                   value={location}
@@ -3261,20 +3672,50 @@ export default function AdminImport() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm text-slate-700">Limit (1–25)</label>
+                <label className="text-sm text-slate-700"># of Imports to Run in Succession</label>
                 <Input
-                  value={limitInput}
+                  value={successionCountInput}
                   onChange={(e) => {
                     const next = e.target.value;
                     if (next === "" || /^\d+$/.test(next)) {
-                      setLimitInput(next);
+                      handleSuccessionCountChange(next);
                     }
                   }}
-                  onBlur={() => setLimitInput((prev) => String(normalizeImportLimit(prev)))}
+                  onBlur={() => setSuccessionCountInput((prev) => String(normalizeSuccessionCount(prev)))}
                   inputMode="numeric"
+                  disabled={isSuccessionRunning}
                 />
               </div>
             </div>
+
+            {successionCount > 1 ? (
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-700">Import queue ({successionCount} companies)</div>
+                {successionRows.map((row, i) => (
+                  <div key={i} className="grid grid-cols-[2rem_2fr_1fr] gap-2 items-end">
+                    <div className="text-xs text-slate-500 text-right pb-2">{i + 1}.</div>
+                    <div className="space-y-1">
+                      {i === 0 ? <label className="text-xs text-slate-500">Company Name</label> : null}
+                      <Input
+                        value={row.companyName}
+                        onChange={(e) => updateSuccessionRow(i, "companyName", e.target.value)}
+                        placeholder="e.g. Acme Widgets"
+                        disabled={isSuccessionRunning}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      {i === 0 ? <label className="text-xs text-slate-500">Company URL</label> : null}
+                      <Input
+                        value={row.companyUrl}
+                        onChange={(e) => updateSuccessionRow(i, "companyUrl", e.target.value)}
+                        placeholder="e.g. acmewidgets.com"
+                        disabled={isSuccessionRunning}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               <div className="text-sm font-medium text-slate-700">Query types</div>
@@ -3308,7 +3749,9 @@ export default function AdminImport() {
                   </label>
                 ))}
               </div>
-              {urlTypeValidationError ? (
+              {isNamePlusUrlMode ? (
+                <div className="text-xs text-emerald-700">Name + URL provided — query types auto-selected for best results.</div>
+              ) : urlTypeValidationError ? (
                 <div className="text-xs text-red-700">{urlTypeValidationError}</div>
               ) : (
                 <div className="text-xs text-slate-600">If you provide a location, results that match it are ranked higher.</div>
@@ -3371,10 +3814,37 @@ export default function AdminImport() {
               </div>
             ) : null}
 
+            {isSuccessionRunning ? (
+              <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 space-y-2">
+                <div className="font-medium">
+                  Succession import: {successionIndex + 1} of {successionQueue.length}
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  {successionResults.map((r, i) => (
+                    <span
+                      key={i}
+                      className={`inline-block h-2 w-4 rounded ${r.status === "done" ? "bg-emerald-400" : "bg-red-400"}`}
+                      title={`Import ${i + 1}: ${r.status}`}
+                    />
+                  ))}
+                  <span className="inline-block h-2 w-4 rounded bg-blue-400 animate-pulse" title={`Import ${successionIndex + 1}: running`} />
+                  {Array.from({ length: successionQueue.length - successionIndex - 1 }).map((_, i) => (
+                    <span key={`pending-${i}`} className="inline-block h-2 w-4 rounded bg-slate-200" title="Pending" />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" onClick={handleStartImportStaged} disabled={startImportDisabled}>
+              <Button type="button" onClick={handleStartSuccession} disabled={startImportDisabled || isSuccessionRunning}>
                 <Play className="h-4 w-4 mr-2" />
-                {activeStatus === "running" ? "Running…" : "Start import"}
+                {isSuccessionRunning
+                  ? `Running ${successionIndex + 1}/${successionQueue.length}…`
+                  : activeStatus === "running"
+                    ? "Running…"
+                    : successionCount > 1
+                      ? `Start ${successionCount} imports`
+                      : "Start import"}
               </Button>
 
               <Button
@@ -3416,12 +3886,29 @@ export default function AdminImport() {
               <Button
                 type="button"
                 variant="outline"
-                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                onClick={stopImport}
-                disabled={!activeSessionId || !activeRun?.session_id_confirmed || activeStatus !== "running"}
+                className={`border-red-600 text-red-600 hover:bg-red-600 hover:text-white ${
+                  activeStatus === "stopping" ? "opacity-70" : ""
+                }`}
+                onClick={() => {
+                  if (isSuccessionRunning) {
+                    setSuccessionIndex(-1);
+                    setSuccessionQueue([]);
+                  }
+                  stopImport();
+                }}
+                disabled={!activeSessionId || !activeRun?.session_id_confirmed || (activeStatus !== "running" && activeStatus !== "stopping" && !activeRun?.resume_needed)}
               >
-                <Square className="h-4 w-4 mr-2" />
-                Stop
+                {activeStatus === "stopping" ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Stopping...
+                  </>
+                ) : (
+                  <>
+                    <Square className="h-4 w-4 mr-2" />
+                    Stop
+                  </>
+                )}
               </Button>
 
               {canSaveActive ? (
@@ -3486,99 +3973,6 @@ export default function AdminImport() {
             {activeAsyncPrimaryMessage ? (
               <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
                 {activeAsyncPrimaryMessage}
-              </div>
-            ) : null}
-
-            {activeRun ? (
-              <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-xs font-medium text-slate-700">Import report</div>
-                    <div className="mt-0.5 text-[11px] text-slate-600">
-                      Includes report + save result (if any). Use Copy Debug / Download JSON to share with support.
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!activeReportText}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(activeReportText);
-                          toast.success("Report copied");
-                        } catch {
-                          toast.error("Could not copy");
-                        }
-                      }}
-                    >
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copy report
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!activeDebugText}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(activeDebugText);
-                          toast.success("Debug JSON copied");
-                        } catch {
-                          toast.error("Could not copy");
-                        }
-                      }}
-                    >
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copy debug
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!activeReportPayload}
-                      onClick={() => {
-                        try {
-                          const sid = asString(activeRun?.session_id).trim() || "session";
-                          downloadJsonFile({ filename: `import-report-${sid}.json`, value: activeReportPayload });
-                        } catch {
-                          toast.error("Download failed");
-                        }
-                      }}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download report
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!activeDebugPayload}
-                      onClick={() => {
-                        try {
-                          const sid = asString(activeRun?.session_id).trim() || "session";
-                          downloadJsonFile({ filename: `import-debug-${sid}.json`, value: activeDebugPayload });
-                        } catch {
-                          toast.error("Download failed");
-                        }
-                      }}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download debug
-                    </Button>
-                  </div>
-                </div>
-
-                {activeReportText ? (
-                  <pre className="max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
-                    {toDisplayText(activeReportText)}
-                  </pre>
-                ) : (
-                  <div className="rounded bg-white p-2 text-[11px] leading-relaxed text-slate-700">
-                    No report yet. Run an import (or click Poll now) to populate the report.
-                  </div>
-                )}
               </div>
             ) : null}
 
@@ -3775,6 +4169,19 @@ export default function AdminImport() {
               <div className="rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">{toDisplayText(activeRun.progress_notice)}</div>
             ) : null}
 
+            {/* Current enrichment field indicator for real-time status */}
+            {activeRun?.resume_worker?.current_field && activeStatus === "running" ? (
+              <div className="flex items-center gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>
+                  {ENRICH_FIELD_TO_DISPLAY[activeRun.resume_worker.current_field] || `Enriching: ${activeRun.resume_worker.current_field}`}
+                  {activeRun.resume_worker.current_company ? (
+                    <span className="font-medium"> for {activeRun.resume_worker.current_company}</span>
+                  ) : null}
+                </span>
+              </div>
+            ) : null}
+
             {activeRun?.progress_error ? (
               <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{toDisplayText(activeRun.progress_error)}</div>
             ) : null}
@@ -3789,6 +4196,123 @@ export default function AdminImport() {
                 {Number(activeRun.save_result.failed ?? 0) ? ` (failed ${Number(activeRun.save_result.failed)})` : ""}.
               </div>
             ) : null}
+          </section>
+
+          {/* Bulk Import Section */}
+          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-slate-900">Bulk Import Queue</h2>
+                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={bulkMode}
+                    onChange={(e) => setBulkMode(e.target.checked)}
+                    className="rounded border-slate-300"
+                  />
+                  Enable
+                </label>
+              </div>
+              {activeBatchId && batchJobs.length > 0 ? (
+                <div className="text-sm text-slate-600">
+                  Batch: <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">{activeBatchId.slice(0, 8)}...</code>
+                </div>
+              ) : null}
+            </div>
+
+            {bulkMode ? (
+              <>
+                <div className="space-y-2">
+                  <label className="text-sm text-slate-700">Company URLs (one per line, max 50)</label>
+                  <textarea
+                    value={bulkUrls}
+                    onChange={(e) => setBulkUrls(e.target.value)}
+                    placeholder={"https://example.com\nhttps://another-company.com\nhttps://third-company.com"}
+                    className="w-full h-32 rounded border border-slate-300 bg-white px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-slate-500">{bulkUrlCount} URL{bulkUrlCount !== 1 ? "s" : ""} entered</div>
+                    <Button
+                      onClick={handleBulkEnqueue}
+                      disabled={bulkEnqueueLoading || bulkUrlCount === 0}
+                    >
+                      {bulkEnqueueLoading ? "Queueing..." : `Queue ${bulkUrlCount} URL${bulkUrlCount !== 1 ? "s" : ""}`}
+                    </Button>
+                  </div>
+                </div>
+
+                {batchJobs.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-slate-700">Queue Progress</div>
+                    <div className="rounded border border-slate-200 divide-y divide-slate-200 max-h-64 overflow-y-auto">
+                      {batchJobs.map((job) => (
+                        <div key={job.job_id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                          <div className="flex-shrink-0">
+                            {job.status === "queued" ? (
+                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                                Queued
+                              </span>
+                            ) : job.status === "running" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                                Running
+                              </span>
+                            ) : job.status === "completed" ? (
+                              <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                                Done
+                              </span>
+                            ) : job.status === "failed" ? (
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                Failed
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                                {job.status || "Unknown"}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0 truncate font-mono text-xs text-slate-600" title={job.url}>
+                            {job.url}
+                          </div>
+                          {job.session_id ? (
+                            <button
+                              type="button"
+                              className="text-xs text-blue-600 hover:underline flex-shrink-0"
+                              onClick={() => {
+                                setActiveSessionId(job.session_id);
+                                toast.success(`Switched to session ${job.session_id.slice(0, 8)}...`);
+                              }}
+                            >
+                              View
+                            </button>
+                          ) : null}
+                          {job.error ? (
+                            <span className="text-xs text-red-600 truncate max-w-[120px]" title={job.error}>
+                              {job.error}
+                            </span>
+                          ) : null}
+                          {job.result_summary?.saved_count > 0 ? (
+                            <span className="text-xs text-emerald-600">
+                              {job.result_summary.saved_count} saved
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-slate-500">
+                      <span>Queued: {batchJobs.filter((j) => j.status === "queued").length}</span>
+                      <span>Running: {batchJobs.filter((j) => j.status === "running").length}</span>
+                      <span>Completed: {batchJobs.filter((j) => j.status === "completed").length}</span>
+                      <span>Failed: {batchJobs.filter((j) => j.status === "failed").length}</span>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="text-sm text-slate-500">
+                Enable bulk mode to queue multiple company URLs for sequential import.
+              </div>
+            )}
           </section>
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -4035,6 +4559,16 @@ export default function AdminImport() {
                         for (const f of fields) {
                           const key = asString(f).trim();
                           if (key) missing.add(key);
+                        }
+                        // Add logo status to issues if logo_url is missing
+                        const logoUrl = c?.logo_url;
+                        const logoStatus = asString(c?.logo_stage_status || c?.logo_status || "").toLowerCase();
+                        if (!logoUrl && !missing.has("logo")) {
+                          if (logoStatus === "not_found_on_site" || logoStatus === "not_found") {
+                            missing.add("logo (not found on site)");
+                          } else if (!logoStatus || logoStatus === "incomplete" || logoStatus === "deferred") {
+                            missing.add("logo");
+                          }
                         }
                       }
                       return Array.from(missing);
@@ -4396,6 +4930,16 @@ export default function AdminImport() {
                           for (const f of fields) {
                             const key = asString(f).trim();
                             if (key) missing.add(key);
+                          }
+                          // Add logo status to issues if logo_url is missing
+                          const logoUrl = c?.logo_url;
+                          const logoStatus = asString(c?.logo_stage_status || c?.logo_status || "").toLowerCase();
+                          if (!logoUrl && !missing.has("logo")) {
+                            if (logoStatus === "not_found_on_site" || logoStatus === "not_found") {
+                              missing.add("logo (not found on site)");
+                            } else if (!logoStatus || logoStatus === "incomplete" || logoStatus === "deferred") {
+                              missing.add("logo");
+                            }
                           }
                         }
                         return Array.from(missing);
@@ -5160,6 +5704,79 @@ export default function AdminImport() {
             <div className="rounded border border-slate-200 bg-slate-50 p-3">
               <div className="text-xs font-medium text-slate-700">Status response</div>
               <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStatusResponseText)}</pre>
+            </div>
+          </section>
+
+          {/* Import Report Section */}
+          <section className="rounded-lg border border-slate-300 bg-slate-100 shadow">
+            <div className="px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div>
+                  <div className="text-xs font-medium text-slate-700">Import report</div>
+                  <div className="text-[10px] text-slate-500">
+                    Live report — auto-scrolls to bottom. Use buttons to copy/download.
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!activeReportText}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(activeReportText);
+                        toast.success("Report copied");
+                      } catch {
+                        toast.error("Could not copy");
+                      }
+                    }}
+                  >
+                    <Copy className="h-3 w-3 mr-1" />
+                    Copy
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!activeDebugText}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(activeDebugText);
+                        toast.success("Debug JSON copied");
+                      } catch {
+                        toast.error("Could not copy");
+                      }
+                    }}
+                  >
+                    <Copy className="h-3 w-3 mr-1" />
+                    Debug
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!activeReportPayload}
+                    onClick={() => {
+                      try {
+                        const sid = asString(activeRun?.session_id).trim() || "session";
+                        downloadJsonFile({ filename: `import-report-${sid}.json`, value: activeReportPayload });
+                      } catch {
+                        toast.error("Download failed");
+                      }
+                    }}
+                  >
+                    <Download className="h-3 w-3 mr-1" />
+                    JSON
+                  </Button>
+                </div>
+              </div>
+              <pre
+                ref={importReportRef}
+                className="h-[358px] overflow-y-scroll rounded border border-slate-300 bg-white p-2 text-[11px] leading-relaxed text-slate-900 font-mono"
+              >
+                {activeReportText ? toDisplayText(activeReportText) : "No report yet. Run an import to populate."}
+              </pre>
             </div>
           </section>
         </main>

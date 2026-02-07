@@ -463,7 +463,7 @@ async function getReviewsHandler(req, context, deps = {}) {
           });
 
           const curatedReviews = curatedArrVisible.map((r, idx) => {
-            const sourceName = (r?.author || r?.source_name || r?.source || "Unknown Source").toString();
+            const sourceName = (r?.source_name || r?.source || "Unknown Source").toString();
             const sourceUrl = normalizeHttpUrlOrNull(r?.source_url || r?.url || null);
             const text = r?.abstract || r?.excerpt || r?.text || "";
             const importedAt = r?.imported_at || r?.created_at || r?.last_updated_at || r?.date || null;
@@ -496,6 +496,8 @@ async function getReviewsHandler(req, context, deps = {}) {
               text,
               source_name: sourceName,
               source_url: sourceUrl,
+              title: r?.title ?? null,
+              author: r?.author ?? null,
               imported_at: importedAt,
               date: r?.date ?? null,
               published_at: r?.published_at ?? null,

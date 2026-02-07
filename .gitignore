@@ -16,6 +16,9 @@ swa-token.txt
 api/__build_id.txt
 public/__build_id.txt
 
+# Auto-generated sound manifest (rebuilt on dev-server start & production build)
+public/sounds/notifications/manifest.json
+
 # Test/diagnostic probe files you created
 public/ping.txt
 public/proof.txt

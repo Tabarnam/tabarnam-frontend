@@ -47,6 +47,7 @@ const {
   fetchTagline: fetchTaglineGrok,
   fetchIndustries: fetchIndustriesGrok,
   fetchProductKeywords: fetchProductKeywordsGrok,
+  enrichCompanyFields: enrichCompanyFieldsUnified,
 } = require("../_grokEnrichment");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
@@ -1915,7 +1916,9 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
     };
   }
 
-  if (budget != null && budget < 900) {
+  // Only skip if budget is critically low (< 2000ms)
+  // Logo discovery needs at least 2s for HTML fetch + parsing + candidate validation
+  if (budget != null && budget < 2000) {
     return {
       ok: true,
       logo_status: "not_found_on_site",
@@ -1926,7 +1929,7 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
       logo_source_domain: null,
       logo_source_type: null,
       logo_url: null,
-      logo_error: "Skipped logo import due to low remaining time budget",
+      logo_error: `Skipped logo import due to low remaining time budget (${budget}ms < 2000ms minimum)`,
       logo_discovery_strategy: "",
       logo_discovery_page_url: "",
       logo_telemetry: {
@@ -4146,6 +4149,11 @@ async function saveCompaniesToCosmos({
               // Keep logo_stage_status and logo_error for diagnostics
             }
 
+            // Clean up temporary properties from unified enrichment before persisting
+            delete doc._unified_reviews;
+            delete doc._unified_reviews_status;
+            delete doc._unified_enrichment_done;
+
             const upsertRes = await upsertItemWithPkCandidates(container, doc);
             if (!upsertRes?.ok) {
               throw new Error(upsertRes?.error || "upsert_failed");
@@ -4162,10 +4170,13 @@ async function saveCompaniesToCosmos({
                       ? Number(axiosTimeout)
                       : DEFAULT_UPSTREAM_TIMEOUT_MS;
 
+                // Logo fetching is important - give it a generous budget
+                // Minimum 5000ms to ensure logo discovery + upload can complete
+                // Maximum 15000ms to avoid blocking other work
                 const logoBudgetMs = Math.max(
-                  0,
+                  5000,
                   Math.min(
-                    8000,
+                    15000,
                     Math.trunc(remainingForLogo - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS)
                   )
                 );
@@ -5925,11 +5936,13 @@ const importStartHandlerInner = async (req, context) => {
 
         const queryType = String(bodyObj.queryType || queryTypes[0] || "product_keyword").trim() || "product_keyword";
         const location = String(bodyObj.location || "").trim();
+        const companyUrlHint = String(bodyObj.company_url_hint || "").trim();
 
         const xaiPayload = {
           queryType: queryTypes.length > 0 ? queryTypes.join(", ") : queryType,
           queryTypes: queryTypes.length > 0 ? queryTypes : [queryType],
           query,
+          company_url_hint: companyUrlHint || undefined,
           location,
           limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
           expand_if_few: bodyObj.expand_if_few ?? true,
@@ -6274,11 +6287,16 @@ const importStartHandlerInner = async (req, context) => {
         let promptString = "";
 
         if (queryTypes.includes("company_url")) {
+          // When company_url_hint is provided, the query field contains the company name
+          // and the URL is in the hint. Otherwise, the query IS the URL.
+          const urlForPrompt = xaiPayload.company_url_hint || query;
+          const nameForPrompt = xaiPayload.company_url_hint ? query : "";
+
           promptString = `You are a business research assistant specializing in manufacturing location extraction.
 
-Company website URL: ${query}
-
-Extract the company details represented by this URL.
+Company website URL: ${urlForPrompt}
+${nameForPrompt ? `Company name: ${nameForPrompt}\n` : ""}
+Extract the company details represented by this URL.${nameForPrompt ? ` The company is known as "${nameForPrompt}".` : ""}
 
 Return ONLY a valid JSON array (no markdown, no prose). The array should contain 1 item.
 Each item must follow this schema:
@@ -6318,7 +6336,9 @@ Return strictly valid JSON only.`;
 
 Search query: "${xaiPayload.query}"
 Search type(s): ${xaiPayload.queryType}
-${xaiPayload.location ? `
+${xaiPayload.company_url_hint ? `Known website: ${xaiPayload.company_url_hint}
+- Use this website as the primary source for the company. The search query is the company's real name.
+` : ""}${xaiPayload.location ? `
 Location boost: "${xaiPayload.location}"
 - If you can, prefer and rank higher companies whose HQ or manufacturing locations match this location.
 - The location is OPTIONAL; do not block the import if it is empty.
@@ -6887,7 +6907,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           // best source for HQ + manufacturing), but we must NOT ever return 202 for company_url.
           // If primary times out, we fall back to a local URL seed and continue downstream enrichment inline.
           function buildCompanyUrlSeedFromQuery(rawQuery) {
-            const q = String(rawQuery || "").trim();
+            // When company_url_hint is provided, the URL source is the hint
+            // and the rawQuery contains the real company name.
+            const hintUrl = String(xaiPayload.company_url_hint || "").trim();
+            const urlSource = hintUrl || String(rawQuery || "").trim();
+            const q = urlSource;
 
             let parsed = null;
             try {
@@ -6917,7 +6941,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
             const canonicalUrl = cleanHost ? `https://${cleanHost}/` : inputUrl;
 
-            const companyName = (() => {
+            // Use real company name when provided via company_url_hint flow;
+            // otherwise guess from domain as before.
+            const realName = hintUrl ? String(rawQuery || "").trim() : "";
+            const companyName = realName || (() => {
               const base = cleanHost ? cleanHost.split(".")[0] : "";
               if (!base) return cleanHost || canonicalUrl || inputUrl;
               return base.charAt(0).toUpperCase() + base.slice(1);
@@ -7343,14 +7370,55 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               } catch {}
 
               // Non-negotiable: fresh seeds must immediately queue + run xAI enrichment.
-              const resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
+              let resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
                 sessionId,
                 requestId,
                 context,
                 companyIds: resumeCompanyIds,
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
-              }).catch(() => null);
+              }).catch((err) => {
+                console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
+                return { queued: false, invoked: false, error: err?.message };
+              });
+
+              // Fallback: if direct invocation failed, explicitly enqueue to resume-worker queue
+              if (!resumeEnqueue?.invoked && !resumeEnqueue?.queued && resumeCompanyIds.length > 0) {
+                console.log(`[import-start] Direct enrichment failed, attempting fallback queue for session ${sessionId}`);
+                const fallbackQueue = await enqueueResumeRun({
+                  session_id: sessionId,
+                  company_ids: resumeCompanyIds,
+                  reason: "company_url_seed_fallback_queue",
+                  requested_by: "import_start",
+                }).catch((qErr) => {
+                  console.error(`[import-start] Fallback queue also failed: ${qErr?.message || qErr}`);
+                  return null;
+                });
+                if (fallbackQueue?.ok) {
+                  console.log(`[import-start] Fallback queue succeeded: ${JSON.stringify(fallbackQueue)}`);
+                  resumeEnqueue = {
+                    queued: true,
+                    enqueued: true,
+                    queue: fallbackQueue.queue,
+                    message_id: fallbackQueue.message_id,
+                    fallback: true,
+                  };
+
+                  // Immediately invoke resume-worker to process the queued item (don't wait for polling)
+                  try {
+                    const invokeRes = await invokeResumeWorkerInProcess({
+                      session_id: sessionId,
+                      context,
+                      deadline_ms: 900000, // 15 minutes - allows all 7 fields to complete with thorough xAI research
+                    });
+                    console.log(`[import-start] company_url_seed_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
+                    resumeEnqueue.invoked = Boolean(invokeRes?.ok);
+                  } catch (invokeErr) {
+                    console.warn(`[import-start] company_url_seed_fallback_queue: resume-worker invoke failed: ${invokeErr?.message}`);
+                    resumeEnqueue.invoked = false;
+                  }
+                }
+              }
 
               const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
 
@@ -8005,6 +8073,37 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
 
+          // When company_url_hint was provided, ensure the result set includes a company
+          // with the hinted URL. If the primary search found it by name, patch its website_url
+          // to match the hint. If not found, inject a seed with the real name + URL.
+          if (xaiPayload.company_url_hint) {
+            const hintDomain = String(xaiPayload.company_url_hint || "")
+              .replace(/^https?:\/\//i, "").replace(/^www\./, "").split("/")[0].toLowerCase().trim();
+
+            if (hintDomain) {
+              const matchIdx = enriched.findIndex((c) => {
+                const d = String(c?.normalized_domain || c?.website_url || c?.url || "")
+                  .replace(/^https?:\/\//i, "").replace(/^www\./, "").split("/")[0].toLowerCase().trim();
+                return d === hintDomain;
+              });
+
+              if (matchIdx >= 0) {
+                // Grok found the company — ensure website_url and normalized_domain are set
+                const match = enriched[matchIdx];
+                if (!match.website_url) match.website_url = `https://${hintDomain}/`;
+                if (!match.normalized_domain) match.normalized_domain = hintDomain;
+                console.log(`[import-start] company_url_hint matched enriched[${matchIdx}] "${match.company_name}" (${hintDomain})`);
+              } else {
+                // Grok didn't return a company matching the hint domain — inject a seed
+                const hintSeed = buildCompanyUrlSeedFromQuery(query);
+                if (hintSeed) {
+                  enriched.unshift(hintSeed);
+                  console.log(`[import-start] company_url_hint injected seed for "${hintSeed.company_name}" (${hintDomain})`);
+                }
+              }
+            }
+          }
+
           // For company_url imports, XAI can legitimately return an empty array (or parsing can fail).
           // In that case we still want to proceed with a deterministic URL seed so the session can
           // persist and resume-worker has something to enrich.
@@ -8330,9 +8429,150 @@ Output JSON only:
             };
           }
 
+          /**
+           * Unified enrichment for a single company during import.
+           * Calls enrichCompanyFieldsUnified() (single Grok prompt for ALL fields),
+           * then maps results back onto the company object.
+           * Returns true if unified enrichment succeeded, false if caller should fall back.
+           */
+          async function tryUnifiedEnrichment(company) {
+            const companyName = String(company?.company_name || company?.name || "").trim();
+            const websiteUrl = String(company?.website_url || company?.url || "").trim();
+            const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
+
+            if (!companyName || !websiteUrl) return false;
+
+            const budgetMs = Math.min(
+              240_000,
+              Math.max(30_000, (typeof getRemainingMs === "function" ? getRemainingMs() : timeout) - DEADLINE_SAFETY_BUFFER_MS)
+            );
+
+            try {
+              const ecf = await enrichCompanyFieldsUnified({
+                companyName,
+                websiteUrl,
+                normalizedDomain,
+                budgetMs,
+                xaiUrl,
+                xaiKey,
+              });
+
+              if (!ecf || !ecf.ok || !ecf.proposed) return false;
+
+              const proposed = ecf.proposed;
+              const statuses = ecf.field_statuses || {};
+
+              company.enrichment_debug =
+                company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+
+              // Tagline
+              if (typeof proposed.tagline === "string" && proposed.tagline.trim()) {
+                company.tagline = proposed.tagline.trim();
+              }
+
+              // Product keywords
+              if (Array.isArray(proposed.product_keywords) && proposed.product_keywords.length > 0) {
+                const stats = sanitizeKeywords({ product_keywords: proposed.product_keywords.join(", "), keywords: [] });
+                const sanitized = Array.isArray(stats?.sanitized) ? stats.sanitized : proposed.product_keywords;
+                company.keywords = sanitized.slice(0, 25);
+                company.product_keywords = keywordListToString(sanitized);
+                company.keywords_source = "grok_unified";
+                company.product_keywords_source = "grok_unified";
+                company.enrichment_debug.keywords = {
+                  source: "unified",
+                  keyword_count: sanitized.length,
+                  stage_status: statuses.product_keywords || "ok",
+                };
+              }
+
+              // Industries
+              if (Array.isArray(proposed.industries) && proposed.industries.length > 0) {
+                const sanitized = sanitizeIndustries(proposed.industries);
+                if (sanitized.length > 0) {
+                  company.industries = sanitized;
+                  company.industries_unknown = false;
+                  company.industries_source = "grok_unified";
+                  company.enrichment_debug.industries = {
+                    source: "unified",
+                    industries: sanitized,
+                    stage_status: statuses.industries || "ok",
+                  };
+                }
+              }
+
+              // Headquarters location
+              if (typeof proposed.headquarters_location === "string" && proposed.headquarters_location.trim()) {
+                company.headquarters_location = proposed.headquarters_location.trim();
+                company.hq_unknown = false;
+                company.hq_unknown_reason = null;
+              } else if (statuses.headquarters_location === "not_disclosed") {
+                company.headquarters_location = "Not disclosed";
+                company.hq_unknown = true;
+                company.hq_unknown_reason = "not_disclosed";
+              }
+
+              // Manufacturing locations
+              if (Array.isArray(proposed.manufacturing_locations) && proposed.manufacturing_locations.length > 0) {
+                company.manufacturing_locations = proposed.manufacturing_locations;
+                company.mfg_unknown = false;
+                company.mfg_unknown_reason = null;
+              } else if (statuses.manufacturing_locations === "not_disclosed") {
+                company.manufacturing_locations = ["Not disclosed"];
+                company.mfg_unknown = true;
+                company.mfg_unknown_reason = "not_disclosed";
+              }
+
+              // Reviews
+              if (Array.isArray(proposed.reviews) && proposed.reviews.length > 0) {
+                company._unified_reviews = proposed.reviews;
+                company._unified_reviews_status = statuses.reviews || "ok";
+              }
+
+              // Store raw response and method for debugging
+              company.enrichment_method = ecf.method || "unified";
+              company.last_enrichment_raw_response = ecf.raw_response || null;
+              company.last_enrichment_at = new Date().toISOString();
+
+              // Mark that unified enrichment was used (stages can check this to skip)
+              company._unified_enrichment_done = true;
+
+              return true;
+            } catch (e) {
+              if (e instanceof AcceptedResponseError) throw e;
+              console.warn(`[import-start] unified enrichment failed for ${companyName}: ${e?.message || String(e)}`);
+              return false;
+            }
+          }
+
           async function ensureCompanyKeywords(company) {
             const companyName = String(company?.company_name || company?.name || "").trim();
             const websiteUrl = String(company?.website_url || company?.url || "").trim();
+
+            // ── Try unified enrichment first (single Grok call for ALL fields) ──
+            if (companyName && websiteUrl && !company._unified_enrichment_done) {
+              const unifiedOk = await tryUnifiedEnrichment(company);
+              if (unifiedOk && company._unified_enrichment_done) {
+                // Unified succeeded - keywords, industries, tagline already populated.
+                // Build debug entry for compatibility.
+                const debugEntry = {
+                  company_name: companyName,
+                  website_url: websiteUrl,
+                  initial_count: 0,
+                  initial_keywords: [],
+                  generated: true,
+                  generated_count: (company.keywords || []).length,
+                  final_count: (company.keywords || []).length,
+                  final_keywords: company.keywords || [],
+                  prompt: null,
+                  raw_response: null,
+                  source: "unified",
+                };
+                if (debugOutput) debugOutput.keywords_debug.push(debugEntry);
+                return company;
+              }
+            }
+
+            // ── Fallback: individual Grok calls (original behavior) ──
 
             // Tagline: prefer Grok live search over website scraping (sites are often incomplete).
             if (!String(company?.tagline || "").trim() && companyName && websiteUrl) {
@@ -8769,6 +9009,33 @@ Output JSON only:
                     prev_cursor: company.review_cursor,
                   }),
                 };
+                continue;
+              }
+
+              // If unified enrichment already provided reviews, use those instead of a separate Grok call.
+              if (Array.isArray(company._unified_reviews) && company._unified_reviews.length > 0) {
+                const curated = dedupeCuratedReviews(company._unified_reviews);
+                const nowUnifiedIso = new Date().toISOString();
+                enriched[i] = {
+                  ...company,
+                  curated_reviews: curated,
+                  review_count: curated.length,
+                  reviews_last_updated_at: nowUnifiedIso,
+                  review_cursor: buildReviewCursor({
+                    nowIso: nowUnifiedIso,
+                    count: curated.length,
+                    exhausted: false,
+                    last_error: null,
+                    prev_cursor: company.review_cursor,
+                  }),
+                };
+                // Clean up temp property
+                delete enriched[i]._unified_reviews;
+                delete enriched[i]._unified_reviews_status;
+                delete enriched[i]._unified_enrichment_done;
+                console.log(
+                  `[import-start][reviews] session=${sessionId} unified_reviews=${curated.length} company=${company.company_name}`
+                );
                 continue;
               }
 
@@ -9754,14 +10021,45 @@ Output JSON only:
                 )
               );
 
-              await maybeQueueAndInvokeMandatoryEnrichment({
+              const enqueueResult = await maybeQueueAndInvokeMandatoryEnrichment({
                 sessionId,
                 requestId,
                 context,
                 companyIds: mandatoryCompanyIds,
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
-              }).catch(() => null);
+              }).catch((err) => {
+                console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
+                return { queued: false, invoked: false, error: err?.message };
+              });
+
+              // Fallback: if direct invocation failed, explicitly enqueue to resume-worker queue
+              if (!enqueueResult?.invoked && !enqueueResult?.queued && mandatoryCompanyIds.length > 0) {
+                console.log(`[import-start] Direct enrichment failed, attempting fallback queue for session ${sessionId}`);
+                const fallbackResult = await enqueueResumeRun({
+                  session_id: sessionId,
+                  company_ids: mandatoryCompanyIds,
+                  reason: "seed_complete_fallback_queue",
+                  requested_by: "import_start",
+                }).catch((qErr) => {
+                  console.error(`[import-start] Fallback queue also failed: ${qErr?.message || qErr}`);
+                  return null;
+                });
+
+                // Immediately invoke resume-worker if queue succeeded (don't wait for polling)
+                if (fallbackResult?.ok) {
+                  try {
+                    const invokeRes = await invokeResumeWorkerInProcess({
+                      session_id: sessionId,
+                      context,
+                      deadline_ms: 900000, // 15 minutes - allows all 7 fields to complete with thorough xAI research
+                    });
+                    console.log(`[import-start] seed_complete_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
+                  } catch (invokeErr) {
+                    console.warn(`[import-start] seed_complete_fallback_queue: resume-worker invoke failed: ${invokeErr?.message}`);
+                  }
+                }
+              }
             } catch {}
           }
 
@@ -10621,7 +10919,48 @@ Return ONLY the JSON array, no other text.`,
                   companyIds: resumeCompanyIds,
                   reason: "seed_complete_auto_enrich",
                   cosmosEnabled,
-                }).catch(() => null);
+                }).catch((err) => {
+                  console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
+                  return { queued: false, invoked: false, error: err?.message };
+                });
+
+                // Fallback: if direct invocation failed, explicitly enqueue to resume-worker queue
+                if (!resumeEnqueue?.invoked && !resumeEnqueue?.queued && resumeCompanyIds.length > 0) {
+                  console.log(`[import-start] Direct enrichment failed, attempting fallback queue for session ${sessionId}`);
+                  const fallbackQueue = await enqueueResumeRun({
+                    session_id: sessionId,
+                    company_ids: resumeCompanyIds,
+                    reason: "auto_enrich_fallback_queue",
+                    requested_by: "import_start",
+                  }).catch((qErr) => {
+                    console.error(`[import-start] Fallback queue also failed: ${qErr?.message || qErr}`);
+                    return null;
+                  });
+                  if (fallbackQueue?.ok) {
+                    console.log(`[import-start] Fallback queue succeeded: ${JSON.stringify(fallbackQueue)}`);
+                    resumeEnqueue = {
+                      queued: true,
+                      enqueued: true,
+                      queue: fallbackQueue.queue,
+                      message_id: fallbackQueue.message_id,
+                      fallback: true,
+                    };
+
+                    // Immediately invoke resume-worker to process the queued item (don't wait for polling)
+                    try {
+                      const invokeRes = await invokeResumeWorkerInProcess({
+                        session_id: sessionId,
+                        context,
+                        deadline_ms: 900000, // 15 minutes - allows all 7 fields to complete with thorough xAI research
+                      });
+                      console.log(`[import-start] auto_enrich_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
+                      resumeEnqueue.invoked = Boolean(invokeRes?.ok);
+                    } catch (invokeErr) {
+                      console.warn(`[import-start] auto_enrich_fallback_queue: resume-worker invoke failed: ${invokeErr?.message}`);
+                      resumeEnqueue.invoked = false;
+                    }
+                  }
+                }
               }
             } catch {}
 

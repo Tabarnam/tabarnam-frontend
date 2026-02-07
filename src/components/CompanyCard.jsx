@@ -6,6 +6,7 @@ import { RatingDots, RatingHearts } from "@/components/Stars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { getQQDefaultIconType, getQQScore, hasQQRating } from "@/lib/stars/qqRating";
+import ShareButton from "@/components/ShareButton";
 
 const CompanyCard = ({ company, index }) => {
   const cardVariants = {
@@ -33,8 +34,8 @@ const CompanyCard = ({ company, index }) => {
           <div className="p-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl">
             <Building2 className="w-6 h-6 text-white" />
           </div>
-          <h2 className="text-xl font-bold text-white truncate">{displayName}</h2>
-          <ShareButton company={company} variant="card" className="ml-auto flex-shrink-0" />
+          <h2 className="text-xl font-bold text-white truncate flex-1">{displayName}</h2>
+          <ShareButton company={company} className="text-white/60 hover:text-white hover:bg-white/10" />
         </div>
 
         <p className="text-gray-300 text-sm mb-4 line-clamp-3 min-h-[60px]">{company.about || 'No description available.'}</p>

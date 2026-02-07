@@ -1,5 +1,6 @@
 // src/pages/ResultsPage.jsx
 import React, { useEffect, useMemo, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import PinIcon from "@/assets/tabarnam-pin.jpg";
 import { geocode } from "@/lib/google";
@@ -22,7 +23,7 @@ export default function ResultsPage() {
   const navigate = useNavigate();
 
   const qParam = (searchParams.get("q") ?? "").toString();
-  const sortParam = (searchParams.get("sort") ?? "manu").toString();
+  const sortParam = (searchParams.get("sort") ?? "stars").toString();
   const countryParam = (searchParams.get("country") ?? "").toString();
   const stateParam = (searchParams.get("state") ?? "").toString();
   const cityParam = (searchParams.get("city") ?? "").toString();
@@ -35,7 +36,7 @@ export default function ResultsPage() {
   const [totalCount, setTotalCount] = useState(null);
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
-  const [sortBy, setSortBy] = useState("manu");
+  const [sortBy, setSortBy] = useState("stars");
 
   // Load reviews for companies
   async function loadReviews(companies) {
@@ -79,6 +80,11 @@ export default function ResultsPage() {
             : Array.isArray(data?.reviews)
               ? data.reviews
               : [];
+
+          if (reviews.length > 0) {
+            console.log("[ResultsPage] loadReviews: loaded", reviews.length, "reviews for", companyId);
+          }
+
           return {
             ...c,
             _reviews: reviews,
@@ -117,7 +123,7 @@ export default function ResultsPage() {
       }
       if (!cancelled && loc) setUserLoc({ lat: loc.lat, lng: loc.lng });
 
-      setSortBy(sortParam === "hq" || sortParam === "stars" ? sortParam : "manu");
+      setSortBy(sortParam === "hq" || sortParam === "manu" ? sortParam : "stars");
 
       if (!cancelled && qParam) {
         await doSearch({
@@ -144,7 +150,7 @@ export default function ResultsPage() {
   // Called by the top search bar
   async function handleInlineSearch(params) {
     const q = (params.q ?? "").toString();
-    const sort = (params.sort ?? "manu").toString();
+    const sort = (params.sort ?? "stars").toString();
     const country = (params.country ?? "").toString();
     const state = (params.state ?? "").toString();
     const city = (params.city ?? "").toString();
@@ -175,7 +181,7 @@ export default function ResultsPage() {
       // ignore
     }
 
-    setSortBy(sort === "hq" || sort === "stars" ? sort : "manu");
+    setSortBy(sort === "hq" || sort === "manu" ? sort : "stars");
     await doSearch({ q, sort, country, state, city, take: 50, skip: 0, append: false, location: searchLocation });
   }
 
@@ -257,15 +263,22 @@ export default function ResultsPage() {
   }
 
   // Secondary sort (client-side)
+  // Primary key: name-match relevance (exact name hits first), then by chosen metric
   const sorted = useMemo(() => {
     const arr = [...results];
-    if (sortBy === "stars") {
-      arr.sort((a, b) => (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity));
-    } else if (sortBy === "manu") {
-      arr.sort((a, b) => (a._nearestManuDist ?? Infinity) - (b._nearestManuDist ?? Infinity));
-    } else {
-      arr.sort((a, b) => (a._hqDist ?? Infinity) - (b._hqDist ?? Infinity));
-    }
+    arr.sort((a, b) => {
+      const aName = a._nameMatchScore ?? 0;
+      const bName = b._nameMatchScore ?? 0;
+      if (aName !== bName) return bName - aName;
+
+      if (sortBy === "stars") {
+        return (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity);
+      } else if (sortBy === "manu") {
+        return (a._nearestManuDist ?? Infinity) - (b._nearestManuDist ?? Infinity);
+      } else {
+        return (a._hqDist ?? Infinity) - (b._hqDist ?? Infinity);
+      }
+    });
     return arr;
   }, [results, sortBy]);
 
@@ -310,8 +323,23 @@ export default function ResultsPage() {
     </select>
   );
 
+  const pageTitle = qParam
+    ? `${qParam} – Results on Tabarnam`
+    : "Search Results – Tabarnam";
+  const pageDescription = qParam
+    ? `Discover companies matching "${qParam}" on Tabarnam – transparent product origins.`
+    : "Discover products with transparent origins on Tabarnam.";
+
   return (
     <div className="px-1 pb-10 max-w-6xl mx-auto">
+      <Helmet>
+        <title>{pageTitle}</title>
+        <meta property="og:title" content={pageTitle} />
+        <meta property="og:description" content={pageDescription} />
+        <meta property="og:url" content={window.location.href} />
+        <meta property="og:image" content="/tabarnam.png" />
+        <meta property="og:type" content="website" />
+      </Helmet>
       {/* Two-row search under the site header */}
       <div className="mt-6 mb-4">
         <SearchCard

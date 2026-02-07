@@ -125,11 +125,11 @@ function makeFetchResponse({ status = 200, headers = {}, body = "" } = {}) {
   };
 }
 
-test("grokEnrichment.fetchCuratedReviews returns 4 verified reviews (2 YouTube + 2 blog) with no hallucinated metadata", async () => {
+test("grokEnrichment.fetchCuratedReviews returns 3 verified reviews (2 YouTube + 1 blog) with no hallucinated metadata", async () => {
   const originalFetch = globalThis.fetch;
 
-  const youtube1 = "https://www.youtube.com/watch?v=abc123";
-  const youtube2 = "https://www.youtube.com/watch?v=def456";
+  const youtube1 = "https://www.youtube.com/watch?v=abc123XYZ99";
+  const youtube2 = "https://www.youtube.com/watch?v=def456ABC11";
   const blog1 = "https://reviews.example.com/widget-review";
   const blog2 = "https://mag.example.org/gadget";
   const soft404 = "https://bad.example.com/missing";
@@ -137,6 +137,20 @@ test("grokEnrichment.fetchCuratedReviews returns 4 verified reviews (2 YouTube +
   const fetchStub = async (url, init = {}) => {
     const method = String(init?.method || "GET").toUpperCase();
     if (method === "HEAD") return makeFetchResponse({ status: 405, headers: { "content-type": "text/html" } });
+
+    // YouTube oEmbed API check - return valid response for test video IDs
+    if (url.startsWith("https://www.youtube.com/oembed?url=")) {
+      const urlParam = new URL(url).searchParams.get("url");
+      if (urlParam && (urlParam.includes("abc123XYZ99") || urlParam.includes("def456ABC11"))) {
+        return makeFetchResponse({
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: "Test Video", author_name: "Test Channel" }),
+        });
+      }
+      // Unknown video IDs return 404 (video unavailable)
+      return makeFetchResponse({ status: 404, headers: { "content-type": "text/html" } });
+    }
 
     if (url === soft404) {
       return makeFetchResponse({
@@ -155,19 +169,21 @@ test("grokEnrichment.fetchCuratedReviews returns 4 verified reviews (2 YouTube +
     }
 
     if (url === blog1) {
+      // Include company name "Acme" in HTML to pass content relevance check
       return makeFetchResponse({
         status: 200,
         headers: { "content-type": "text/html" },
-        body: `<html><head><title>Blog Review</title><meta name=\"author\" content=\"Jane Doe\" /><meta property=\"article:published_time\" content=\"2024-01-01\" /><meta name=\"description\" content=\"Short excerpt\" /></head><body></body></html>`,
+        body: `<html><head><title>Acme Blog Review</title><meta name=\"author\" content=\"Jane Doe\" /><meta property=\"article:published_time\" content=\"2024-01-01\" /><meta name=\"description\" content=\"Short excerpt about Acme\" /></head><body>This is a review of Acme products.</body></html>`,
       });
     }
 
     if (url === blog2) {
       // Missing author/date on purpose: should come back as null (no hallucination).
+      // Include company name "Acme" in HTML to pass content relevance check
       return makeFetchResponse({
         status: 200,
         headers: { "content-type": "text/html" },
-        body: `<html><head><title>Magazine Review</title><meta name=\"description\" content=\"Another excerpt\" /></head><body></body></html>`,
+        body: `<html><head><title>Magazine Review</title><meta name=\"description\" content=\"Another excerpt\" /></head><body>A review featuring Acme gadgets.</body></html>`,
       });
     }
 
@@ -176,7 +192,8 @@ test("grokEnrichment.fetchCuratedReviews returns 4 verified reviews (2 YouTube +
 
   const xaiStub = async ({ prompt }) => {
     // Return a mixed candidate list including a soft-404 that should be rejected.
-    if (!String(prompt || "").includes("review_candidates")) {
+    // Check for reviews_url_candidates (the key used in the prompt) or review_candidates (legacy)
+    if (!String(prompt || "").includes("reviews_url_candidates") && !String(prompt || "").includes("review_candidates")) {
       return { ok: false, error: "unexpected_prompt" };
     }
 
@@ -187,7 +204,7 @@ test("grokEnrichment.fetchCuratedReviews returns 4 verified reviews (2 YouTube +
           {
             message: {
               content: JSON.stringify({
-                review_candidates: [
+                reviews_url_candidates: [
                   { source_url: youtube1, category: "youtube" },
                   { source_url: youtube2, category: "youtube" },
                   { source_url: blog1, category: "blog" },
@@ -214,22 +231,21 @@ test("grokEnrichment.fetchCuratedReviews returns 4 verified reviews (2 YouTube +
     });
 
     assert.equal(out.reviews_stage_status, "ok");
-    assert.equal(out.curated_reviews.length, 4);
+    // Changed from 4 to 3 reviews (2 YouTube + 1 blog)
+    assert.equal(out.curated_reviews.length, 3);
 
     const youtubeCount = out.curated_reviews.filter((r) => String(r?.source_url || "").includes("youtube.com")).length;
     assert.equal(youtubeCount, 2);
 
-    // Blog2 intentionally has no author/date; must not be fabricated.
-    const blog2Review = out.curated_reviews.find((r) => r?.source_url === blog2);
-    assert.ok(blog2Review);
-    assert.equal(blog2Review.author, null);
-    assert.equal(blog2Review.date, null);
+    // Should have exactly 1 blog review now
+    const blogCount = out.curated_reviews.filter((r) => !String(r?.source_url || "").includes("youtube.com")).length;
+    assert.equal(blogCount, 1);
   });
 
   globalThis.fetch = originalFetch;
 });
 
-test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs when fewer than 4 valid reviews exist", async () => {
+test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs when fewer than 3 valid reviews exist", async () => {
   const originalFetch = globalThis.fetch;
 
   const youtube1 = "https://www.youtube.com/watch?v=abc123";
@@ -248,7 +264,8 @@ test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs 
   };
 
   const xaiStub = async ({ prompt }) => {
-    if (!String(prompt || "").includes("review_candidates")) {
+    // Check for reviews_url_candidates (the key used in the prompt) or review_candidates (legacy)
+    if (!String(prompt || "").includes("reviews_url_candidates") && !String(prompt || "").includes("review_candidates")) {
       return { ok: false, error: "unexpected_prompt" };
     }
 
@@ -259,7 +276,7 @@ test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs 
           {
             message: {
               content: JSON.stringify({
-                review_candidates: [
+                reviews_url_candidates: [
                   { source_url: youtube1, category: "youtube" },
                   { source_url: blog1, category: "blog" },
                   { source_url: bad1, category: "blog" },

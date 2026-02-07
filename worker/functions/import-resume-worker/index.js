@@ -1,4 +1,4 @@
-// Rebuild tick: 2026-01-31T04:00:00Z - added diagnostics logging per issue #26
+// Rebuild tick: 2026-02-04T03:30:00Z - synced handler.js from api/import/resume-worker/handler.js (Issue #21)
 const { app } = require("@azure/functions");
 const { resumeWorkerHandler } = require("./handler");
 const { resolveQueueConfig } = require("../../../api/_enrichmentQueue");

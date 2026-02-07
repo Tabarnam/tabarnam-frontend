@@ -400,6 +400,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-apply-reviews-from-notes");
+  require("./admin-apply-reviews-from-notes/index.js");
+  console.log("[api] ✓ admin-apply-reviews-from-notes registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-apply-reviews-from-notes:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-batch-update");
   require("./admin-batch-update/index.js");
   console.log("[api] ✓ admin-batch-update registered");
@@ -573,6 +581,14 @@ try {
   console.log("[api] ✓ xadmin-api-refresh-company registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load xadmin-api-refresh-company:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: refresh-status");
+  require("./refresh-status/index.js");
+  console.log("[api] ✓ refresh-status registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load refresh-status:", e?.message || e);
 }
 
 try {

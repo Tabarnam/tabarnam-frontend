@@ -18,6 +18,7 @@ import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/s
 import { getProfileCompleteness, getProfileCompletenessLabel } from "@/lib/profileCompleteness";
 
 import AdminHeader from "@/components/AdminHeader";
+import useNotificationSound from "@/hooks/useNotificationSound";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ScrollScrubber from "@/components/ScrollScrubber";
 import AdminEditHistory from "@/components/AdminEditHistory";
@@ -843,10 +844,19 @@ function getContractMissingFields(company) {
 
   const list = Array.isArray(raw) ? raw : [];
 
-  return list
+  const fields = list
     .filter((v) => typeof v === "string")
     .map((v) => v.trim())
     .filter(Boolean);
+
+  // Check for missing Amazon URL (unless marked as "no_amazon_store")
+  const hasAmazonUrl = Boolean(asString(company?.amazon_url).trim());
+  const noAmazonStore = Boolean(company?.no_amazon_store);
+  if (!hasAmazonUrl && !noAmazonStore) {
+    fields.push("amazon_url");
+  }
+
+  return fields;
 }
 
 function formatContractMissingField(field) {
@@ -860,6 +870,8 @@ function formatContractMissingField(field) {
       return "MFG";
     case "product_keywords":
       return "keywords";
+    case "amazon_url":
+      return "Amz";
     default:
       return f.replace(/_/g, " ");
   }
@@ -1374,6 +1386,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   ref
 ) {
   const stableId = asString(companyId).trim();
+  const playNotification = useNotificationSound();
   const [take, setTake] = useState(1);
   const [includeExisting, setIncludeExisting] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -1831,6 +1844,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       } else {
         toast.success(`Fetched ${normalized.length} review${normalized.length === 1 ? "" : "s"}`);
       }
+      playNotification();
     } catch (e) {
       const msg = asString(e?.message).trim() || "Reviews fetch failed";
       const buildIdForToast = getCachedBuildId();
@@ -1853,7 +1867,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
     } finally {
       setLoading(false);
     }
-  }, [includeExisting, onApply, stableId, take]);
+  }, [includeExisting, onApply, playNotification, stableId, take]);
 
   const copyAll = useCallback(async () => {
     if (items.length === 0) return;
@@ -3306,6 +3320,8 @@ async function copyToClipboard(value) {
 }
 
 export default function CompanyDashboard() {
+  const playNotification = useNotificationSound();
+
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
@@ -3702,10 +3718,12 @@ export default function CompanyDashboard() {
       { key: "company_name", label: "Company name" },
       { key: "website_url", label: "Website URL" },
       { key: "tagline", label: "Tagline" },
+      { key: "logo_url", label: "Logo URL" },
       { key: "headquarters_locations", label: "HQ locations" },
       { key: "manufacturing_locations", label: "Manufacturing locations" },
       { key: "industries", label: "Industries" },
       { key: "keywords", label: "Keywords" },
+      { key: "curated_reviews", label: "Reviews" },
       { key: "red_flag", label: "Red flag" },
       { key: "red_flag_reason", label: "Red flag reason" },
       { key: "location_confidence", label: "Location confidence" },
@@ -3750,6 +3768,18 @@ export default function CompanyDashboard() {
           .filter(Boolean)
           .sort();
       }
+      case "curated_reviews": {
+        const list = Array.isArray(value) ? value : [];
+        return list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            const url = asString(v.source_url || v.url || "").trim().toLowerCase();
+            const title = asString(v.title || "").trim().toLowerCase();
+            return `${url}|${title}`;
+          })
+          .filter(Boolean)
+          .sort();
+      }
       case "red_flag": {
         return Boolean(value);
       }
@@ -3784,6 +3814,21 @@ export default function CompanyDashboard() {
           .filter(Boolean);
         return lines.length ? lines.join("\n") : "(empty)";
       }
+      case "curated_reviews": {
+        const list = Array.isArray(value) ? value : [];
+        const lines = list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            const source = asString(v.source_name || "").trim();
+            const title = asString(v.title || "").trim();
+            const url = asString(v.source_url || v.url || "").trim();
+            const author = asString(v.author || "").trim();
+            const parts = [title || source, author ? `by ${author}` : "", url].filter(Boolean);
+            return parts.join(" — ");
+          })
+          .filter(Boolean);
+        return lines.length ? lines.join("\n") : "(no reviews)";
+      }
       case "red_flag": {
         return Boolean(value) ? "true" : "false";
       }
@@ -3817,6 +3862,21 @@ export default function CompanyDashboard() {
               const source_type = asString(v.source_type).trim();
               const location_type = asString(v.location_type).trim();
               return [location, source_type, location_type, source_url].filter(Boolean).join(" — ");
+            })
+            .filter(Boolean);
+          return lines.length ? lines.join("\n") : "";
+        }
+        case "curated_reviews": {
+          const list = Array.isArray(value) ? value : [];
+          const lines = list
+            .filter((v) => v && typeof v === "object")
+            .map((v) => {
+              const source = asString(v.source_name || "").trim();
+              const title = asString(v.title || "").trim();
+              const url = asString(v.source_url || v.url || "").trim();
+              const author = asString(v.author || "").trim();
+              const parts = [title || source, author ? `by ${author}` : "", url].filter(Boolean);
+              return parts.join(" — ");
             })
             .filter(Boolean);
           return lines.length ? lines.join("\n") : "";
@@ -3930,6 +3990,47 @@ export default function CompanyDashboard() {
             if (obj.location || obj.source_type || obj.location_type || obj.source_url) next.push(obj);
           }
 
+          return next;
+        }
+        case "curated_reviews": {
+          const existing = Array.isArray(prevValue) ? prevValue.filter((v) => v && typeof v === "object") : [];
+          const lines = raw.split(/\r?\n/).map((v) => v.trim()).filter(Boolean);
+
+          // Try to match each edited line back to an existing review object
+          const used = new Set();
+          const next = [];
+          for (const line of lines) {
+            // Check if this line matches an existing review
+            let found = null;
+            for (let i = 0; i < existing.length; i++) {
+              if (used.has(i)) continue;
+              const r = existing[i];
+              const source = asString(r.source_name || "").trim();
+              const title = asString(r.title || "").trim();
+              const url = asString(r.source_url || r.url || "").trim();
+              const author = asString(r.author || "").trim();
+              const parts = [title || source, author ? `by ${author}` : "", url].filter(Boolean);
+              if (parts.join(" — ") === line) {
+                found = r;
+                used.add(i);
+                break;
+              }
+            }
+            if (found) {
+              next.push(found);
+            } else {
+              // Parse new review from text: "title — by author — url"
+              const parts = line.split(/\s*—\s*/).map((p) => p.trim()).filter(Boolean);
+              const obj = { source_name: "", author: "", source_url: "", title: "", date: "", excerpt: "" };
+              for (const part of parts) {
+                if (/^https?:\/\//i.test(part)) obj.source_url = part;
+                else if (/^by\s+/i.test(part)) obj.author = part.replace(/^by\s+/i, "").trim();
+                else if (!obj.title) obj.title = part;
+                else obj.source_name = part;
+              }
+              if (obj.title || obj.source_url) next.push(obj);
+            }
+          }
           return next;
         }
         case "red_flag": {
@@ -4087,8 +4188,8 @@ export default function CompanyDashboard() {
 
     const requestPayload = {
       company_id: companyId,
-      timeout_ms: 20000,
-      deadline_ms: 20000,
+      timeout_ms: 200000,
+      deadline_ms: 200000,
     };
 
     try {
@@ -4226,6 +4327,95 @@ export default function CompanyDashboard() {
 
       // Some refresh responses return { ok:false, ... } with useful diagnostics.
       if (jsonBody?.ok !== true) {
+        // ── Auto-retry for "locked" responses ──
+        // When the SWA gateway returns a 500 on the first attempt, the fallback
+        // retry may find the lock held by the still-running original request.
+        // Instead of surfacing a confusing "Refresh already in progress" error,
+        // wait for the lock to expire and retry automatically (once).
+        const isLocked = jsonBody?.root_cause === "locked" && jsonBody?.retryable === true;
+        const retryAfterMs = isLocked ? Number(jsonBody?.retry_after_ms || 0) : 0;
+        const MAX_AUTO_RETRY_WAIT_MS = 180_000; // 3 minutes max
+
+        if (isLocked && retryAfterMs > 0 && retryAfterMs <= MAX_AUTO_RETRY_WAIT_MS) {
+          toast.info(`Refresh in progress — waiting ${Math.ceil(retryAfterMs / 1000)}s for lock to release…`);
+          setRefreshMetaByCompany((prev) => ({
+            ...(prev || {}),
+            [companyId]: {
+              lastRefreshAt: startedAt,
+              lastRefreshStatus: { kind: "running", code: null },
+              lastRefreshDebug: { auto_retry_waiting: true, retry_after_ms: retryAfterMs },
+            },
+          }));
+
+          await new Promise((resolve) => setTimeout(resolve, retryAfterMs + 2000));
+
+          // Retry the request once after the lock should have expired
+          try {
+            const retryResult = await apiFetchParsed(usedPath, {
+              method: "POST",
+              body: requestPayload,
+            });
+            const retryJson = retryResult.data && typeof retryResult.data === "object" ? retryResult.data : null;
+
+            if (retryJson?.ok === true && retryJson?.proposed) {
+              // Success on retry — fall through to the success handling below
+              // by reassigning result and continuing
+              result = retryResult;
+              // Re-read response variables for success path
+              const retryRes = retryResult.response;
+              const retryApiBuildId = normalizeBuildIdString(retryRes.headers.get("x-api-build-id"));
+              const retryProposed = retryJson.proposed;
+              const draft = deepClone(retryProposed);
+              setRefreshProposed(retryProposed);
+              setProposedDraft(draft);
+
+              const nextTaglineMeta = retryJson?.tagline_meta && typeof retryJson.tagline_meta === "object" ? retryJson.tagline_meta : null;
+              setRefreshTaglineMeta(nextTaglineMeta);
+
+              if (nextTaglineMeta?.error) {
+                toast.warning(`Tagline verification issue: ${asString(nextTaglineMeta.error).trim().slice(0, 160)}`);
+              }
+
+              const nextText = {};
+              for (const f of refreshDiffFields) {
+                if (!Object.prototype.hasOwnProperty.call(draft, f.key)) continue;
+                nextText[f.key] = proposedValueToInputText(f.key, draft[f.key]);
+              }
+              setProposedDraftText(nextText);
+
+              const defaults = {};
+              for (const f of refreshDiffFields) {
+                if (!Object.prototype.hasOwnProperty.call(retryProposed, f.key)) continue;
+                const a = normalizeForDiff(f.key, editorDraft?.[f.key]);
+                const b = normalizeForDiff(f.key, retryProposed?.[f.key]);
+                if (JSON.stringify(a) !== JSON.stringify(b)) defaults[f.key] = true;
+              }
+              setRefreshSelection(defaults);
+
+              setRefreshMetaByCompany((prev) => ({
+                ...(prev || {}),
+                [companyId]: {
+                  lastRefreshAt: startedAt,
+                  lastRefreshStatus: { kind: "success", code: retryRes.status },
+                  lastRefreshDebug: null,
+                },
+              }));
+
+              setRefreshError(null);
+              if (retryJson?.recovered_from_pending) {
+                toast.info("Refresh results recovered from a previous attempt.");
+              } else {
+                toast.success("Proposed updates loaded (after retry)");
+              }
+              playNotification();
+              return;
+            }
+            // Retry also failed — fall through to normal error handling below
+          } catch {
+            // Retry network error — fall through to show original locked error
+          }
+        }
+
         const debug =
           jsonBody?.response && typeof jsonBody.response === "object"
             ? jsonBody.response
@@ -4364,7 +4554,12 @@ export default function CompanyDashboard() {
       }));
 
       setRefreshError(null);
-      toast.success("Proposed updates loaded");
+      if (jsonBody?.recovered_from_pending) {
+        toast.info("Refresh results recovered from a previous attempt.");
+      } else {
+        toast.success("Proposed updates loaded");
+      }
+      playNotification();
     } catch (e) {
       // Normalize diagnostics from API wrapper errors (preferred) and plain exceptions.
       const errStatus =
@@ -4447,7 +4642,7 @@ export default function CompanyDashboard() {
       refreshInFlightRef.current = false;
       setRefreshLoading(false);
     }
-  }, [editorDraft, editorOriginalId, normalizeForDiff, proposedValueToInputText, refreshDiffFields]);
+  }, [editorDraft, editorOriginalId, normalizeForDiff, playNotification, proposedValueToInputText, refreshDiffFields]);
 
   const applySelectedProposedReviews = useCallback(
     (selectedReviews) => {
@@ -4740,9 +4935,10 @@ export default function CompanyDashboard() {
 
     setNotesToReviewsLoading(true);
     try {
-      const res = await apiFetch(`/admin/companies/${encodeURIComponent(companyId)}/apply-reviews-from-notes`, {
+      const res = await apiFetch("/xadmin-api-apply-reviews-from-notes", {
         method: "POST",
         body: {
+          company_id: companyId,
           mode,
           dry_run: dryRun,
           notes_text: notes,
@@ -4806,6 +5002,14 @@ export default function CompanyDashboard() {
       } else {
         toast.success(`Added ${savedCount} review${savedCount === 1 ? "" : "s"} (total ${total})`);
       }
+
+      // Auto-clear notes and preview for next paste
+      setEditorDraft((prev) => ({
+        ...(prev && typeof prev === "object" ? prev : {}),
+        notes: "",
+      }));
+      setNotesToReviewsPreview([]);
+      setNotesToReviewsPreviewMeta(null);
 
       if (warnings.length) {
         console.log("[apply-reviews-from-notes] warnings", warnings);
@@ -5041,6 +5245,16 @@ export default function CompanyDashboard() {
   const columns = useMemo(() => {
     return [
       {
+        name: "Edit",
+        button: true,
+        cell: (row) => (
+          <Button size="sm" variant="outline" onClick={() => openEditorForCompany(row)}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+        ),
+        width: "70px",
+      },
+      {
         name: "Name",
         selector: (row) => getCompanyName(row),
         sortable: true,
@@ -5049,8 +5263,22 @@ export default function CompanyDashboard() {
         cell: (row) => {
           const name = getCompanyName(row);
           return (
-            <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 min-w-0 group/name">
               <span className={isDeletedCompany(row) ? "text-slate-500 line-through" : "text-slate-900"}>{name || "(missing)"}</span>
+              {name && (
+                <button
+                  type="button"
+                  className="opacity-0 group-hover/name:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(name);
+                    toast.success("Name copied to clipboard");
+                  }}
+                  title="Copy name"
+                >
+                  <Copy className="h-3 w-3 text-slate-500" />
+                </button>
+              )}
               {isDeletedCompany(row) ? (
                 <span className="rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
                   deleted
@@ -5065,6 +5293,28 @@ export default function CompanyDashboard() {
         selector: (row) => asString(row?.normalized_domain).trim(),
         sortable: true,
         wrap: true,
+        cell: (row) => {
+          const domain = asString(row?.normalized_domain).trim();
+          return (
+            <div className="flex items-center gap-2 group/domain">
+              <span>{domain}</span>
+              {domain && (
+                <button
+                  type="button"
+                  className="opacity-0 group-hover/domain:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(domain);
+                    toast.success("Domain copied to clipboard");
+                  }}
+                  title="Copy domain"
+                >
+                  <Copy className="h-3 w-3 text-slate-500" />
+                </button>
+              )}
+            </div>
+          );
+        },
       },
       {
         name: "HQ",
@@ -5168,7 +5418,7 @@ export default function CompanyDashboard() {
         width: "240px",
       },
       {
-        name: "Actions",
+        name: "Delete",
         button: true,
         cell: (row) => {
           const id = getCompanyId(row);
@@ -5176,26 +5426,21 @@ export default function CompanyDashboard() {
 
           return (
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => openEditorForCompany(row)}>
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                  onClick={() =>
-                    openDeleteConfirm({
-                      kind: "single",
-                      company_id: id,
-                      company_name: getCompanyName(row),
-                    })
-                  }
-                  disabled={!id}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                onClick={() =>
+                  openDeleteConfirm({
+                    kind: "single",
+                    company_id: id,
+                    company_name: getCompanyName(row),
+                  })
+                }
+                disabled={!id}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
 
               {rowError ? (
                 <div className="max-w-[520px] rounded border border-red-200 bg-red-50 p-2 text-[11px] text-red-900">
@@ -5216,7 +5461,7 @@ export default function CompanyDashboard() {
             </div>
           );
         },
-        width: "140px",
+        width: "80px",
       },
     ];
   }, [openDeleteConfirm, openEditorForCompany, rowErrors]);
@@ -5390,14 +5635,12 @@ export default function CompanyDashboard() {
               paginationPerPage={25}
               paginationRowsPerPageOptions={[10, 25, 50, 100]}
               highlightOnHover
-              pointerOnHover
               dense
               theme={tableTheme}
               selectableRows
               onSelectedRowsChange={(state) => setSelectedRows(state?.selectedRows || [])}
               clearSelectedRows={selectedRows.length === 0}
               contextActions={contextActions}
-              onRowClicked={(row) => openEditorForCompany(row)}
               noDataComponent={noDataComponent}
             />
           </section>
@@ -5715,6 +5958,7 @@ export default function CompanyDashboard() {
                                     "manufacturing_locations",
                                     "location_sources",
                                     "red_flag_reason",
+                                    "curated_reviews",
                                   ].includes(row.key);
 
                                   return (
@@ -5803,6 +6047,50 @@ export default function CompanyDashboard() {
                                 <div className="text-xs text-slate-600">
                                   Selected rows will be written on Save. Protected fields are never overwritten: logo, structured notes, and manual stars.
                                 </div>
+
+                                {/* Raw Grok response viewer */}
+                                {refreshProposed?.last_enrichment_raw_response ? (
+                                  <details className="rounded-lg border border-slate-200 bg-slate-50">
+                                    <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                                      Raw Grok response
+                                      {refreshProposed?.enrichment_method ? (
+                                        <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] text-slate-600">
+                                          {refreshProposed.enrichment_method}
+                                        </span>
+                                      ) : null}
+                                      {refreshProposed?.last_enrichment_at ? (
+                                        <span className="ml-2 text-[10px] text-slate-500">
+                                          {new Date(refreshProposed.last_enrichment_at).toLocaleTimeString()}
+                                        </span>
+                                      ) : null}
+                                    </summary>
+                                    <div className="border-t border-slate-200 p-3">
+                                      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-slate-200 bg-white p-3 text-[11px] text-slate-800 leading-relaxed">
+                                        {typeof refreshProposed.last_enrichment_raw_response === "string"
+                                          ? refreshProposed.last_enrichment_raw_response
+                                          : JSON.stringify(refreshProposed.last_enrichment_raw_response, null, 2)}
+                                      </pre>
+                                      <div className="mt-2 flex gap-2">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={async () => {
+                                            const text = typeof refreshProposed.last_enrichment_raw_response === "string"
+                                              ? refreshProposed.last_enrichment_raw_response
+                                              : JSON.stringify(refreshProposed.last_enrichment_raw_response, null, 2);
+                                            const ok = await copyToClipboard(text);
+                                            if (ok) toast.success("Raw response copied");
+                                            else toast.error("Copy failed");
+                                          }}
+                                        >
+                                          <Copy className="h-3 w-3 mr-1" />
+                                          Copy raw response
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </details>
+                                ) : null}
                               </div>
                             ) : (
                               <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -5904,15 +6192,20 @@ export default function CompanyDashboard() {
                                 value={asString(editorDraft.amazon_url)}
                                 onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
                               />
+                              <label className="flex items-center gap-2 text-sm text-slate-700 mt-2">
+                                <Checkbox
+                                  checked={Boolean(editorDraft.no_amazon_store)}
+                                  onCheckedChange={(v) =>
+                                    setEditorDraft((d) => ({
+                                      ...(d || {}),
+                                      no_amazon_store: Boolean(v),
+                                    }))
+                                  }
+                                />
+                                <span>No Amazon Store</span>
+                              </label>
                             </div>
 
-                            <div className="space-y-1">
-                              <label className="text-sm text-slate-700">Amazon store URL</label>
-                              <Input
-                                value={asString(editorDraft.amazon_store_url)}
-                                onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_store_url: e.target.value }))}
-                              />
-                            </div>
                           </div>
 
                           <div className="space-y-2">
@@ -6156,7 +6449,7 @@ export default function CompanyDashboard() {
 
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <label className="text-sm text-slate-700">Internal notes (legacy)</label>
+                              <label className="text-sm text-slate-700">Paste reviews (Grok / manual)</label>
                               <div className="flex flex-wrap items-center gap-2">
                                 <div className="flex items-center gap-2 text-xs text-slate-700">
                                   <span className="font-medium">Notes → Reviews</span>
@@ -6200,7 +6493,7 @@ export default function CompanyDashboard() {
                               value={asString(editorDraft.notes)}
                               onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}
                               className="min-h-[200px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-                              placeholder="Internal notes…"
+                              placeholder={"Paste Grok review output here\u2026\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
                             />
 
                             {notesToReviewsPreviewMeta ? (
@@ -6242,6 +6535,7 @@ export default function CompanyDashboard() {
                                       <div key={asString(r?.id).trim() || `preview-${idx}`} className="rounded border border-slate-200 bg-white p-2">
                                         <div className="text-xs text-slate-800">
                                           <span className="font-medium">{asString(r?.title).trim() || "(no title)"}</span>
+                                          {asString(r?.source_name).trim() ? <span className="text-slate-500"> · {asString(r?.source_name).trim()}</span> : null}
                                           {asString(r?.author).trim() ? <span className="text-slate-500"> · {asString(r?.author).trim()}</span> : null}
                                           {asString(r?.date).trim() ? <span className="text-slate-500"> · {asString(r?.date).trim()}</span> : null}
                                           {r?.rating != null ? <span className="text-slate-500"> · {String(r.rating)}/5</span> : null}

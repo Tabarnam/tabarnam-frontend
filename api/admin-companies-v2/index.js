@@ -11,6 +11,7 @@ const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { computeEnrichmentHealth, isRealValue } = require("../_requiredFields");
+const { patchCompanyWithSearchText } = require("../_computeSearchText");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -338,44 +339,83 @@ async function maybeGeocodeLocationsForCompanyDoc(doc, { timeoutMs = 5000 } = {}
 
   const next = doc;
 
-  // HQ
+  // HQ - geocode locations that don't have coordinates yet
   const hqSeed = buildHeadquartersSeedFromDoc(next);
-  const hasLegacyHq = toFiniteNumber(next.hq_lat) != null && toFiniteNumber(next.hq_lng) != null;
-  const hasHqCoordsInList = hasAnyLatLng(hqSeed);
 
-  if (!hasLegacyHq && !hasHqCoordsInList && hqSeed.length > 0) {
-    const geocoded = await geocodeLocationArray(hqSeed, { timeoutMs, concurrency: 4 });
-    const primary = pickPrimaryLatLng(geocoded);
+  if (hqSeed.length > 0) {
+    const needsGeocoding = [];
+    const needsGeocodingIndices = [];
 
-    if (primary) {
-      next.headquarters_locations = geocoded;
-      next.headquarters = geocoded;
-      next.hq_lat = primary.lat;
-      next.hq_lng = primary.lng;
+    for (let i = 0; i < hqSeed.length; i++) {
+      const loc = hqSeed[i];
+      const coords = extractLatLng(loc);
+      if (!coords || coords.lat == null || coords.lng == null) {
+        needsGeocoding.push(loc);
+        needsGeocodingIndices.push(i);
+      }
     }
-  } else if (!hasLegacyHq && hasHqCoordsInList) {
-    const primary = pickPrimaryLatLng(hqSeed);
-    if (primary) {
-      next.hq_lat = primary.lat;
-      next.hq_lng = primary.lng;
+
+    if (needsGeocoding.length > 0) {
+      const geocoded = await geocodeLocationArray(needsGeocoding, { timeoutMs, concurrency: 4 });
+
+      const result = [...hqSeed];
+      for (let i = 0; i < needsGeocodingIndices.length; i++) {
+        const originalIndex = needsGeocodingIndices[i];
+        const geocodedLoc = geocoded[i];
+        if (geocodedLoc) {
+          result[originalIndex] = { ...hqSeed[originalIndex], ...geocodedLoc };
+        }
+      }
+      next.headquarters_locations = result;
+      next.headquarters = result;
+    }
+
+    const hasLegacyHq = toFiniteNumber(next.hq_lat) != null && toFiniteNumber(next.hq_lng) != null;
+    if (!hasLegacyHq) {
+      const primary = pickPrimaryLatLng(next.headquarters_locations || hqSeed);
+      if (primary) {
+        next.hq_lat = primary.lat;
+        next.hq_lng = primary.lng;
+      }
     }
   }
 
-  // Manufacturing
+  // Manufacturing - geocode locations that don't have coordinates yet
   const manuSeed = buildManufacturingSeedFromDoc(next);
-  const hasManuCoords = hasAnyLatLng(manuSeed);
 
-  if (!hasManuCoords && manuSeed.length > 0) {
-    // Geocode all manufacturing locations
-    const geocoded = await geocodeLocationArray(manuSeed, { timeoutMs, concurrency: 4 });
-    // Always save geocoded results (they include address, formatted fields, and coordinates if available)
-    next.manufacturing_geocodes = geocoded;
-  } else if (hasManuCoords && manuSeed.length > 0) {
-    // If manuSeed already has coordinates, use it directly
-    next.manufacturing_geocodes = manuSeed;
-  } else if (manuSeed.length > 0 && (!Array.isArray(next.manufacturing_geocodes) || next.manufacturing_geocodes.length === 0)) {
-    // Ensure manufacturing_geocodes is present when the editor sends structured entries
-    next.manufacturing_geocodes = manuSeed;
+  if (manuSeed.length > 0) {
+    // Find locations that need geocoding (no lat/lng)
+    const needsGeocoding = [];
+    const needsGeocodingIndices = [];
+
+    for (let i = 0; i < manuSeed.length; i++) {
+      const loc = manuSeed[i];
+      const coords = extractLatLng(loc);
+      if (!coords || coords.lat == null || coords.lng == null) {
+        needsGeocoding.push(loc);
+        needsGeocodingIndices.push(i);
+      }
+    }
+
+    if (needsGeocoding.length > 0) {
+      // Geocode only the locations that need it
+      const geocoded = await geocodeLocationArray(needsGeocoding, { timeoutMs, concurrency: 4 });
+
+      // Merge geocoded results back into the original array (preserving order)
+      const result = [...manuSeed];
+      for (let i = 0; i < needsGeocodingIndices.length; i++) {
+        const originalIndex = needsGeocodingIndices[i];
+        const geocodedLoc = geocoded[i];
+        if (geocodedLoc) {
+          // Merge original location data with geocoded data
+          result[originalIndex] = { ...manuSeed[originalIndex], ...geocodedLoc };
+        }
+      }
+      next.manufacturing_geocodes = result;
+    } else {
+      // All locations already have coordinates
+      next.manufacturing_geocodes = manuSeed;
+    }
   }
 
   return next;
@@ -895,6 +935,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const whereClauses = [
           "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)",
           "NOT STARTSWITH(c.id, '_import_')",
+          "NOT STARTSWITH(c.id, 'refresh_job_')",
           "(NOT IS_DEFINED(c.type) OR c.type != 'import_control')",
         ];
 
@@ -1122,6 +1163,18 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           doc.profile_completeness_version = completeness.profile_completeness_version;
           doc.profile_completeness_meta = completeness.profile_completeness_meta;
         } catch {}
+
+        // Recompute search text so that changes to keywords, industries, tagline,
+        // etc. (from refresh-apply, import, or manual edits) are immediately
+        // searchable without requiring a separate backfill run.
+        try {
+          patchCompanyWithSearchText(doc);
+        } catch (e) {
+          context.log("[admin-companies-v2] search_text_patch_failed", {
+            company_id: String(doc.company_id || doc.id || "").trim(),
+            error: e?.message || String(e),
+          });
+        }
 
         context.log("[admin-companies-v2] Upserting company", {
           id: partitionKeyValue,
