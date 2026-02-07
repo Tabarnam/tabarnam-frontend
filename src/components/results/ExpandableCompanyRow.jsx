@@ -10,7 +10,6 @@ import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQScore } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
-import ShareButton from "@/components/ShareButton";
 
 // Renders text with URLs converted to clickable links
 function TextWithLinks({ text, className = "" }) {
