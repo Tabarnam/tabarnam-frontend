@@ -323,8 +323,23 @@ export default function ResultsPage() {
     </select>
   );
 
+  const pageTitle = qParam
+    ? `${qParam} – Results on Tabarnam`
+    : "Search Results – Tabarnam";
+  const pageDescription = qParam
+    ? `Discover companies matching "${qParam}" on Tabarnam – transparent product origins.`
+    : "Discover products with transparent origins on Tabarnam.";
+
   return (
     <div className="px-1 pb-10 max-w-6xl mx-auto">
+      <Helmet>
+        <title>{pageTitle}</title>
+        <meta property="og:title" content={pageTitle} />
+        <meta property="og:description" content={pageDescription} />
+        <meta property="og:url" content={window.location.href} />
+        <meta property="og:image" content="/tabarnam.png" />
+        <meta property="og:type" content="website" />
+      </Helmet>
       {/* Two-row search under the site header */}
       <div className="mt-6 mb-4">
         <SearchCard
