@@ -115,3 +115,74 @@ test("/api/search-companies returns display_name and filters by it", async () =>
   assert.equal(body.items[0].company_name, "Acme Products");
   assert.equal(body.items[0].display_name, "RovR");
 });
+
+// ── computeNameMatchScore tests ──────────────────────────────────────────
+
+test("computeNameMatchScore returns 100 for exact name match", () => {
+  const score = _test.computeNameMatchScore({ company_name: "Alo" }, "alo", "alo", "alo");
+  assert.equal(score, 100);
+});
+
+test("computeNameMatchScore returns 100 for exact match ignoring case", () => {
+  const score = _test.computeNameMatchScore({ company_name: "ALO" }, "Alo", "alo", "alo");
+  assert.equal(score, 100);
+});
+
+test("computeNameMatchScore returns 80 for starts-with match", () => {
+  const score = _test.computeNameMatchScore({ company_name: "Aloha Collection" }, "alo", "alo", "alo");
+  assert.equal(score, 80);
+});
+
+test("computeNameMatchScore returns 60 for word-boundary match", () => {
+  const score = _test.computeNameMatchScore({ company_name: "Team Alo Yoga" }, "alo", "alo", "alo");
+  assert.equal(score, 60);
+});
+
+test("computeNameMatchScore returns 40 for substring match", () => {
+  const score = _test.computeNameMatchScore({ company_name: "Catalog Online" }, "alo", "alo", "alo");
+  assert.equal(score, 40);
+});
+
+test("computeNameMatchScore returns 0 for no name match", () => {
+  const score = _test.computeNameMatchScore({ company_name: "SunCare" }, "alo", "alo", "alo");
+  assert.equal(score, 0);
+});
+
+test("computeNameMatchScore uses display_name when company_name does not match", () => {
+  const score = _test.computeNameMatchScore({ company_name: "XYZ Corp", display_name: "Alo" }, "alo", "alo", "alo");
+  assert.equal(score, 100);
+});
+
+test("computeNameMatchScore takes the best score across name fields", () => {
+  const score = _test.computeNameMatchScore({ company_name: "Aloha", display_name: "Alo" }, "alo", "alo", "alo");
+  assert.equal(score, 100);
+});
+
+test("computeNameMatchScore returns 0 for empty/null inputs", () => {
+  assert.equal(_test.computeNameMatchScore(null, "alo", "alo", "alo"), 0);
+  assert.equal(_test.computeNameMatchScore({ company_name: "Alo" }, "", "", ""), 0);
+});
+
+test("search-companies response includes _nameMatchScore", async () => {
+  const doc = {
+    id: "alo_1",
+    company_name: "Alo",
+    normalized_domain: "alo.com",
+    keywords: ["yoga", "athleisure"],
+    industries: ["Apparel"],
+    _ts: 1700000000,
+  };
+
+  const companiesContainer = makeContainer(async () => [doc]);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=alo&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.items.length, 1);
+  assert.equal(body.items[0]._nameMatchScore, 100);
+});

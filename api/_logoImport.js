@@ -393,20 +393,44 @@ function buildHomeUrlCandidates(domain, websiteUrl) {
   return out;
 }
 
-async function fetchText(url, timeoutMs) {
+// User-agent rotation to avoid bot detection on websites that block automated requests
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+  "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+];
+
+function getRandomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+async function fetchText(url, timeoutMs, retryCount = 0) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    // Use browser-like user agent first, fall back to bot user agent on retry
+    const userAgent = retryCount === 0 ? USER_AGENTS[0] : getRandomUserAgent();
     const res = await fetch(url, {
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
-        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": userAgent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
       },
     });
     const text = await res.text();
     return { ok: res.ok, status: res.status, url: res.url, text };
+  } catch (e) {
+    // Retry once with a different user agent if first attempt fails
+    if (retryCount === 0) {
+      clearTimeout(timeout);
+      await sleep(500);
+      return fetchText(url, timeoutMs, retryCount + 1);
+    }
+    throw e;
   } finally {
     clearTimeout(timeout);
   }
@@ -442,12 +466,15 @@ async function fetchImageBufferWithRetries(
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      // Use browser-like user agent, rotating on retries to avoid bot detection
+      const userAgent = USER_AGENTS[attempt % USER_AGENTS.length];
       const res = await fetch(u, {
         redirect: "follow",
         signal: controller.signal,
         headers: {
-          Accept: "image/svg+xml,image/png,image/jpeg,*/*",
-          "User-Agent": "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+          Accept: "image/svg+xml,image/png,image/jpeg,image/webp,image/gif,*/*",
+          "User-Agent": userAgent,
+          "Accept-Language": "en-US,en;q=0.9",
         },
       });
 
@@ -477,23 +504,81 @@ async function fetchImageBufferWithRetries(
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || "fetch failed"));
 }
 
+/**
+ * Parse SVG viewBox or explicit width/height attributes to extract dimensions.
+ * Fallback for when sharp library fails to extract SVG metadata.
+ */
+function parseSvgViewBoxDimensions(buf) {
+  try {
+    const svgText = buf.toString("utf8").slice(0, 4000);
+
+    // Try viewBox first: viewBox="0 0 width height" or viewBox="minX minY width height"
+    const viewBoxMatch = svgText.match(/viewBox=["']([^"']+)["']/i);
+    if (viewBoxMatch) {
+      const parts = viewBoxMatch[1].trim().split(/[\s,]+/).map(Number);
+      if (parts.length >= 4) {
+        const [, , w, h] = parts;
+        if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+          return { width: Math.round(w), height: Math.round(h) };
+        }
+      }
+    }
+
+    // Try explicit width/height attributes (may have units like "px" - extract number only)
+    const widthMatch = svgText.match(/\bwidth=["']([0-9.]+)/i);
+    const heightMatch = svgText.match(/\bheight=["']([0-9.]+)/i);
+    if (widthMatch && heightMatch) {
+      const w = parseFloat(widthMatch[1]);
+      const h = parseFloat(heightMatch[1]);
+      if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+        return { width: Math.round(w), height: Math.round(h) };
+      }
+    }
+
+    return { width: null, height: null };
+  } catch {
+    return { width: null, height: null };
+  }
+}
+
 async function getImageMetadata(buf, isSvg) {
   if (!sharp) {
-    // Sharp unavailable - cannot extract metadata
+    // Sharp unavailable - try SVG viewBox fallback
+    if (isSvg && buf) {
+      const dims = parseSvgViewBoxDimensions(buf);
+      if (dims.width && dims.height) return dims;
+    }
     return { width: null, height: null };
   }
   try {
     const meta = await sharp(buf, isSvg ? { density: 200 } : undefined).metadata();
-    const width = Number.isFinite(meta?.width) ? meta.width : null;
-    const height = Number.isFinite(meta?.height) ? meta.height : null;
+    let width = Number.isFinite(meta?.width) ? meta.width : null;
+    let height = Number.isFinite(meta?.height) ? meta.height : null;
+
+    // SVG viewBox fallback when sharp returns null dimensions
+    if (isSvg && (!width || !height) && buf) {
+      const fallback = parseSvgViewBoxDimensions(buf);
+      width = width || fallback.width;
+      height = height || fallback.height;
+    }
+
     return { width, height };
   } catch {
+    // On error, try SVG viewBox fallback
+    if (isSvg && buf) {
+      return parseSvgViewBoxDimensions(buf);
+    }
     return { width: null, height: null };
   }
 }
 
 function isLikelyHeroDimensions({ width, height }) {
   if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+
+  // Square images (aspect ratio 0.8-1.25) are likely logos, not hero banners
+  const aspectRatio = width / height;
+  if (aspectRatio >= 0.8 && aspectRatio <= 1.25) return false;
+
   if (width >= 1600 && height >= 700) return true;
   if (width >= 1200 && height >= 600) return true;
   if (width >= 1000 && height >= 500) return true;
@@ -505,8 +590,11 @@ function isLikelyNonLogoByContentType(contentType, candidate) {
   const ct = String(contentType || "").toLowerCase();
   if (!ct) return false;
   if (ct.includes("image/jpeg") || ct.includes("image/jpg")) {
-    if (!candidate?.strong_signal) return true;
-    if (!hasAnyToken(candidate.url, ["logo", "wordmark", "logotype"])) return true;
+    if (candidate?.strong_signal) return false;
+    // Case-insensitive check for logo tokens in URL
+    const urlLower = String(candidate?.url || "").toLowerCase();
+    if (hasAnyToken(urlLower, ["logo", "wordmark", "logotype"])) return false;
+    return true;
   }
   return false;
 }
@@ -551,13 +639,15 @@ async function headProbeImage(url, { timeoutMs = 6000 } = {}) {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    // Use browser-like user agent to avoid bot detection
     const res = await fetch(url, {
       method: "HEAD",
       redirect: "follow",
       signal: controller.signal,
       headers: {
-        Accept: "image/svg+xml,image/png,image/jpeg,image/*,*/*",
-        "User-Agent": "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+        Accept: "image/svg+xml,image/png,image/jpeg,image/webp,image/*,*/*",
+        "User-Agent": USER_AGENTS[0],
+        "Accept-Language": "en-US,en;q=0.9",
       },
     });
 
@@ -648,9 +738,22 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
     if (isSvg) {
       if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
 
-      const { width, height } = await getImageMetadata(buf, true);
+      let { width, height } = await getImageMetadata(buf, true);
+
+      // For high-confidence SVG sources, assume reasonable dimensions if extraction failed
+      // Header logos with high scores are almost always valid logos
+      const isHighConfidence = candidate?.strong_signal ||
+        (candidate?.source === "header" && (candidate?.score || 0) > 400) ||
+        (sourceUrl && sourceUrl.toLowerCase().includes("/logo"));
+
       if (!Number.isFinite(width) || !Number.isFinite(height)) {
-        return { ok: false, reason: "unknown_svg_dimensions" };
+        if (isHighConfidence) {
+          // Default to reasonable logo dimensions for trusted sources
+          width = width || 200;
+          height = height || 80;
+        } else {
+          return { ok: false, reason: "unknown_svg_dimensions" };
+        }
       }
       if (width < 64 || height < 64) {
         return { ok: false, reason: `too_small_dimensions_${width}x${height}` };
@@ -1278,7 +1381,7 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
     };
   }
 
-  const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 20_000, maxMs: 25_000 });
+  const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 15_000, maxMs: 20_000 });
 
   const telemetry = {
     budget_ms: budget.budget_ms,

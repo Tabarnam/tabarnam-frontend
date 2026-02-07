@@ -169,6 +169,7 @@ function normalizeManualReview(candidate) {
   const date = asString(base.date).trim();
   const urlRaw = asString(base.url).trim();
   const url = urlRaw ? urlRaw : null;
+  const source_name = asString(base.source_name).trim();
 
   if (!text) return null;
 
@@ -181,7 +182,8 @@ function normalizeManualReview(candidate) {
     text,
     author,
     date,
-    source: "manual_notes",
+    source: source_name || "manual_notes",
+    source_name: source_name || "",
     url,
     _dedupe_key,
   };
@@ -212,7 +214,7 @@ function parseJsonArray(text) {
     }
 
     if (item && typeof item === "object") {
-      const textVal = item.text ?? item.body ?? item.content;
+      const textVal = item.text ?? item.body ?? item.content ?? item.excerpt;
       out.push({
         rating: item.rating,
         title: item.title,
@@ -220,6 +222,7 @@ function parseJsonArray(text) {
         date: item.date,
         text: textVal,
         url: item.url,
+        source_name: item.source_name || "",
       });
     }
   }
@@ -243,10 +246,14 @@ const YAML_KEYS = {
   body: "text",
   content: "text",
   review: "text",
+  excerpt: "text",
+  summary: "text",
   url: "url",
   link: "url",
   sourceurl: "url",
   source_url: "url",
+  sourcename: "source_name",
+  source: "source_name",
 };
 
 function normalizeYamlKey(keyRaw) {
@@ -266,7 +273,7 @@ function looksLikeYamlKeyLine(line) {
 }
 
 function parseYamlBlocks(text) {
-  const raw = asString(text).replace(/\r\n/g, "\n");
+  const raw = asString(text).replace(/\r\n/g, "\n").replace(/\*\*/g, "");
   const blocks = raw
     .split(/\n{2,}/)
     .map((b) => b.trim())
@@ -276,7 +283,7 @@ function parseYamlBlocks(text) {
 
   for (const block of blocks) {
     const lines = block.split("\n");
-    const record = { rating: null, title: "", author: "", date: "", text: "", url: null };
+    const record = { rating: null, title: "", author: "", date: "", text: "", url: null, source_name: "" };
 
     let currentKey = "";
 
@@ -314,6 +321,7 @@ function parseYamlBlocks(text) {
         else if (mapped === "author") record.author = value;
         else if (mapped === "date") record.date = value;
         else if (mapped === "url") record.url = value;
+        else if (mapped === "source_name") record.source_name = value;
 
         continue;
       }
@@ -330,7 +338,8 @@ function parseYamlBlocks(text) {
       asString(record.author).trim() ||
       asString(record.date).trim() ||
       asString(record.url).trim() ||
-      asString(record.rating).trim();
+      asString(record.rating).trim() ||
+      asString(record.source_name).trim();
 
     if (!hasAny) continue;
 
@@ -442,9 +451,12 @@ async function adminApplyReviewsFromNotesHandler(req, context, deps = {}) {
   const method = String(req?.method || "").toUpperCase();
   if (method === "OPTIONS") return json({}, 200);
 
+  const body = await readJsonBody(req);
+
   const company_id =
     (context && context.bindingData && (context.bindingData.company_id || context.bindingData.companyId)) ||
     (req && req.params && (req.params.company_id || req.params.companyId)) ||
+    (body && (body.company_id || body.companyId)) ||
     "";
 
   const requestedCompanyId = asString(company_id).trim();
@@ -452,8 +464,6 @@ async function adminApplyReviewsFromNotesHandler(req, context, deps = {}) {
   if (!requestedCompanyId) {
     return json({ ok: false, root_cause: "bad_request", message: "Missing company_id", retryable: false, warnings: [] }, 200);
   }
-
-  const body = await readJsonBody(req);
   const modeRaw = asString(body?.mode).trim().toLowerCase();
   const mode = modeRaw === "replace" ? "replace" : "append";
   const dry_run = Boolean(body?.dry_run ?? body?.dryRun ?? false);
@@ -659,7 +669,7 @@ async function adminApplyReviewsFromNotesHandler(req, context, deps = {}) {
 }
 
 app.http("adminApplyReviewsFromNotes", {
-  route: "admin/companies/{company_id}/apply-reviews-from-notes",
+  route: "xadmin-api-apply-reviews-from-notes",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: (req, context) => adminApplyReviewsFromNotesHandler(req, context),

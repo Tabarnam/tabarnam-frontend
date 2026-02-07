@@ -475,6 +475,22 @@ function pickPrimaryLatLng(locations) {
   return null;
 }
 
+/**
+ * Geocode a plain location string like "Kansas City, MO, United States"
+ * Returns { lat, lng } or null if geocoding fails
+ */
+async function geocodeLocationString(location, { timeoutMs = 5000 } = {}) {
+  if (!location || typeof location !== "string") return null;
+  const trimmed = location.trim();
+  if (!trimmed) return null;
+
+  const result = await geocodeLocationEntry({ city: trimmed }, { timeoutMs });
+  if (result?.lat && result?.lng && result?.geocode_status === "ok") {
+    return { lat: result.lat, lng: result.lng };
+  }
+  return null;
+}
+
 module.exports = {
   extractLatLng,
   normalizeLocationInput,
@@ -482,5 +498,6 @@ module.exports = {
   geocodeAddress,
   geocodeLocationEntry,
   geocodeLocationArray,
+  geocodeLocationString,
   pickPrimaryLatLng,
 };

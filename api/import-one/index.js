@@ -31,6 +31,7 @@ const { buildPrimaryJobId: buildImportPrimaryJobId, upsertJob: upsertImportPrima
 const { runPrimaryJob } = require("../_importPrimaryWorker");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
+const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
 
 // Helper to extract normalized domain from URL
 function toNormalizedDomain(urlStr) {
@@ -133,6 +134,85 @@ function getCompaniesCosmosContainer() {
   }
 }
 
+// Check if a company with the given domain already exists in the database
+async function checkExistingCompanyByDomain({ domain, url, container }) {
+  if (!container) return { exists: false, error: "no_container" };
+  if (!domain || domain === "unknown") return { exists: false };
+
+  const notDeletedClause = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
+
+  try {
+    // Primary check: exact normalized_domain match
+    const domainQuery = {
+      query: `SELECT TOP 1 c.id, c.company_id, c.company_name, c.normalized_domain, c.website_url FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND ${notDeletedClause} AND c.normalized_domain = @domain`,
+      parameters: [{ name: "@domain", value: domain }],
+    };
+
+    const { resources } = await container.items
+      .query(domainQuery, { enableCrossPartitionQuery: true })
+      .fetchAll();
+
+    if (Array.isArray(resources) && resources[0]) {
+      return {
+        exists: true,
+        match_type: "normalized_domain",
+        existing_company: {
+          id: resources[0].id,
+          company_id: resources[0].company_id,
+          company_name: resources[0].company_name,
+          normalized_domain: resources[0].normalized_domain,
+          website_url: resources[0].website_url,
+        },
+      };
+    }
+
+    // Secondary check: URL match (covers edge cases)
+    if (url) {
+      const urlLower = String(url).trim().toLowerCase();
+      const urlWithoutTrailingSlash = urlLower.endsWith("/") ? urlLower.slice(0, -1) : urlLower;
+      const urlWithTrailingSlash = urlLower.endsWith("/") ? urlLower : `${urlLower}/`;
+
+      const urlQuery = {
+        query: `SELECT TOP 1 c.id, c.company_id, c.company_name, c.normalized_domain, c.website_url FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND ${notDeletedClause} AND (
+          (IS_DEFINED(c.website_url) AND (LOWER(c.website_url) = @urlLower OR LOWER(c.website_url) = @urlAlt))
+          OR (IS_DEFINED(c.url) AND (LOWER(c.url) = @urlLower OR LOWER(c.url) = @urlAlt))
+          OR (IS_DEFINED(c.canonical_url) AND (LOWER(c.canonical_url) = @urlLower OR LOWER(c.canonical_url) = @urlAlt))
+        )`,
+        parameters: [
+          { name: "@urlLower", value: urlWithoutTrailingSlash },
+          { name: "@urlAlt", value: urlWithTrailingSlash },
+        ],
+      };
+
+      const { resources: urlResources } = await container.items
+        .query(urlQuery, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      if (Array.isArray(urlResources) && urlResources[0]) {
+        return {
+          exists: true,
+          match_type: "url",
+          existing_company: {
+            id: urlResources[0].id,
+            company_id: urlResources[0].company_id,
+            company_name: urlResources[0].company_name,
+            normalized_domain: urlResources[0].normalized_domain,
+            website_url: urlResources[0].website_url,
+          },
+        };
+      }
+    }
+
+    return { exists: false };
+  } catch (e) {
+    console.log("[import-one] check_existing_company_error", {
+      domain,
+      error: String(e?.message || e),
+    });
+    return { exists: false, error: String(e?.message || e) };
+  }
+}
+
 const DEADLINE_MS = 25000; // 25 second max for request
 
 function json(obj, status = 200) {
@@ -232,6 +312,55 @@ async function handleImportOne(req, context) {
         error: { message: "Could not normalize URL", code: "normalize_error" },
         build_id: BUILD_STAMP,
       }, 400);
+    }
+
+    // Extract normalized domain for duplicate check
+    const normalizedDomainForCheck = toNormalizedDomain(normalizedUrl);
+
+    // Check if company with this domain already exists in the database
+    if (cosmosEnabled) {
+      try {
+        const container = getCompaniesCosmosContainer();
+        if (container) {
+          const existingCheck = await checkExistingCompanyByDomain({
+            domain: normalizedDomainForCheck,
+            url: normalizedUrl,
+            container,
+          });
+
+          if (existingCheck.exists) {
+            console.log("[import-one] duplicate_found", {
+              url: normalizedUrl,
+              normalized_domain: normalizedDomainForCheck,
+              match_type: existingCheck.match_type,
+              existing_company_id: existingCheck.existing_company?.company_id,
+              existing_company_name: existingCheck.existing_company?.company_name,
+            });
+
+            return json({
+              ok: false,
+              error: {
+                message: `A company with this domain already exists: "${existingCheck.existing_company?.company_name || normalizedDomainForCheck}"`,
+                code: "duplicate_company",
+                existing_company: existingCheck.existing_company,
+                match_type: existingCheck.match_type,
+              },
+              build_id: BUILD_STAMP,
+            }, 409); // 409 Conflict
+          }
+
+          console.log("[import-one] no_duplicate_found", {
+            url: normalizedUrl,
+            normalized_domain: normalizedDomainForCheck,
+          });
+        }
+      } catch (e) {
+        // Non-fatal: if duplicate check fails, log and continue with import
+        console.log("[import-one] duplicate_check_error_nonfatal", {
+          url: normalizedUrl,
+          error: String(e?.message || e),
+        });
+      }
     }
 
     // Log start with build stamp for deployment verification
@@ -539,6 +668,41 @@ async function handleImportOne(req, context) {
                   session_id: sessionId,
                   error: String(e?.message || e),
                 });
+              }
+
+              // NON-BLOCKING: Enqueue resume-worker to process enrichment asynchronously
+              // This avoids the Azure SWA 4-minute gateway timeout that was causing HTTP 500 errors
+              // The frontend will poll for status updates as enrichment progresses
+              if (missingByCompany && missingByCompany.length > 0) {
+                try {
+                  await enqueueResumeRun({
+                    session_id: sessionId,
+                    company_ids: seededCompanyIds,
+                    reason: "import_one_enqueued",
+                    requested_by: "import_one",
+                  });
+                  console.log("[import-one] resume_enqueued", {
+                    session_id: sessionId,
+                    company_count: seededCompanyIds.length,
+                  });
+                } catch (qErr) {
+                  console.log("[import-one] resume_enqueue_failed", {
+                    session_id: sessionId,
+                    error: String(qErr?.message || qErr),
+                  });
+                }
+
+                // Return immediately with 202 Accepted - don't wait for enrichment
+                // This prevents the Azure SWA gateway timeout (4 min) from triggering HTTP 500
+                return json({
+                  ok: true,
+                  completed: false,
+                  session_id: sessionId,
+                  saved_count: seededCompanyIds.length,
+                  status: "in_progress",
+                  message: "Company seeded, enrichment in progress. Poll for status updates.",
+                  build_id: BUILD_STAMP,
+                }, 202);
               }
             }
           }

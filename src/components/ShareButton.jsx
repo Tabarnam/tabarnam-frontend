@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Copy } from "lucide-react";
+import { Share2, Copy } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -8,40 +8,18 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "@/lib/toast";
-
-const SHARE_COLOR = "hsl(187, 47%, 45%)";
-
-function ShareIcon({ size = 20, className = "" }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={SHARE_COLOR}
-      strokeWidth={2.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      {/* Arrow pointing up */}
-      <line x1="12" y1="3" x2="12" y2="15" />
-      <polyline points="7 8 12 3 17 8" />
-      {/* Box open at top */}
-      <path d="M20 11v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8" />
-    </svg>
-  );
-}
+import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 
 async function copyToClipboard(text) {
+  const value = (text || "").toString();
+  if (!value.trim()) return false;
   try {
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(value);
     return true;
   } catch {
     try {
       const el = document.createElement("textarea");
-      el.value = text;
+      el.value = value;
       el.setAttribute("readonly", "");
       el.style.position = "absolute";
       el.style.left = "-9999px";
@@ -56,117 +34,105 @@ async function copyToClipboard(text) {
   }
 }
 
-function buildShareText(company) {
-  const name =
-    company.display_name?.trim() ||
-    company.company_name?.trim() ||
-    company.name?.trim() ||
-    "";
-  const parts = [name];
-  if (company.tagline) parts.push(company.tagline);
-  if (company.headquarters_location) parts.push(`HQ: ${company.headquarters_location}`);
-  const url =
-    company.website_url ||
-    (company.normalized_domain ? `https://${company.normalized_domain}` : "");
-  if (url) parts.push(url);
-  return parts.filter(Boolean).join("\n");
-}
-
-function getCompanyName(company) {
-  return (
-    company.display_name?.trim() ||
-    company.company_name?.trim() ||
-    company.name?.trim() ||
-    "this company"
-  );
-}
-
-export default function ShareButton({ company, variant = "default", className = "" }) {
+export default function ShareButton({ company, className = "" }) {
   const [modalOpen, setModalOpen] = useState(false);
 
-  const companyName = getCompanyName(company);
-  const shareText = buildShareText(company);
-  const shareUrl =
-    company.website_url ||
-    (company.normalized_domain ? `https://${company.normalized_domain}` : window.location.href);
+  const companyName = getCompanyDisplayName(company) || "this company";
+  const tagline = (company?.tagline || "").trim();
+  const hqLocation = (company?.headquarters_location || "").trim();
+  const companyUrl = company?.website_url || window.location.href;
 
-  async function handleClick(e) {
-    e.stopPropagation();
+  const shareTitle = `Check out ${companyName} on Tabarnam`;
+  const shareText = [tagline, hqLocation ? `HQ in ${hqLocation}.` : ""]
+    .filter(Boolean)
+    .join(". ");
+  const shareFullText = `${shareTitle}: ${shareText} More at ${companyUrl}`;
+
+  const handleShare = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
 
     if (navigator.share) {
       try {
         await navigator.share({
-          title: companyName,
+          title: shareTitle,
           text: shareText,
-          url: shareUrl,
+          url: companyUrl,
         });
-        return;
-      } catch (err) {
-        if (err.name === "AbortError") return;
+      } catch (error) {
+        if (error.name !== "AbortError") {
+          console.error("Share failed:", error);
+        }
       }
-    }
-
-    setModalOpen(true);
-  }
-
-  async function handleCopy(e) {
-    e.stopPropagation();
-    const ok = await copyToClipboard(shareText);
-    if (ok) {
-      toast({ title: "Copied", description: "Company details copied to clipboard." });
     } else {
-      toast.error("Copy failed");
+      setModalOpen(true);
     }
-  }
+  };
 
-  const twitterUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
-  const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+  const handleCopy = async (e) => {
+    e.stopPropagation();
+    const ok = await copyToClipboard(shareFullText);
+    if (ok) {
+      toast.success({ title: "Copied!", description: "Share text copied to clipboard." });
+    } else {
+      toast.error("Failed to copy");
+    }
+  };
+
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+    `Check out ${companyName}: ${shareText}`
+  )}&url=${encodeURIComponent(companyUrl)}`;
+
+  const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+    companyUrl
+  )}`;
 
   return (
     <>
       <button
         type="button"
-        onClick={handleClick}
-        className={`inline-flex items-center justify-center rounded-md transition-opacity hover:opacity-70 ${className}`}
-        style={{ minWidth: 44, minHeight: 44 }}
+        onClick={handleShare}
+        className={`inline-flex items-center justify-center w-11 h-11 min-w-[44px] min-h-[44px] rounded-full text-gray-500 hover:text-[#649BA0] hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-[#649BA0] focus:ring-offset-1 ${className}`}
         aria-label={`Share ${companyName} details`}
         title="Share this company"
       >
-        <ShareIcon size={variant === "card" ? 18 : 20} />
+        <Share2 className="w-4 h-4" />
       </button>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
+        <DialogContent
+          className="sm:max-w-md"
+          onClick={(e) => e.stopPropagation()}
+        >
           <DialogHeader>
-            <DialogTitle>Share {companyName}</DialogTitle>
+            <DialogTitle>Share this company</DialogTitle>
             <DialogDescription>
-              Copy the details below or share on social media.
+              Copy the link below or share on social media.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-4 mt-2">
             <div className="flex items-center gap-2">
               <input
+                type="text"
                 readOnly
-                value={shareText}
-                className="flex-1 rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.target.select();
-                }}
+                value={shareFullText}
+                className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm bg-gray-50 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#649BA0]"
+                onFocus={(e) => e.target.select()}
+                onClick={(e) => e.stopPropagation()}
               />
               <button
                 type="button"
                 onClick={handleCopy}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
-                aria-label="Copy to clipboard"
+                className="inline-flex items-center justify-center gap-1.5 rounded-md bg-[#649BA0] px-3 py-2 text-sm font-medium text-white hover:bg-[#4e8388] transition-colors focus:outline-none focus:ring-2 focus:ring-[#649BA0] focus:ring-offset-1"
+                aria-label="Copy share text"
               >
-                <Copy className="h-4 w-4" />
+                <Copy className="w-4 h-4" />
+                Copy
               </button>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex items-center gap-3">
               <a
                 href={twitterUrl}
                 target="_blank"

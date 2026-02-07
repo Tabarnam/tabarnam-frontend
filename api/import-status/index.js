@@ -1325,7 +1325,14 @@ async function handler(req, context) {
   const method = String(req?.method || "").toUpperCase();
   if (method === "OPTIONS") return { status: 200, headers: cors(req) };
 
-  const url = new URL(req.url);
+  // Wrap URL parsing to prevent 500 errors from malformed URLs
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch (urlErr) {
+    console.error("[import-status] Invalid URL:", req.url, urlErr?.message);
+    return json({ ok: false, error: "Invalid request URL", code: "INVALID_URL" }, 400, req);
+  }
   const sessionId = String(url.searchParams.get("session_id") || "").trim();
   const take = Number(url.searchParams.get("take") || "10") || 10;
   const forceResume =
@@ -2060,42 +2067,65 @@ async function handler(req, context) {
         const resumeAgeMs = resumeUpdatedTs ? Math.max(0, Date.now() - resumeUpdatedTs) : 0;
 
         // Hard stall detector: queued forever with no handler entry marker => label stalled.
-        if (resumeDoc && resumeStatus === "queued" && resumeAgeMs > 90_000) {
-          const sessionDocId = `_import_session_${sessionId}`;
-          const sessionDocForStall = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
-          const enteredTs = Date.parse(String(sessionDocForStall?.resume_worker_handler_entered_at || "")) || 0;
+        // Increased from 90s to 180s to allow more time for XAI enrichment calls
+        // Wrapped in try-catch to prevent 500 errors from crashing the status endpoint
+        try {
+          if (resumeDoc && resumeStatus === "queued" && resumeAgeMs > 180_000) {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocForStall = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+            const enteredTs = Date.parse(String(sessionDocForStall?.resume_worker_handler_entered_at || "")) || 0;
+            const heartbeatTs = Date.parse(String(sessionDocForStall?.resume_worker_heartbeat_at || "")) || 0;
+            // Check for last_finished_at - if set recently, worker completed successfully
+            const finishedTs = Date.parse(String(
+              sessionDocForStall?.resume_worker_last_finished_at ||
+              resumeDoc?.last_finished_at || ""
+            )) || 0;
 
-          // If the worker never reached the handler after the resume doc was queued/updated, it's a gateway/host-key rejection.
-          if (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs)) {
-            const stalledAt = nowIso();
-            resumeStatus = "stalled";
+            // Check for recent activity: handler entry OR heartbeat OR completion within 180s
+            const mostRecentActivityTs = Math.max(enteredTs, heartbeatTs, finishedTs);
+            const hasRecentActivity = mostRecentActivityTs && (Date.now() - mostRecentActivityTs < 180_000);
 
-            await upsertDoc(container, {
-              ...resumeDoc,
-              status: "stalled",
-              stalled_at: stalledAt,
-              last_error: {
-                code: "resume_stalled_no_worker_entry",
-                message: "Resume doc queued > 90s with no resume-worker handler entry marker",
-              },
-              updated_at: stalledAt,
-              lock_expires_at: null,
-            }).catch(() => null);
+            // Check if resume doc indicates completion (don't mark completed work as stalled)
+            const resumeIsComplete = resumeDoc?.status === "complete" ||
+                                     (finishedTs && finishedTs >= resumeUpdatedTs);
 
-            if (sessionDocForStall && typeof sessionDocForStall === "object") {
+            // If the worker never reached the handler after the resume doc was queued/updated, it's a gateway/host-key rejection.
+            // Also don't mark as stalled if we have a recent heartbeat (worker is still running)
+            // Also don't mark as stalled if the worker actually completed successfully
+            if (!hasRecentActivity && !resumeIsComplete && (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs))) {
+              const stalledAt = nowIso();
+              resumeStatus = "stalled";
+
               await upsertDoc(container, {
-                ...sessionDocForStall,
-                resume_error: "resume_stalled_no_worker_entry",
-                resume_error_details: {
-                  root_cause: "resume_stalled_no_worker_entry",
-                  message: "Resume doc queued > 90s and resume-worker handler entry marker never updated",
-                  updated_at: stalledAt,
+                ...resumeDoc,
+                status: "stalled",
+                stalled_at: stalledAt,
+                last_error: {
+                  code: "resume_stalled_no_worker_entry",
+                  message: "Resume doc queued > 180s with no resume-worker handler entry marker",
                 },
-                resume_needed: true,
                 updated_at: stalledAt,
+                lock_expires_at: null,
               }).catch(() => null);
+
+              if (sessionDocForStall && typeof sessionDocForStall === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocForStall,
+                  resume_error: "resume_stalled_no_worker_entry",
+                  resume_error_details: {
+                    root_cause: "resume_stalled_no_worker_entry",
+                    message: "Resume doc queued > 180s and resume-worker handler entry marker never updated",
+                    updated_at: stalledAt,
+                  },
+                  resume_needed: true,
+                  updated_at: stalledAt,
+                }).catch(() => null);
+              }
             }
           }
+        } catch (stallCheckErr) {
+          console.error(`[import-status] Stall check error for session ${sessionId}: ${stallCheckErr?.message}`, stallCheckErr?.stack);
+          // Don't re-throw - continue with other processing to avoid 500 errors
         }
 
         let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
@@ -2112,7 +2142,7 @@ async function handler(req, context) {
           if (resumeErr === "resume_no_progress_no_attempts") {
             const stuckWindowMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
               ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-              : 90_000;
+              : 180_000;
 
             const plannedReason = normalizeKey(
               activeResume?.planned_fields_reason ||
@@ -2181,7 +2211,7 @@ async function handler(req, context) {
 
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
           ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-          : 90_000;
+          : 180_000;
 
         let watchdog_stuck_queued = false;
         let watchdog_last_finished_at = null;
@@ -2486,7 +2516,11 @@ async function handler(req, context) {
               }
             } catch {}
           }
-        } catch {}
+        } catch (policyErr) {
+          // Log but don't fail the entire status call - policy check is non-critical
+          console.error("[import-status] Exception in single-company policy check:", policyErr?.message || policyErr);
+          try { console.log("[import-status] policy_error_stack:", policyErr?.stack); } catch {}
+        }
 
         if (!STATUS_NO_ORCHESTRATION &&
           canTrigger &&
@@ -2686,6 +2720,17 @@ async function handler(req, context) {
                     }),
                 updated_at: nowIso(),
               }).catch(() => null);
+
+              // After resume-worker completes, refresh saved_company_ids from the updated session doc
+              // This fixes the timing race where the response would show stale zeros
+              if (triggerOk && Array.isArray(sessionDocAfter.saved_company_ids_verified) && sessionDocAfter.saved_company_ids_verified.length > 0) {
+                saved_company_ids_verified = sessionDocAfter.saved_company_ids_verified;
+                if (typeof sessionDocAfter.saved_verified_count === "number" && Number.isFinite(sessionDocAfter.saved_verified_count)) {
+                  saved_verified_count = sessionDocAfter.saved_verified_count;
+                } else {
+                  saved_verified_count = saved_company_ids_verified.length;
+                }
+              }
             }
           } catch {}
 
@@ -3083,6 +3128,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];
@@ -4149,7 +4197,7 @@ async function handler(req, context) {
           if (resumeErr === "resume_no_progress_no_attempts") {
             const stuckWindowMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
               ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-              : 90_000;
+              : 180_000;
 
             const plannedReason = normalizeKey(
               activeResume?.planned_fields_reason ||
@@ -4218,7 +4266,7 @@ async function handler(req, context) {
 
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
           ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-          : 90_000;
+          : 180_000;
 
         let watchdog_stuck_queued = false;
         let watchdog_last_finished_at = null;
@@ -4532,7 +4580,11 @@ async function handler(req, context) {
               }
             } catch {}
           }
-        } catch {}
+        } catch (policyErr) {
+          // Log but don't fail the entire status call - policy check is non-critical
+          console.error("[import-status] Exception in single-company policy check:", policyErr?.message || policyErr);
+          try { console.log("[import-status] policy_error_stack:", policyErr?.stack); } catch {}
+        }
 
         if (!STATUS_NO_ORCHESTRATION &&
           canTrigger &&
@@ -4732,6 +4784,17 @@ async function handler(req, context) {
                     }),
                 updated_at: nowIso(),
               }).catch(() => null);
+
+              // After resume-worker completes, refresh saved_company_ids from the updated session doc
+              // This fixes the timing race where the response would show stale zeros
+              if (triggerOk && Array.isArray(sessionDocAfter.saved_company_ids_verified) && sessionDocAfter.saved_company_ids_verified.length > 0) {
+                saved_company_ids_verified = sessionDocAfter.saved_company_ids_verified;
+                if (typeof sessionDocAfter.saved_verified_count === "number" && Number.isFinite(sessionDocAfter.saved_verified_count)) {
+                  saved_verified_count = sessionDocAfter.saved_verified_count;
+                } else {
+                  saved_verified_count = saved_company_ids_verified.length;
+                }
+              }
             }
           } catch {}
 
@@ -5073,6 +5136,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];
@@ -5326,6 +5392,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];
@@ -5560,6 +5629,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];
@@ -5880,6 +5952,9 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              // Current enrichment status for real-time UI display
+              current_field: sessionDoc?.resume_worker_current_field || null,
+              current_company: sessionDoc?.resume_worker_current_company || null,
               ...(() => {
                 const missing_fields = [];
                 const session_missing_fields = [];

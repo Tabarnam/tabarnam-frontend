@@ -89,6 +89,51 @@ function resolveBuildIdFromEnvOrGit() {
   return "unknown";
 }
 
+// Auto-generate notification sound manifest from public/sounds/notifications/*.mp3
+// Drop new .mp3 files into that folder — they'll be picked up automatically on next build.
+const generateSoundManifest = {
+  name: "generate-sound-manifest",
+  apply: "build",
+  writeBundle() {
+    const soundsDir = resolve(__dirname, "public/sounds/notifications");
+    const destDir = resolve(__dirname, "dist/sounds/notifications");
+
+    if (!fs.existsSync(soundsDir)) {
+      console.warn("⚠ public/sounds/notifications/ not found — skipping sound manifest");
+      return;
+    }
+
+    const files = fs
+      .readdirSync(soundsDir)
+      .filter((f) => /\.(mp3|ogg|wav|m4a|webm)$/i.test(f))
+      .sort();
+
+    fs.mkdirSync(destDir, { recursive: true });
+    const dest = path.join(destDir, "manifest.json");
+    fs.writeFileSync(dest, JSON.stringify(files, null, 2), "utf8");
+    console.log(`✓ Sound manifest: ${files.length} file(s) → dist/sounds/notifications/manifest.json`);
+  },
+};
+
+// Also generate manifest during dev so the hook can fetch it from /sounds/notifications/manifest.json
+const generateSoundManifestDev = {
+  name: "generate-sound-manifest-dev",
+  apply: "serve",
+  configureServer() {
+    const soundsDir = resolve(__dirname, "public/sounds/notifications");
+    if (!fs.existsSync(soundsDir)) return;
+
+    const files = fs
+      .readdirSync(soundsDir)
+      .filter((f) => /\.(mp3|ogg|wav|m4a|webm)$/i.test(f))
+      .sort();
+
+    const dest = path.join(soundsDir, "manifest.json");
+    fs.writeFileSync(dest, JSON.stringify(files, null, 2), "utf8");
+    console.log(`✓ Sound manifest (dev): ${files.length} file(s) → public/sounds/notifications/manifest.json`);
+  },
+};
+
 // Custom plugin to copy staticwebapp.config.json to dist/
 const copyStaticWebAppConfig = {
   name: "copy-staticwebapp-config",
@@ -405,7 +450,7 @@ export default defineConfig(({ mode }) => {
   const proxyHeaders = isNonEmptyString(FUNCTIONS_KEY) ? { "x-functions-key": FUNCTIONS_KEY } : undefined;
 
   return {
-    plugins: [react(), devGoogleMiddleware, copyStaticWebAppConfig, emitBuildIdFile],
+    plugins: [react(), devGoogleMiddleware, copyStaticWebAppConfig, emitBuildIdFile, generateSoundManifest, generateSoundManifestDev],
     resolve: {
       alias: {
         "@": resolve(__dirname, "src"),

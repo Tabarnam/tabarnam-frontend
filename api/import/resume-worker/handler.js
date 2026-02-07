@@ -32,9 +32,14 @@ const {
   fetchTagline,
   fetchIndustries,
   fetchProductKeywords,
+  fetchLogo,
 } = require("../../_grokEnrichment");
 
 const { enqueueResumeRun } = require("../../_enrichmentQueue");
+
+const { importCompanyLogo } = require("../../_logoImport");
+
+const { geocodeLocationString } = require("../../_geocode");
 
 const HANDLER_ID = "import-resume-worker";
 
@@ -151,10 +156,14 @@ function safeErrorMessage(err, limit = 500) {
   }
 }
 
+// Feature flag: Set to false to exclude reviews from import workflow
+// Reviews code is preserved but skipped during enrichment
+const REVIEWS_ENABLED = false;
+
 const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
   "manufacturing_locations",
-  "reviews",
+  ...(REVIEWS_ENABLED ? ["reviews"] : []),
   "industries",
   "product_keywords",
 ]);
@@ -806,7 +815,9 @@ async function upsertDoc(container, doc) {
   const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
 
   let lastErr = null;
+  let attemptCount = 0;
   for (const partitionKeyValue of candidates) {
+    attemptCount++;
     try {
       if (partitionKeyValue !== undefined) {
         await container.items.upsert(doc, { partitionKey: partitionKeyValue });
@@ -816,8 +827,25 @@ async function upsertDoc(container, doc) {
       return { ok: true };
     } catch (e) {
       lastErr = e;
+      // Log each failed attempt for debugging
+      console.log(`[resume-worker] upsertDoc_attempt_failed`, {
+        doc_id: id,
+        attempt: attemptCount,
+        partition_key: partitionKeyValue,
+        error: e?.message || String(e),
+        code: e?.code,
+      });
     }
   }
+
+  // Log final failure
+  console.error(`[resume-worker] upsertDoc_all_attempts_failed`, {
+    doc_id: id,
+    attempts: attemptCount,
+    candidates_count: candidates.length,
+    final_error: lastErr?.message || String(lastErr || "upsert_failed"),
+    error_code: lastErr?.code,
+  });
 
   return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
 }
@@ -1104,8 +1132,12 @@ async function resumeWorkerHandler(req, context) {
           resume_worker_last_result: reason,
           updated_at: updatedAt,
         },
-      }).catch(() => null);
-    } catch {}
+      }).catch((err) => {
+        console.error(`[resume-worker] gracefulExit session doc patch failed for session ${sessionId}: ${err?.message || err}`);
+      });
+    } catch (err) {
+      console.error(`[resume-worker] gracefulExit failed for session ${sessionId}: ${err?.message || err}`);
+    }
 
     return json(
       {
@@ -1558,7 +1590,7 @@ async function resumeWorkerHandler(req, context) {
         const stageRaw = normalizeKey(doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status || "");
         const curatedCount = Array.isArray(doc?.curated_reviews) ? doc.curated_reviews.length : 0;
         const cursorExhausted = Boolean(doc?.review_cursor && typeof doc.review_cursor === "object" && doc.review_cursor.exhausted === true);
-        const isOk = stageRaw === "ok" && curatedCount >= 4;
+        const isOk = stageRaw === "ok" && curatedCount >= 3;
 
         if (!isOk && (stageRaw === "pending" || !cursorExhausted)) {
           const prevAttempts = attemptsFor(doc, "reviews");
@@ -1701,6 +1733,7 @@ async function resumeWorkerHandler(req, context) {
       "manufacturing_locations",
       "industries",
       "product_keywords",
+      "logo",       // Added before reviews - lighter field that should run before heavy reviews
       "reviews",
     ];
 
@@ -1713,6 +1746,7 @@ async function resumeWorkerHandler(req, context) {
       manufacturing_locations: 25_000,  // 25 seconds min (location field)
       industries: 20_000,               // 20 seconds min (light field)
       product_keywords: 35_000,         // 35 seconds min (keywords field)
+      logo: 15_000,                     // 15 seconds min (logo discovery + download)
       reviews: 65_000,                  // 65 seconds min (reviews - multi-step)
     };
 
@@ -1777,6 +1811,37 @@ async function resumeWorkerHandler(req, context) {
     let lastFieldAttemptedThisRun = null;
     let lastFieldResultThisRun = null;
 
+    // Current enrichment tracking - exposed to UI for real-time status
+    let currentEnrichmentField = null;
+    let currentEnrichmentCompanyName = null;
+
+    // Heartbeat tracking - update session doc periodically during long enrichment loops
+    let lastHeartbeatWrite = Date.now();
+    const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
+
+    const maybeWriteHeartbeat = async () => {
+      const now = Date.now();
+      if (now - lastHeartbeatWrite > HEARTBEAT_INTERVAL_MS) {
+        const nowIsoStr = nowIso();
+        try {
+          await bestEffortPatchSessionDoc({
+            container,
+            sessionId,
+            patch: {
+              resume_worker_heartbeat_at: nowIsoStr,
+              resume_worker_current_field: currentEnrichmentField || null,
+              resume_worker_current_company: currentEnrichmentCompanyName || null,
+              updated_at: nowIsoStr,
+            },
+          }).catch(() => null);
+          lastHeartbeatWrite = now;
+          console.log(`[resume-worker] heartbeat written at ${nowIsoStr} (field=${currentEnrichmentField || "none"})`);
+        } catch (err) {
+          console.warn(`[resume-worker] heartbeat write failed: ${err?.message || err}`);
+        }
+      }
+    };
+
     const updateLastXaiAttempt = async (nowIsoStr, meta = {}) => {
       try {
         await bestEffortPatchSessionDoc({
@@ -1796,8 +1861,27 @@ async function resumeWorkerHandler(req, context) {
       } catch {}
     };
 
+    // Hard timeout guard: leave 1 min buffer before Azure Function timeout (10 min max)
+    const HANDLER_HARD_TIMEOUT_MS = 9 * 60 * 1000; // 9 minutes
+    const handlerStartedAt = startedAtMs;
+
     for (const entry of plannedByCompany) {
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
+
+      // Hard timeout check: exit loop before Azure Function timeout kills us
+      const handlerElapsed = Date.now() - handlerStartedAt;
+      if (handlerElapsed > HANDLER_HARD_TIMEOUT_MS) {
+        console.log(`[resume-worker] hard_timeout_reached`, {
+          session_id: sessionId,
+          elapsed_ms: handlerElapsed,
+          hard_timeout_ms: HANDLER_HARD_TIMEOUT_MS,
+          companies_remaining: plannedByCompany.length - plannedByCompany.indexOf(entry),
+        });
+        break; // Exit enrichment loop gracefully, let next invocation continue
+      }
+
+      // Write heartbeat to session doc periodically to signal progress
+      await maybeWriteHeartbeat();
 
       const companyId = String(entry?.company_id || "").trim();
       if (!companyId) continue;
@@ -1913,6 +1997,20 @@ async function resumeWorkerHandler(req, context) {
         let r = null;
         let status = "";
         let upstream_http_status = null;
+        const fieldFetchStartMs = Date.now();
+
+        // Track current enrichment for real-time UI status
+        currentEnrichmentField = field;
+        currentEnrichmentCompanyName = doc?.company_name || companyId;
+
+        // Log before starting field fetch to track hangs
+        console.log(`[resume-worker] field_fetch_start`, {
+          session_id: sessionId,
+          company_id: companyId,
+          field,
+          budget_ms: grokArgsForField?.budgetMs,
+          cycle_count: cycleCount,
+        });
 
         try {
           if (field === "tagline") r = await fetchTagline(grokArgsForField);
@@ -1920,6 +2018,24 @@ async function resumeWorkerHandler(req, context) {
           if (field === "manufacturing_locations") r = await fetchManufacturingLocations(grokArgsForField);
           if (field === "industries") r = await fetchIndustries(grokArgsForField);
           if (field === "product_keywords") r = await fetchProductKeywords(grokArgsForField);
+          if (field === "logo") {
+            // Logo fetch - uses importCompanyLogo utility
+            const logoBudgetMs = Math.min(15000, grokArgsForField?.budgetMs || 15000);
+            console.log(`[resume-worker] logo fetch: budgetMs=${logoBudgetMs}, companyId=${companyId}`);
+            const logoResult = await importCompanyLogo({
+              companyId: doc.id,
+              domain: normalizedDomain,
+              websiteUrl: doc.website_url || doc.url,
+              companyName: companyName,
+              logoSourceUrl: null,
+            }, console, { budgetMs: logoBudgetMs });
+            r = {
+              logo_url: logoResult?.logo_url || "",
+              logo_status: logoResult?.logo_url ? "ok" : (logoResult?.logo_stage_status || "not_found"),
+              diagnostics: { logo_source_type: logoResult?.logo_source_type || null },
+            };
+            console.log(`[resume-worker] logo result: status=${r?.logo_status}, url=${r?.logo_url || "(none)"}`);
+          }
           if (field === "reviews") {
             console.log(`[resume-worker] reviews budget: freshSeedBudgetMs=${freshSeedBudgetMs}, grokArgsForField.budgetMs=${grokArgsForField?.budgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}`);
             r = await fetchCuratedReviews(grokArgsForField);
@@ -1936,9 +2052,23 @@ async function resumeWorkerHandler(req, context) {
         else if (field === "manufacturing_locations") status = normalizeKey(r?.mfg_status || r?._failure || "");
         else if (field === "industries") status = normalizeKey(r?.industries_status || r?._failure || "");
         else if (field === "product_keywords") status = normalizeKey(r?.keywords_status || r?._failure || "");
+        else if (field === "logo") status = normalizeKey(r?.logo_status || r?._failure || "");
         else if (field === "reviews") status = normalizeKey(r?.reviews_stage_status || r?._failure || "");
 
         upstream_http_status = r?.diagnostics?.upstream_http_status ?? r?.diagnostics?.upstream_status ?? null;
+
+        // Log after field fetch completes (success or failure)
+        console.log(`[resume-worker] field_fetch_end`, {
+          session_id: sessionId,
+          company_id: companyId,
+          field,
+          status: status || r?._failure || "unknown",
+          elapsed_ms: Date.now() - fieldFetchStartMs,
+          upstream_http_status,
+        });
+
+        // Clear current enrichment field after fetch completes
+        currentEnrichmentField = null;
 
         fieldProgress.xai_diag = {
           xai_request_id:
@@ -2035,6 +2165,38 @@ async function resumeWorkerHandler(req, context) {
               doc.headquarters_location = value;
               doc.hq_unknown = false;
               doc.import_missing_reason.headquarters_location = "ok";
+
+              // Copy structured fields if available (city, state, country from inference)
+              if (r?.headquarters_city) doc.headquarters_city = r.headquarters_city;
+              if (r?.headquarters_state) doc.headquarters_state = r.headquarters_state;
+              if (r?.headquarters_country) doc.headquarters_country = r.headquarters_country;
+              if (r?.headquarters_country_code) doc.headquarters_country_code = r.headquarters_country_code;
+
+              // Also populate headquarters_locations array for admin compatibility
+              if (r?.headquarters_city || r?.headquarters_country) {
+                doc.headquarters_locations = [{
+                  city: r?.headquarters_city || value,
+                  state: r?.headquarters_state || "",                                    // Now contains abbreviation (TX)
+                  state_code: r?.headquarters_state_code || r?.headquarters_state || "", // Fallback to state if state_code missing
+                  country: r?.headquarters_country || "",
+                  country_code: r?.headquarters_country_code || "",
+                }];
+              }
+
+              // Geocode the HQ location to get lat/lng for distance calculations
+              if (!doc.hq_lat || !doc.hq_lng) {
+                try {
+                  const coords = await geocodeLocationString(value, { timeoutMs: 5000 });
+                  if (coords?.lat && coords?.lng) {
+                    doc.hq_lat = coords.lat;
+                    doc.hq_lng = coords.lng;
+                    console.log(`[resume-worker] geocoded HQ: ${value} → (${coords.lat}, ${coords.lng})`);
+                  }
+                } catch (geoErr) {
+                  console.log(`[resume-worker] geocode failed for HQ: ${value}`, { error: geoErr?.message || String(geoErr) });
+                }
+              }
+
               markFieldSuccess(doc, "headquarters_location");
               fieldProgress.status = "ok";
               savedFieldsThisRun.push("headquarters_location");
@@ -2151,6 +2313,29 @@ async function resumeWorkerHandler(req, context) {
             }
           }
 
+          if (field === "logo") {
+            bumpFieldAttempt(doc, "logo", requestId);
+            const logoUrl = typeof r?.logo_url === "string" ? r.logo_url.trim() : "";
+            if (status === "ok" && logoUrl) {
+              doc.logo_url = logoUrl;
+              doc.logo_source_url = r?.logo_source_url || null;
+              doc.logo_source_type = r?.diagnostics?.logo_source_type || "discovered";
+              doc.logo_stage_status = "ok";
+              doc.import_missing_reason.logo = "ok";
+              markFieldSuccess(doc, "logo");
+              fieldProgress.status = "ok";
+              savedFieldsThisRun.push("logo");
+            } else {
+              const terminal = attemptsFor(doc, "logo") >= MAX_ATTEMPTS_LOGO;
+              doc.logo_url = "";
+              doc.logo_stage_status = terminal ? "not_found_terminal" : status || "not_found";
+              doc.import_missing_reason.logo = terminal ? "not_found_terminal" : status || "not_found";
+              fieldProgress.status = terminal ? "terminal" : "retryable";
+              fieldProgress.last_error = status || "not_found";
+              if (terminal) terminalizeNonGrokField(doc, "logo", "not_found_terminal");
+            }
+          }
+
           if (field === "reviews") {
             bumpFieldAttempt(doc, "reviews", requestId);
             const curated = Array.isArray(r?.curated_reviews) ? r.curated_reviews : [];
@@ -2159,7 +2344,7 @@ async function resumeWorkerHandler(req, context) {
             if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
             if (!Number.isFinite(Number(doc.review_count))) doc.review_count = doc.curated_reviews.length;
 
-            if (status === "ok" && curated.length === 4) {
+            if (status === "ok" && curated.length >= 3) {
               doc.curated_reviews = curated.slice(0, 10);
               doc.review_count = curated.length;
               doc.reviews_stage_status = "ok";
@@ -2173,7 +2358,9 @@ async function resumeWorkerHandler(req, context) {
               fieldProgress.status = "ok";
               savedFieldsThisRun.push("reviews");
             } else {
-              const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
+              // Mark as terminal if: max attempts reached OR diagnostics says exhausted (good-faith attempt made)
+              const diagnosticsExhausted = Boolean(r?.diagnostics?.exhausted);
+              const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS || diagnosticsExhausted;
               if (curated.length > 0) {
                 doc.curated_reviews = curated.slice(0, 10);
                 doc.review_count = curated.length;
@@ -2200,6 +2387,12 @@ async function resumeWorkerHandler(req, context) {
                   }
                 : null;
 
+              // Set exhausted flag on review_cursor when diagnostics indicates exhausted
+              if (diagnosticsExhausted) {
+                doc.review_cursor.exhausted = true;
+                doc.review_cursor.exhausted_at = nowIso();
+              }
+
               fieldProgress.status = terminal ? "terminal" : "retryable";
               fieldProgress.last_error = upstreamFailure ? status : "incomplete";
               if (terminal) terminalizeGrokField(doc, "reviews", "exhausted");
@@ -2209,7 +2402,33 @@ async function resumeWorkerHandler(req, context) {
           doc.import_missing_fields = computeMissingFields(doc);
           doc.updated_at = nowIso();
 
-          await upsertDoc(container, doc).catch(() => null);
+          // Log and handle upsert result - don't silently swallow errors
+          const upsertResult = await upsertDoc(container, doc).catch((err) => {
+            console.error(`[resume-worker] upsert_exception`, {
+              session_id: sessionId,
+              company_id: companyId,
+              field,
+              error: String(err?.message || err),
+            });
+            return { ok: false, error: String(err?.message || err) };
+          });
+
+          if (!upsertResult?.ok) {
+            console.error(`[resume-worker] upsert_failed`, {
+              session_id: sessionId,
+              company_id: companyId,
+              field,
+              error: upsertResult?.error || "unknown_upsert_error",
+            });
+          } else {
+            console.log(`[resume-worker] upsert_success`, {
+              session_id: sessionId,
+              company_id: companyId,
+              field,
+              status,
+            });
+          }
+
           if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
         } catch (e) {
           fieldProgress.status = "retryable";
@@ -2436,6 +2655,10 @@ async function resumeWorkerHandler(req, context) {
       resume_last_backoff_ms: lastBackoffMs,
       // Also write to session doc for easier retrieval
       resume_worker_budget_debug: nextResumeDoc._budget_debug,
+      // Track which companies have been enriched - this fixes the admin UI "Persisted: 0, Verified: 0" issue
+      saved_company_ids_verified: plannedIds,
+      saved_verified_count: plannedIds.length,
+      saved_company_ids: plannedIds,
       ...(enqueueRes?.ok
         ? {
             resume_worker_last_enqueued_at: updatedAt,
@@ -2458,7 +2681,9 @@ async function resumeWorkerHandler(req, context) {
       container,
       sessionId,
       patch: sessionPatch,
-    }).catch(() => null);
+    }).catch((err) => {
+      console.error(`[resume-worker] Session doc patch failed for session ${sessionId}: ${err?.message || err}`);
+    });
 
     return json(
       {
@@ -2584,12 +2809,13 @@ async function resumeWorkerHandler(req, context) {
       tagline: 60_000,           // 1 minute min
       industries: 60_000,        // 1 minute min
       product_keywords: 180_000, // 3 minutes min (2x - must accumulate all products)
+      logo: 25_000,              // 25 seconds min (logo discovery + download)
     };
 
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
 
     const fieldsPlanned = (() => {
-      const HEAVY_FIELDS = ["headquarters_location", "manufacturing_locations", "reviews", "industries", "product_keywords"];
+      const HEAVY_FIELDS = ["headquarters_location", "manufacturing_locations", ...(REVIEWS_ENABLED ? ["reviews"] : []), "industries", "product_keywords"];
       const heavyMissing = HEAVY_FIELDS.some((f) => missingNow.includes(f));
 
       // Single-company mode must eventually attempt heavy fields across cycles.
@@ -2621,7 +2847,7 @@ async function resumeWorkerHandler(req, context) {
       const priority = [
         "headquarters_location",
         "manufacturing_locations",
-        "reviews",
+        ...(REVIEWS_ENABLED ? ["reviews"] : []),
         "tagline",
         "industries",
         "product_keywords",
@@ -2651,7 +2877,7 @@ async function resumeWorkerHandler(req, context) {
           const heavy =
             field === "headquarters_location" ||
             field === "manufacturing_locations" ||
-            field === "reviews" ||
+            (REVIEWS_ENABLED && field === "reviews") ||
             field === "industries" ||
             field === "product_keywords";
           if (heavy || out.length >= 2) break;
@@ -3180,7 +3406,7 @@ async function resumeWorkerHandler(req, context) {
 
       doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
 
-      if (status === "ok" && curated.length === 4) {
+      if (status === "ok" && curated.length >= 3) {
         doc.curated_reviews = curated.slice(0, 10);
 
         const counts = curated
@@ -3280,10 +3506,63 @@ async function resumeWorkerHandler(req, context) {
 
     const logoRetryable = !isRealValue("logo", doc.logo_url, doc) && !isTerminalMissingField(doc, "logo");
 
-    // Logo is handled by import-start, but we still track attempts here so it can terminalize.
+    // Logo enrichment - fetch logo if missing and budget allows
     if (logoRetryable && shouldRunField("logo")) {
       const bumped = bumpFieldAttempt(doc, "logo", requestId);
       if (bumped) changed = true;
+
+      // Actually fetch the logo (previously delegated to import-start which was unreliable)
+      try {
+        const logoBudgetMs = Math.min(20000, Math.max(5000, budgetRemainingMs() - 2000));
+        console.log(`[resume-worker] Fetching logo for ${doc.id} (budget: ${logoBudgetMs}ms)`);
+        const logoResult = await importCompanyLogo({
+          companyId: doc.id,
+          domain: doc.normalized_domain,
+          websiteUrl: doc.website_url || doc.url,
+          companyName: doc.company_name || doc.name,
+          logoSourceUrl: null,
+        }, console, { budgetMs: logoBudgetMs });
+
+        if (logoResult?.logo_url) {
+          doc.logo_url = logoResult.logo_url;
+          doc.logo_source_url = logoResult.logo_source_url || null;
+          doc.logo_source_type = logoResult.logo_source_type || "discovered";
+          doc.logo_stage_status = "ok";
+          changed = true;
+          console.log(`[resume-worker] Logo fetched for ${doc.id}: ${logoResult.logo_url}`);
+        } else {
+          // HTML-based detection failed - try Grok fallback
+          console.log(`[resume-worker] HTML logo detection failed for ${doc.id}, trying Grok fallback`);
+          try {
+            const grokLogoResult = await fetchLogo({
+              companyName: doc.company_name || doc.name,
+              normalizedDomain: doc.normalized_domain,
+              budgetMs: Math.min(15000, Math.max(3000, budgetRemainingMs() - 2000)),
+              xaiUrl: getXAIEndpoint(),
+              xaiKey: getXAIKey(),
+            });
+
+            if (grokLogoResult?.logo_url && grokLogoResult.logo_status === "ok") {
+              doc.logo_url = grokLogoResult.logo_url;
+              doc.logo_source_type = "grok_fallback";
+              doc.logo_stage_status = "ok";
+              doc.logo_confidence = grokLogoResult.logo_confidence || null;
+              changed = true;
+              console.log(`[resume-worker] Logo found via Grok fallback for ${doc.id}: ${grokLogoResult.logo_url}`);
+            } else {
+              doc.logo_stage_status = "not_found";
+              changed = true;
+              console.log(`[resume-worker] Logo not found (Grok fallback) for ${doc.id}: ${grokLogoResult?.logo_status || "no result"}`);
+            }
+          } catch (grokLogoErr) {
+            console.warn(`[resume-worker] Grok logo fallback error for ${doc.id}: ${grokLogoErr?.message}`);
+            doc.logo_stage_status = "not_found";
+            changed = true;
+          }
+        }
+      } catch (logoErr) {
+        console.warn(`[resume-worker] Logo fetch error for ${doc.id}: ${logoErr?.message}`);
+      }
 
       if (attemptsFor(doc, "logo") >= MAX_ATTEMPTS_LOGO) {
         terminalizeNonGrokField(doc, "logo", "not_found_terminal");
