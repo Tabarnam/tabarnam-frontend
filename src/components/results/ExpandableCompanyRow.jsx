@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Copy } from "lucide-react";
+import ShareButton from "@/components/ShareButton";
 import ReviewsWidget from "@/components/ReviewsWidget";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
@@ -9,7 +10,6 @@ import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQScore } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
-import ShareButton from "@/components/ShareButton";
 
 // Renders text with URLs converted to clickable links
 function TextWithLinks({ text, className = "" }) {

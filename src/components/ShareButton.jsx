@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Share2, Copy } from "lucide-react";
+import { Copy } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -92,11 +92,33 @@ export default function ShareButton({ company, className = "" }) {
       <button
         type="button"
         onClick={handleShare}
-        className={`inline-flex items-center justify-center w-11 h-11 min-w-[44px] min-h-[44px] rounded-full text-gray-500 hover:text-[#649BA0] hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-[#649BA0] focus:ring-offset-1 ${className}`}
+        className={`inline-flex items-center justify-center w-11 h-11 min-w-[44px] min-h-[44px] rounded-full hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-[#3F97A2] focus:ring-offset-1 ${className}`}
         aria-label={`Share ${companyName} details`}
         title="Share this company"
       >
-        <Share2 className="w-4 h-4" />
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <path
+            d="M12 3L12 15M12 3L8 7M12 3L16 7"
+            stroke="#3F97A2"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M4 14V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V14"
+            stroke="#3F97A2"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </button>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -117,14 +139,14 @@ export default function ShareButton({ company, className = "" }) {
                 type="text"
                 readOnly
                 value={shareFullText}
-                className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm bg-gray-50 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#649BA0]"
+                className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm bg-gray-50 text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#3F97A2]"
                 onFocus={(e) => e.target.select()}
                 onClick={(e) => e.stopPropagation()}
               />
               <button
                 type="button"
                 onClick={handleCopy}
-                className="inline-flex items-center justify-center gap-1.5 rounded-md bg-[#649BA0] px-3 py-2 text-sm font-medium text-white hover:bg-[#4e8388] transition-colors focus:outline-none focus:ring-2 focus:ring-[#649BA0] focus:ring-offset-1"
+                className="inline-flex items-center justify-center gap-1.5 rounded-md bg-[#3F97A2] px-3 py-2 text-sm font-medium text-white hover:bg-[#4e8388] transition-colors focus:outline-none focus:ring-2 focus:ring-[#3F97A2] focus:ring-offset-1"
                 aria-label="Copy share text"
               >
                 <Copy className="w-4 h-4" />

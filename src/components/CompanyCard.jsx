@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Building2, Globe, Tag } from 'lucide-react';
+import ShareButton from '@/components/ShareButton';
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
