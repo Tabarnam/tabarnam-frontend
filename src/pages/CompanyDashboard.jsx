@@ -18,6 +18,7 @@ import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/s
 import { getProfileCompleteness, getProfileCompletenessLabel } from "@/lib/profileCompleteness";
 
 import AdminHeader from "@/components/AdminHeader";
+import useNotificationSound from "@/hooks/useNotificationSound";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ScrollScrubber from "@/components/ScrollScrubber";
 import AdminEditHistory from "@/components/AdminEditHistory";
@@ -1842,6 +1843,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       } else {
         toast.success(`Fetched ${normalized.length} review${normalized.length === 1 ? "" : "s"}`);
       }
+      playNotification();
     } catch (e) {
       const msg = asString(e?.message).trim() || "Reviews fetch failed";
       const buildIdForToast = getCachedBuildId();
@@ -1864,7 +1866,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
     } finally {
       setLoading(false);
     }
-  }, [includeExisting, onApply, stableId, take]);
+  }, [includeExisting, onApply, playNotification, stableId, take]);
 
   const copyAll = useCallback(async () => {
     if (items.length === 0) return;
@@ -3317,6 +3319,8 @@ async function copyToClipboard(value) {
 }
 
 export default function CompanyDashboard() {
+  const playNotification = useNotificationSound();
+
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
@@ -4461,6 +4465,7 @@ export default function CompanyDashboard() {
 
       setRefreshError(null);
       toast.success("Proposed updates loaded");
+      playNotification();
     } catch (e) {
       // Normalize diagnostics from API wrapper errors (preferred) and plain exceptions.
       const errStatus =
@@ -4543,7 +4548,7 @@ export default function CompanyDashboard() {
       refreshInFlightRef.current = false;
       setRefreshLoading(false);
     }
-  }, [editorDraft, editorOriginalId, normalizeForDiff, proposedValueToInputText, refreshDiffFields]);
+  }, [editorDraft, editorOriginalId, normalizeForDiff, playNotification, proposedValueToInputText, refreshDiffFields]);
 
   const applySelectedProposedReviews = useCallback(
     (selectedReviews) => {
@@ -6341,7 +6346,7 @@ export default function CompanyDashboard() {
 
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <label className="text-sm text-slate-700">Internal notes (legacy)</label>
+                              <label className="text-sm text-slate-700">Paste reviews (Grok / manual)</label>
                               <div className="flex flex-wrap items-center gap-2">
                                 <div className="flex items-center gap-2 text-xs text-slate-700">
                                   <span className="font-medium">Notes → Reviews</span>
@@ -6385,7 +6390,7 @@ export default function CompanyDashboard() {
                               value={asString(editorDraft.notes)}
                               onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}
                               className="min-h-[200px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-                              placeholder="Internal notes…"
+                              placeholder={"Paste Grok review output here\u2026\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
                             />
 
                             {notesToReviewsPreviewMeta ? (
@@ -6427,6 +6432,7 @@ export default function CompanyDashboard() {
                                       <div key={asString(r?.id).trim() || `preview-${idx}`} className="rounded border border-slate-200 bg-white p-2">
                                         <div className="text-xs text-slate-800">
                                           <span className="font-medium">{asString(r?.title).trim() || "(no title)"}</span>
+                                          {asString(r?.source_name).trim() ? <span className="text-slate-500"> · {asString(r?.source_name).trim()}</span> : null}
                                           {asString(r?.author).trim() ? <span className="text-slate-500"> · {asString(r?.author).trim()}</span> : null}
                                           {asString(r?.date).trim() ? <span className="text-slate-500"> · {asString(r?.date).trim()}</span> : null}
                                           {r?.rating != null ? <span className="text-slate-500"> · {String(r.rating)}/5</span> : null}

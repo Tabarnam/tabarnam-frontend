@@ -3,6 +3,7 @@ import { Helmet } from "react-helmet-async";
 import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2 } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
+import useNotificationSound from "@/hooks/useNotificationSound";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
@@ -529,6 +530,35 @@ export default function AdminImport() {
   activeStatusRef.current = activeStatus;
 
   const isSuccessionRunning = successionIndex >= 0;
+
+  // Audio notification on import / succession completion
+  const playNotification = useNotificationSound();
+  const prevActiveStatusRef = useRef(activeStatus);
+
+  useEffect(() => {
+    const prev = prevActiveStatusRef.current;
+    prevActiveStatusRef.current = activeStatus;
+
+    if (activeStatus !== "done" || prev === "done") return;
+
+    // During succession, each sub-import hits "done" then immediately starts the next.
+    // Only play when succession is NOT mid-run (successionIndex < 0 means finished or never started).
+    if (successionIndex >= 0) return;
+
+    playNotification();
+  }, [activeStatus, successionIndex, playNotification]);
+
+  // Also play on succession completion (all items processed)
+  const prevSuccessionIndexRef = useRef(successionIndex);
+  useEffect(() => {
+    const prev = prevSuccessionIndexRef.current;
+    prevSuccessionIndexRef.current = successionIndex;
+
+    // Succession just finished: index went from >= 0 to -1
+    if (prev >= 0 && successionIndex < 0) {
+      playNotification();
+    }
+  }, [successionIndex, playNotification]);
 
   const handleSuccessionCountChange = useCallback((rawValue) => {
     const s = String(rawValue ?? "").trim();
