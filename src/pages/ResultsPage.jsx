@@ -79,6 +79,11 @@ export default function ResultsPage() {
             : Array.isArray(data?.reviews)
               ? data.reviews
               : [];
+
+          if (reviews.length > 0) {
+            console.log("[ResultsPage] loadReviews: loaded", reviews.length, "reviews for", companyId);
+          }
+
           return {
             ...c,
             _reviews: reviews,

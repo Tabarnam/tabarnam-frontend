@@ -4910,6 +4910,14 @@ export default function CompanyDashboard() {
         toast.success(`Added ${savedCount} review${savedCount === 1 ? "" : "s"} (total ${total})`);
       }
 
+      // Auto-clear notes and preview for next paste
+      setEditorDraft((prev) => ({
+        ...(prev && typeof prev === "object" ? prev : {}),
+        notes: "",
+      }));
+      setNotesToReviewsPreview([]);
+      setNotesToReviewsPreviewMeta(null);
+
       if (warnings.length) {
         console.log("[apply-reviews-from-notes] warnings", warnings);
       }
