@@ -480,6 +480,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-cleanup-seed-fallback-dups");
+  require("./admin-cleanup-seed-fallback-dups/index.js");
+  console.log("[api] ✓ admin-cleanup-seed-fallback-dups registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-cleanup-seed-fallback-dups:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-login");
   require("./admin-login/index.js");
   console.log("[api] ✓ admin-login registered");

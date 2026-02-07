@@ -37,6 +37,58 @@ function json(obj, status = 200) {
   };
 }
 
+/**
+ * Deduplicate admin company list by normalized_domain.
+ * Keeps the best record per domain and attaches _duplicates_count
+ * so the admin UI can show a badge when duplicates exist.
+ */
+function deduplicateByDomainAdmin(companies) {
+  if (!Array.isArray(companies) || companies.length <= 1) return companies;
+
+  const byDomain = new Map();
+  const noDomain = [];
+
+  for (const c of companies) {
+    const domain = String(c?.normalized_domain || "").trim().toLowerCase();
+    if (!domain || domain === "unknown") {
+      noDomain.push(c);
+      continue;
+    }
+    if (!byDomain.has(domain)) byDomain.set(domain, []);
+    byDomain.get(domain).push(c);
+  }
+
+  const result = [...noDomain];
+  for (const [, group] of byDomain) {
+    if (group.length === 1) {
+      result.push(group[0]);
+      continue;
+    }
+    // Pick the best record: most reviews → highest profile_completeness → newest _ts
+    group.sort((a, b) => {
+      const cr_a = Array.isArray(a?.curated_reviews) ? a.curated_reviews.length : 0;
+      const cr_b = Array.isArray(b?.curated_reviews) ? b.curated_reviews.length : 0;
+      const ra = Math.max(Number(a?.review_count || 0), cr_a);
+      const rb = Math.max(Number(b?.review_count || 0), cr_b);
+      if (rb !== ra) return rb - ra;
+
+      const pa = Number(a?.profile_completeness || 0);
+      const pb = Number(b?.profile_completeness || 0);
+      if (pb !== pa) return pb - pa;
+
+      const ta = Number(a?._ts || 0);
+      const tb = Number(b?._ts || 0);
+      return tb - ta;
+    });
+    const winner = group[0];
+    winner._duplicates_count = group.length - 1;
+    winner._duplicate_ids = group.slice(1).map((d) => d?.id || d?.company_id).filter(Boolean);
+    result.push(winner);
+  }
+
+  return result;
+}
+
 function getCompaniesContainer() {
   const endpoint = env("COSMOS_DB_ENDPOINT", "");
   const key = env("COSMOS_DB_KEY", "");
@@ -956,11 +1008,15 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           .fetchAll();
 
         const raw = resources || [];
-        const items = raw
+        const allItems = raw
           .filter((d) => d && typeof d === "object")
           .map((d) => normalizeCompanyForResponseWithContractIssues(d));
 
-        context.log("[admin-companies-v2] GET count after soft-delete filter:", items.length);
+        // Deduplicate by normalized_domain — keep the best record per domain,
+        // and attach _duplicates_count so the admin UI can show a badge.
+        const items = deduplicateByDomainAdmin(allItems);
+
+        context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length);
         return json({ items, count: items.length, ...(cosmosTarget ? cosmosTarget : {}) }, 200);
       }
 
@@ -1090,6 +1146,34 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         }
 
         const partitionKeyValue = normalizedDomain;
+
+        // Prevent duplicate creation: if POST (new company) and a non-deleted
+        // record already exists for this domain, block and return the existing ID.
+        if (method === "POST" && normalizedDomain && normalizedDomain !== "unknown") {
+          try {
+            const dupQuery = {
+              query: "SELECT TOP 1 c.id, c.company_name FROM c WHERE c.normalized_domain = @domain AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) ORDER BY c._ts DESC",
+              parameters: [{ name: "@domain", value: normalizedDomain }],
+            };
+            const { resources: dupResults } = await container.items
+              .query(dupQuery, { enableCrossPartitionQuery: true })
+              .fetchAll();
+            const existingByDomain = dupResults?.[0];
+            if (existingByDomain) {
+              return json({
+                ok: false,
+                error: "duplicate_domain",
+                message: `A company with domain "${normalizedDomain}" already exists (${existingByDomain.company_name || "unknown"}). Edit the existing record instead.`,
+                existing_id: existingByDomain.id,
+              }, 409);
+            }
+          } catch (e) {
+            context.log("[admin-companies-v2] POST: domain dedup check failed (proceeding anyway)", {
+              domain: normalizedDomain,
+              error: e?.message,
+            });
+          }
+        }
 
         const reviewCountRaw =
           (typeof base.review_count === "number" ? base.review_count : null) ??

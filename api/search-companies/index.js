@@ -501,6 +501,53 @@ const SELECT_FIELDS = [
   "c.visibility",
 ].join(", ");
 
+/**
+ * Deduplicate companies by normalized_domain.
+ * When multiple records share the same domain, keep the best one
+ * (most reviews → most complete profile → most recently updated).
+ */
+function deduplicateByDomain(companies) {
+  if (!Array.isArray(companies) || companies.length <= 1) return companies;
+
+  const byDomain = new Map();
+  const noDomain = [];
+
+  for (const c of companies) {
+    const domain = String(c?.normalized_domain || "").trim().toLowerCase();
+    if (!domain || domain === "unknown") {
+      noDomain.push(c);
+      continue;
+    }
+    if (!byDomain.has(domain)) byDomain.set(domain, []);
+    byDomain.get(domain).push(c);
+  }
+
+  const result = [...noDomain];
+  for (const [, group] of byDomain) {
+    if (group.length === 1) {
+      result.push(group[0]);
+      continue;
+    }
+    // Pick the best record: most reviews → highest profile_completeness → newest _ts
+    group.sort((a, b) => {
+      const ra = Number(a?.review_count || 0);
+      const rb = Number(b?.review_count || 0);
+      if (rb !== ra) return rb - ra;
+
+      const pa = Number(a?.profile_completeness || 0);
+      const pb = Number(b?.profile_completeness || 0);
+      if (pb !== pa) return pb - pa;
+
+      const ta = Number(a?._ts || 0);
+      const tb = Number(b?._ts || 0);
+      return tb - ta;
+    });
+    result.push(group[0]);
+  }
+
+  return result;
+}
+
 function normalizeStringArray(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === "string") {
@@ -853,18 +900,23 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         .map(mapCompanyToPublic)
         .filter((c) => c && c.id);
 
+      // Deduplicate by normalized_domain — keep only the best record per domain.
+      // This prevents duplicate company records (same domain, different IDs) from
+      // showing multiple times in search results.
+      const deduped = deduplicateByDomain(mapped);
+
       // Attach name-match relevance score so the frontend can prioritise name hits
       if (q_norm) {
-        for (const company of mapped) {
+        for (const company of deduped) {
           company._nameMatchScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
         }
       }
 
       if (sortField) {
-        mapped.sort((a, b) => compareCompanies(sortField, sortDir, a, b));
+        deduped.sort((a, b) => compareCompanies(sortField, sortDir, a, b));
       }
 
-      const paged = mapped.slice(skip, skip + take);
+      const paged = deduped.slice(skip, skip + take);
 
       return json(
         {
@@ -872,7 +924,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           success: true,
           ...(cosmosTarget ? cosmosTarget : {}),
           items: paged,
-          count: mapped.length,
+          count: deduped.length,
           meta: { q: q_raw, sort, skip, take, user_location },
         },
         200,
