@@ -9,6 +9,7 @@ import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQScore } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
+import ShareButton from "@/components/ShareButton";
 
 // Renders text with URLs converted to clickable links
 function TextWithLinks({ text, className = "" }) {
@@ -498,8 +499,11 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-2 border-[#B1DDE3] rounded-lg mb-4 p-6 bg-white cursor-pointer"
+        className="border-2 border-[#B1DDE3] rounded-lg mb-4 p-6 bg-white cursor-pointer relative"
       >
+        <div className="absolute top-2 right-2 z-10">
+          <ShareButton company={company} />
+        </div>
         <div className="grid grid-cols-5 gap-4 mb-6 pb-6 border-b">
           <div className="col-span-2">
             <h2 className="font-bold text-lg text-gray-900">
@@ -668,8 +672,11 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-12 lg:grid-cols-5 gap-x-3 gap-y-2 border border-[#649BA0] rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
+      className="grid grid-cols-12 lg:grid-cols-5 gap-x-3 gap-y-2 border border-[#649BA0] rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors relative"
     >
+      <div className="absolute top-1 right-1 z-10">
+        <ShareButton company={company} />
+      </div>
       <div className="col-span-4 lg:col-span-1">
         <h2 className="font-bold text-gray-900">
           {websiteUrl ? (
