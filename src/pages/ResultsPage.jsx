@@ -1,5 +1,6 @@
 // src/pages/ResultsPage.jsx
 import React, { useEffect, useMemo, useState } from "react";
+import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import PinIcon from "@/assets/tabarnam-pin.jpg";
 import { geocode } from "@/lib/google";
