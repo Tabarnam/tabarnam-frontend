@@ -365,11 +365,8 @@ export default function ResultsPage() {
 
       {/* Column Headers */}
       {results.length > 0 && (
-        <div className="grid grid-cols-12 lg:grid-cols-[minmax(0,_2fr)_minmax(0,_2fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)] gap-3 mb-4">
-          <div className="col-span-4 lg:col-span-1"></div>
-          <div className="col-span-2 lg:col-span-1">
-            <div className="text-right font-semibold" style={{ color: "#649BA0", fontSize: "15px" }}>Sort Results:</div>
-          </div>
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <div className="font-semibold" style={{ color: "#649BA0", fontSize: "15px" }}>Sort Results:</div>
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
               colKey === "manu" ? "Manufacturing" :
@@ -394,29 +391,27 @@ export default function ResultsPage() {
             );
 
             return (
-              <div key={colKey} className="col-span-2 lg:col-span-1 text-center">
-                <div className="flex items-center justify-center gap-1">
-                  {idx === 0 && (
-                    <img
-                      src={PinIcon}
-                      alt="location"
-                      style={{ width: "1.1em", height: "1.1em" }}
-                    />
-                  )}
+              <div key={colKey} className="flex items-center gap-1">
+                {idx === 0 && (
+                  <img
+                    src={PinIcon}
+                    alt="location"
+                    style={{ width: "1.1em", height: "1.1em" }}
+                  />
+                )}
 
-                  {colKey === "stars" ? (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>{button}</TooltipTrigger>
-                        <TooltipContent className="max-w-[280px] text-xs">
-                          <p className="m-0">Quantity & Quality of info on a company, not a score.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : (
-                    button
-                  )}
-                </div>
+                {colKey === "stars" ? (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>{button}</TooltipTrigger>
+                      <TooltipContent className="max-w-[280px] text-xs">
+                        <p className="m-0">Quantity & Quality of info on a company, not a score.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ) : (
+                  button
+                )}
               </div>
             );
           })}
