@@ -4842,9 +4842,10 @@ export default function CompanyDashboard() {
 
     setNotesToReviewsLoading(true);
     try {
-      const res = await apiFetch(`/admin/companies/${encodeURIComponent(companyId)}/apply-reviews-from-notes`, {
+      const res = await apiFetch("/xadmin-api-apply-reviews-from-notes", {
         method: "POST",
         body: {
+          company_id: companyId,
           mode,
           dry_run: dryRun,
           notes_text: notes,

@@ -6,7 +6,7 @@
       "direction": "in",
       "name": "req",
       "methods": ["post", "options"],
-      "route": "admin/companies/{company_id}/apply-reviews-from-notes"
+      "route": "xadmin-api-apply-reviews-from-notes"
     },
     {
       "type": "http",

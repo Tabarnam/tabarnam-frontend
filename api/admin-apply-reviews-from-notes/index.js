@@ -451,9 +451,12 @@ async function adminApplyReviewsFromNotesHandler(req, context, deps = {}) {
   const method = String(req?.method || "").toUpperCase();
   if (method === "OPTIONS") return json({}, 200);
 
+  const body = await readJsonBody(req);
+
   const company_id =
     (context && context.bindingData && (context.bindingData.company_id || context.bindingData.companyId)) ||
     (req && req.params && (req.params.company_id || req.params.companyId)) ||
+    (body && (body.company_id || body.companyId)) ||
     "";
 
   const requestedCompanyId = asString(company_id).trim();
@@ -461,8 +464,6 @@ async function adminApplyReviewsFromNotesHandler(req, context, deps = {}) {
   if (!requestedCompanyId) {
     return json({ ok: false, root_cause: "bad_request", message: "Missing company_id", retryable: false, warnings: [] }, 200);
   }
-
-  const body = await readJsonBody(req);
   const modeRaw = asString(body?.mode).trim().toLowerCase();
   const mode = modeRaw === "replace" ? "replace" : "append";
   const dry_run = Boolean(body?.dry_run ?? body?.dryRun ?? false);
@@ -668,7 +669,7 @@ async function adminApplyReviewsFromNotesHandler(req, context, deps = {}) {
 }
 
 app.http("adminApplyReviewsFromNotes", {
-  route: "admin/companies/{company_id}/apply-reviews-from-notes",
+  route: "xadmin-api-apply-reviews-from-notes",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: (req, context) => adminApplyReviewsFromNotesHandler(req, context),
