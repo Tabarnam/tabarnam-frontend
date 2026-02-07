@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState } from "react";
 import { Share2, Copy } from "lucide-react";
 import {
   Dialog,
@@ -36,7 +36,6 @@ async function copyToClipboard(text) {
 
 export default function ShareButton({ company, className = "" }) {
   const [modalOpen, setModalOpen] = useState(false);
-  const inputRef = useRef(null);
 
   const companyName = getCompanyDisplayName(company) || "this company";
   const tagline = (company?.tagline || "").trim();
@@ -115,7 +114,6 @@ export default function ShareButton({ company, className = "" }) {
           <div className="space-y-4 mt-2">
             <div className="flex items-center gap-2">
               <input
-                ref={inputRef}
                 type="text"
                 readOnly
                 value={shareFullText}
