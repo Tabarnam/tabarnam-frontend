@@ -1903,6 +1903,68 @@ Output STRICT JSON only:
     return valueOut;
   }
 
+  // HTTP validation: verify the URL actually serves an image (not a 404 or HTML page).
+  // Grok frequently returns stale or hallucinated URLs, especially after site migrations.
+  try {
+    const headRes = await fetchWithTimeout(validUrl, { method: "HEAD", timeoutMs: 5000, headers: { "User-Agent": "Mozilla/5.0" } });
+    const httpStatus = Number(headRes.status || 0) || 0;
+    const ct = asString(headRes.headers?.get ? headRes.headers.get("content-type") : "").toLowerCase();
+    const isImage = ct.startsWith("image/") || ct.includes("svg");
+
+    if (httpStatus === 404 || httpStatus === 403 || httpStatus === 410) {
+      console.log(`[fetchLogo] Logo URL returned HTTP ${httpStatus}: ${validUrl}`);
+      const valueOut = {
+        logo_url: null,
+        logo_status: "url_dead",
+        diagnostics: { url: validUrl, http_status: httpStatus, content_type: ct },
+      };
+      if (cacheKey) writeStageCache(cacheKey, valueOut);
+      return valueOut;
+    }
+
+    if (httpStatus >= 200 && httpStatus < 300 && !isImage) {
+      // URL returns 200 but not an image (e.g., HTML error page)
+      console.log(`[fetchLogo] Logo URL returns non-image content-type "${ct}": ${validUrl}`);
+      const valueOut = {
+        logo_url: null,
+        logo_status: "not_image",
+        diagnostics: { url: validUrl, http_status: httpStatus, content_type: ct },
+      };
+      if (cacheKey) writeStageCache(cacheKey, valueOut);
+      return valueOut;
+    }
+  } catch (e) {
+    // If HEAD fails (some servers block it), try GET with range to minimize transfer
+    try {
+      const getRes = await fetchWithTimeout(validUrl, {
+        method: "GET",
+        timeoutMs: 5000,
+        headers: { "User-Agent": "Mozilla/5.0", Range: "bytes=0-0" },
+      });
+      const httpStatus = Number(getRes.status || 0) || 0;
+      if (httpStatus === 404 || httpStatus === 403 || httpStatus === 410) {
+        console.log(`[fetchLogo] Logo URL GET returned HTTP ${httpStatus}: ${validUrl}`);
+        const valueOut = {
+          logo_url: null,
+          logo_status: "url_dead",
+          diagnostics: { url: validUrl, http_status: httpStatus, method: "GET_fallback" },
+        };
+        if (cacheKey) writeStageCache(cacheKey, valueOut);
+        return valueOut;
+      }
+    } catch {
+      // Both HEAD and GET failed — URL is likely unreachable
+      console.log(`[fetchLogo] Logo URL unreachable: ${validUrl} (${e?.message || "unknown"})`);
+      const valueOut = {
+        logo_url: null,
+        logo_status: "url_unreachable",
+        diagnostics: { url: validUrl, error: e?.message || String(e) },
+      };
+      if (cacheKey) writeStageCache(cacheKey, valueOut);
+      return valueOut;
+    }
+  }
+
   const valueOut = {
     logo_url: validUrl,
     logo_status: "ok",
@@ -2201,21 +2263,32 @@ async function verifyEnrichmentFields(parsed, { companyName, budgetMs = 60000 } 
       verifiedReviews.push(review);
     }
 
-    // Prefer verified reviews, but include unverified ones so they're not lost.
-    // Take up to 3 verified, then fill remaining slots (up to 3 total) with unverified.
+    // Prefer verified reviews, then include "soft" unverified (budget_exhausted,
+    // content_not_relevant) as fallbacks. Reviews with confirmed-dead URLs
+    // (url_unreachable, youtube_unavailable) are dropped — they would fail the
+    // get-reviews visibility filter anyway and confuse admin into thinking
+    // reviews exist when they don't.
+    const DEAD_URL_REASONS = new Set(["url_unreachable", "youtube_unavailable", "cross_domain_redirect"]);
+    const softUnverified = unverifiedReviews.filter((r) => !DEAD_URL_REASONS.has(r.verification_failure));
+    const droppedDead = unverifiedReviews.filter((r) => DEAD_URL_REASONS.has(r.verification_failure));
+    if (droppedDead.length > 0) {
+      console.log(`[verifyEnrichmentFields] Dropped ${droppedDead.length} review(s) with dead URLs: ${droppedDead.map((r) => r.source_url).join(", ")}`);
+    }
+
     const maxReviews = 3;
     const combined = verifiedReviews.slice(0, maxReviews);
-    if (combined.length < maxReviews && unverifiedReviews.length > 0) {
-      combined.push(...unverifiedReviews.slice(0, maxReviews - combined.length));
+    if (combined.length < maxReviews && softUnverified.length > 0) {
+      combined.push(...softUnverified.slice(0, maxReviews - combined.length));
     }
     verified.reviews = combined;
     verification_status.reviews = {
       submitted: parsed.reviews.length,
       verified: verifiedReviews.length,
       unverified: unverifiedReviews.length,
+      dropped_dead_urls: droppedDead.length,
       kept: combined.length,
     };
-    console.log(`[verifyEnrichmentFields] Reviews: ${parsed.reviews.length} submitted → ${verifiedReviews.length} verified + ${unverifiedReviews.length} unverified → ${combined.length} kept`);
+    console.log(`[verifyEnrichmentFields] Reviews: ${parsed.reviews.length} submitted → ${verifiedReviews.length} verified + ${softUnverified.length} soft-unverified + ${droppedDead.length} dropped (dead URLs) → ${combined.length} kept`);
   }
 
   // --- Verify/normalize locations (lightweight) ---
