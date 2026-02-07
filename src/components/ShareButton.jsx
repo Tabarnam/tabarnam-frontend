@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { Share2, Copy, X } from "lucide-react";
+import { Share2, Copy } from "lucide-react";
 import {
   Dialog,
   DialogContent,
