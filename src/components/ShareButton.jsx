@@ -100,24 +100,11 @@ export default function ShareButton({ company, className = "" }) {
           width="18"
           height="18"
           viewBox="0 0 24 24"
-          fill="none"
+          fill="#3F97A2"
           xmlns="http://www.w3.org/2000/svg"
           aria-hidden="true"
         >
-          <path
-            d="M12 3L12 15M12 3L8 7M12 3L16 7"
-            stroke="#3F97A2"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M4 14V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V14"
-            stroke="#3F97A2"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          <path d="M13.47 2.47a.75.75 0 0 1 1.06 0l4 4a.75.75 0 0 1 0 1.06l-4 4a.75.75 0 1 1-1.06-1.06l2.72-2.72H12c-2.35 0-4.3.8-5.64 2.2C5.02 11.31 4.25 13.3 4.25 15.5v2.25a.75.75 0 0 1-1.5 0V15.5c0-2.55.88-4.94 2.52-6.65C6.9 7.15 9.2 6.25 12 6.25h4.19l-2.72-2.72a.75.75 0 0 1 0-1.06Z" />
         </svg>
       </button>
 
