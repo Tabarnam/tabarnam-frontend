@@ -400,6 +400,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-apply-reviews-from-notes");
+  require("./admin-apply-reviews-from-notes/index.js");
+  console.log("[api] ✓ admin-apply-reviews-from-notes registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-apply-reviews-from-notes:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-batch-update");
   require("./admin-batch-update/index.js");
   console.log("[api] ✓ admin-batch-update registered");
