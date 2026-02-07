@@ -672,12 +672,12 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-[1fr_80px] sm:grid-cols-[1fr_100px] md:grid-cols-[2fr_100px_1fr_1fr_1fr] gap-x-3 gap-y-2 border border-[#649BA0] rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors relative"
+      className="grid grid-cols-6 md:grid-cols-[2fr_100px_1fr_1fr_1fr] gap-x-3 gap-y-2 border border-[#649BA0] rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors relative"
     >
       <div className="absolute top-1 right-1 z-10">
         <ShareButton company={company} />
       </div>
-      <div className="col-span-1">
+      <div className="col-span-4 md:col-span-1">
         <h2 className="font-bold text-gray-900">
           {websiteUrl ? (
             <CompanyNameWithUrlTooltip
@@ -753,7 +753,7 @@ export default function ExpandableCompanyRow({
       </div>
 
       {/* Logo Column */}
-      <div className="col-span-1 row-span-2 md:row-span-1">
+      <div className="col-span-2 md:col-span-1">
         {shouldShowLogo ? (
           <img
             src={logoUrl}
@@ -781,7 +781,7 @@ export default function ExpandableCompanyRow({
 
       {/* Manufacturing/HQ/QQ columns - spans 3 columns */}
       {rightColsOrder.map((colKey, colIdx) => (
-        <div key={colKey} className="col-span-1">
+        <div key={colKey} className="col-span-2 md:col-span-1">
           <div className="text-xs font-semibold text-gray-700 flex items-center gap-1 mb-2">
             {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "Home/HQ" : "QQ"}
           </div>
@@ -790,7 +790,7 @@ export default function ExpandableCompanyRow({
       ))}
 
       {/* Keywords Row - spans full width, 2 lines max */}
-      <div className="col-span-full mt-2 border-t pt-2">
+      <div className="col-span-6 md:col-span-full mt-2 border-t pt-2">
         <div className="text-xs font-semibold text-gray-500 mb-1">Keywords</div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 overflow-hidden max-h-10 relative">
           {(Array.isArray(company.keywords) && company.keywords.length > 0
@@ -816,7 +816,7 @@ export default function ExpandableCompanyRow({
 
       {/* Location Sources Section */}
       {company.show_location_sources_to_users && Array.isArray(company.location_sources) && company.location_sources.length > 0 && (
-        <div className="col-span-full border-t pt-4 mt-4">
+        <div className="col-span-6 md:col-span-full border-t pt-4 mt-4">
           <div className="text-xs font-semibold text-gray-700 mb-3">📍 Location Sources</div>
           <div className="grid grid-cols-2 gap-3 text-xs">
             {company.location_sources.map((source, idx) => (
