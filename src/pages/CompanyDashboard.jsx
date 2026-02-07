@@ -4465,7 +4465,11 @@ export default function CompanyDashboard() {
       }));
 
       setRefreshError(null);
-      toast.success("Proposed updates loaded");
+      if (jsonBody?.recovered_from_pending) {
+        toast.info("Refresh results recovered from a previous attempt.");
+      } else {
+        toast.success("Proposed updates loaded");
+      }
       playNotification();
     } catch (e) {
       // Normalize diagnostics from API wrapper errors (preferred) and plain exceptions.

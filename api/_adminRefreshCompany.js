@@ -695,6 +695,40 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       // If the lock expires more than 5 minutes from now, it was set with a very large
       // window and is likely from a crashed/hung refresh. Auto-release it.
       if (retryAfterMs <= STALE_LOCK_THRESHOLD_MS) {
+        // ── Recovery path: check if a previous refresh already saved results ──
+        const pendingProposal = existing._pending_refresh_proposal;
+        const pendingAt = existing._pending_refresh_at;
+        const pendingAgeMs = pendingAt ? (nowMs - new Date(pendingAt).getTime()) : Infinity;
+
+        if (pendingProposal && typeof pendingProposal === "object" && pendingAgeMs < 300_000) {
+          // Previous refresh completed and saved results — return them
+          pushBreadcrumb("recovered_pending_proposal", {
+            company_id: companyId,
+            pending_age_ms: pendingAgeMs,
+          });
+          // Release lock and clear pending data inline (releaseRefreshLockBestEffort not yet defined)
+          try {
+            await patchCompanyById(container, companyId, existing, {
+              company_refresh_lock_until: 0,
+              _pending_refresh_proposal: null,
+              _pending_refresh_at: null,
+            });
+          } catch { /* best effort */ }
+
+          const companyName = asString(existing.company_name || existing.name).trim();
+          return json({
+            ok: true,
+            proposed: pendingProposal,
+            company_id: companyId,
+            company_name: companyName,
+            recovered_from_pending: true,
+            breadcrumbs,
+            build_id: String(BUILD_INFO.build_id || ""),
+            elapsed_ms: Date.now() - startedAt,
+            budget_ms: budgetMs,
+          });
+        }
+
         pushBreadcrumb("locked", { company_id: companyId, retry_after_ms: retryAfterMs });
         return json({
           ok: false,
@@ -993,6 +1027,20 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     const successCount = Object.values(enrichment_status).filter(s => s === "ok").length;
 
+    // Save enrichment results as pending proposal so they survive SWA 500s.
+    // If the SWA gateway returns 500 to the browser before this response can be
+    // delivered, the next request (or retry) can recover the results from Cosmos.
+    if (successCount > 0) {
+      try {
+        await patchCompanyById(container, companyId, existing, {
+          _pending_refresh_proposal: proposed,
+          _pending_refresh_at: new Date().toISOString(),
+        });
+      } catch {
+        // Best effort — don't block the response
+      }
+    }
+
     await releaseRefreshLockBestEffort();
 
     pushBreadcrumb("enrichment_done", {
@@ -1036,6 +1084,11 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       remaining_budget_ms: getRemainingBudgetMs(),
     });
   } catch (e) {
+    // Release lock on failure so user can retry immediately
+    if (typeof releaseRefreshLockBestEffort === "function") {
+      try { await releaseRefreshLockBestEffort(); } catch (_) { /* best effort */ }
+    }
+
     context?.log?.("[admin-refresh-company] error", {
       stage,
       message: e?.message || String(e),
