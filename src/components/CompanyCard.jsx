@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Building2, Globe, Tag } from 'lucide-react';
+import ShareButton from '@/components/ShareButton';
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
@@ -33,6 +34,7 @@ const CompanyCard = ({ company, index }) => {
             <Building2 className="w-6 h-6 text-white" />
           </div>
           <h2 className="text-xl font-bold text-white truncate">{displayName}</h2>
+          <ShareButton company={company} variant="card" className="ml-auto flex-shrink-0" />
         </div>
 
         <p className="text-gray-300 text-sm mb-4 line-clamp-3 min-h-[60px]">{company.about || 'No description available.'}</p>
