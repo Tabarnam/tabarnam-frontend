@@ -1386,6 +1386,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   ref
 ) {
   const stableId = asString(companyId).trim();
+  const playNotification = useNotificationSound();
   const [take, setTake] = useState(1);
   const [includeExisting, setIncludeExisting] = useState(true);
   const [loading, setLoading] = useState(false);
