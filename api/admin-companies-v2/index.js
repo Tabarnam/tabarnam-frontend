@@ -338,26 +338,44 @@ async function maybeGeocodeLocationsForCompanyDoc(doc, { timeoutMs = 5000 } = {}
 
   const next = doc;
 
-  // HQ
+  // HQ - geocode locations that don't have coordinates yet
   const hqSeed = buildHeadquartersSeedFromDoc(next);
-  const hasLegacyHq = toFiniteNumber(next.hq_lat) != null && toFiniteNumber(next.hq_lng) != null;
-  const hasHqCoordsInList = hasAnyLatLng(hqSeed);
 
-  if (!hasLegacyHq && !hasHqCoordsInList && hqSeed.length > 0) {
-    const geocoded = await geocodeLocationArray(hqSeed, { timeoutMs, concurrency: 4 });
-    const primary = pickPrimaryLatLng(geocoded);
+  if (hqSeed.length > 0) {
+    const needsGeocoding = [];
+    const needsGeocodingIndices = [];
 
-    if (primary) {
-      next.headquarters_locations = geocoded;
-      next.headquarters = geocoded;
-      next.hq_lat = primary.lat;
-      next.hq_lng = primary.lng;
+    for (let i = 0; i < hqSeed.length; i++) {
+      const loc = hqSeed[i];
+      const coords = extractLatLng(loc);
+      if (!coords || coords.lat == null || coords.lng == null) {
+        needsGeocoding.push(loc);
+        needsGeocodingIndices.push(i);
+      }
     }
-  } else if (!hasLegacyHq && hasHqCoordsInList) {
-    const primary = pickPrimaryLatLng(hqSeed);
-    if (primary) {
-      next.hq_lat = primary.lat;
-      next.hq_lng = primary.lng;
+
+    if (needsGeocoding.length > 0) {
+      const geocoded = await geocodeLocationArray(needsGeocoding, { timeoutMs, concurrency: 4 });
+
+      const result = [...hqSeed];
+      for (let i = 0; i < needsGeocodingIndices.length; i++) {
+        const originalIndex = needsGeocodingIndices[i];
+        const geocodedLoc = geocoded[i];
+        if (geocodedLoc) {
+          result[originalIndex] = { ...hqSeed[originalIndex], ...geocodedLoc };
+        }
+      }
+      next.headquarters_locations = result;
+      next.headquarters = result;
+    }
+
+    const hasLegacyHq = toFiniteNumber(next.hq_lat) != null && toFiniteNumber(next.hq_lng) != null;
+    if (!hasLegacyHq) {
+      const primary = pickPrimaryLatLng(next.headquarters_locations || hqSeed);
+      if (primary) {
+        next.hq_lat = primary.lat;
+        next.hq_lng = primary.lng;
+      }
     }
   }
 
