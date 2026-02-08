@@ -10,6 +10,7 @@ import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQScore } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
+import { normalizeCountryDisplay, normalizeLocationString } from "@/lib/location";
 
 // Renders text with URLs converted to clickable links
 function TextWithLinks({ text, className = "" }) {
@@ -240,24 +241,24 @@ export default function ExpandableCompanyRow({
   const formatLocationDisplayName = (loc) => {
     if (typeof loc === "string") {
       const s = loc.trim();
-      return s ? s : "—";
+      return s ? normalizeLocationString(s) : "—";
     }
 
     if (!loc || typeof loc !== "object") return "—";
 
     const formatted = typeof loc.formatted === "string" ? loc.formatted.trim() : "";
-    if (formatted) return formatted;
+    if (formatted) return normalizeLocationString(formatted);
 
     const address =
       (typeof loc.full_address === "string" && loc.full_address.trim()) ||
       (typeof loc.address === "string" && loc.address.trim()) ||
       "";
-    if (address) return address;
+    if (address) return normalizeLocationString(address);
 
     const parts = [];
     if (typeof loc.city === "string" && loc.city.trim()) parts.push(loc.city.trim());
     if (typeof loc.state === "string" && loc.state.trim()) parts.push(loc.state.trim());
-    if (typeof loc.country === "string" && loc.country.trim()) parts.push(loc.country.trim());
+    if (typeof loc.country === "string" && loc.country.trim()) parts.push(normalizeCountryDisplay(loc.country.trim()));
 
     return parts.length > 0 ? parts.join(", ") : "—";
   };

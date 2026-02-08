@@ -115,9 +115,14 @@ try {
   });
 } catch {}
 
-// Extended timeout to 5 minutes for thorough XAI enrichment.
-// When called from resume-worker (internal), we have generous time budgets.
-const DEFAULT_HARD_TIMEOUT_MS = 300_000;
+// SWA-safe timeout for external (browser→SWA→Function) calls.
+// The Azure SWA reverse-proxy kills connections after ~30-50 seconds with a
+// "Backend call failure" 500 and empty headers, BEFORE the Function returns.
+// We set the budget to 8 seconds so import-start returns `accepted` quickly
+// and enqueues the heavy XAI work via primary-worker.  Polling handles the rest.
+// Internal calls (resume-worker, primary-worker) bypass SWA and set their own
+// budgets via the `deadline_ms` query parameter, which overrides this default.
+const DEFAULT_HARD_TIMEOUT_MS = 8_000;
 
 // Generous upstream timeouts to allow deep, accurate XAI searches.
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 60_000;

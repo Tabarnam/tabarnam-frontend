@@ -3048,6 +3048,18 @@ export default function AdminImport() {
     setActiveStatus("done");
   }, [activeRun, activeSavedVerifiedCount, activeStatus]);
 
+  // Play a notification sound each time a company is saved during an import.
+  const prevSavedCountRef = useRef(activeSavedCount);
+  useEffect(() => {
+    const prev = prevSavedCountRef.current;
+    prevSavedCountRef.current = activeSavedCount;
+
+    // Only play when the count actually increases (not on reset to 0 for a new run).
+    if (activeSavedCount > prev && prev >= 0) {
+      playNotification();
+    }
+  }, [activeSavedCount, playNotification]);
+
   // Saved results should render as soon as we have verified saved ids/counts, even if the session
   // still needs resume-worker to finish enrichment.
   const showSavedResults = activeSavedVerifiedCount > 0 || activeSavedCompanies.length > 0;

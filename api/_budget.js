@@ -16,7 +16,9 @@ function clampInt(value, { min, max, fallback }) {
  * - clientDeadlineMs: optional caller-provided budget; clamped to hardCapMs
  */
 function startBudget({ hardCapMs = 25_000, clientDeadlineMs = null, startedAtMs = Date.now() } = {}) {
-  const hardCap = clampInt(hardCapMs, { min: 5_000, max: 120_000, fallback: 25_000 });
+  // Max raised to 600s for internal calls (resume-worker, primary-worker) which bypass SWA.
+  // External calls (browser→SWA→Function) pass a low hardCapMs (8s) so they return early.
+  const hardCap = clampInt(hardCapMs, { min: 5_000, max: 600_000, fallback: 25_000 });
   const requested = clientDeadlineMs == null ? null : clampInt(clientDeadlineMs, { min: 5_000, max: hardCap, fallback: hardCap });
 
   const totalMs = requested == null ? hardCap : requested;

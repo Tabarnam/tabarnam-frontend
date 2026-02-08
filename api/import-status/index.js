@@ -27,6 +27,13 @@ const { getBuildInfo } = require("../_buildInfo");
 
 const HANDLER_ID = "import-status";
 
+// SWA-safe deadline for inline resume-worker invocations.
+// When import-status triggers resume-worker in-process, the combined runtime must fit
+// within the SWA gateway timeout (~30-50s).  A 15s budget lets the worker do meaningful
+// enrichment while leaving headroom for import-status overhead + Cosmos reads/writes.
+// Multiple polling cycles will each get a 15s slice, converging to completion over time.
+const INLINE_RESUME_DEADLINE_MS = 15_000;
+
 // Orchestration mode: When false, status endpoint can trigger resume worker and force-terminalize.
 // Set to true only if import-status should be purely read-only (e.g., for debugging).
 const STATUS_NO_ORCHESTRATION = false;
@@ -2453,6 +2460,7 @@ async function handler(req, context) {
               context,
               workerRequest,
               force_terminalize_single: true,
+              deadline_ms: INLINE_RESUME_DEADLINE_MS,
             }).catch((e) => ({
               ok: false,
               status: 0,
@@ -2559,6 +2567,7 @@ async function handler(req, context) {
                 session_id: sessionId,
                 context,
                 workerRequest,
+                deadline_ms: INLINE_RESUME_DEADLINE_MS,
               });
 
               resume_gateway_key_attached = Boolean(invokeRes.gateway_key_attached);
@@ -3245,6 +3254,7 @@ async function handler(req, context) {
           context,
           workerRequest,
           force_terminalize_single: true,
+          deadline_ms: INLINE_RESUME_DEADLINE_MS,
         }).catch((e) => ({
           ok: false,
           status: 0,
@@ -4517,6 +4527,7 @@ async function handler(req, context) {
               context,
               workerRequest,
               force_terminalize_single: true,
+              deadline_ms: INLINE_RESUME_DEADLINE_MS,
             }).catch((e) => ({
               ok: false,
               status: 0,
@@ -4623,6 +4634,7 @@ async function handler(req, context) {
                 session_id: sessionId,
                 context,
                 workerRequest,
+                deadline_ms: INLINE_RESUME_DEADLINE_MS,
               });
 
               resume_gateway_key_attached = Boolean(invokeRes.gateway_key_attached);
@@ -5711,6 +5723,7 @@ async function handler(req, context) {
           context,
           workerRequest,
           force_terminalize_single: true,
+          deadline_ms: INLINE_RESUME_DEADLINE_MS,
         }).catch((e) => ({
           ok: false,
           status: 0,
@@ -6034,6 +6047,7 @@ async function handler(req, context) {
           context,
           workerRequest,
           force_terminalize_single: true,
+          deadline_ms: INLINE_RESUME_DEADLINE_MS,
         }).catch((e) => ({
           ok: false,
           status: 0,

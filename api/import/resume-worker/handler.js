@@ -2189,6 +2189,14 @@ async function resumeWorkerHandler(req, context) {
                   if (coords?.lat && coords?.lng) {
                     doc.hq_lat = coords.lat;
                     doc.hq_lng = coords.lng;
+                    // Also write lat/lng into the headquarters_locations array entry
+                    // so the frontend can compute distance per-location
+                    if (Array.isArray(doc.headquarters_locations) && doc.headquarters_locations[0]) {
+                      doc.headquarters_locations[0].lat = coords.lat;
+                      doc.headquarters_locations[0].lng = coords.lng;
+                      doc.headquarters_locations[0].geocode_status = "ok";
+                      doc.headquarters_locations[0].geocode_source = coords.geocode_source || "google";
+                    }
                     console.log(`[resume-worker] geocoded HQ: ${value} → (${coords.lat}, ${coords.lng})`);
                   }
                 } catch (geoErr) {
@@ -2223,6 +2231,34 @@ async function resumeWorkerHandler(req, context) {
               doc.manufacturing_locations = locs;
               doc.mfg_unknown = false;
               doc.import_missing_reason.manufacturing_locations = "ok";
+
+              // Geocode each manufacturing location to get lat/lng for distance calculations.
+              // Build manufacturing_geocodes array with structured objects.
+              const geocodedMfg = [];
+              for (const locStr of locs) {
+                try {
+                  const coords = await geocodeLocationString(locStr, { timeoutMs: 5000 });
+                  const entry = { location: locStr, address: locStr };
+                  if (coords?.lat && coords?.lng) {
+                    entry.lat = coords.lat;
+                    entry.lng = coords.lng;
+                    entry.geocode_status = "ok";
+                    entry.geocode_source = coords.geocode_source || "google";
+                    console.log(`[resume-worker] geocoded mfg: ${locStr} → (${coords.lat}, ${coords.lng})`);
+                  } else {
+                    entry.geocode_status = "failed";
+                    console.log(`[resume-worker] geocode returned no coords for mfg: ${locStr}`);
+                  }
+                  geocodedMfg.push(entry);
+                } catch (geoErr) {
+                  geocodedMfg.push({ location: locStr, address: locStr, geocode_status: "failed" });
+                  console.log(`[resume-worker] geocode failed for mfg: ${locStr}`, { error: geoErr?.message || String(geoErr) });
+                }
+              }
+              if (geocodedMfg.length > 0) {
+                doc.manufacturing_geocodes = geocodedMfg;
+              }
+
               markFieldSuccess(doc, "manufacturing_locations");
               fieldProgress.status = "ok";
               savedFieldsThisRun.push("manufacturing_locations");

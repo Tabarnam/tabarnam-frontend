@@ -12,6 +12,7 @@ import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getProfileCompleteness, getProfileCompletenessLabel } from "@/lib/profileCompleteness";
+import { normalizeCountryDisplay, normalizeLocationString } from "@/lib/location";
 
 const TranslatedText = ({ originalText, translation, loading }) => {
   if (loading)
@@ -219,7 +220,7 @@ const CompanyRow = ({
                       <div>
                         <div className="text-gray-800">
                           {hq1.city}
-                          {hq1.state ? `, ${hq1.state}` : hq1.country ? `, ${hq1.country}` : ""}
+                          {hq1.state ? `, ${hq1.state}` : hq1.country ? `, ${normalizeCountryDisplay(hq1.country)}` : ""}
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">{renderDistance(hq1, userLocation)}</div>
                       </div>
@@ -298,8 +299,8 @@ const CompanyRow = ({
                     <div className="text-sm">
                       <div className="font-medium">Home/HQ 1</div>
                       <div>
-                        {hq1.full_address ||
-                          `${hq1.city || ""}${hq1.state ? ", " + hq1.state : ""}${hq1.country ? ", " + hq1.country : ""}`}
+                        {normalizeLocationString(hq1.full_address) ||
+                          `${hq1.city || ""}${hq1.state ? ", " + hq1.state : ""}${hq1.country ? ", " + normalizeCountryDisplay(hq1.country) : ""}`}
                       </div>
                     </div>
                   ) : (
@@ -311,8 +312,8 @@ const CompanyRow = ({
                     <div className="text-sm">
                       <div className="font-medium">Manufacturing 1</div>
                       <div>
-                        {mfg1.full_address ||
-                          `${mfg1.city || ""}${mfg1.state ? ", " + mfg1.state : ""}${mfg1.country ? ", " + mfg1.country : ""}`}
+                        {normalizeLocationString(mfg1.full_address) ||
+                          `${mfg1.city || ""}${mfg1.state ? ", " + mfg1.state : ""}${mfg1.country ? ", " + normalizeCountryDisplay(mfg1.country) : ""}`}
                       </div>
                     </div>
                   ) : (

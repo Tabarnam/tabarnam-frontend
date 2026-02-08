@@ -94,8 +94,41 @@ export async function getSubdivisions(countryCode) {
   return m[cc] || [];
 }
 
+// ---- Country display normalization ----
+// Maps verbose country names to compact display forms.
+const COUNTRY_DISPLAY_MAP = {
+  "UNITED STATES": "USA",
+  "UNITED STATES OF AMERICA": "USA",
+  "UNITED KINGDOM": "UK",
+  "UNITED KINGDOM OF GREAT BRITAIN AND NORTHERN IRELAND": "UK",
+  "PEOPLE'S REPUBLIC OF CHINA": "China",
+};
+
+/**
+ * Normalize verbose country names to compact display forms.
+ * "United States" → "USA", "United Kingdom" → "UK", etc.
+ */
+export function normalizeCountryDisplay(name) {
+  if (!name || typeof name !== "string") return name;
+  const n = name.trim();
+  return COUNTRY_DISPLAY_MAP[n.toUpperCase()] || n;
+}
+
+/**
+ * Replace trailing country names in free-text location strings.
+ * "Stamford, CT, United States" → "Stamford, CT, USA"
+ */
+export function normalizeLocationString(s) {
+  if (!s || typeof s !== "string") return s;
+  return s
+    .replace(/,\s*United States of America\s*$/i, ", USA")
+    .replace(/,\s*United States\s*$/i, ", USA")
+    .replace(/,\s*United Kingdom of Great Britain and Northern Ireland\s*$/i, ", UK")
+    .replace(/,\s*United Kingdom\s*$/i, ", UK");
+}
+
 // Back-compat names used by older components
 export const loadCountries    = getCountries;
 export const loadSubdivisions = getSubdivisions;
 
-export default { getCountries, getSubdivisions, loadCountries, loadSubdivisions };
+export default { getCountries, getSubdivisions, loadCountries, loadSubdivisions, normalizeCountryDisplay, normalizeLocationString };
