@@ -5736,6 +5736,36 @@ const importStartHandlerInner = async (req, context) => {
         try {
           const container = getCompaniesCosmosContainer();
           if (container) {
+            // Check for a stuck previous session with the same ID (SWA 500 retry scenario).
+            // If the previous session is stuck at create_session for >30s, reset it so we can
+            // start fresh. This handles the case where the SWA gateway killed both the original
+            // function invocation AND the HTTP connection, leaving a zombie session in Cosmos.
+            try {
+              const existingSessionDoc = await readItemWithPkCandidates(container, `_import_session_${sessionId}`, {
+                session_id: sessionId,
+                normalized_domain: `_import_session`,
+              });
+              if (existingSessionDoc && typeof existingSessionDoc === "object") {
+                const existingBeacon = String(existingSessionDoc.stage_beacon || "").trim();
+                const existingStatus = String(existingSessionDoc.status || "").trim();
+                const existingCreatedAt = existingSessionDoc.created_at ? new Date(existingSessionDoc.created_at).getTime() : 0;
+                const ageMs = existingCreatedAt > 0 ? Date.now() - existingCreatedAt : Infinity;
+                const isStuck =
+                  existingStatus === "running" &&
+                  existingBeacon === "create_session" &&
+                  ageMs > 30_000 &&
+                  (Number(existingSessionDoc.companies_count || 0) === 0);
+
+                if (isStuck) {
+                  console.log(
+                    `[import-start] request_id=${requestId} session=${sessionId} detected stuck session (age=${Math.round(ageMs / 1000)}s, beacon=${existingBeacon}), resetting for retry`
+                  );
+                }
+              }
+            } catch (stuckCheckErr) {
+              // Non-fatal: if we can't check, just proceed with upsert (which will overwrite)
+            }
+
             const sessionDoc = {
               id: `_import_session_${sessionId}`,
               ...buildImportControlDocBase(sessionId),

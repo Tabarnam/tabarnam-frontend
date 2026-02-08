@@ -2110,60 +2110,85 @@ export default function AdminImport() {
 
           toast.info(isBackendCallFailureText ? "Gateway interrupted — auto-retrying…" : "Start failed — auto-retrying…");
 
-          // Auto-retry: wait 5s for any backend cold-start to settle, then retry the import/start
-          // with the same session_id. The backend will detect the existing session and either resume
-          // or start fresh. This handles SWA gateway 500 "Backend call failure" caused by cold starts
-          // or transient gateway timeouts.
-          try {
-            await sleep(5000);
+          // Auto-retry loop: up to 3 attempts with increasing delays (5s, 10s, 15s).
+          // The SWA gateway may repeatedly return 500 during cold starts. Each retry gives
+          // the Function App more time to warm up. The backend detects stuck sessions and
+          // resets them, so retries with the same session_id are safe.
+          const retryDelays = [5000, 10000, 15000];
+          let retrySucceeded = false;
+          for (let retryIdx = 0; retryIdx < retryDelays.length; retryIdx++) {
+            try {
+              const delayMs = retryDelays[retryIdx];
+              await sleep(delayMs);
+              if (abort.signal.aborted) break;
 
-            if (abort.signal.aborted) return;
+              setRuns((prev) =>
+                prev.map((r) =>
+                  r.session_id === canonicalSessionId
+                    ? { ...r, progress_notice: `Retrying import/start (attempt ${retryIdx + 1}/${retryDelays.length})…`, updatedAt: new Date().toISOString() }
+                    : r
+                )
+              );
 
+              const retryPaths = [`/import/start`, `/import-start`];
+              const retryPayload = { ...requestPayload, session_id: canonicalSessionId };
+              const { res: retryRes } = await apiFetchWithFallback(retryPaths, {
+                method: "POST",
+                body: retryPayload,
+                signal: abort.signal,
+              });
+              const retryBody = await readJsonOrText(retryRes);
+              syncCanonicalSessionId({ res: retryRes, body: retryBody });
+
+              const retryOk = retryRes.ok || retryBody?.ok === true || retryBody?.accepted === true;
+
+              if (retryOk) {
+                setRuns((prev) =>
+                  prev.map((r) =>
+                    r.session_id === canonicalSessionId
+                      ? { ...r, progress_notice: `Retry ${retryIdx + 1} succeeded — monitoring progress…`, updatedAt: new Date().toISOString() }
+                      : r
+                  )
+                );
+                retrySucceeded = true;
+                break;
+              }
+
+              // Check if the response is another SWA 500 (worth retrying) vs a real error (don't retry)
+              const retryRawText = asString(retryBody?.text).trim();
+              const retryIsSwa500 = (Number(retryRes?.status) || 0) >= 500 &&
+                (retryRawText === "Backend call failure" || !retryRawText);
+              if (!retryIsSwa500) {
+                // Real error (not SWA gateway), stop retrying
+                setRuns((prev) =>
+                  prev.map((r) =>
+                    r.session_id === canonicalSessionId
+                      ? { ...r, progress_notice: `Retry ${retryIdx + 1} returned error — falling back to polling…`, updatedAt: new Date().toISOString() }
+                      : r
+                  )
+                );
+                break;
+              }
+
+              // SWA 500 again, continue retry loop
+              try {
+                console.warn(`[admin-import] SWA 500 auto-retry attempt ${retryIdx + 1}/${retryDelays.length} still got 500`);
+              } catch {}
+            } catch (retryErr) {
+              try {
+                console.warn(`[admin-import] SWA 500 auto-retry attempt ${retryIdx + 1} failed: ${retryErr?.message || String(retryErr)}`);
+              } catch {}
+            }
+          }
+
+          if (!retrySucceeded) {
             setRuns((prev) =>
               prev.map((r) =>
                 r.session_id === canonicalSessionId
-                  ? { ...r, progress_notice: "Retrying import/start…", updatedAt: new Date().toISOString() }
+                  ? { ...r, progress_notice: "All retries failed — falling back to polling…", updatedAt: new Date().toISOString() }
                   : r
               )
             );
-
-            // The callImportStage function is not yet defined at this point in the closure,
-            // so we directly call apiFetchWithFallback with the same paths and payload.
-            const retryPaths = [`/import/start`, `/import-start`];
-            const retryPayload = { ...requestPayload, session_id: canonicalSessionId };
-            const { res: retryRes } = await apiFetchWithFallback(retryPaths, {
-              method: "POST",
-              body: retryPayload,
-              signal: abort.signal,
-            });
-            const retryBody = await readJsonOrText(retryRes);
-            syncCanonicalSessionId({ res: retryRes, body: retryBody });
-
-            const retryOk = retryRes.ok || retryBody?.ok === true || retryBody?.accepted === true;
-
-            if (retryOk) {
-              setRuns((prev) =>
-                prev.map((r) =>
-                  r.session_id === canonicalSessionId
-                    ? { ...r, progress_notice: "Retry succeeded — monitoring progress…", updatedAt: new Date().toISOString() }
-                    : r
-                )
-              );
-              // Don't return — fall through to let the outer pipeline continue
-              // by NOT returning here; the polling will pick up the progress.
-            } else {
-              setRuns((prev) =>
-                prev.map((r) =>
-                  r.session_id === canonicalSessionId
-                    ? { ...r, progress_notice: "Retry returned non-ok — falling back to polling…", updatedAt: new Date().toISOString() }
-                    : r
-                )
-              );
-            }
-          } catch (retryErr) {
-            try {
-              console.warn("[admin-import] SWA 500 auto-retry failed", retryErr?.message || String(retryErr));
-            } catch {}
           }
 
           // Fall back to polling regardless of retry outcome
