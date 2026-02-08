@@ -363,10 +363,12 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {/* Column Headers */}
+      {/* Column Headers — uses same grid as ExpandableCompanyRow so labels align */}
       {results.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <div className="font-semibold" style={{ color: "#649BA0", fontSize: "15px" }}>Sort Results:</div>
+        <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 mb-4 px-2 items-center">
+          <div className="col-span-6 lg:col-span-2 font-semibold flex items-center gap-1" style={{ color: "#649BA0", fontSize: "15px" }}>
+            Sort Results:
+          </div>
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
               colKey === "manu" ? "Manufacturing" :
@@ -391,7 +393,7 @@ export default function ResultsPage() {
             );
 
             return (
-              <div key={colKey} className="flex items-center gap-1">
+              <div key={colKey} className="col-span-2 lg:col-span-1 flex items-center gap-1">
                 {idx === 0 && (
                   <img
                     src={PinIcon}
