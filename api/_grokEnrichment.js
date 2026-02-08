@@ -942,13 +942,29 @@ Output STRICT JSON only:
     }
   }
 
-  // Fallback: If we need more reviews and have unverified blogs, use them
+  // Fallback: If we need more reviews and have unverified blogs, use ONLY those
+  // with soft failures (e.g., company_not_mentioned, timeout). Blogs with
+  // confirmed-dead URLs (url_unreachable, http_4xx, soft_404) must NOT be
+  // used — they would show broken links on the frontend.
+  const DEAD_URL_FALLBACK_REASONS = new Set([
+    "url_unreachable", "soft_404", "cross_domain_redirect", "fetch_failed",
+  ]);
+  function isDeadUrlReason(reason) {
+    if (!reason) return false;
+    if (DEAD_URL_FALLBACK_REASONS.has(reason)) return true;
+    // Catch all HTTP error status codes (http_404, http_500, etc.)
+    if (/^http_\d{3}$/.test(reason)) return true;
+    return false;
+  }
+  const usableFallbacks = unverifiedBlogCandidates.filter(
+    (f) => !isDeadUrlReason(f.verification_reason)
+  );
   const totalVerifiedSoFar = verified_youtube.length + verified_blog.length;
-  if (totalVerifiedSoFar < 3 && unverifiedBlogCandidates.length > 0) {
+  if (totalVerifiedSoFar < 3 && usableFallbacks.length > 0) {
     const needed = 3 - totalVerifiedSoFar;
-    for (let i = 0; i < Math.min(needed, unverifiedBlogCandidates.length); i++) {
-      const fallback = unverifiedBlogCandidates[i];
-      console.log(`[grokEnrichment] reviews: using unverified fallback blog: ${fallback.source_url}`);
+    for (let i = 0; i < Math.min(needed, usableFallbacks.length); i++) {
+      const fallback = usableFallbacks[i];
+      console.log(`[grokEnrichment] reviews: using unverified fallback blog: ${fallback.source_url} (reason: ${fallback.verification_reason})`);
       verified_blog.push({
         source_name: normalizeHostForDedupe(urlHost(fallback.source_url)) || "Unknown",
         author: null,
@@ -959,6 +975,10 @@ Output STRICT JSON only:
         verification_warning: "unverified_fallback",
       });
     }
+  }
+  if (unverifiedBlogCandidates.length > usableFallbacks.length) {
+    const dropped = unverifiedBlogCandidates.length - usableFallbacks.length;
+    console.log(`[grokEnrichment] reviews: skipped ${dropped} unverified blog(s) with dead URLs`);
   }
 
   // Best 3 reviews (prefer YouTube, then blogs)
