@@ -24,6 +24,7 @@ const {
 const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
 
 const { getBuildInfo } = require("../_buildInfo");
+const { patchCompanyWithSearchText } = require("../_computeSearchText");
 
 const HANDLER_ID = "import-status";
 
@@ -1282,6 +1283,202 @@ async function persistResumeBlocked(container, {
   };
 }
 
+// ---- Post-primary save bridge ----
+// When import-start returns 202 (SWA timeout), the primary-worker runs XAI search and
+// saves candidates to the primary job doc, but nobody saves them to Cosmos as real
+// company documents. This bridge does that so the import can complete.
+async function savePrimaryJobCompanies(container, { sessionId, primaryJob, stageBeaconValues }) {
+  if (STATUS_NO_ORCHESTRATION) return { saved: 0, saved_ids: [] };
+  if (!container || !sessionId) return { saved: 0, saved_ids: [] };
+
+  const companies = Array.isArray(primaryJob?.companies) ? primaryJob.companies : [];
+  if (companies.length === 0) return { saved: 0, saved_ids: [] };
+
+  const saved_ids = [];
+  const failed_items = [];
+  const skipped_items = [];
+  const now = new Date().toISOString();
+
+  for (const company of companies.slice(0, 25)) {
+    try {
+      const companyName = String(company?.company_name || company?.name || "").trim();
+      if (!companyName) { skipped_items.push({ reason: "no_name" }); continue; }
+
+      const websiteUrl = String(company?.website_url || company?.canonical_url || company?.url || "").trim();
+
+      // Normalize domain
+      let domain = "";
+      if (websiteUrl) {
+        try {
+          const u = new URL(websiteUrl.includes("://") ? websiteUrl : `https://${websiteUrl}`);
+          domain = String(u.hostname || "").toLowerCase().replace(/^www\./, "").trim();
+        } catch {}
+      }
+      if (!domain) { skipped_items.push({ company_name: companyName, reason: "no_domain" }); continue; }
+
+      // Check for existing company with same domain (lightweight dedup)
+      let existingId = null;
+      try {
+        const existingQuery = {
+          query: `SELECT TOP 1 c.id FROM c WHERE c.normalized_domain = @domain AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)`,
+          parameters: [{ name: "@domain", value: domain }],
+        };
+        const { resources } = await container.items.query(existingQuery, { partitionKey: domain }).fetchAll();
+        if (resources.length > 0) existingId = String(resources[0].id || "").trim();
+      } catch {}
+
+      if (existingId) {
+        saved_ids.push(existingId);
+        skipped_items.push({ company_name: companyName, reason: "existing", existing_id: existingId });
+        continue;
+      }
+
+      const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+      const headquartersLocation = String(company?.headquarters_location || "").trim();
+      const mfgLocs = Array.isArray(company?.manufacturing_locations)
+        ? company.manufacturing_locations.map((l) => typeof l === "string" ? l.trim() : String(l?.formatted || l?.address || l?.location || "").trim()).filter(Boolean)
+        : [];
+      const curatedReviews = Array.isArray(company?.curated_reviews)
+        ? company.curated_reviews.filter((r) => r && typeof r === "object")
+        : [];
+      const reviewCount = Number.isFinite(Number(company?.review_count))
+        ? Number(company.review_count)
+        : curatedReviews.length;
+      const industries = Array.isArray(company?.industries) ? company.industries : [];
+      const keywords = Array.isArray(company?.keywords || company?.product_keywords)
+        ? (company.keywords || company.product_keywords)
+        : [];
+
+      const doc = {
+        id: companyId,
+        company_name: companyName,
+        name: company?.name || companyName,
+        url: websiteUrl,
+        website_url: websiteUrl,
+        canonical_url: domain ? `https://${domain}/` : websiteUrl,
+        industries,
+        product_keywords: Array.isArray(keywords) ? keywords.join(", ") : String(keywords || ""),
+        keywords: Array.isArray(keywords) ? keywords : [],
+        normalized_domain: domain,
+        partition_key: domain,
+        tagline: String(company?.tagline || "").trim(),
+        headquarters_location: headquartersLocation,
+        hq_unknown: Boolean(company?.hq_unknown),
+        hq_unknown_reason: String(company?.hq_unknown_reason || "").trim(),
+        headquarters_locations: Array.isArray(company?.headquarters_locations) ? company.headquarters_locations : [],
+        manufacturing_locations: mfgLocs,
+        mfg_unknown: Boolean(company?.mfg_unknown),
+        mfg_unknown_reason: String(company?.mfg_unknown_reason || "").trim(),
+        manufacturing_geocodes: Array.isArray(company?.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
+        curated_reviews: curatedReviews,
+        review_count: reviewCount,
+        reviews_last_updated_at: now,
+        review_cursor: {
+          exhausted: false,
+          last_error: null,
+          updated_at: now,
+          count: reviewCount,
+        },
+        reviews_stage_status: "pending",
+        red_flag: Boolean(company?.red_flag),
+        red_flag_reason: String(company?.red_flag_reason || "").trim(),
+        location_confidence: company?.location_confidence || "medium",
+        social: company?.social || {},
+        amazon_url: String(company?.amazon_url || "").trim(),
+        logo_url: null,
+        logo_status: "pending",
+        logo_import_status: "pending",
+        logo_stage_status: "deferred",
+        rating_icon_type: "star",
+        source: "primary_worker_bridge",
+        session_id: sessionId,
+        import_session_id: sessionId,
+        import_created_at: now,
+        created_at: now,
+        updated_at: now,
+        // Mark all fields as needing enrichment so resume-worker processes them
+        resume_needed: true,
+        import_missing_fields: ["headquarters_location", "manufacturing_locations", "curated_reviews", "logo_url"],
+        import_missing_reason: {
+          headquarters_location: headquartersLocation ? "ok" : "missing",
+          manufacturing_locations: mfgLocs.length > 0 ? "ok" : "missing",
+          curated_reviews: curatedReviews.length > 0 ? "ok" : "missing",
+          logo_url: "missing",
+        },
+      };
+
+      // Compute search text so the company appears in search results
+      try { patchCompanyWithSearchText(doc); } catch {}
+
+      const res = await upsertDoc(container, doc);
+      if (res?.ok) {
+        saved_ids.push(companyId);
+      } else {
+        failed_items.push({ company_name: companyName, error: res?.error || "upsert_failed" });
+      }
+    } catch (e) {
+      failed_items.push({ company_name: company?.company_name || "unknown", error: e?.message || String(e) });
+    }
+  }
+
+  // Update session doc
+  if (saved_ids.length > 0) {
+    try {
+      const sessionDocId = `_import_session_${sessionId}`;
+      const sessionDoc = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+      await upsertDoc(container, {
+        ...(sessionDoc && typeof sessionDoc === "object" ? sessionDoc : {
+          id: sessionDocId,
+          session_id: sessionId,
+          normalized_domain: "import",
+          partition_key: "import",
+          type: "import_control",
+          created_at: now,
+        }),
+        status: "complete",
+        stage_beacon: "primary_bridge_saved",
+        saved: saved_ids.length,
+        companies_count: saved_ids.length,
+        saved_company_ids_verified: saved_ids,
+        saved_verified_count: saved_ids.length,
+        resume_needed: true,
+        completed_at: now,
+        updated_at: now,
+      }).catch(() => null);
+    } catch {}
+
+    // Write completion doc
+    try {
+      await upsertDoc(container, {
+        id: `_import_complete_${sessionId}`,
+        session_id: sessionId,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        completed_at: now,
+        updated_at: now,
+        reason: "primary_bridge_save",
+        saved: saved_ids.length,
+        saved_ids,
+        saved_company_ids_verified: saved_ids,
+        saved_verified_count: saved_ids.length,
+        skipped: skipped_items.length,
+        failed: failed_items.length,
+        skipped_ids: [],
+        failed_items,
+      }).catch(() => null);
+    } catch {}
+  }
+
+  stageBeaconValues.status_primary_bridge_save_attempted = nowIso();
+  stageBeaconValues.status_primary_bridge_saved_count = saved_ids.length;
+  stageBeaconValues.status_primary_bridge_failed_count = failed_items.length;
+  stageBeaconValues.status_primary_bridge_skipped_count = skipped_items.length;
+
+  return { saved: saved_ids.length, saved_ids, failed_items, skipped_items };
+}
+
 async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionCreatedAt, normalizedDomain, createdAfter, limit = 200 }) {
   if (!container) return [];
   const n = Math.max(0, Math.min(Number(limit) || 0, 200));
@@ -1728,6 +1925,46 @@ async function handler(req, context) {
             }
           } else {
             stageBeaconValues.status_reconciled_saved_none = nowIso();
+
+            // Post-primary save bridge: primary job completed with companies but nothing
+            // was saved to Cosmos (202 accepted flow gap). Save them now.
+            const primaryCompanies = Array.isArray(primaryJob?.companies) ? primaryJob.companies : [];
+            const primaryComplete = String(primaryJob?.job_state || "").trim() === "complete";
+            if (primaryComplete && primaryCompanies.length > 0 && !STATUS_NO_ORCHESTRATION) {
+              stageBeaconValues.status_primary_bridge_save_start = nowIso();
+              try {
+                const bridgeResult = await savePrimaryJobCompanies(container, {
+                  sessionId,
+                  primaryJob,
+                  stageBeaconValues,
+                });
+                if (bridgeResult.saved > 0) {
+                  saved = bridgeResult.saved;
+                  reconciled = true;
+                  reconcile_strategy = "primary_bridge_save";
+                  reconciled_saved_ids = bridgeResult.saved_ids;
+
+                  // Re-fetch the saved docs so they appear in the response
+                  const bridgeDocs = await fetchCompaniesByIds(container, bridgeResult.saved_ids).catch(() => []);
+                  if (bridgeDocs.length > 0) {
+                    savedCompanyDocs = bridgeDocs;
+                    saved_companies = toSavedCompanies(bridgeDocs);
+                  }
+
+                  // Update verified IDs
+                  saved_company_ids_verified = bridgeResult.saved_ids;
+                  saved_verified_count = bridgeResult.saved_ids.length;
+
+                  // Re-read session doc since the bridge updated it
+                  sessionDoc = await readControlDoc(container, `_import_session_${sessionId}`, sessionId).catch(() => sessionDoc);
+                  completionDoc = await readControlDoc(container, `_import_complete_${sessionId}`, sessionId).catch(() => completionDoc);
+
+                  stageBeaconValues.status_primary_bridge_save_complete = nowIso();
+                }
+              } catch (bridgeErr) {
+                stageBeaconValues.status_primary_bridge_save_error = String(bridgeErr?.message || bridgeErr).slice(0, 200);
+              }
+            }
           }
         }
 
