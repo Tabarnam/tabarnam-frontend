@@ -1946,6 +1946,18 @@ export default function AdminImport() {
         dry_run: dryRun,
       };
 
+      // Pre-warm: fire a lightweight request to wake up the Function App before the heavy import.
+      // SWA cold-starts frequently cause 500 "Backend call failure". This non-blocking ping gives
+      // the Function App a head-start on initialization.
+      try {
+        fetch(`${API_BASE}/import/status?session_id=warmup&_t=${Date.now()}`, {
+          method: "GET",
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => {});
+        // Wait 3s for the warm-up to take effect before starting the import
+        await sleep(3000);
+      } catch {}
+
       // Persist the outbound payload so the Import Report panel can be copied/downloaded later.
       setRuns((prev) =>
         prev.map((r) => (r.session_id === uiSessionIdBefore ? { ...r, start_request_payload: requestPayload } : r))

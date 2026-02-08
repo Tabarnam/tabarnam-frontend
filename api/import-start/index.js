@@ -3421,6 +3421,7 @@ async function saveCompaniesToCosmos({
   axiosTimeout,
   saveStub = false,
   getRemainingMs,
+  allowUpdateExisting = false,
 }) {
   try {
     const list = Array.isArray(companies) ? companies : [];
@@ -3520,8 +3521,11 @@ async function saveCompaniesToCosmos({
               const existingIncomplete = existingLooksLikeSeed || existingMissingFields.length > 0;
 
               // Reconcile: if the existing record is incomplete (common for seed_fallback), update it instead of creating
-              // or leaving behind additional seed rows.
-              shouldUpdateExisting = Boolean((existingSessionId && existingSessionId === sid) || existingIncomplete);
+              // or leaving behind additional seed rows. Also allow update when the caller explicitly requests it
+              // (e.g., company_url imports where the user intentionally re-imports an existing company).
+              shouldUpdateExisting = Boolean(
+                (existingSessionId && existingSessionId === sid) || existingIncomplete || allowUpdateExisting
+              );
 
               if (!shouldUpdateExisting) {
                 console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
@@ -7177,6 +7181,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     save_outcome: outcome,
                   };
                 } else {
+                  const isExplicitCompanyImport =
+                    String(bodyObj?.queryType || "").trim() === "company_url" ||
+                    Boolean(String(bodyObj?.company_url_hint || "").trim());
                   const saveResultRaw = await saveCompaniesToCosmos({
                     companies,
                     sessionId,
@@ -7185,6 +7192,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     axiosTimeout: Math.min(timeout, 20_000),
                     saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
                     getRemainingMs,
+                    allowUpdateExisting: isExplicitCompanyImport,
                   });
 
                   const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
@@ -9976,6 +9984,9 @@ Output JSON only:
             mark("cosmos_write_start");
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
+            const isExplicitCompanyImportMain =
+              String(bodyObj?.queryType || "").trim() === "company_url" ||
+              Boolean(String(bodyObj?.company_url_hint || "").trim());
             const saveResultRaw = await saveCompaniesToCosmos({
               companies: enriched,
               sessionId,
@@ -9984,6 +9995,7 @@ Output JSON only:
               axiosTimeout: timeout,
               saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
               getRemainingMs,
+              allowUpdateExisting: isExplicitCompanyImportMain,
             });
 
             const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
