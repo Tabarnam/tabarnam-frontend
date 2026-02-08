@@ -3195,6 +3195,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   requestId,
   context,
   companyIds,
+  companyDomainMap,
   reason,
   cosmosEnabled,
 }) {
@@ -3241,11 +3242,14 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   for (const companyId of ids) {
     try {
       // Fetch the company document
+      const domainHint = companyDomainMap && typeof companyDomainMap === "object"
+        ? String(companyDomainMap[companyId] || "").trim()
+        : "";
       const companyDoc = container
         ? await readItemWithPkCandidates(container, companyId, {
             id: companyId,
-            normalized_domain: "",
-            created_at: "",
+            normalized_domain: domainHint,
+            partition_key: domainHint,
           }).catch(() => null)
         : null;
 
@@ -5878,22 +5882,34 @@ const importStartHandlerInner = async (req, context) => {
 
             await upsertItemWithPkCandidates(container, acceptDoc).catch(() => null);
 
-            await upsertCosmosImportSessionDoc({
-              sessionId,
-              requestId,
-              patch: {
-                status: "running",
-                stage_beacon: beacon,
-                requested_deadline_ms,
-                requested_stage_ms_primary: requested_stage_ms_primary_effective,
-              },
-            }).catch(() => null);
+            // For company_url imports, the inline pipeline (seed fallback at line 8054) continues
+            // after the AcceptedResponseError and handles session doc updates with full save data.
+            // Skip the session doc update here to avoid racing with the inline pipeline.
+            const isCompanyUrlFlow =
+              Array.isArray(bodyObj?.queryTypes) && bodyObj.queryTypes.includes("company_url");
 
+            if (!isCompanyUrlFlow) {
+              await upsertCosmosImportSessionDoc({
+                sessionId,
+                requestId,
+                patch: {
+                  status: "running",
+                  stage_beacon: beacon,
+                  requested_deadline_ms,
+                  requested_stage_ms_primary: requested_stage_ms_primary_effective,
+                },
+              }).catch(() => null);
+            }
+
+            // For company_url imports, the inline pipeline handles everything via seed fallback.
+            // No need to enqueue a primary job (it would be redundant and create race conditions).
             const shouldEnqueuePrimary =
-              beacon === "xai_primary_fetch_start" ||
-              beacon === "xai_primary_fetch_done" ||
-              beacon.startsWith("xai_primary_fetch_") ||
-              beacon.startsWith("primary_");
+              !isCompanyUrlFlow && (
+                beacon === "xai_primary_fetch_start" ||
+                beacon === "xai_primary_fetch_done" ||
+                beacon.startsWith("xai_primary_fetch_") ||
+                beacon.startsWith("primary_")
+              );
 
             // If we had to return early while we're still in primary, enqueue a durable primary job so
             // /api/import/status can drive it to completion.
@@ -7427,11 +7443,24 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               } catch {}
 
               // Non-negotiable: fresh seeds must immediately queue + run xAI enrichment.
+              // Build domain map from save result for partition key resolution
+              const seedDomainMap = {};
+              const seedDomain = String(seed?.normalized_domain || "").trim();
+              for (const cid of resumeCompanyIds) { if (cid && seedDomain) seedDomainMap[cid] = seedDomain; }
+              if (Array.isArray(saveResult?.persisted_items)) {
+                for (const pi of saveResult.persisted_items) {
+                  const pid = String(pi?.id || "").trim();
+                  const pd = String(pi?.normalized_domain || "").trim();
+                  if (pid && pd) seedDomainMap[pid] = pd;
+                }
+              }
+
               let resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
                 sessionId,
                 requestId,
                 context,
                 companyIds: resumeCompanyIds,
+                companyDomainMap: seedDomainMap,
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
               }).catch((err) => {
@@ -10082,11 +10111,29 @@ Output JSON only:
                 )
               );
 
+              // Build domain map from save results + enriched companies
+              const mainDomainMap = {};
+              if (Array.isArray(saveResult?.persisted_items)) {
+                for (const pi of saveResult.persisted_items) {
+                  const pid = String(pi?.id || "").trim();
+                  const pd = String(pi?.normalized_domain || "").trim();
+                  if (pid && pd) mainDomainMap[pid] = pd;
+                }
+              }
+              if (Array.isArray(enriched)) {
+                for (const ec of enriched) {
+                  const eid = String(ec?.id || "").trim();
+                  const ed = String(ec?.normalized_domain || "").trim();
+                  if (eid && ed) mainDomainMap[eid] = ed;
+                }
+              }
+
               const enqueueResult = await maybeQueueAndInvokeMandatoryEnrichment({
                 sessionId,
                 requestId,
                 context,
                 companyIds: mandatoryCompanyIds,
+                companyDomainMap: mainDomainMap,
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
               }).catch((err) => {
@@ -11053,11 +11100,22 @@ Return ONLY the JSON array, no other text.`,
                       ? saveResult.saved_ids
                       : [];
 
+                // Build domain map from save results
+                const lateDomainMap = {};
+                if (Array.isArray(saveResult?.persisted_items)) {
+                  for (const pi of saveResult.persisted_items) {
+                    const pid = String(pi?.id || "").trim();
+                    const pd = String(pi?.normalized_domain || "").trim();
+                    if (pid && pd) lateDomainMap[pid] = pd;
+                  }
+                }
+
                 resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
                   sessionId,
                   requestId,
                   context,
                   companyIds: resumeCompanyIds,
+                  companyDomainMap: lateDomainMap,
                   reason: "seed_complete_auto_enrich",
                   cosmosEnabled,
                 }).catch((err) => {
