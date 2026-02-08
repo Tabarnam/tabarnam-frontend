@@ -2,9 +2,8 @@ function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
-// Feature flag: Set to false to exclude reviews from required fields
-// Reviews code is preserved but not checked during import completion
-const REVIEWS_ENABLED = false;
+// Feature flag: Set to true to include reviews in required field checks during import
+const REVIEWS_ENABLED = true;
 
 function normalizeKey(value) {
   return asString(value).trim().toLowerCase().replace(/\s+/g, " ");

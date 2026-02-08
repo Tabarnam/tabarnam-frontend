@@ -156,9 +156,8 @@ function safeErrorMessage(err, limit = 500) {
   }
 }
 
-// Feature flag: Set to false to exclude reviews from import workflow
-// Reviews code is preserved but skipped during enrichment
-const REVIEWS_ENABLED = false;
+// Feature flag: Set to true to include reviews in import workflow enrichment
+const REVIEWS_ENABLED = true;
 
 const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
