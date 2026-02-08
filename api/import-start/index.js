@@ -3068,21 +3068,35 @@ async function upsertItemWithPkCandidates(container, doc) {
 
   let lastErr = null;
   for (const partitionKeyValue of candidates) {
-    try {
-      if (partitionKeyValue !== undefined) {
-        await container.items.upsert(doc, { partitionKey: partitionKeyValue });
-      } else if (pkValue !== undefined) {
-        await container.items.upsert(doc, { partitionKey: pkValue });
-      } else {
-        await container.items.upsert(doc);
+    // Retry transient Cosmos failures (429 throttle, 503 service unavailable, ETIMEDOUT)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (partitionKeyValue !== undefined) {
+          await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+        } else if (pkValue !== undefined) {
+          await container.items.upsert(doc, { partitionKey: pkValue });
+        } else {
+          await container.items.upsert(doc);
+        }
+        return { ok: true };
+      } catch (e) {
+        lastErr = e;
+        const code = Number(e?.code || e?.statusCode || 0);
+        const isTransient = code === 429 || code === 503 || code === 408 ||
+          /ETIMEDOUT|ECONNRESET|socket hang up/i.test(String(e?.message || ""));
+        if (isTransient && attempt < 2) {
+          const delayMs = code === 429 ? Math.min(2000 * (attempt + 1), 5000) : 1000 * (attempt + 1);
+          console.warn(`[import-start] upsert transient error (attempt ${attempt + 1}/3, code=${code}), retrying in ${delayMs}ms: ${e?.message || String(e)}`);
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue;
+        }
+        console.warn(`[import-start] upsert failed id=${id} pk=${partitionKeyValue} code=${code}: ${e?.message || String(e)}`);
+        break; // Non-transient error, try next PK candidate
       }
-      return { ok: true };
-    } catch (e) {
-      lastErr = e;
     }
   }
 
-  return { ok: false, error: lastErr?.message || "upsert_failed" };
+  return { ok: false, error: lastErr?.message || "upsert_failed", cosmos_error_code: Number(lastErr?.code || lastErr?.statusCode || 0) || null };
 }
 
 function buildImportControlDocBase(sessionId) {

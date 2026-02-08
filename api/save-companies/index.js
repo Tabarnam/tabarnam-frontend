@@ -247,17 +247,30 @@ async function upsertItemWithPkCandidates(container, doc) {
 
   let lastErr = null;
   for (const partitionKeyValue of candidates) {
-    try {
-      if (partitionKeyValue !== undefined) {
-        await container.items.upsert(doc, { partitionKey: partitionKeyValue });
-      } else if (pkValue !== undefined) {
-        await container.items.upsert(doc, { partitionKey: pkValue });
-      } else {
-        await container.items.upsert(doc);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (partitionKeyValue !== undefined) {
+          await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+        } else if (pkValue !== undefined) {
+          await container.items.upsert(doc, { partitionKey: pkValue });
+        } else {
+          await container.items.upsert(doc);
+        }
+        return { ok: true };
+      } catch (e) {
+        lastErr = e;
+        const code = Number(e?.code || e?.statusCode || 0);
+        const isTransient = code === 429 || code === 503 || code === 408 ||
+          /ETIMEDOUT|ECONNRESET|socket hang up/i.test(String(e?.message || ""));
+        if (isTransient && attempt < 2) {
+          const delayMs = code === 429 ? Math.min(2000 * (attempt + 1), 5000) : 1000 * (attempt + 1);
+          console.warn(`[save-companies] upsert transient error (attempt ${attempt + 1}/3, code=${code}), retrying in ${delayMs}ms: ${e?.message || String(e)}`);
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue;
+        }
+        console.warn(`[save-companies] upsert failed id=${String(doc?.id || "")} pk=${partitionKeyValue} code=${code}: ${e?.message || String(e)}`);
+        break;
       }
-      return { ok: true };
-    } catch (e) {
-      lastErr = e;
     }
   }
 
