@@ -2096,8 +2096,8 @@ export default function AdminImport() {
                     start_error_details: detailsForCopy,
                     progress_error: null,
                     progress_notice: isBackendCallFailureText
-                      ? "Gateway interrupted, recovering via status polling…"
-                      : "Start call failed, recovering via status polling…",
+                      ? "Gateway interrupted — auto-retrying in 5s…"
+                      : "Start call failed — auto-retrying in 5s…",
                     polling_exhausted: false,
                     updatedAt: new Date().toISOString(),
                   }
@@ -2108,13 +2108,69 @@ export default function AdminImport() {
           resetPollAttempts(canonicalSessionId);
           setActiveStatus("running");
 
-          // Kick off the recovery loop. Status polling will populate verified saved ids/counts.
+          toast.info(isBackendCallFailureText ? "Gateway interrupted — auto-retrying…" : "Start failed — auto-retrying…");
+
+          // Auto-retry: wait 5s for any backend cold-start to settle, then retry the import/start
+          // with the same session_id. The backend will detect the existing session and either resume
+          // or start fresh. This handles SWA gateway 500 "Backend call failure" caused by cold starts
+          // or transient gateway timeouts.
+          try {
+            await sleep(5000);
+
+            if (abort.signal.aborted) return;
+
+            setRuns((prev) =>
+              prev.map((r) =>
+                r.session_id === canonicalSessionId
+                  ? { ...r, progress_notice: "Retrying import/start…", updatedAt: new Date().toISOString() }
+                  : r
+              )
+            );
+
+            // The callImportStage function is not yet defined at this point in the closure,
+            // so we directly call apiFetchWithFallback with the same paths and payload.
+            const retryPaths = [`/import/start`, `/import-start`];
+            const retryPayload = { ...requestPayload, session_id: canonicalSessionId };
+            const { res: retryRes } = await apiFetchWithFallback(retryPaths, {
+              method: "POST",
+              body: retryPayload,
+              signal: abort.signal,
+            });
+            const retryBody = await readJsonOrText(retryRes);
+            syncCanonicalSessionId({ res: retryRes, body: retryBody });
+
+            const retryOk = retryRes.ok || retryBody?.ok === true || retryBody?.accepted === true;
+
+            if (retryOk) {
+              setRuns((prev) =>
+                prev.map((r) =>
+                  r.session_id === canonicalSessionId
+                    ? { ...r, progress_notice: "Retry succeeded — monitoring progress…", updatedAt: new Date().toISOString() }
+                    : r
+                )
+              );
+              // Don't return — fall through to let the outer pipeline continue
+              // by NOT returning here; the polling will pick up the progress.
+            } else {
+              setRuns((prev) =>
+                prev.map((r) =>
+                  r.session_id === canonicalSessionId
+                    ? { ...r, progress_notice: "Retry returned non-ok — falling back to polling…", updatedAt: new Date().toISOString() }
+                    : r
+                )
+              );
+            }
+          } catch (retryErr) {
+            try {
+              console.warn("[admin-import] SWA 500 auto-retry failed", retryErr?.message || String(retryErr));
+            } catch {}
+          }
+
+          // Fall back to polling regardless of retry outcome
           try {
             await pollProgress({ session_id: canonicalSessionId });
           } catch {}
           schedulePoll({ session_id: canonicalSessionId });
-
-          toast.info(isBackendCallFailureText ? "Gateway interrupted — recovering…" : "Start failed — checking status…");
           return;
         }
 

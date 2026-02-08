@@ -390,8 +390,75 @@ function buildManufacturingSeedFromDoc(doc) {
   return [];
 }
 
+/**
+ * Promote location_sources entries to structured headquarters/manufacturing fields
+ * when those structured fields are empty. This ensures that locations entered as
+ * "location sources" in the admin UI can be geocoded and used for distance calculations.
+ */
+function maybePromoteLocationSourcesToStructured(doc) {
+  if (!doc || typeof doc !== "object") return;
+  const sources = doc.location_sources;
+  if (!Array.isArray(sources) || sources.length === 0) return;
+
+  const hasHq =
+    (Array.isArray(doc.headquarters_locations) && doc.headquarters_locations.length > 0) ||
+    (Array.isArray(doc.headquarters) && doc.headquarters.length > 0) ||
+    (typeof doc.headquarters_location === "string" && doc.headquarters_location.trim());
+
+  const hasManu =
+    (Array.isArray(doc.manufacturing_locations) && doc.manufacturing_locations.length > 0) ||
+    (Array.isArray(doc.manufacturing_geocodes) && doc.manufacturing_geocodes.length > 0);
+
+  if (hasHq && hasManu) return; // nothing to promote
+
+  for (const src of sources) {
+    if (!src || typeof src !== "object") continue;
+    const locText = String(src.location || src.address || src.full_address || "").trim();
+    if (!locText) continue;
+
+    const locType = String(src.location_type || "").trim().toLowerCase();
+
+    if (!hasHq && (locType === "headquarters" || locType === "hq")) {
+      if (!Array.isArray(doc.headquarters_locations)) doc.headquarters_locations = [];
+      // Avoid duplicates
+      const alreadyHas = doc.headquarters_locations.some((h) => {
+        if (!h) return false;
+        const existing = String(
+          (typeof h === "string" ? h : h.address || h.location || h.full_address || h.formatted || "") || ""
+        ).trim().toLowerCase();
+        return existing === locText.toLowerCase();
+      });
+      if (!alreadyHas) {
+        doc.headquarters_locations.push({ location: locText, promoted_from: "location_sources" });
+      }
+    }
+
+    if (!hasManu && (locType === "manufacturing" || locType === "factory" || locType === "production")) {
+      if (!Array.isArray(doc.manufacturing_locations)) doc.manufacturing_locations = [];
+      const alreadyHas = doc.manufacturing_locations.some((m) => {
+        if (!m) return false;
+        const existing = String(
+          (typeof m === "string" ? m : m.address || m.location || m.full_address || m.formatted || "") || ""
+        ).trim().toLowerCase();
+        return existing === locText.toLowerCase();
+      });
+      if (!alreadyHas) {
+        doc.manufacturing_locations.push({ location: locText, promoted_from: "location_sources" });
+      }
+    }
+  }
+
+  // Sync headquarters array with headquarters_locations
+  if (Array.isArray(doc.headquarters_locations) && doc.headquarters_locations.length > 0) {
+    doc.headquarters = doc.headquarters_locations;
+  }
+}
+
 async function maybeGeocodeLocationsForCompanyDoc(doc, { timeoutMs = 5000 } = {}) {
   if (!doc || typeof doc !== "object") return doc;
+
+  // Promote location_sources to structured fields if needed (before geocoding)
+  maybePromoteLocationSourcesToStructured(doc);
 
   const next = doc;
 
