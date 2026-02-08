@@ -5346,6 +5346,18 @@ export default function CompanyDashboard() {
         wrap: true,
       },
       {
+        name: "Stars",
+        selector: (row) => row?.reviews_star_value ?? "",
+        sortable: true,
+        right: true,
+        width: "80px",
+        cell: (row) => {
+          const val = row?.reviews_star_value;
+          if (val == null || val === "") return <span className="text-xs text-slate-400">—</span>;
+          return <span className="text-xs text-slate-900">{Number(val).toFixed(1)}</span>;
+        },
+      },
+      {
         name: "reviews",
         selector: (row) => getComputedReviewCount(row),
         sortable: true,
