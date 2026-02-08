@@ -1943,131 +1943,136 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         </span>
       </label>
 
-      {lastRefreshAttempt ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-          <div className="font-medium text-slate-900">Last refresh attempt</div>
-          <div className="mt-1 space-y-1">
-            <div>
-              Time: {lastRefreshAttempt.at ? new Date(lastRefreshAttempt.at).toLocaleString() : ""}
-              {refreshOutcome && refreshOutcome.label ? ` • ${refreshOutcome.label}` : ""}
-            </div>
-            <div>
-              saved_count: {Number(lastRefreshAttempt.saved_count ?? 0) || 0}
-              <span className="mx-1">•</span>
-              fetched_count: {Number(lastRefreshAttempt.fetched_count ?? 0) || 0}
-              {lastRefreshAttempt.retryable ? <span className="ml-1">• retryable</span> : null}
-            </div>
-            {asString(lastRefreshAttempt.build_id).trim() ? <div>Build: {asString(lastRefreshAttempt.build_id).trim()}</div> : null}
-            {asString(lastRefreshAttempt.root_cause).trim() ? <div>root_cause: {asString(lastRefreshAttempt.root_cause).trim()}</div> : null}
-            {asString(lastRefreshAttempt.client_note).trim() ? <div>{asString(lastRefreshAttempt.client_note).trim()}</div> : null}
-            {upstreamStatusForDisplay != null ? <div>upstream_status: HTTP {upstreamStatusForDisplay}</div> : null}
+      {/* ─── Fetch more reviews status banner ─── */}
+      {lastRefreshAttempt ? (() => {
+        const isOk = lastRefreshAttempt.ok === true;
+        const isFail = lastRefreshAttempt.ok === false;
+        const saved = Number(lastRefreshAttempt.saved_count ?? 0) || 0;
+        const fetched = Number(lastRefreshAttempt.fetched_count ?? 0) || 0;
+        const at = lastRefreshAttempt.at ? new Date(lastRefreshAttempt.at).toLocaleString() : "";
+        const retryable = Boolean(lastRefreshAttempt.retryable);
 
-            {(() => {
-              const rootCause = asString(lastRefreshAttempt.root_cause).trim();
-              const category =
-                rootCause === "client_bad_request" || rootCause.startsWith("client_")
-                  ? "validation / client"
-                  : rootCause === "bad_response_not_json"
-                    ? "upstream non-JSON response"
-                    : rootCause === "upstream_4xx"
-                      ? "upstream 4xx"
-                      : rootCause === "upstream_5xx"
-                        ? "upstream 5xx"
-                        : rootCause === "upstream_rate_limited"
-                          ? "upstream rate limited"
-                          : rootCause === "upstream_unreachable" || rootCause === "upstream_http_0"
-                            ? "upstream unreachable"
-                            : rootCause
-                              ? "other"
-                              : "";
-
-              if (!category) return null;
-              return <div>failure_category: {category}</div>;
-            })()}
-
-            {(() => {
-              const diag =
-                lastRefreshAttempt?.upstream_body_diagnostics && typeof lastRefreshAttempt.upstream_body_diagnostics === "object"
-                  ? lastRefreshAttempt.upstream_body_diagnostics
-                  : lastRefreshAttempt?.upstream_error_body && typeof lastRefreshAttempt.upstream_error_body === "object"
-                    ? {
-                        content_type: lastRefreshAttempt.upstream_error_body.content_type,
-                        raw_body_kind: lastRefreshAttempt.upstream_error_body.raw_body_kind,
-                        raw_body_preview: lastRefreshAttempt.upstream_error_body.preview,
-                      }
-                    : null;
-
-              if (!diag) return null;
-
-              return (
-                <div className="mt-2 rounded border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
-                  <div className="font-medium text-slate-900">upstream_body_diagnostics</div>
-                  <div className="mt-1">content_type: {asString(diag.content_type) || "(none)"}</div>
-                  <div>raw_body_kind: {asString(diag.raw_body_kind) || "(none)"}</div>
-                  {asString(diag.raw_body_preview).trim() ? (
-                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2">
-                      {asString(diag.raw_body_preview)}
-                    </pre>
-                  ) : null}
+        if (isOk && saved > 0) {
+          return (
+            <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 flex items-center gap-4">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-emerald-900">
+                  {saved} review{saved !== 1 ? "s" : ""} saved
                 </div>
-              );
-            })()}
-
-            {Array.isArray(lastRefreshAttempt?.attempts) && lastRefreshAttempt.attempts.length ? (
-              <div className="mt-2 rounded border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
-                <div className="font-medium text-slate-900">attempts</div>
-                <div className="mt-1 space-y-1">
-                  {lastRefreshAttempt.attempts.map((a, idx) => (
-                    <div key={`${idx}-${asString(a?.attempt)}`} className="break-words">
-                      #{Number(a?.attempt ?? idx + 1) || idx + 1} • ok: {String(Boolean(a?.ok))} • upstream_status: {a?.upstream_status ?? "(none)"}
-                      {asString(a?.root_cause).trim() ? ` • ${asString(a.root_cause).trim()}` : ""}
-                      {a?.retryable ? " • retryable" : ""}
-                    </div>
-                  ))}
+                <div className="text-xs text-emerald-700 mt-0.5">
+                  {fetched > saved ? `${fetched} fetched, ${saved} saved` : `${saved} saved`}
+                  {at ? ` · ${at}` : ""}
                 </div>
               </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+            </div>
+          );
+        }
+
+        if (isOk && saved === 0) {
+          return (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 flex items-center gap-4">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-amber-900">
+                  No new reviews found
+                </div>
+                <div className="text-xs text-amber-700 mt-0.5">
+                  {fetched > 0 ? `${fetched} fetched but none were new` : "No reviews returned"}
+                  {at ? ` · ${at}` : ""}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (isFail) {
+          const rootCause = asString(lastRefreshAttempt.root_cause).trim();
+          const friendlyReason =
+            rootCause === "upstream_rate_limited" ? "Rate limited — try again in a moment"
+              : rootCause === "upstream_unreachable" || rootCause === "upstream_http_0" ? "Service unreachable — try again"
+              : rootCause === "upstream_5xx" ? "Server error — try again"
+              : rootCause === "upstream_4xx" ? "Request rejected by upstream"
+              : rootCause === "bad_response_not_json" ? "Unexpected response format"
+              : rootCause.startsWith("client_") ? "Request error"
+              : rootCause ? rootCause.replace(/_/g, " ")
+              : "Unknown error";
+
+          return (
+            <div className="rounded-lg border border-red-300 bg-red-50 p-4 flex items-center gap-4">
+              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-red-900">
+                  Reviews fetch failed{retryable ? " — retryable" : ""}
+                </div>
+                <div className="text-xs text-red-700 mt-0.5">
+                  {friendlyReason}
+                  {at ? ` · ${at}` : ""}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        return null;
+      })() : null}
 
       {!stableId ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
           Save the company first to generate a <code className="text-[11px]">company_id</code>.
         </div>
       ) : error ? (
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="font-medium">Reviews import failed</div>
-              <div className="mt-1 text-xs break-words">{asString(error.message)}</div>
-              {Array.isArray(error?.attempts) && error.attempts.length ? (
-                <div className="mt-2 text-[11px] text-red-900/80 break-words">
-                  Tried: {error.attempts.map((a) => `${a.path} → ${a.status}`).join(", ")}
-                </div>
-              ) : null}
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="bg-white"
-              onClick={async () => {
-                const payloadObj = error?.debug_bundle && typeof error.debug_bundle === "object" ? error.debug_bundle : error;
-                const ok = await copyToClipboard(prettyJson(payloadObj));
-                if (ok) toast.success("Copied error");
-                else toast.error("Copy failed");
-              }}
-            >
-              <Copy className="h-4 w-4 mr-2" />
-              Copy
-            </Button>
+        <div className="rounded-lg border border-red-300 bg-red-50 p-4 flex items-center gap-4">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500 text-white">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-red-900">Reviews fetch failed</div>
+            <div className="text-xs text-red-700 mt-0.5 break-words">{asString(error.message)}</div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="bg-white shrink-0"
+            onClick={async () => {
+              const payloadObj = error?.debug_bundle && typeof error.debug_bundle === "object" ? error.debug_bundle : error;
+              const ok = await copyToClipboard(prettyJson(payloadObj));
+              if (ok) toast.success("Copied error");
+              else toast.error("Copy failed");
+            }}
+          >
+            <Copy className="h-4 w-4 mr-1" />
+            Copy
+          </Button>
         </div>
       ) : loading ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">Fetching proposed reviews…</div>
+        <div className="rounded-lg border border-blue-300 bg-blue-50 p-4 flex items-center gap-4">
+          <div className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-blue-900">Fetching reviews…</div>
+            <div className="text-xs text-blue-700 mt-0.5">Searching for editorial and third-party reviews</div>
+          </div>
+        </div>
       ) : items.length === 0 ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
           No proposed reviews yet. Click <span className="font-medium">Fetch more reviews</span>.
         </div>
       ) : (
@@ -5780,17 +5785,8 @@ export default function CompanyDashboard() {
                               {editorOriginalId ? (
                                 <div className="min-w-0 flex-1 max-w-[520px] leading-snug">
                                   <div className="text-xs text-muted-foreground">
-                                    Click “Refresh search” to fetch proposed updates. Protected fields (logo, notes, manual stars) are never overwritten.
+                                    Click "Refresh search" to fetch proposed updates. Protected fields (logo, notes, manual stars) are never overwritten.
                                   </div>
-                                  {lastRefreshMeta && !refreshLoading ? (
-                                    <div className="mt-1 text-[11px] text-slate-500">
-                                      Last refresh: {lastRefreshMeta?.lastRefreshStatus?.kind === "success" ? "succeeded" : "failed"}
-                                      {lastRefreshMeta?.lastRefreshStatus?.code != null ? ` (${lastRefreshMeta.lastRefreshStatus.code})` : ""}
-                                      {lastRefreshMeta?.lastRefreshAt ? ` • ${toDisplayDate(lastRefreshMeta.lastRefreshAt)}` : ""}
-                                    </div>
-                                  ) : refreshLoading ? (
-                                    <div className="mt-1 text-[11px] text-slate-500">Refreshing…</div>
-                                  ) : null}
                                 </div>
                               ) : null}
                             </div>
@@ -5809,6 +5805,66 @@ export default function CompanyDashboard() {
                           ) : null}
                         </div>
                       </div>
+
+                      {/* ─── Refresh search status banner ─── */}
+                      {editorOriginalId && refreshLoading && !proposedDraft && !refreshError ? (
+                        <div className="rounded-lg border border-blue-300 bg-blue-50 p-4 flex items-center gap-4">
+                          <div className="relative flex h-3 w-3">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-blue-900">Refreshing company data…</div>
+                            <div className="text-xs text-blue-700 mt-0.5">Fetching proposed updates from xAI</div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {editorOriginalId && !refreshLoading && lastRefreshMeta?.lastRefreshStatus ? (() => {
+                        const isSuccess = lastRefreshMeta.lastRefreshStatus.kind === "success";
+                        const isError = lastRefreshMeta.lastRefreshStatus.kind === "error";
+                        const code = lastRefreshMeta.lastRefreshStatus.code;
+                        const at = lastRefreshMeta.lastRefreshAt;
+                        const hasDiffs = proposedDraft && Array.isArray(diffRows) && diffRows.length > 0;
+
+                        if (isSuccess) {
+                          return (
+                            <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 flex items-center gap-4">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-emerald-900">
+                                  Refresh complete{hasDiffs ? ` — ${diffRows.length} proposed change${diffRows.length !== 1 ? "s" : ""}` : " — no changes found"}
+                                </div>
+                                {at ? <div className="text-xs text-emerald-700 mt-0.5">{toDisplayDate(at)}</div> : null}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (isError) {
+                          return (
+                            <div className="rounded-lg border border-red-300 bg-red-50 p-4 flex items-center gap-4">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white">
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-red-900">
+                                  Refresh failed{code ? ` (${code})` : ""}
+                                </div>
+                                {at ? <div className="text-xs text-red-700 mt-0.5">{toDisplayDate(at)}</div> : null}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return null;
+                      })() : null}
 
                       {editorOriginalId && (refreshLoading || refreshError || proposedDraft) ? (
                         <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
