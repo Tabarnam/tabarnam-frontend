@@ -517,7 +517,13 @@ async function geocodeLocationString(location, { timeoutMs = 5000 } = {}) {
 
   const result = await geocodeLocationEntry({ city: trimmed }, { timeoutMs });
   if (result?.lat && result?.lng && result?.geocode_status === "ok") {
-    return { lat: result.lat, lng: result.lng };
+    return {
+      lat: result.lat,
+      lng: result.lng,
+      geocode_source: result.geocode_source || "google",
+      geocode_confidence: result.geocode_confidence || null,
+      geocode_precision: result.geocode_precision || null,
+    };
   }
   return null;
 }

@@ -3333,6 +3333,34 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.manufacturing_locations = "ok";
 
+        // Geocode each manufacturing location to get lat/lng for distance calculations.
+        const geocodedMfg = [];
+        for (const loc of locs) {
+          const locStr = String(loc || "").trim();
+          if (!locStr) continue;
+          try {
+            const coords = await geocodeLocationString(locStr, { timeoutMs: 5000 });
+            const entry = { location: locStr, address: locStr };
+            if (coords?.lat && coords?.lng) {
+              entry.lat = coords.lat;
+              entry.lng = coords.lng;
+              entry.geocode_status = "ok";
+              entry.geocode_source = coords.geocode_source || "google";
+              console.log(`[resume-worker] geocoded mfg (fallback): ${locStr} → (${coords.lat}, ${coords.lng})`);
+            } else {
+              entry.geocode_status = "failed";
+              console.log(`[resume-worker] geocode returned no coords for mfg (fallback): ${locStr}`);
+            }
+            geocodedMfg.push(entry);
+          } catch (geoErr) {
+            geocodedMfg.push({ location: locStr, address: locStr, geocode_status: "failed" });
+            console.log(`[resume-worker] geocode failed for mfg (fallback): ${locStr}`, { error: geoErr?.message || String(geoErr) });
+          }
+        }
+        if (geocodedMfg.length > 0) {
+          doc.manufacturing_geocodes = geocodedMfg;
+        }
+
         const mfgSourceUrls = Array.isArray(r?.location_source_urls?.mfg_source_urls)
           ? r.location_source_urls.mfg_source_urls
           : Array.isArray(r?.source_urls)
