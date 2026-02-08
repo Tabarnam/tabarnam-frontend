@@ -10416,6 +10416,86 @@ Output JSON only:
             }
           }
 
+          // Detect when ALL results were skipped as duplicates — short-circuit expansion and return immediately
+          const allSkippedAsDuplicates =
+            cosmosEnabled &&
+            Number(saveResult.saved || 0) === 0 &&
+            Number(saveResult.failed || 0) === 0 &&
+            Number(saveResult.skipped || 0) > 0 &&
+            Array.isArray(saveResult.skipped_duplicates) &&
+            saveResult.skipped_duplicates.length > 0 &&
+            saveResult.skipped_duplicates.some((d) => d?.duplicate_of_id);
+
+          if (allSkippedAsDuplicates) {
+            const firstDup = saveResult.skipped_duplicates.find((d) => d?.duplicate_of_id) || saveResult.skipped_duplicates[0] || {};
+            const dupId = String(firstDup.duplicate_of_id || "").trim();
+            const dupName = String(firstDup.company_name || "").trim();
+
+            console.log(`[import-start] session=${sessionId} All ${saveResult.skipped} result(s) are existing duplicates (${dupName || "unknown"}, id=${dupId}). Skipping expansion.`);
+
+            mark("cosmos_write_done");
+
+            // Write final session doc
+            try {
+              await upsertCosmosImportSessionDoc({
+                sessionId,
+                requestId,
+                patch: {
+                  status: "complete",
+                  stage_beacon: "duplicate_detected",
+                  save_outcome: "duplicate_detected",
+                  saved: 0,
+                  saved_verified_count: 0,
+                  saved_company_ids_verified: [],
+                  saved_company_ids_unverified: [],
+                  skipped: Number(saveResult.skipped || 0),
+                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                  skipped_duplicates: saveResult.skipped_duplicates,
+                  duplicate_of_id: dupId || null,
+                  duplicate_company_name: dupName || null,
+                  completed_at: new Date().toISOString(),
+                  resume_needed: false,
+                  last_error: {
+                    code: "DUPLICATE_DETECTED",
+                    message: `${dupName || "Company"} already exists in the database${dupId ? ` (${dupId})` : ""}`,
+                  },
+                },
+              }).catch(() => null);
+            } catch {}
+
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon: "duplicate_detected",
+                companies_count: Number(saveResult.skipped || 0),
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                completed: true,
+                stage_beacon: "duplicate_detected",
+                save_outcome: "duplicate_detected",
+                duplicate_of_id: dupId || null,
+                duplicate_company_name: dupName || null,
+                saved: 0,
+                skipped: Number(saveResult.skipped || 0),
+                failed: 0,
+                last_error: {
+                  code: "DUPLICATE_DETECTED",
+                  message: `${dupName || "Company"} already exists in the database${dupId ? ` (${dupId})` : ""}`,
+                },
+                save_report: saveReport,
+              },
+              200
+            );
+          }
+
           const effectiveResultCountForExpansion = cosmosEnabled ? saveResult.saved + saveResult.failed : enriched.length;
 
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search

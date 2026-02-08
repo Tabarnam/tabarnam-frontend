@@ -352,11 +352,13 @@ const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
   primary_timeout: "Primary search timed out",
   primary_skipped_company_url: "URL import detected — primary search skipped",
   no_candidates_found: "No matching companies found",
+  duplicate_detected: "Company already exists in database",
 });
 
 const IMPORT_ERROR_CODE_TO_REASON = Object.freeze({
   primary_timeout: "Primary search timed out",
   no_candidates_found: "No matching companies found",
+  DUPLICATE_DETECTED: "Company already exists in the database",
   MISSING_XAI_ENDPOINT: "Missing XAI endpoint configuration",
   MISSING_XAI_KEY: "Missing XAI API key configuration",
   MISSING_OUTBOUND_BODY: "Missing outbound body (import request payload)",
@@ -3370,37 +3372,72 @@ export default function AdminImport() {
       const sessionId = body.session_id || uiSessionId;
 
       if (body.completed) {
-        // Import completed within the request — compute saved count from all available signals
-        const savedCompanies = Array.isArray(body.saved_companies) ? body.saved_companies : [];
-        const savedVerifiedIds = Array.isArray(body.saved_company_ids_verified) ? body.saved_company_ids_verified : [];
-        const savedUnverifiedIds = Array.isArray(body.saved_company_ids_unverified) ? body.saved_company_ids_unverified : [];
-        const savedIdsTotal = new Set([...savedVerifiedIds, ...savedUnverifiedIds]).size;
-        const computedSaved = Math.max(
-          Number(body.saved_count) || 0,
-          Number(body.saved) || 0,
-          Number(body.saved_verified_count) || 0,
-          savedCompanies.length,
-          savedIdsTotal,
-        );
-        setRuns((prev) =>
-          prev.map((r) =>
-            r.session_id === uiSessionId
-              ? {
-                  ...r,
-                  session_id: sessionId,
-                  session_id_confirmed: true,
-                  saved: computedSaved,
-                  saved_companies: savedCompanies.length > 0 ? savedCompanies : r.saved_companies,
-                  saved_company_ids_verified: savedVerifiedIds.length > 0 ? savedVerifiedIds : r.saved_company_ids_verified,
-                  saved_company_ids_unverified: savedUnverifiedIds.length > 0 ? savedUnverifiedIds : r.saved_company_ids_unverified,
-                  completed: true,
-                  updatedAt: new Date().toISOString(),
-                }
-              : r
-          )
-        );
-        toast.success(`Import complete: ${computedSaved} company saved${savedCompanies[0]?.company_name ? ` (${savedCompanies[0].company_name})` : ""}`);
-        setActiveStatus("done");
+        const isDuplicate = body.save_outcome === "duplicate_detected" ||
+          body.stage_beacon === "duplicate_detected" ||
+          body.last_error?.code === "DUPLICATE_DETECTED";
+        const dupName = body.duplicate_company_name || body.last_error?.message || "";
+        const dupId = body.duplicate_of_id || "";
+
+        if (isDuplicate) {
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === uiSessionId
+                ? {
+                    ...r,
+                    session_id: sessionId,
+                    session_id_confirmed: true,
+                    saved: 0,
+                    completed: true,
+                    stage_beacon: "duplicate_detected",
+                    final_stage_beacon: "duplicate_detected",
+                    save_outcome: "duplicate_detected",
+                    duplicate_of_id: dupId,
+                    duplicate_company_name: dupName,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : r
+            )
+          );
+          toast.warning(
+            dupName
+              ? `Already exists: ${dupName}`
+              : "Company already exists in the database",
+            { duration: 6000 }
+          );
+          setActiveStatus("done");
+        } else {
+          // Import completed within the request — compute saved count from all available signals
+          const savedCompanies = Array.isArray(body.saved_companies) ? body.saved_companies : [];
+          const savedVerifiedIds = Array.isArray(body.saved_company_ids_verified) ? body.saved_company_ids_verified : [];
+          const savedUnverifiedIds = Array.isArray(body.saved_company_ids_unverified) ? body.saved_company_ids_unverified : [];
+          const savedIdsTotal = new Set([...savedVerifiedIds, ...savedUnverifiedIds]).size;
+          const computedSaved = Math.max(
+            Number(body.saved_count) || 0,
+            Number(body.saved) || 0,
+            Number(body.saved_verified_count) || 0,
+            savedCompanies.length,
+            savedIdsTotal,
+          );
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === uiSessionId
+                ? {
+                    ...r,
+                    session_id: sessionId,
+                    session_id_confirmed: true,
+                    saved: computedSaved,
+                    saved_companies: savedCompanies.length > 0 ? savedCompanies : r.saved_companies,
+                    saved_company_ids_verified: savedVerifiedIds.length > 0 ? savedVerifiedIds : r.saved_company_ids_verified,
+                    saved_company_ids_unverified: savedUnverifiedIds.length > 0 ? savedUnverifiedIds : r.saved_company_ids_unverified,
+                    completed: true,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : r
+            )
+          );
+          toast.success(`Import complete: ${computedSaved} company saved${savedCompanies[0]?.company_name ? ` (${savedCompanies[0].company_name})` : ""}`);
+          setActiveStatus("done");
+        }
       } else {
         // Import still running, start polling
         setRuns((prev) =>
@@ -3723,6 +3760,34 @@ export default function AdminImport() {
 
           {/* Completed status */}
           {activeRun?.completed && !activeRun.start_error ? (() => {
+            const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
+            const isDuplicate =
+              stageBeacon === "duplicate_detected" ||
+              activeRun.save_outcome === "duplicate_detected" ||
+              activeRun.duplicate_of_id;
+
+            if (isDuplicate) {
+              const dupName = activeRun.duplicate_company_name || activeRun.items?.[0]?.company_name || "";
+              const dupId = activeRun.duplicate_of_id || "";
+              return (
+                <div className="rounded-lg border border-sky-300 bg-sky-50 p-4 flex items-center gap-4">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-500 text-white">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-sky-900">
+                      Already exists{dupName ? `: ${dupName}` : ""}
+                    </div>
+                    <div className="text-xs text-sky-700 mt-0.5">
+                      This company is already in the database.{dupId ? ` Edit it in the Companies tab.` : ""}
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             const savedCount = Math.max(
               Number(activeRun.saved ?? 0) || 0,
               (Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : []).length,
@@ -3730,7 +3795,6 @@ export default function AdminImport() {
             );
             const companyName = activeRun.saved_companies?.[0]?.company_name || activeRun.items?.[0]?.company_name || "";
             const companyUrl = activeRun.saved_companies?.[0]?.website_url || activeRun.saved_companies?.[0]?.canonical_url || activeRun.items?.[0]?.website_url || "";
-            const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
             const resumeNeeded = Boolean(activeRun.resume_needed);
             const missingFields = activeRun.saved_companies?.[0]?.enrichment_health?.missing_fields || [];
             const hasSave = savedCount > 0;
