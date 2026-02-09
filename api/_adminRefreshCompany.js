@@ -684,15 +684,15 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     // Best-effort per-company lock so repeated clicks don't overlap.
-    // Stale locks (older than 5 minutes) are auto-released to prevent permanent lockouts
-    // from crashed or timed-out refreshes.
+    // Stale locks (older than 3 minutes) are auto-released to prevent permanent lockouts
+    // from crashed, timed-out, or SWA-dropped refreshes (ghost locks).
     stage = "lock_check";
     const nowMs = Date.now();
     const lockUntilExisting = Number(existing.company_refresh_lock_until || 0) || 0;
-    const STALE_LOCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+    const STALE_LOCK_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes (reduced from 5 to handle SWA ghost locks faster)
     if (lockUntilExisting > nowMs) {
       const retryAfterMs = Math.max(0, lockUntilExisting - nowMs);
-      // If the lock expires more than 5 minutes from now, it was set with a very large
+      // If the lock expires more than 3 minutes from now, it was set with a very large
       // window and is likely from a crashed/hung refresh. Auto-release it.
       if (retryAfterMs <= STALE_LOCK_THRESHOLD_MS) {
         // ── Recovery path: check if a previous refresh already saved results ──
@@ -778,7 +778,11 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     try {
-      const lockWindowMs = Math.max(8000, Math.min(250000, budgetMs + 10000));
+      // Cap lock window at 130s (120s enrichment + 10s buffer) instead of budgetMs + 10s (~210s).
+      // Shorter lock window means ghost locks (from SWA connection drops) resolve much faster.
+      // Enrichment rarely exceeds 2 minutes; the longer budget is for geocoding/logo which
+      // happen after enrichment and don't need lock protection.
+      const lockWindowMs = Math.max(8000, Math.min(130000, Math.min(budgetMs, 120000) + 10000));
       const lockUntil = nowMs + lockWindowMs;
       await patchCompanyById(container, companyId, existing, {
         company_refresh_lock_key: `company_refresh_lock::${companyId}`,

@@ -4397,12 +4397,34 @@ export default function CompanyDashboard() {
       if (jsonBody?.ok !== true) {
         // ── Auto-retry for "locked" responses ──
         // When the SWA gateway returns a 500 on the first attempt, the fallback
-        // retry may find the lock held by the still-running original request.
-        // Instead of surfacing a confusing "Refresh already in progress" error,
-        // wait for the lock to expire and retry automatically (once).
+        // retry may find the lock held by the still-running original request
+        // (ghost lock from SWA connection drop).
+        // For short locks (≤60s), wait and auto-retry.
+        // For longer locks, tell the user to try again shortly rather than making
+        // them wait 2-3 minutes staring at a spinner.
         const isLocked = jsonBody?.root_cause === "locked" && jsonBody?.retryable === true;
         const retryAfterMs = isLocked ? Number(jsonBody?.retry_after_ms || 0) : 0;
-        const MAX_AUTO_RETRY_WAIT_MS = 180_000; // 3 minutes max
+        const MAX_AUTO_RETRY_WAIT_MS = 60_000; // 60s max auto-wait (reduced from 180s)
+
+        if (isLocked && retryAfterMs > MAX_AUTO_RETRY_WAIT_MS) {
+          // Lock is too far out — don't make the user wait, show a friendly message instead
+          const waitSec = Math.ceil(retryAfterMs / 1000);
+          toast.warning(`A previous refresh is still in progress (${waitSec}s remaining). Please try again in about a minute.`);
+          setRefreshMetaByCompany((prev) => ({
+            ...(prev || {}),
+            [companyId]: {
+              lastRefreshAt: startedAt,
+              lastRefreshStatus: { kind: "locked", code: null },
+              lastRefreshDebug: { locked: true, retry_after_ms: retryAfterMs },
+            },
+          }));
+          setRefreshError({
+            status: 423,
+            message: `Refresh locked — try again in ~${Math.ceil(retryAfterMs / 60000)} minute(s)`,
+            debug: jsonBody,
+          });
+          return;
+        }
 
         if (isLocked && retryAfterMs > 0 && retryAfterMs <= MAX_AUTO_RETRY_WAIT_MS) {
           toast.info(`Refresh in progress — waiting ${Math.ceil(retryAfterMs / 1000)}s for lock to release…`);

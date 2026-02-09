@@ -584,60 +584,12 @@ export async function apiFetch(path: string, init?: RequestInit) {
         // ignore
       }
 
-      // Routing hardening for refresh endpoints:
-      // In some environments, /api/* might not be wired to Azure Functions (or the SWA gateway may return
-      // a plain-text 500 "Backend call failure"). For refresh endpoints only, try one absolute fallback.
-      const canRetryViaProdApi =
-        API_BASE === "/api" &&
-        typeof path === "string" &&
-        !/^\s*https?:\/\//i.test(path) &&
-        /^\s*\/(xadmin-api-refresh-company|xadmin-api-refresh-reviews)\b/i.test(path) &&
-        (response.status === 404 || response.status >= 500) &&
-        data == null;
-
-      const previewLower = (truncated.preview || "").toLowerCase();
-      const looksLikeRoutingFailure =
-        response.status === 404 ||
-        previewLower.includes("backend call failure") ||
-        previewLower.includes("not found") ||
-        previewLower.includes("cannot") ||
-        previewLower.includes("no healthy upstream") ||
-        previewLower.includes("gateway") ||
-        previewLower.includes("swa");
-
-      if (canRetryViaProdApi && looksLikeRoutingFailure) {
-        const prodBase = "https://tabarnam.com/api";
-        const prodUrl = join(prodBase, path);
-
-        try {
-          console.warn("[apiFetch] Retrying refresh endpoint via prod base after routing-like failure", {
-            original_url: url,
-            prod_url: prodUrl,
-            status: response.status,
-          });
-
-          const fallbackResponse = await fetch(prodUrl, normalizedInit);
-
-          try {
-            (fallbackResponse as any).__api_fetch_fallback = {
-              attempted: true,
-              fallback_to: prodUrl,
-              fallback_from: url,
-              original_error: err,
-            };
-          } catch {
-            // ignore
-          }
-
-          return fallbackResponse;
-        } catch (e2: any) {
-          console.error("[apiFetch] Refresh prod-base fallback failed", {
-            original_url: url,
-            prod_url: prodUrl,
-            error_message: e2?.message ? String(e2.message) : "fetch_failed",
-          });
-        }
-      }
+      // NOTE: apiFetch prod-base fallback for refresh endpoints was REMOVED.
+      // It caused ghost locks: the fallback fires immediately on SWA 500 and acquires
+      // a backend lock, but SWA may have already killed the connection — leaving an
+      // orphaned lock in Cosmos that blocks subsequent refresh attempts.
+      // SWA 500 retries are now handled at the caller level (CompanyDashboard.jsx)
+      // with proper delays, backoff, and user-facing feedback.
 
       const configMsg = await getUserFacingConfigMessage(response);
       if (shouldLogNon2xx({ url, status: response.status })) {
