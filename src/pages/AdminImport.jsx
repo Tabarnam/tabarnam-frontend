@@ -355,6 +355,26 @@ const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
   duplicate_detected: "Company already exists in database",
 });
 
+// Stage beacons that indicate the import is still progressing or completed successfully.
+// When the banner says "no company saved" but the stage is one of these early/mid stages,
+// display green (normal progression) instead of amber (warning). Amber is reserved for
+// genuinely terminal states where the import completed with no result.
+const STAGE_BEACON_PROGRESS_OR_SUCCESS = new Set([
+  "create_session",
+  "primary_enqueued",
+  "primary_search_started",
+  "xai_primary_fetch_start",
+  "primary_candidate_found",
+  "primary_expanding_candidates",
+  "primary_early_exit",
+  "primary_complete",
+  "primary_skipped_company_url",
+  "company_url_seed_fallback",
+  "enrichment_resume_blocked",
+  "enrichment_incomplete_retryable",
+  "complete",
+]);
+
 const IMPORT_ERROR_CODE_TO_REASON = Object.freeze({
   primary_timeout: "Primary search timed out",
   no_candidates_found: "No matching companies found",
@@ -3810,15 +3830,32 @@ export default function AdminImport() {
             const resumeNeeded = Boolean(activeRun.resume_needed);
             const missingFields = activeRun.saved_companies?.[0]?.enrichment_health?.missing_fields || [];
             const hasSave = savedCount > 0;
-            const borderClass = hasSave ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50";
-            const textClass = hasSave ? "text-emerald-900" : "text-amber-900";
-            const subTextClass = hasSave ? "text-emerald-700" : "text-amber-700";
-            const iconBgClass = hasSave ? "bg-emerald-500" : "bg-amber-500";
+
+            // Determine banner colour: green for normal progression or success, amber only
+            // for genuinely terminal no-result outcomes (e.g. no_candidates_found, primary_timeout).
+            const isProgressStage = STAGE_BEACON_PROGRESS_OR_SUCCESS.has(stageBeacon) || resumeNeeded;
+            const useGreen = hasSave || isProgressStage;
+
+            const borderClass = useGreen ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50";
+            const textClass = useGreen ? "text-emerald-900" : "text-amber-900";
+            const subTextClass = useGreen ? "text-emerald-700" : "text-amber-700";
+            const iconBgClass = useGreen ? "bg-emerald-500" : "bg-amber-500";
+
+            // Choose message text: avoid alarming "Import finished — no company saved" for
+            // progress stages that simply haven't reached the save step yet.
+            let bannerMessage;
+            if (hasSave) {
+              bannerMessage = `Import complete — ${savedCount} company saved`;
+            } else if (isProgressStage) {
+              bannerMessage = `Import started — enrichment pending${stageBeacon ? ` (${toEnglishImportStage(stageBeacon)})` : ""}`;
+            } else {
+              bannerMessage = `Import finished — no company saved${stageBeacon ? ` (${toEnglishImportStage(stageBeacon)})` : ""}`;
+            }
 
             return (
               <div className={`rounded-lg border ${borderClass} p-4 flex items-center gap-4`}>
                 <div className={`flex h-6 w-6 items-center justify-center rounded-full ${iconBgClass} text-white`}>
-                  {hasSave ? (
+                  {useGreen ? (
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
@@ -3830,9 +3867,7 @@ export default function AdminImport() {
                 </div>
                 <div className="flex-1">
                   <div className={`text-sm font-medium ${textClass}`}>
-                    {hasSave
-                      ? `Import complete — ${savedCount} company saved`
-                      : `Import finished — no company saved${stageBeacon ? ` (${toEnglishImportStage(stageBeacon)})` : ""}`}
+                    {bannerMessage}
                   </div>
                   {companyName ? (
                     <div className={`text-xs ${subTextClass} mt-0.5`}>{companyName}{companyUrl ? ` · ${companyUrl}` : ""}</div>
@@ -4923,7 +4958,7 @@ export default function AdminImport() {
                         : terminalComplete && savedCount > 0
                           ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                           : resumeNeeded && savedCount > 0
-                            ? "border-amber-200 bg-amber-50 text-amber-900"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                             : isCompleteWithSave
                               ? hasWarnings
                                 ? "border-amber-200 bg-amber-50 text-amber-900"
