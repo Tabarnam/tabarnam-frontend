@@ -28,7 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
-import { apiFetch, apiFetchParsed, getCachedBuildId, getLastApiRequestExplain, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
+import { API_BASE, apiFetch, apiFetchParsed, getCachedBuildId, getLastApiRequestExplain, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getAdminUser } from "@/lib/azureAuth";
@@ -4198,6 +4198,18 @@ export default function CompanyDashboard() {
       deadline_ms: 200000,
     };
 
+    // Pre-warm: fire a lightweight request to wake up the Function App before the heavy refresh.
+    // SWA cold-starts frequently cause 500 "Backend call failure". This non-blocking ping gives
+    // the Function App a head-start on initialization.
+    try {
+      fetch(`${API_BASE}/ping?_t=${Date.now()}`, {
+        method: "GET",
+        signal: AbortSignal.timeout(8000),
+      }).catch(() => {});
+    } catch {
+      // ignore — best effort
+    }
+
     try {
       const refreshPaths = ["/xadmin-api-refresh-company"];
       const attempts = [];
@@ -4237,7 +4249,57 @@ export default function CompanyDashboard() {
             request_payload: requestPayload,
           });
           if (status === 404) continue;
-          throw { ...(err || {}), status, attempts, usedPath: path };
+
+          // ── SWA 500 auto-retry ──
+          // The SWA gateway may return 500 "Backend call failure" during cold starts or
+          // when the Function App is under heavy load. Retry up to 3 times with backoff.
+          const errText = asString(err?.text).trim();
+          const isSwa500 = status >= 500 &&
+            (errText === "Backend call failure" || errText === "" || !errText);
+          if (isSwa500) {
+            const retryDelays = [5000, 10000, 15000];
+            let retrySucceeded = false;
+            for (let retryIdx = 0; retryIdx < retryDelays.length; retryIdx++) {
+              try {
+                await new Promise((resolve) => setTimeout(resolve, retryDelays[retryIdx]));
+
+                toast.info(`Retrying refresh (attempt ${retryIdx + 2})…`);
+
+                const retryResult = await apiFetchParsed(path, {
+                  method: "POST",
+                  body: requestPayload,
+                });
+
+                // Success — use this result
+                const retryExplain = getLastApiRequestExplain();
+                attempts.push({
+                  path,
+                  status: retryResult.status,
+                  request: retryExplain,
+                  request_payload: requestPayload,
+                  response_headers: getResponseHeadersForDebug(retryResult.response),
+                  swa_retry_attempt: retryIdx + 1,
+                });
+                result = retryResult;
+                retrySucceeded = true;
+                break;
+              } catch (retryErr) {
+                const retryStatus = normalizeHttpStatusNumber(retryErr?.status) ?? 0;
+                const retryText = asString(retryErr?.text).trim();
+                const retryIsSwa500 = retryStatus >= 500 &&
+                  (retryText === "Backend call failure" || retryText === "" || !retryText);
+                try {
+                  console.warn(`[refresh-company] SWA 500 auto-retry attempt ${retryIdx + 1}/${retryDelays.length} ${retryIsSwa500 ? "still got 500" : "real error"}`);
+                } catch {}
+                if (!retryIsSwa500) break; // Real error, stop retrying
+              }
+            }
+            if (retrySucceeded) break;
+          }
+
+          if (!result) {
+            throw { ...(err || {}), status, attempts, usedPath: path };
+          }
         }
       }
 
