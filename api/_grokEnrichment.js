@@ -166,6 +166,13 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
   light: { min: 30_000, max: 60_000 },         // 30s-1 min for simpler fields (tagline, industries)
 });
 
+// Absolute minimum budget to attempt an xAI call at all.
+// Resume cycles from import-status have only 15s budget. The ideal stage timeouts above are
+// for fresh seeds with generous budgets. On resume cycles, we should still attempt xAI calls
+// with whatever time is available, as long as it exceeds this floor. xAI often responds in
+// 5-15 seconds for simple location/tagline queries.
+const RESUME_MIN_BUDGET_MS = 10_000;
+
 // Short-TTL cache to avoid re-paying the same Grok searches on resume cycles.
 // This is best-effort (in-memory) and only caches non-transient outcomes.
 const GROK_STAGE_CACHE = new Map();
@@ -735,7 +742,7 @@ Output STRICT JSON only:
   // Skip budget check when test stub is active (allows tests with small budgets).
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
   const remaining = budgetMs - (Date.now() - started);
-  const minRequired = stageTimeout.min + 1_200;
+  const minRequired = Math.min(stageTimeout.min + 1_200, RESUME_MIN_BUDGET_MS);
   console.log(`[grokEnrichment] fetchCuratedReviews: budgetMs=${budgetMs}, remaining=${remaining}, minRequired=${minRequired}, hasStub=${hasStub}`);
   if (!hasStub) {
     if (remaining < minRequired) {
@@ -763,7 +770,7 @@ Output STRICT JSON only:
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
-      minMs: stageTimeout.min,
+      minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
@@ -1085,7 +1092,10 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
-    const minRequired = stageTimeout.min + 1_200;
+    // Use the lower of the ideal stage minimum and the resume-friendly floor.
+    // This allows resume cycles (15s budget) to attempt xAI calls instead of
+    // immediately deferring. xAI often responds within 5-15s for location queries.
+    const minRequired = Math.min(stageTimeout.min + 1_200, RESUME_MIN_BUDGET_MS);
     if (remaining < minRequired) {
       return {
         headquarters_location: "",
@@ -1105,7 +1115,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
-      minMs: stageTimeout.min,
+      minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
@@ -1252,7 +1262,10 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
-    const minRequired = stageTimeout.min + 1_200;
+    // Use the lower of the ideal stage minimum and the resume-friendly floor.
+    // This allows resume cycles (15s budget) to attempt xAI calls instead of
+    // immediately deferring. xAI often responds within 5-15s for location queries.
+    const minRequired = Math.min(stageTimeout.min + 1_200, RESUME_MIN_BUDGET_MS);
     if (remaining < minRequired) {
       return {
         manufacturing_locations: [],
@@ -1272,7 +1285,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
-      minMs: stageTimeout.min,
+      minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
@@ -1408,7 +1421,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
-    const minRequired = stageTimeout.min + 1_200;
+    const minRequired = Math.min(stageTimeout.min + 1_200, RESUME_MIN_BUDGET_MS);
     if (remaining < minRequired) {
       return {
         tagline: "",
@@ -1428,7 +1441,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
-      minMs: stageTimeout.min,
+      minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
@@ -1539,7 +1552,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
-    const minRequired = stageTimeout.min + 1_200;
+    const minRequired = Math.min(stageTimeout.min + 1_200, RESUME_MIN_BUDGET_MS);
     if (remaining < minRequired) {
       return {
         industries: [],
@@ -1559,7 +1572,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
-      minMs: stageTimeout.min,
+      minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
@@ -1672,7 +1685,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
-    const minRequired = stageTimeout.min + 1_200;
+    const minRequired = Math.min(stageTimeout.min + 1_200, RESUME_MIN_BUDGET_MS);
     if (remaining < minRequired) {
       return {
         keywords: [],
@@ -1692,7 +1705,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
-      minMs: stageTimeout.min,
+      minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
@@ -1838,7 +1851,7 @@ Output STRICT JSON only:
 
   const remaining = budgetMs - (Date.now() - started);
   if (!hasStub && !hasAdminBypass) {
-    const minRequired = stageTimeout.min + 1_200;
+    const minRequired = Math.min(stageTimeout.min + 1_200, RESUME_MIN_BUDGET_MS);
     if (remaining < minRequired) {
       return {
         logo_url: null,
@@ -1858,7 +1871,7 @@ Output STRICT JSON only:
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
-      minMs: stageTimeout.min,
+      minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),

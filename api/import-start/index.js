@@ -7757,12 +7757,16 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                   await upsertItemWithPkCandidates(container, completionDoc).catch(() => null);
 
+                  // company_url_seed_fallback saves a skeleton company that still needs
+                  // enrichment (HQ, mfg locations, reviews, logo). Mark as "running" with
+                  // resume_needed=true so import-status triggers the resume-worker.
                   await upsertCosmosImportSessionDoc({
                     sessionId,
                     requestId,
                     patch: {
-                      status: "complete",
+                      status: "running",
                       stage_beacon: "company_url_seed_fallback",
+                      resume_needed: true,
                       saved: completionDoc.saved,
                       skipped: completionDoc.skipped,
                       failed: completionDoc.failed,
@@ -7779,9 +7783,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
-                status: "complete",
+                status: "running",
                 stage_beacon: "company_url_seed_fallback",
                 companies_count: companies.length,
+                resume_needed: true,
               });
             } catch {}
 
@@ -7793,8 +7798,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 session_id: sessionId,
                 request_id: requestId,
                 stage_beacon: "company_url_seed_fallback",
-                status: "complete",
-                resume_needed: false,
+                status: "running",
+                resume_needed: true,
                 company_name: seed.company_name,
                 company_url: seed.company_url || seed.website_url,
                 website_url: seed.website_url,

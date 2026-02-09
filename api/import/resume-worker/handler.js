@@ -1738,7 +1738,8 @@ async function resumeWorkerHandler(req, context) {
 
     // Minimum time budgets per field - realistic values based on actual xAI response times.
     // xAI API calls typically complete within 10-60 seconds.
-    // These must be >= the values in _grokEnrichment.js XAI_STAGE_TIMEOUTS_MS.min + safety margin.
+    // The grok functions use RESUME_MIN_BUDGET_MS (10s) as the absolute floor for budget gates,
+    // so these values are informational for planning and do not need to match XAI_STAGE_TIMEOUTS_MS.
     const MIN_REQUIRED_MS_BY_FIELD = {
       tagline: 20_000,                  // 20 seconds min (light field)
       headquarters_location: 25_000,    // 25 seconds min (location field)

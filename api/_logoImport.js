@@ -601,7 +601,7 @@ function isLikelyNonLogoByContentType(contentType, candidate) {
 
 function isAllowedLogoExtension(ext) {
   const e = String(ext || "").toLowerCase();
-  return e === "png" || e === "jpg" || e === "jpeg" || e === "svg";
+  return e === "png" || e === "jpg" || e === "jpeg" || e === "svg" || e === "webp";
 }
 
 function isAllowedLogoContentType(contentType) {
@@ -610,6 +610,7 @@ function isAllowedLogoContentType(contentType) {
   if (ct.includes("image/png")) return true;
   if (ct.includes("image/jpeg") || ct.includes("image/jpg")) return true;
   if (ct.includes("image/svg+xml")) return true;
+  if (ct.includes("image/webp")) return true;
   return false;
 }
 
@@ -954,6 +955,73 @@ function collectHeaderNavImgCandidates(html, baseUrl, { companyNameTokens, allow
   return out;
 }
 
+/**
+ * Detect logo images wrapped in homepage links (<a href="/"><img ...></a>).
+ * This is one of the most common patterns for company logos — the logo is an
+ * anchor linking back to the homepage. Boost these candidates significantly.
+ */
+function collectHomepageLinkImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot } = {}) {
+  const out = [];
+  // Match <a> tags that link to "/" or the site root (with optional trailing slash)
+  // and contain <img> tags within them.
+  let siteOrigin = "";
+  try { siteOrigin = new URL(baseUrl).origin; } catch {}
+  const homePaths = ["/", `${siteOrigin}/`, `${siteOrigin}`];
+  if (siteOrigin) {
+    try {
+      const u = new URL(siteOrigin);
+      const wwwVariant = u.hostname.startsWith("www.")
+        ? `${u.protocol}//${u.hostname.replace(/^www\./, "")}`
+        : `${u.protocol}//www.${u.hostname}`;
+      homePaths.push(`${wwwVariant}/`, wwwVariant);
+    } catch {}
+  }
+
+  // Find all <a>...</a> blocks that contain an <img>
+  const aRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
+  let am;
+  while ((am = aRe.exec(html)) !== null) {
+    const aAttrs = parseImgAttributes(`<a ${am[1]}>`);
+    const href = String(aAttrs.href || "").trim();
+    if (!href) continue;
+
+    // Check if this link points to the homepage
+    const isHomeLink = homePaths.some((hp) => {
+      if (!hp) return false;
+      const hpNorm = hp.replace(/\/+$/, "").toLowerCase();
+      const hrefNorm = href.replace(/\/+$/, "").toLowerCase();
+      return hrefNorm === hpNorm || hrefNorm === "/" || hrefNorm === "";
+    });
+    if (!isHomeLink) continue;
+
+    // Extract <img> tags from within this <a> block
+    const innerHtml = am[2] || "";
+    const imgCandidates = collectImgCandidates(innerHtml, baseUrl);
+    for (const c of imgCandidates) {
+      const hay = `${c.id || ""} ${c.cls || ""} ${c.alt || ""} ${c.url || ""}`;
+
+      // Homepage-link images get a strong boost — this is a classic logo pattern
+      let boost = 280;
+      if (hasAnyToken(hay, ["logo", "brand", "wordmark"])) boost += 60;
+      if (Array.isArray(companyNameTokens) && companyNameTokens.some((t) => hasAnyToken(c.alt || "", [t]))) boost += 80;
+
+      out.push(
+        addLocationMeta(
+          {
+            ...c,
+            source: "homepage_link",
+            score: (Number(c.score) || 0) + boost,
+            strong_signal: true, // Homepage-link images are strong logo signals
+          },
+          { location: "homepage_link", source: "homepage_link", allowedHostRoot }
+        )
+      );
+    }
+  }
+
+  return out;
+}
+
 function collectFooterImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot } = {}) {
   const blocks = extractTagInnerBlocks(html, "footer");
   const out = [];
@@ -1133,10 +1201,11 @@ function collectLogoCandidatesFromHtml(html, baseUrl, options = {}) {
   }
 
   const headerCandidates = collectHeaderNavImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot });
+  const homepageLinkCandidates = collectHomepageLinkImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot });
   const iconCandidates = collectIconLinkCandidates(html, baseUrl, { allowedHostRoot });
   const footerCandidates = collectFooterImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot });
 
-  const all = [...metaCandidates, ...headerCandidates, ...iconCandidates, ...footerCandidates];
+  const all = [...metaCandidates, ...headerCandidates, ...homepageLinkCandidates, ...iconCandidates, ...footerCandidates];
   const onSite = filterOnSiteCandidates(all, allowedHostRoot);
   return dedupeAndSortCandidates(onSite);
 }
@@ -1482,11 +1551,12 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
   const deduped = dedupeAndSortCandidates(allCandidates);
   telemetry.candidates_total = deduped.length;
 
-  const tierOrder = ["provided", "jsonld", "header", "og_logo", "og_image", "twitter_image", "icon", "footer", "img"];
+  const tierOrder = ["provided", "jsonld", "header", "homepage_link", "og_logo", "og_image", "twitter_image", "icon", "footer", "img"];
   const tierMax = {
     provided: 2,
     jsonld: 3,
     header: 5,
+    homepage_link: 4,
     og_logo: 2,
     og_image: 2,
     twitter_image: 2,
