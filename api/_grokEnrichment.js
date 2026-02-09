@@ -2314,7 +2314,11 @@ async function verifyEnrichmentFields(parsed, { companyName, budgetMs = 60000 } 
       combined.push(...softUnverified.slice(0, maxReviews - combined.length));
     }
     verified.reviews = combined;
-    verification_status.reviews = {
+    // verification_status MUST be a string ("ok" | "empty" | etc.) so that downstream
+    // consumers (runDirectEnrichment → isFieldComplete) can compare with ===.
+    // Detailed stats are stored separately in reviews_verification_detail.
+    verification_status.reviews = combined.length > 0 ? "ok" : "empty";
+    verification_status.reviews_verification_detail = {
       submitted: parsed.reviews.length,
       verified: verifiedReviews.length,
       unverified: unverifiedReviews.length,
@@ -2542,10 +2546,10 @@ async function enrichCompanyFields({
       fallback_statuses = fStatuses;
     }
 
-    // Merge field statuses
+    // Merge field statuses (only string values — skip detail objects like reviews_verification_detail)
     const field_statuses = { ...unified.field_statuses };
     for (const [k, v] of Object.entries(verification_status)) {
-      field_statuses[k] = v;
+      if (typeof v === "string") field_statuses[k] = v;
     }
     for (const [k, v] of Object.entries(fallback_statuses)) {
       if (field_statuses[k] !== "ok") field_statuses[k] = v;

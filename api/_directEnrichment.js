@@ -96,7 +96,7 @@ function isFieldComplete(fieldKey, value, status) {
     case "product_keywords":
       return Array.isArray(value) && value.length > 0;
     case "reviews":
-      return Array.isArray(value) && value.length >= 2; // At least 2 reviews
+      return Array.isArray(value) && value.length >= 1; // At least 1 verified review
     default:
       return value != null;
   }
