@@ -80,6 +80,37 @@ function absolutizeUrl(candidate, baseUrl) {
   }
 }
 
+function parseSrcsetBestUrl(srcset, baseUrl) {
+  const raw = String(srcset || "").trim();
+  if (!raw) return "";
+
+  const entries = raw.split(",").map((entry) => {
+    const parts = entry.trim().split(/\s+/);
+    const url = parts[0] || "";
+    const descriptor = parts[1] || "";
+    let weight = 0;
+
+    if (descriptor.endsWith("w")) {
+      weight = parseFloat(descriptor) || 0;
+    } else if (descriptor.endsWith("x")) {
+      weight = (parseFloat(descriptor) || 1) * 1000;
+    } else {
+      weight = 1;
+    }
+
+    return { url, weight };
+  });
+
+  entries.sort((a, b) => b.weight - a.weight);
+
+  for (const entry of entries) {
+    const abs = absolutizeUrl(entry.url, baseUrl);
+    if (abs) return abs;
+  }
+
+  return "";
+}
+
 function extractFirstMatch(html, regex) {
   const m = html.match(regex);
   return m && m[1] ? String(m[1]).trim() : "";
@@ -291,7 +322,10 @@ function collectImgCandidates(html, baseUrl) {
     const tag = m[0];
     const attrs = parseImgAttributes(tag);
     const src = attrs.src || attrs["data-src"] || attrs["data-lazy-src"] || "";
-    const abs = absolutizeUrl(src, baseUrl);
+    let abs = absolutizeUrl(src, baseUrl);
+    if (!abs && attrs.srcset) {
+      abs = parseSrcsetBestUrl(attrs.srcset, baseUrl);
+    }
     if (!abs) continue;
 
     const id = String(attrs.id || "").toLowerCase();
@@ -682,7 +716,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
   if (sourceUrl.startsWith("data:")) return { ok: false, reason: "data_url" };
 
   const allowedHostRoot = String(candidate?.allowed_host_root || "").trim().toLowerCase();
-  if (allowedHostRoot && !isAllowedOnSiteUrl(sourceUrl, allowedHostRoot)) {
+  if (allowedHostRoot && !isAllowedCandidateUrl(sourceUrl, allowedHostRoot)) {
     return { ok: false, reason: "offsite_url" };
   }
 
@@ -700,7 +734,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
   const probedType = String(head.contentType || "").toLowerCase();
 
   if (!head.ok) return { ok: false, reason: `head_status_${head.status || 0}` };
-  if (allowedHostRoot && head.finalUrl && !isAllowedOnSiteUrl(head.finalUrl, allowedHostRoot)) {
+  if (allowedHostRoot && head.finalUrl && !isAllowedCandidateUrl(head.finalUrl, allowedHostRoot)) {
     return { ok: false, reason: "offsite_head_redirect" };
   }
   if (!isAllowedLogoContentType(probedType)) return { ok: false, reason: `unsupported_content_type_${probedType || "unknown"}` };
@@ -726,7 +760,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
     const resolvedUrl = finalUrl || head.finalUrl || sourceUrl;
     const ct = String(contentType || head.contentType || "").toLowerCase();
 
-    if (allowedHostRoot && resolvedUrl && !isAllowedOnSiteUrl(resolvedUrl, allowedHostRoot)) {
+    if (allowedHostRoot && resolvedUrl && !isAllowedCandidateUrl(resolvedUrl, allowedHostRoot)) {
       return { ok: false, reason: "offsite_fetch_redirect" };
     }
 
@@ -867,6 +901,55 @@ function isAllowedOnSiteUrl(rawUrl, allowedHostRoot) {
   } catch {
     return false;
   }
+}
+
+// Well-known CDN/DAM/hosting platforms used for static assets including logos.
+const KNOWN_CDN_HOST_PATTERNS = [
+  // DAM / asset management
+  ".widen.net",
+  ".imgix.net",
+  ".cloudinary.com",
+  ".contentful.com",
+  ".prismic.io",
+  ".sanity.io",
+  ".storyblok.com",
+  ".datocms-assets.com",
+  // E-commerce / website builder CDNs
+  ".shopify.com",
+  ".squarespace-cdn.com",
+  ".wixstatic.com",
+  ".bigcommerce.com",
+  // Cloud CDNs
+  ".cloudfront.net",
+  ".amazonaws.com",
+  ".azureedge.net",
+  ".akamaized.net",
+  ".akamaihd.net",
+  ".fastly.net",
+  // Other common image CDNs
+  ".wp.com",
+  ".ctfassets.net",
+  ".githubusercontent.com",
+  ".twimg.com",
+];
+
+function isKnownCdnHost(hostname) {
+  const h = String(hostname || "").trim().toLowerCase();
+  if (!h) return false;
+  return KNOWN_CDN_HOST_PATTERNS.some((pattern) => h === pattern.slice(1) || h.endsWith(pattern));
+}
+
+function isAllowedCandidateUrl(rawUrl, allowedHostRoot) {
+  if (isAllowedOnSiteUrl(rawUrl, allowedHostRoot)) return true;
+
+  try {
+    const u = new URL(String(rawUrl || "").trim());
+    if (isKnownCdnHost(u.hostname)) return true;
+  } catch {
+    // fall through
+  }
+
+  return false;
 }
 
 function extractTagInnerBlocks(html, tagName, { maxBlocks = 6 } = {}) {
@@ -1124,7 +1207,16 @@ function collectIconLinkCandidates(html, baseUrl, { allowedHostRoot } = {}) {
 function filterOnSiteCandidates(candidates, allowedHostRoot) {
   const root = normalizeHostnameForCompare(allowedHostRoot);
   if (!root) return [];
-  return (Array.isArray(candidates) ? candidates : []).filter((c) => isAllowedOnSiteUrl(c?.url, root));
+  const out = [];
+  for (const c of (Array.isArray(candidates) ? candidates : [])) {
+    if (isAllowedOnSiteUrl(c?.url, root)) {
+      out.push(c);
+    } else if (c?.strong_signal && isAllowedCandidateUrl(c?.url, root)) {
+      // CDN-hosted logos with strong signal allowed; slight penalty to prefer on-site equivalents
+      out.push({ ...c, score: (Number(c.score) || 0) - 15 });
+    }
+  }
+  return out;
 }
 
 function collectLogoCandidatesFromHtml(html, baseUrl, options = {}) {
@@ -1376,6 +1468,8 @@ function candidateSourceRank(source) {
   switch (String(source || "").toLowerCase()) {
     case "jsonld":
       return 8;
+    case "homepage_link":
+      return 9;
     case "header":
       return 10;
     case "og_logo":
@@ -1754,6 +1848,9 @@ module.exports = {
   _test: {
     normalizeDomain,
     absolutizeUrl,
+    parseSrcsetBestUrl,
+    isKnownCdnHost,
+    isAllowedCandidateUrl,
     extractMetaImage,
     extractSchemaOrgLogo,
     extractLikelyLogoImg,
