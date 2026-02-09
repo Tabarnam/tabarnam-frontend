@@ -65,16 +65,31 @@ function normalizeUrlCandidate(u) {
   return s;
 }
 
+function decodeHtmlEntities(s) {
+  const str = String(s || "");
+  if (!str) return str;
+  return str
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+}
+
 function absolutizeUrl(candidate, baseUrl) {
   const raw = normalizeUrlCandidate(candidate);
   if (!raw) return "";
 
+  // Decode HTML entities (&amp; → &, etc.) since values come from raw HTML attributes
+  const decoded = decodeHtmlEntities(raw);
+
   try {
-    if (raw.startsWith("//")) {
+    if (decoded.startsWith("//")) {
       const base = new URL(baseUrl);
-      return `${base.protocol}${raw}`;
+      return `${base.protocol}${decoded}`;
     }
-    return new URL(raw, baseUrl).toString();
+    return new URL(decoded, baseUrl).toString();
   } catch {
     return "";
   }
@@ -256,6 +271,23 @@ function getFileExt(url) {
   const u = String(url || "").toLowerCase().split("?")[0].split("#")[0];
   const m = u.match(/\.([a-z0-9]{2,5})$/);
   return m ? m[1] : "";
+}
+
+/**
+ * Strip CDN format-override params (e.g. imgix fm=webp) from SVG URLs
+ * so the CDN delivers the original SVG instead of a rasterized version.
+ */
+function stripCdnFormatOverride(url) {
+  const ext = getFileExt(url);
+  if (ext !== "svg") return url;
+  try {
+    const u = new URL(url);
+    if (u.searchParams.has("fm")) {
+      u.searchParams.delete("fm");
+      return u.toString();
+    }
+  } catch {}
+  return url;
 }
 
 function extScore(ext) {
@@ -705,7 +737,7 @@ async function headProbeImage(url, { timeoutMs = 6000 } = {}) {
 }
 
 async function fetchAndEvaluateCandidate(candidate, logger = console, options = {}) {
-  const sourceUrl = String(candidate?.url || "").trim();
+  const sourceUrl = stripCdnFormatOverride(String(candidate?.url || "").trim());
   if (!sourceUrl) return { ok: false, reason: "missing_url" };
 
   const budget = options?.budget;
@@ -1848,7 +1880,9 @@ module.exports = {
   _test: {
     normalizeDomain,
     absolutizeUrl,
+    decodeHtmlEntities,
     parseSrcsetBestUrl,
+    stripCdnFormatOverride,
     isKnownCdnHost,
     isAllowedCandidateUrl,
     extractMetaImage,
