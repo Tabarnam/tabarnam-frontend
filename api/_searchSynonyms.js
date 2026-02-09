@@ -4,6 +4,7 @@
  */
 
 const { BlobServiceClient } = require("@azure/storage-blob");
+const { stemWords } = require("./_stemmer");
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 let synonymCache = null;
@@ -132,6 +133,16 @@ async function expandQueryTerms(q_norm, q_compact) {
       const compact = split.replace(/\s+/g, "");
       if (compact) terms_compact.add(compact);
     }
+  }
+
+  // Add stemmed variants of all collected terms so plurals/singulars match
+  for (const term of [...terms_norm]) {
+    const stemmed = stemWords(term);
+    if (stemmed && stemmed !== term) terms_norm.add(stemmed);
+  }
+  for (const term of [...terms_compact]) {
+    const stemmed = stemWords(term);
+    if (stemmed && stemmed !== term) terms_compact.add(stemmed);
   }
 
   return {

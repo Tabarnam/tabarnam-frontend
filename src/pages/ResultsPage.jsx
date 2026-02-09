@@ -267,9 +267,9 @@ export default function ResultsPage() {
   const sorted = useMemo(() => {
     const arr = [...results];
     arr.sort((a, b) => {
-      const aName = a._nameMatchScore ?? 0;
-      const bName = b._nameMatchScore ?? 0;
-      if (aName !== bName) return bName - aName;
+      const aRel = a._relevanceScore ?? a._nameMatchScore ?? 0;
+      const bRel = b._relevanceScore ?? b._nameMatchScore ?? 0;
+      if (aRel !== bRel) return bRel - aRel;
 
       if (sortBy === "stars") {
         return (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity);

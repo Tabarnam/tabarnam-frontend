@@ -186,3 +186,237 @@ test("search-companies response includes _nameMatchScore", async () => {
   assert.equal(body.items.length, 1);
   assert.equal(body.items[0]._nameMatchScore, 100);
 });
+
+// ── stemmer tests ────────────────────────────────────────────────────────
+
+const { simpleStem, stemWords } = require("../_stemmer");
+
+test("simpleStem strips trailing s", () => {
+  assert.equal(simpleStem("icebreakers"), "icebreaker");
+  assert.equal(simpleStem("products"), "product");
+  assert.equal(simpleStem("candles"), "candle");
+});
+
+test("simpleStem strips ies to y", () => {
+  assert.equal(simpleStem("companies"), "company");
+  assert.equal(simpleStem("batteries"), "battery");
+});
+
+test("simpleStem strips es after sh/ch/x/z", () => {
+  assert.equal(simpleStem("washes"), "wash");
+  assert.equal(simpleStem("watches"), "watch");
+  assert.equal(simpleStem("boxes"), "box");
+});
+
+test("simpleStem strips sses to ss", () => {
+  assert.equal(simpleStem("grasses"), "grass");
+});
+
+test("simpleStem strips ses to se", () => {
+  assert.equal(simpleStem("cases"), "case");
+  assert.equal(simpleStem("bases"), "base");
+});
+
+test("simpleStem does not strip ss, us, is endings", () => {
+  assert.equal(simpleStem("glass"), "glass");
+  assert.equal(simpleStem("cactus"), "cactus");
+  assert.equal(simpleStem("basis"), "basis");
+});
+
+test("simpleStem does not stem short words (< 4 chars)", () => {
+  assert.equal(simpleStem("bus"), "bus");
+  assert.equal(simpleStem("gas"), "gas");
+});
+
+test("simpleStem is idempotent", () => {
+  const words = ["icebreakers", "companies", "washes", "candles", "grasses", "cases"];
+  for (const w of words) {
+    const once = simpleStem(w);
+    const twice = simpleStem(once);
+    assert.equal(once, twice, `simpleStem is not idempotent for "${w}": "${once}" != "${twice}"`);
+  }
+});
+
+test("stemWords stems each word in a string", () => {
+  assert.equal(stemWords("body washes"), "body wash");
+  assert.equal(stemWords("ice breakers products"), "ice breaker product");
+});
+
+// ── fuzzy match tests ────────────────────────────────────────────────────
+
+const { levenshtein, maxEditDistance, isFuzzyNameMatch, fuzzyScore } = require("../_fuzzyMatch");
+
+test("levenshtein returns 0 for identical strings", () => {
+  assert.equal(levenshtein("obrilo", "obrilo"), 0);
+});
+
+test("levenshtein returns correct distance for insertion", () => {
+  assert.equal(levenshtein("obrilo", "obrilio"), 1);
+});
+
+test("levenshtein returns correct distance for substitution", () => {
+  assert.equal(levenshtein("obrilo", "obrilo"), 0);
+  assert.equal(levenshtein("obrilo", "obrila"), 1);
+});
+
+test("maxEditDistance scales with word length", () => {
+  assert.equal(maxEditDistance(3), 0);
+  assert.equal(maxEditDistance(5), 1);
+  assert.equal(maxEditDistance(7), 2);
+  assert.equal(maxEditDistance(10), 3);
+});
+
+test("isFuzzyNameMatch matches within edit distance", () => {
+  assert.equal(isFuzzyNameMatch("Obrilo", "obrilio"), true);     // distance 1, max 2 for 7-char query
+  assert.equal(isFuzzyNameMatch("Obrilo", "obrilioxxyz"), false); // distance 5, max 3 for 11-char query
+  assert.equal(isFuzzyNameMatch("Alo", "alox"), true);           // distance 1, max 1 for 4-char query
+  assert.equal(isFuzzyNameMatch("Alo", "xyz"), false);           // distance 3, max 0 for 3-char query
+});
+
+test("fuzzyScore returns higher score for closer matches", () => {
+  const exact = fuzzyScore("obrilo", "obrilo");
+  const close = fuzzyScore("obrilo", "obrilio");
+  assert.ok(exact > close, `exact (${exact}) should be > close (${close})`);
+  assert.ok(close > 0, `close match should have positive score`);
+});
+
+// ── keyword relevance scoring tests ──────────────────────────────────────
+
+test("computeKeywordMatchScore returns 100 for exact keyword match", () => {
+  const company = { product_keywords: ["body wash", "soap"] };
+  const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
+  assert.equal(score, 100);
+});
+
+test("computeKeywordMatchScore returns 70 for starts-with keyword match", () => {
+  const company = { product_keywords: ["body wash gel", "soap"] };
+  const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
+  assert.equal(score, 70);
+});
+
+test("computeKeywordMatchScore returns 40 for substring keyword match", () => {
+  const company = { product_keywords: ["organic body wash formula"] };
+  const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
+  assert.equal(score, 40);
+});
+
+test("computeKeywordMatchScore returns 70 when query starts with keyword", () => {
+  const company = { keywords: ["body"] };
+  const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
+  // "body wash" starts with "body" → 70 (starts-with match)
+  assert.equal(score, 70);
+});
+
+test("computeKeywordMatchScore returns 0 for no match", () => {
+  const company = { product_keywords: ["hair care", "shampoo"] };
+  const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
+  assert.equal(score, 0);
+});
+
+test("computeRelevanceScore combines name and keyword scores", () => {
+  const company = { company_name: "Body Wash Co", product_keywords: ["body wash"] };
+  const scores = _test.computeRelevanceScore(company, "body wash", "body wash", "bodywash");
+  assert.equal(scores._nameMatchScore, 80); // starts-with
+  assert.equal(scores._keywordMatchScore, 100); // exact match
+  assert.equal(scores._relevanceScore, Math.round(80 * 0.7 + 100 * 0.3)); // 86
+});
+
+test("computeRelevanceScore: partial keyword match scores lower than exact", () => {
+  const lotionCo = { company_name: "The Lotion Company", keywords: ["body lotion"] };
+  const washCo = { company_name: "Pure Body Care", product_keywords: ["body wash"] };
+  const lotionScores = _test.computeRelevanceScore(lotionCo, "body wash", "body wash", "bodywash");
+  const washScores = _test.computeRelevanceScore(washCo, "body wash", "body wash", "bodywash");
+  assert.ok(
+    washScores._relevanceScore > lotionScores._relevanceScore,
+    `wash co (${washScores._relevanceScore}) should rank above lotion co (${lotionScores._relevanceScore})`
+  );
+});
+
+// ── search response includes new scoring fields ──────────────────────────
+
+test("search-companies response includes _relevanceScore and _matchType", async () => {
+  const doc = {
+    id: "bw_1",
+    company_name: "Body Wash Direct",
+    normalized_domain: "bodywashdirect.com",
+    product_keywords: ["body wash"],
+    keywords: [],
+    industries: ["Personal Care"],
+    _ts: 1700000000,
+  };
+
+  const companiesContainer = makeContainer(async () => [doc]);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=body+wash&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.items.length, 1);
+  const item = body.items[0];
+  assert.ok(typeof item._nameMatchScore === "number");
+  assert.ok(typeof item._keywordMatchScore === "number");
+  assert.ok(typeof item._relevanceScore === "number");
+  assert.equal(item._matchType, "exact");
+});
+
+// ── stemmed query in SQL filter ──────────────────────────────────────────
+
+test("search SQL includes stemmed field conditions", async () => {
+  let lastSpec = null;
+  const companiesContainer = makeContainer(async (spec) => {
+    lastSpec = spec;
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=icebreakers&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.ok(lastSpec);
+  const sql = String(lastSpec.query || "");
+  assert.ok(sql.includes("search_text_stemmed"), "SQL should reference search_text_stemmed");
+});
+
+// ── fuzzy fallback integration ───────────────────────────────────────────
+
+test("search-companies triggers fuzzy fallback when primary search returns 0 results", async () => {
+  const doc = {
+    id: "obrilo",
+    company_name: "Obrilo",
+    normalized_domain: "obrilo.com",
+    keywords: [],
+    industries: [],
+    _ts: 1700000000,
+  };
+
+  let queryCount = 0;
+  const companiesContainer = makeContainer(async (spec) => {
+    queryCount++;
+    const sql = String(spec?.query || "");
+    // The fuzzy fallback query uses @prefix and @fuzzyTake — distinguish it from the primary query
+    const isFuzzyQuery = spec?.parameters?.some((p) => p.name === "@fuzzyTake");
+    if (isFuzzyQuery) return [doc];
+    // Primary search returns nothing for "obrilio"
+    return [];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=obrilio&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  // The fuzzy fallback should have fired
+  assert.ok(queryCount >= 2, "Should have made at least 2 queries (primary + fuzzy fallback)");
+  assert.ok(body.items.length > 0, "Should have found obrilo via fuzzy fallback");
+  assert.equal(body.items[0].id, "obrilo");
+  assert.equal(body.items[0]._matchType, "fuzzy");
+});

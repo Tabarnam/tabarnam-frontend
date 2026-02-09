@@ -10,6 +10,7 @@ const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
 const { parseQuery } = require("../_queryNormalizer");
 const { expandQueryTerms } = require("../_searchSynonyms");
+const { isFuzzyNameMatch, fuzzyScore } = require("../_fuzzyMatch");
 
 let cosmosTargetPromise;
 
@@ -291,6 +292,60 @@ function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
   return best;
 }
 
+/**
+ * Compute a keyword-match relevance score for a company against the search query.
+ * Checks product_keywords and industries for match quality.
+ *
+ *   100 = exact keyword match (query === keyword)
+ *    70 = keyword starts with query or query starts with keyword
+ *    40 = query is a substring of keyword
+ *    30 = keyword is a substring of query
+ *     0 = no keyword match
+ */
+function computeKeywordMatchScore(company, q_norm, q_compact) {
+  if (!company || (!q_norm && !q_compact)) return 0;
+
+  const queryTerms = [q_norm, q_compact].filter(Boolean).map((t) => t.toLowerCase());
+  if (!queryTerms.length) return 0;
+
+  let best = 0;
+
+  const checkField = (arr) => {
+    for (const raw of arr) {
+      const kw = asString(raw).toLowerCase().trim();
+      if (!kw) continue;
+      for (const qt of queryTerms) {
+        if (kw === qt) {
+          best = Math.max(best, 100);
+        } else if (kw.startsWith(qt) || qt.startsWith(kw)) {
+          best = Math.max(best, 70);
+        } else if (kw.includes(qt)) {
+          best = Math.max(best, 40);
+        } else if (qt.includes(kw)) {
+          best = Math.max(best, 30);
+        }
+      }
+    }
+  };
+
+  checkField(normalizeStringArray(company.product_keywords));
+  checkField(normalizeStringArray(company.keywords));
+  checkField(normalizeStringArray(company.industries));
+
+  return best;
+}
+
+/**
+ * Compute a composite relevance score combining name and keyword match quality.
+ * Name matches contribute 70%, keyword matches contribute 30%.
+ */
+function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
+  const nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
+  const keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
+  const relevanceScore = Math.round(nameScore * 0.7 + keywordScore * 0.3);
+  return { _nameMatchScore: nameScore, _keywordMatchScore: keywordScore, _relevanceScore: relevanceScore };
+}
+
 // Helper to build search filter that handles both spaced and non-spaced queries
 // Uses both @q (from first term) and @q_compact to allow flexible matching
 function buildLegacySearchFilter() {
@@ -367,6 +422,26 @@ function buildNormalizedSearchFilter(terms_norm, terms_compact, params) {
       const paramName = `@comp${paramIndex}`;
       params.push({ name: paramName, value: term });
       conditions.push(`(IS_DEFINED(c.search_text_compact) AND IS_STRING(c.search_text_compact) AND CONTAINS(c.search_text_compact, ${paramName}))`);
+      paramIndex++;
+    }
+  }
+
+  // Also search original terms against stemmed document fields for cross-matching
+  // (e.g., query "icebreakers" stemmed to "icebreaker" already added above,
+  //  but also check unstemmed query against stemmed document text)
+  for (const term of terms_norm) {
+    if (term) {
+      const paramName = `@stm${paramIndex}`;
+      params.push({ name: paramName, value: ` ${term} ` });
+      conditions.push(`(IS_DEFINED(c.search_text_stemmed) AND IS_STRING(c.search_text_stemmed) AND CONTAINS(c.search_text_stemmed, ${paramName}))`);
+      paramIndex++;
+    }
+  }
+  for (const term of terms_compact) {
+    if (term) {
+      const paramName = `@stmc${paramIndex}`;
+      params.push({ name: paramName, value: term });
+      conditions.push(`(IS_DEFINED(c.search_text_stemmed_compact) AND IS_STRING(c.search_text_stemmed_compact) AND CONTAINS(c.search_text_stemmed_compact, ${paramName}))`);
       paramIndex++;
     }
   }
@@ -456,6 +531,8 @@ const SELECT_FIELDS = [
   // Normalized search fields (for normalized query matching)
   "c.search_text_norm",
   "c.search_text_compact",
+  "c.search_text_stemmed",
+  "c.search_text_stemmed_compact",
 
   // Location (used for completeness + admin UX)
   "c.manufacturing_locations",
@@ -882,6 +959,46 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         items = res.resources || [];
       }
 
+      // Fuzzy fallback: when exact search yields < 3 results and query is long enough,
+      // try a prefix-based search then post-filter with Levenshtein distance.
+      if (items.length < 3 && q_norm && q_norm.length >= 4) {
+        try {
+          const prefix = q_norm.substring(0, Math.min(4, q_norm.length));
+          const fuzzyParams = [
+            { name: "@fuzzyTake", value: limit },
+            { name: "@prefix", value: prefix },
+          ];
+          const fuzzySql = `
+            SELECT TOP @fuzzyTake ${SELECT_FIELDS}
+            FROM c
+            WHERE (
+              (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), @prefix)) OR
+              (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND STARTSWITH(LOWER(c.display_name), @prefix)) OR
+              (IS_DEFINED(c.name) AND IS_STRING(c.name) AND STARTSWITH(LOWER(c.name), @prefix)) OR
+              (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND STARTSWITH(LOWER(c.normalized_domain), @prefix))
+            ) AND ${softDeleteFilter}
+            ORDER BY c._ts DESC
+          `;
+          const fuzzyRes = await container.items
+            .query({ query: fuzzySql, parameters: fuzzyParams }, { enableCrossPartitionQuery: true })
+            .fetchAll();
+          const fuzzyCandidates = fuzzyRes.resources || [];
+          const existingIds = new Set(items.map((i) => i.id));
+          for (const candidate of fuzzyCandidates) {
+            if (existingIds.has(candidate.id)) continue;
+            const names = [candidate.company_name, candidate.display_name, candidate.name, candidate.normalized_domain].filter(Boolean);
+            if (names.some((n) => isFuzzyNameMatch(n, q_norm))) {
+              candidate._fuzzyMatch = true;
+              items.push(candidate);
+              existingIds.add(candidate.id);
+            }
+          }
+        } catch (fuzzyErr) {
+          // Fuzzy fallback is best-effort; don't fail the search
+          context.log("search-companies fuzzy fallback error:", fuzzyErr?.message);
+        }
+      }
+
       const normalized = items.map((r) => {
         if (!r?.created_at && typeof r?._ts === "number") {
           try {
@@ -897,7 +1014,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       });
 
       const mapped = normalized
-        .map(mapCompanyToPublic)
+        .map((r) => {
+          const pub = mapCompanyToPublic(r);
+          if (pub && r._fuzzyMatch) pub._fuzzyMatch = true;
+          return pub;
+        })
         .filter((c) => c && c.id);
 
       // Deduplicate by normalized_domain — keep only the best record per domain.
@@ -905,10 +1026,28 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // showing multiple times in search results.
       const deduped = deduplicateByDomain(mapped);
 
-      // Attach name-match relevance score so the frontend can prioritise name hits
+      // Attach relevance scores so the frontend can prioritise strong matches
       if (q_norm) {
         for (const company of deduped) {
-          company._nameMatchScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
+          if (company._fuzzyMatch) {
+            // Fuzzy matches get a reduced score based on edit distance
+            const names = [company.company_name, company.display_name, company.name, company.normalized_domain].filter(Boolean);
+            let bestFuzzy = 0;
+            for (const n of names) {
+              bestFuzzy = Math.max(bestFuzzy, fuzzyScore(n, q_norm));
+            }
+            company._nameMatchScore = 0;
+            company._keywordMatchScore = 0;
+            company._relevanceScore = bestFuzzy;
+            company._matchType = "fuzzy";
+            delete company._fuzzyMatch;
+          } else {
+            const scores = computeRelevanceScore(company, q_raw, q_norm, q_compact);
+            company._nameMatchScore = scores._nameMatchScore;
+            company._keywordMatchScore = scores._keywordMatchScore;
+            company._relevanceScore = scores._relevanceScore;
+            company._matchType = "exact";
+          }
         }
       }
 
@@ -962,4 +1101,6 @@ module.exports._test = {
   mapCompanyToPublic,
   searchCompaniesHandler,
   computeNameMatchScore,
+  computeKeywordMatchScore,
+  computeRelevanceScore,
 };

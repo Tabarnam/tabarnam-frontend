@@ -4,6 +4,7 @@
  */
 
 const { normalizeQuery } = require("./_queryNormalizer");
+const { stemWords } = require("./_stemmer");
 
 /**
  * Join and normalize an array of strings into a single searchable text
@@ -77,9 +78,16 @@ function computeSearchText(company) {
   const search_text_norm_with_boundaries = search_text_norm ? ` ${search_text_norm} ` : "";
   const search_text_compact = search_text_norm.replace(/\s+/g, "");
 
+  // Stemmed variants for plural/singular matching
+  const stemmed = stemWords(search_text_norm);
+  const search_text_stemmed = stemmed ? ` ${stemmed} ` : "";
+  const search_text_stemmed_compact = stemmed.replace(/\s+/g, "");
+
   return {
     search_text_norm: search_text_norm_with_boundaries,
     search_text_compact,
+    search_text_stemmed,
+    search_text_stemmed_compact,
   };
 }
 
@@ -90,9 +98,11 @@ function computeSearchText(company) {
 function patchCompanyWithSearchText(company) {
   if (!company || typeof company !== "object") return company;
   
-  const { search_text_norm, search_text_compact } = computeSearchText(company);
+  const { search_text_norm, search_text_compact, search_text_stemmed, search_text_stemmed_compact } = computeSearchText(company);
   company.search_text_norm = search_text_norm;
   company.search_text_compact = search_text_compact;
+  company.search_text_stemmed = search_text_stemmed;
+  company.search_text_stemmed_compact = search_text_stemmed_compact;
   
   return company;
 }

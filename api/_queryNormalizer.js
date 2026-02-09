@@ -3,6 +3,8 @@
  * Provides functions to normalize search queries in consistent ways
  */
 
+const { stemWords } = require("./_stemmer");
+
 /**
  * Normalize a search query by:
  * 1. Converting to lowercase
@@ -39,18 +41,21 @@ function compactQuery(normalized) {
 }
 
 /**
- * Parse a raw query into raw, normalized, and compact forms
+ * Parse a raw query into raw, normalized, compact, and stemmed forms
  */
 function parseQuery(raw) {
   const q_raw = typeof raw === "string" ? raw : "";
   const q_norm = normalizeQuery(q_raw);
   const q_compact = compactQuery(q_norm);
-  
-  return { q_raw, q_norm, q_compact };
+  const q_stemmed = stemWords(q_norm);
+  const q_stemmed_compact = compactQuery(q_stemmed);
+
+  return { q_raw, q_norm, q_compact, q_stemmed, q_stemmed_compact };
 }
 
 module.exports = {
   normalizeQuery,
   compactQuery,
   parseQuery,
+  stemWords,
 };
