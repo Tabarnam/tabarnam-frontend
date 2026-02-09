@@ -5,7 +5,12 @@
     ".css": "text/css",
     ".svg": "image/svg+xml",
     ".json": "application/json",
-    ".wasm": "application/wasm"
+    ".wasm": "application/wasm",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4",
+    ".webm": "audio/webm"
   },
   "navigationFallback": {
     "rewrite": "/index.html",
@@ -22,7 +27,8 @@
       "/*.webp",
       "/*.woff",
       "/*.woff2",
-      "/__build_id.txt"
+      "/__build_id.txt",
+      "/sounds/*"
     ]
   },
   "routes": [

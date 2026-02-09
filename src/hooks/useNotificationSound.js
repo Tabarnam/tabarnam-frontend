@@ -22,20 +22,28 @@ let manifestPromise = null;
 let manifestCache = null;
 
 function fetchManifest() {
-  if (manifestCache) return Promise.resolve(manifestCache);
+  if (manifestCache && manifestCache.length > 0) return Promise.resolve(manifestCache);
   if (manifestPromise) return manifestPromise;
 
   manifestPromise = fetch(MANIFEST_URL)
     .then((res) => {
-      if (!res.ok) throw new Error(`Sound manifest fetch failed (${res.status})`);
+      if (!res.ok) throw new Error(`Sound manifest fetch failed (HTTP ${res.status})`);
+
+      // Guard against SWA navigation fallback returning HTML instead of JSON
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("text/html")) {
+        throw new Error("Sound manifest returned HTML (likely SWA fallback) — check staticwebapp.config.json exclude list");
+      }
+
       return res.json();
     })
     .then((list) => {
       if (!Array.isArray(list) || list.length === 0) {
         console.warn("[notification-sound] manifest is empty — no sound files found");
-        manifestCache = [];
-        return manifestCache;
+        manifestPromise = null; // allow retry
+        return [];
       }
+      console.log(`[notification-sound] loaded ${list.length} sound(s)`);
       manifestCache = list;
       return manifestCache;
     })
@@ -63,11 +71,17 @@ export default function useNotificationSound() {
     try {
       const files = await fetchManifest();
       const file = pickRandom(files);
-      if (!file) return;
+      if (!file) {
+        console.warn("[notification-sound] no file selected (manifest empty or not loaded)");
+        return;
+      }
 
       playingRef.current = true;
 
-      const audio = new Audio(`${SOUNDS_BASE}${encodeURIComponent(file)}`);
+      const url = `${SOUNDS_BASE}${encodeURIComponent(file)}`;
+      console.log(`[notification-sound] playing: ${file}`);
+
+      const audio = new Audio(url);
       audio.volume = 0.7;
 
       // Release the guard once the clip ends (or errors out).
@@ -75,7 +89,10 @@ export default function useNotificationSound() {
         playingRef.current = false;
       };
       audio.addEventListener("ended", release);
-      audio.addEventListener("error", release);
+      audio.addEventListener("error", (e) => {
+        console.warn("[notification-sound] audio error:", e?.target?.error?.message || "unknown error", "url:", url);
+        release();
+      });
 
       await audio.play().catch((err) => {
         // Autoplay policy may block if the user hasn't interacted yet.
