@@ -3213,13 +3213,36 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
 
   const now = new Date().toISOString();
 
+  // ── CHANGE 2A + 4: Write resume lock doc EARLY ──
+  // The resume-worker can start within 1 second of the 202 return (triggered by
+  // the first status poll). We MUST write the resume doc with invocation_mode=
+  // "direct_http" and status="in_progress" BEFORE the dedup check so the
+  // resume-worker sees it and skips (CHANGE 2B in handler.js).
+  const resumeDocId = `_import_resume_${sessionId}`;
+  const earlyContainer = getCompaniesCosmosContainer();
+  if (earlyContainer) {
+    const earlyResumeDoc = {
+      id: resumeDocId,
+      ...buildImportControlDocBase(sessionId),
+      status: "in_progress",
+      invocation_mode: "direct_http",
+      enrichment_started_at: now,
+      session_id: sessionId,
+      created_at: now,
+      updated_at: now,
+    };
+    await upsertItemWithPkCandidates(earlyContainer, earlyResumeDoc).catch((err) => {
+      console.warn(`[import-start] session=${sessionId} early resume lock write failed: ${err?.message || err}`);
+    });
+    console.log(`[import-start] session=${sessionId} early resume lock doc written (direct_http, in_progress)`);
+  }
+
   // ── SWA retry deduplication ──
   // The SWA reverse proxy may fire 3-4 parallel import-start invocations when the
   // initial request exceeds its ~30-50s timeout.  Each would independently run
   // enrichment against xAI, wasting budget and creating race conditions.
   // Check whether another invocation already started enrichment for this session.
   try {
-    const resumeDocId = `_import_resume_${sessionId}`;
     const container = getCompaniesCosmosContainer();
     if (container) {
       const existingResume = await readItemWithPkCandidates(container, resumeDocId, {
@@ -3235,7 +3258,9 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         const ageMs = startedAt ? Date.now() - new Date(startedAt).getTime() : Infinity;
 
         // If another direct_http invocation started within the last 5 minutes, skip this one.
-        if ((existingStatus === "in_progress" || existingStatus === "completed") && existingMode === "direct_http" && ageMs < 300000) {
+        // Exclude our OWN doc (created_at === now) from the dedup check.
+        const isOurOwnDoc = existingResume.created_at === now;
+        if (!isOurOwnDoc && (existingStatus === "in_progress" || existingStatus === "completed") && existingMode === "direct_http" && ageMs < 300000) {
           logInfo(context, {
             event: "enrichment_dedup_skip",
             session_id: sessionId,
@@ -3256,7 +3281,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     missing_fields: [...MANDATORY_ENRICH_FIELDS],
   }));
 
-  // Mark as in_progress (direct HTTP mode, not queue)
+  // Update resume doc with full enrichment metadata (enriches the early lock doc)
   await upsertResumeDoc({
     session_id: sessionId,
     status: "in_progress",
@@ -3305,24 +3330,37 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       const enrichResult = await runDirectEnrichment({
         company: companyDoc,
         sessionId,
-        budgetMs: 240000, // 4 minutes per company
+        budgetMs: 360000, // 6 minutes per company
         fieldsToEnrich: [...MANDATORY_ENRICH_FIELDS],
       });
 
       // Apply enrichment results back to company doc
-      if (enrichResult?.enriched && Object.keys(enrichResult.enriched).length > 0) {
+      const enrichedKeys = enrichResult?.enriched ? Object.keys(enrichResult.enriched) : [];
+      console.log(`[import-start] session=${sessionId} company=${companyId} enriched_keys=${enrichedKeys.length > 0 ? enrichedKeys.join(",") : "NONE"} ok=${enrichResult?.ok}`);
+
+      if (enrichedKeys.length > 0) {
         const updatedCompany = applyEnrichmentToCompany(companyDoc, enrichResult);
+        console.log(`[import-start] session=${sessionId} company=${companyId} applyEnrichment done, missing_after=${(updatedCompany.import_missing_fields || []).join(",") || "none"}`);
 
         // Save updated company to Cosmos
         if (container) {
-          await upsertItemWithPkCandidates(container, updatedCompany).catch((err) => {
-            logInfo(context, {
-              event: "enrichment_upsert_failed",
-              company_id: companyId,
-              error: String(err?.message || err),
-            });
-          });
+          const companyUpsertResult = await upsertItemWithPkCandidates(container, updatedCompany);
+          if (companyUpsertResult?.ok) {
+            console.log(`[import-start] session=${sessionId} company=${companyId} company doc upsert OK`);
+          } else {
+            console.error(`[import-start] session=${sessionId} company=${companyId} company doc upsert FAILED: ${companyUpsertResult?.error || "unknown"}`);
+            // Direct fallback: try with explicit partition key
+            try {
+              const pk = updatedCompany.normalized_domain || updatedCompany.partition_key || "";
+              await container.items.upsert(updatedCompany, { partitionKey: pk });
+              console.log(`[import-start] session=${sessionId} company=${companyId} company doc direct upsert OK (pk=${pk})`);
+            } catch (directErr) {
+              console.error(`[import-start] session=${sessionId} company=${companyId} company doc direct upsert ALSO FAILED: ${directErr?.message}`);
+            }
+          }
         }
+      } else {
+        console.warn(`[import-start] session=${sessionId} company=${companyId} enrichment returned ZERO enriched keys — skipping company doc write`);
       }
 
       enrichmentResults.push({

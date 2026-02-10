@@ -1207,6 +1207,23 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
+  // ── CHANGE 2B: Prevent resume-worker from racing with fire-and-forget enrichment ──
+  // If import-start's maybeQueueAndInvokeMandatoryEnrichment wrote a resume doc with
+  // invocation_mode="direct_http" and status="in_progress", the unified enrichment is
+  // still running.  Skip this resume-worker invocation to avoid writing partial data
+  // that could conflict with the enrichment write-back.
+  {
+    const resumeInvocationMode = String(resumeDoc?.invocation_mode || "").trim();
+    const resumeStatus = String(resumeDoc?.status || "").trim();
+    const enrichmentStartedAt = Date.parse(String(resumeDoc?.enrichment_started_at || "")) || 0;
+    const enrichmentAgeMs = enrichmentStartedAt ? Date.now() - enrichmentStartedAt : Infinity;
+
+    if (resumeInvocationMode === "direct_http" && resumeStatus === "in_progress" && enrichmentAgeMs < 420000) {
+      console.log(`[resume-worker] SKIPPING: direct_http enrichment in progress for session=${sessionId} (age=${Math.round(enrichmentAgeMs / 1000)}s)`);
+      return gracefulExit("direct_http_in_progress");
+    }
+  }
+
   // Stop doc is authoritative: if stopped, persist status and exit (no self-scheduling).
   if (await isSessionStopped(container, sessionId)) {
     const stoppedAt = nowIso();
