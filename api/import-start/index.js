@@ -3527,7 +3527,7 @@ async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
       created_at: "",
     });
 
-    console.log(`${fnTag} session=${sid} existing=${existing ? "found" : "null"} patch_keys=${patchKeys}`);
+    console.log(`${fnTag} session=${sid} existing=${existing ? "found" : "null"} existing_pk=${existing?.normalized_domain || "?"} existing_beacon=${existing?.stage_beacon || "?"} patch_keys=${patchKeys}`);
 
     const createdAt = existing?.created_at || new Date().toISOString();
     const existingRequest = existing?.request && typeof existing.request === "object" ? existing.request : null;
@@ -3548,7 +3548,7 @@ async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
     // Primary: use PK-candidates upsert
     const result = await upsertItemWithPkCandidates(container, sessionDoc);
     if (result.ok) {
-      console.log(`${fnTag} session=${sid} upsert OK`);
+      console.log(`${fnTag} session=${sid} upsert OK (pk=${sessionDoc.normalized_domain || "?"} beacon=${sessionDoc.stage_beacon || "?"})`);
       return result;
     }
 
@@ -10328,6 +10328,47 @@ Output JSON only:
                 console.error(`[import-start] session=${sessionId} pre-202 session doc upsert FAILED: ${preSessionResult?.error || "unknown"}`);
               }
 
+              // ── CHANGE 3: Read-back verification ──
+              // Verify the upsert actually persisted seed_saved_enriching_async.
+              // If the read-back shows a stale beacon, force a direct upsert with explicit PK.
+              if (preSessionResult?.ok) {
+                try {
+                  const verifyContainer = getCompaniesCosmosContainer();
+                  if (verifyContainer) {
+                    const verifyRead = await readItemWithPkCandidates(
+                      verifyContainer,
+                      `_import_session_${sessionId}`,
+                      { id: `_import_session_${sessionId}`, ...buildImportControlDocBase(sessionId), created_at: "" }
+                    );
+                    const vBeacon = verifyRead?.stage_beacon || "NOT_FOUND";
+                    const vSaved = verifyRead?.saved ?? "NOT_FOUND";
+                    console.log(`[import-start] session=${sessionId} PRE-202 READ-BACK: beacon=${vBeacon} saved=${vSaved}`);
+                    if (vBeacon !== "seed_saved_enriching_async") {
+                      console.error(`[import-start] session=${sessionId} PRE-202 MISMATCH: expected seed_saved_enriching_async got ${vBeacon}`);
+                      // Force direct upsert with explicit PK="import"
+                      await verifyContainer.items.upsert({
+                        id: `_import_session_${sessionId}`,
+                        ...buildImportControlDocBase(sessionId),
+                        created_at: new Date().toISOString(),
+                        request_id: requestId,
+                        saved: verifiedCount,
+                        saved_count: verifiedCount,
+                        saved_verified_count: verifiedCount,
+                        saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+                        saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+                        saved_company_urls: savedCompanyUrls,
+                        stage_beacon: "seed_saved_enriching_async",
+                        status: "running",
+                      }, { partitionKey: "import" }).catch((e) => {
+                        console.error(`[import-start] session=${sessionId} FORCE DIRECT UPSERT FAILED: ${e?.message}`);
+                      });
+                    }
+                  }
+                } catch (verifyErr) {
+                  console.warn(`[import-start] session=${sessionId} PRE-202 read-back failed: ${verifyErr?.message}`);
+                }
+              }
+
               const mandatoryCompanyIds = Array.from(
                 new Set(
                   [
@@ -10361,6 +10402,46 @@ Output JSON only:
               // ── Fast-path 202: return BEFORE enrichment so SWA doesn't kill the connection ──
               if (isCompanyUrlFastPath && mandatoryCompanyIds.length > 0) {
                 mark("fast_path_202_accepted");
+
+                // ── CHANGE 1: Sync in-memory store with full seed data ──
+                // The mark() above only writes stage_beacon + companies_count.
+                // import-status reads saved, saved_verified_count, saved_company_ids_verified
+                // etc. from the in-memory store as a fast fallback. Without this call,
+                // same-process status polls always return saved=0, stage_beacon="fast_path_202_accepted".
+                upsertImportSession({
+                  session_id: sessionId,
+                  request_id: requestId,
+                  status: "running",
+                  stage_beacon: "seed_saved_enriching_async",
+                  saved: verifiedCount,
+                  saved_verified_count: verifiedCount,
+                  saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+                  saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+                  saved_company_urls: savedCompanyUrls,
+                  save_outcome: "seed_saved",
+                  resume_needed: true,
+                  companies_count: enriched.length,
+                });
+
+                // ── CHANGE 2: Write accept doc for fast-path 202 ──
+                // The fast-path 202 bypasses AcceptedResponseError, which is where accept docs
+                // are normally written. Without this, import-status returns accepted: false.
+                try {
+                  const fastPathContainer = getCompaniesCosmosContainer();
+                  if (fastPathContainer) {
+                    const fastPathAcceptDoc = {
+                      id: `_import_accept_${sessionId}`,
+                      ...buildImportControlDocBase(sessionId),
+                      created_at: new Date().toISOString(),
+                      accepted_at: new Date().toISOString(),
+                      request_id: requestId,
+                      stage_beacon: "seed_saved_enriching_async",
+                      reason: "upstream_timeout_returning_202",
+                    };
+                    upsertItemWithPkCandidates(fastPathContainer, fastPathAcceptDoc).catch(() => null);
+                  }
+                } catch {}
+
                 console.log(
                   `[import-start] session=${sessionId} FAST PATH 202: returning 202 Accepted, firing enrichment async for ${mandatoryCompanyIds.length} companies`
                 );
@@ -10400,7 +10481,7 @@ Output JSON only:
                     })),
                     meta: {
                       enrichment_mode: "async",
-                      enrichment_budget_ms: 240000,
+                      enrichment_budget_ms: 360000,
                     },
                   },
                   202
