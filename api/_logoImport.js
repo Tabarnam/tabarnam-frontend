@@ -765,12 +765,22 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
   const head = await headProbeImage(sourceUrl, { timeoutMs: headTimeoutMs });
   const probedType = String(head.contentType || "").toLowerCase();
 
-  if (!head.ok) return { ok: false, reason: `head_status_${head.status || 0}` };
-  if (allowedHostRoot && head.finalUrl && !isAllowedCandidateUrl(head.finalUrl, allowedHostRoot)) {
-    return { ok: false, reason: "offsite_head_redirect" };
+  if (!head.ok) {
+    // Some CDNs block HEAD but serve GET fine — only bail on definitive resource-not-found errors
+    const st = head.status || 0;
+    if (st === 404 || st === 410) {
+      return { ok: false, reason: `head_status_${st}` };
+    }
+    // For 403, 405, 0 (network error), etc. — skip HEAD validation and fall through to full GET fetch
   }
-  if (!isAllowedLogoContentType(probedType)) return { ok: false, reason: `unsupported_content_type_${probedType || "unknown"}` };
-  if (head.contentLength != null && head.contentLength <= 1024) return { ok: false, reason: `too_small_${head.contentLength}_bytes` };
+
+  if (head.ok) {
+    if (allowedHostRoot && head.finalUrl && !isAllowedCandidateUrl(head.finalUrl, allowedHostRoot)) {
+      return { ok: false, reason: "offsite_head_redirect" };
+    }
+    if (!isAllowedLogoContentType(probedType)) return { ok: false, reason: `unsupported_content_type_${probedType || "unknown"}` };
+    if (head.contentLength != null && head.contentLength <= 1024) return { ok: false, reason: `too_small_${head.contentLength}_bytes` };
+  }
 
   if (isBudgetExhausted(budget, { marginMs: 0, minRemainingMs: 1200 })) {
     return { ok: false, reason: "budget_exhausted" };
@@ -1764,6 +1774,20 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
         tierTelemetry.reasons[reason] = (tierTelemetry.reasons[reason] || 0) + 1;
         bumpReason(reason);
 
+        try {
+          logger?.log?.("logo_candidate_rejected", {
+            company_id: companyId,
+            candidate_url: candidate?.url || "",
+            candidate_source: candidate?.source || "",
+            candidate_score: Number(candidate?.score) || 0,
+            rejection_reason: reason,
+            tier,
+            attempt: telemetry.candidates_tried,
+          });
+        } catch {
+          // ignore
+        }
+
         continue;
       }
 
@@ -1856,6 +1880,22 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
       : lastReason || discovered?.error || "no on-site logo found";
 
   const stageStatus = telemetry.time_budget_exhausted ? "budget_exhausted" : telemetry.candidates_total === 0 ? "no_candidates" : "not_found_on_site";
+
+  if (Object.keys(telemetry.rejection_reasons).length > 0) {
+    try {
+      logger?.log?.("logo_import_summary", {
+        company_id: companyId,
+        domain: normalizedDomain,
+        candidates_total: telemetry.candidates_total,
+        candidates_tried: telemetry.candidates_tried,
+        rejection_reasons: telemetry.rejection_reasons,
+        stage_status: stageStatus,
+        time_budget_exhausted: telemetry.time_budget_exhausted,
+      });
+    } catch {
+      // ignore
+    }
+  }
 
   return {
     ok: true,
