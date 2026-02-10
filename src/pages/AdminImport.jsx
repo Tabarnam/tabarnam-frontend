@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2 } from "lucide-react";
+import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2, Volume2 } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import useNotificationSound from "@/hooks/useNotificationSound";
@@ -554,7 +554,7 @@ export default function AdminImport() {
   const isSuccessionRunning = successionIndex >= 0;
 
   // Audio notification on import / succession completion
-  const playNotification = useNotificationSound();
+  const { play: playNotification, replay: replayNotification } = useNotificationSound();
   const prevActiveStatusRef = useRef(activeStatus);
 
   useEffect(() => {
@@ -3914,6 +3914,14 @@ export default function AdminImport() {
                     <div className={`text-xs ${subTextClass} mt-0.5`}>Enrichment pending: {missingFields.join(", ")}</div>
                   ) : null}
                 </div>
+                <button
+                  type="button"
+                  onClick={replayNotification}
+                  className={`shrink-0 rounded-md p-1.5 ${useGreen ? "text-emerald-600 hover:bg-emerald-100" : "text-amber-600 hover:bg-amber-100"} transition-colors`}
+                  title="Replay notification sound"
+                >
+                  <Volume2 className="h-4 w-4" />
+                </button>
               </div>
             );
           })() : null}

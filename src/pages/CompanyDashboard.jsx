@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Copy,
   ChevronDown,
+  Volume2,
 } from "lucide-react";
 
 import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
@@ -1387,7 +1388,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   ref
 ) {
   const stableId = asString(companyId).trim();
-  const playNotification = useNotificationSound();
+  const { play: playNotification, replay: replayNotification } = useNotificationSound();
   const [take, setTake] = useState(1);
   const [includeExisting, setIncludeExisting] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -1970,6 +1971,14 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                   {at ? ` · ${at}` : ""}
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={replayNotification}
+                className="shrink-0 rounded-md p-1.5 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                title="Replay notification sound"
+              >
+                <Volume2 className="h-4 w-4" />
+              </button>
             </div>
           );
         }
@@ -3326,7 +3335,7 @@ async function copyToClipboard(value) {
 }
 
 export default function CompanyDashboard() {
-  const playNotification = useNotificationSound();
+  const { play: playNotification } = useNotificationSound();
 
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);

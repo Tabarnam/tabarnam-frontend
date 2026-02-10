@@ -9,9 +9,11 @@ import { useCallback, useRef } from "react";
  * they'll be included on the next build/dev-server start.
  *
  * Usage:
- *   const playNotification = useNotificationSound();
- *   // later, on completion:
- *   playNotification();
+ *   const { play, replay } = useNotificationSound();
+ *   // on completion — picks a random clip:
+ *   play();
+ *   // replay button — re-plays the same clip that just played:
+ *   replay();
  */
 
 const MANIFEST_URL = "/sounds/notifications/manifest.json";
@@ -20,6 +22,9 @@ const SOUNDS_BASE = "/sounds/notifications/";
 // Module-level cache so we only fetch the manifest once across all hook instances.
 let manifestPromise = null;
 let manifestCache = null;
+
+// Module-level last-played file so replay works across all hook instances.
+let lastPlayedFile = null;
 
 function fetchManifest() {
   if (manifestCache && manifestCache.length > 0) return Promise.resolve(manifestCache);
@@ -61,6 +66,28 @@ function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function playFile(file) {
+  const url = `${SOUNDS_BASE}${encodeURIComponent(file)}`;
+  console.log(`[notification-sound] playing: ${file}`);
+
+  const audio = new Audio(url);
+  audio.volume = 0.7;
+
+  const done = new Promise((resolve) => {
+    audio.addEventListener("ended", resolve);
+    audio.addEventListener("error", (e) => {
+      console.warn("[notification-sound] audio error:", e?.target?.error?.message || "unknown error", "url:", url);
+      resolve();
+    });
+  });
+
+  const started = audio.play().catch((err) => {
+    console.warn("[notification-sound] playback blocked:", err.message || err);
+  });
+
+  return Promise.all([started, done]);
+}
+
 export default function useNotificationSound() {
   // Guard against overlapping plays within a very short window.
   const playingRef = useRef(false);
@@ -77,34 +104,33 @@ export default function useNotificationSound() {
       }
 
       playingRef.current = true;
+      lastPlayedFile = file;
 
-      const url = `${SOUNDS_BASE}${encodeURIComponent(file)}`;
-      console.log(`[notification-sound] playing: ${file}`);
-
-      const audio = new Audio(url);
-      audio.volume = 0.7;
-
-      // Release the guard once the clip ends (or errors out).
-      const release = () => {
-        playingRef.current = false;
-      };
-      audio.addEventListener("ended", release);
-      audio.addEventListener("error", (e) => {
-        console.warn("[notification-sound] audio error:", e?.target?.error?.message || "unknown error", "url:", url);
-        release();
-      });
-
-      await audio.play().catch((err) => {
-        // Autoplay policy may block if the user hasn't interacted yet.
-        // In admin flows this is unlikely since they clicked "Start import" etc.
-        console.warn("[notification-sound] playback blocked:", err.message || err);
-        release();
-      });
+      await playFile(file);
     } catch (err) {
       console.warn("[notification-sound] play error:", err.message || err);
+    } finally {
       playingRef.current = false;
     }
   }, []);
 
-  return play;
+  const replay = useCallback(async () => {
+    if (playingRef.current) return;
+    if (!lastPlayedFile) {
+      console.warn("[notification-sound] nothing to replay yet");
+      return;
+    }
+
+    try {
+      playingRef.current = true;
+      console.log(`[notification-sound] replaying: ${lastPlayedFile}`);
+      await playFile(lastPlayedFile);
+    } catch (err) {
+      console.warn("[notification-sound] replay error:", err.message || err);
+    } finally {
+      playingRef.current = false;
+    }
+  }, []);
+
+  return { play, replay };
 }
