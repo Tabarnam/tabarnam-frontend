@@ -24,7 +24,7 @@ function getValueAtPath(doc, path) {
 
 function isImportArtifactId(id) {
   const s = String(id || "");
-  return s.startsWith("_import_complete_") || s.startsWith("_import_timeout_") || s.startsWith("_import_stop_");
+  return s.startsWith("_import_complete_") || s.startsWith("_import_timeout_") || s.startsWith("_import_stop_") || s.startsWith("_import_session_") || s.startsWith("_import_resume_");
 }
 
 function uniqPartitionKeyCandidates(values) {

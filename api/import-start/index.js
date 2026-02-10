@@ -3357,28 +3357,46 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   // CRITICAL: This must set `status: "complete"` when all fields succeeded,
   // otherwise the session doc stays at "running" forever and the UI shows
   // "company doc missing" even though the company data IS persisted.
-  await upsertCosmosImportSessionDoc({
+  const postEnrichSessionPatch = {
+    status: allOk ? "complete" : "running",
+    stage_beacon: allOk ? "enrichment_complete" : "enrichment_partial",
+    enrichment_completed_at: new Date().toISOString(),
+    enrichment_mode: "direct_http",
+    resume_needed: !allOk,
+    resume_updated_at: new Date().toISOString(),
+    direct_enrichment_results: enrichmentResults.slice(0, 10),
+    saved: ids.length,
+    saved_count: ids.length,
+    saved_verified_count: ids.length,
+    saved_company_ids_verified: [...ids],
+    saved_company_ids: [...ids],
+    saved_ids: [...ids],
+    updated_at: new Date().toISOString(),
+  };
+  const postEnrichResult = await upsertCosmosImportSessionDoc({
     sessionId,
     requestId,
-    patch: {
-      status: allOk ? "complete" : "running",
-      stage_beacon: allOk ? "enrichment_complete" : "enrichment_partial",
-      enrichment_completed_at: new Date().toISOString(),
-      enrichment_mode: "direct_http",
-      resume_needed: !allOk,
-      resume_updated_at: new Date().toISOString(),
-      direct_enrichment_results: enrichmentResults.slice(0, 10),
-      saved: ids.length,
-      saved_count: ids.length,
-      saved_verified_count: ids.length,
-      saved_company_ids_verified: [...ids],
-      saved_company_ids: [...ids],
-      saved_ids: [...ids],
-      updated_at: new Date().toISOString(),
-    },
-  }).catch((err) => {
-    console.error(`[import-start] session doc enrichment-complete upsert failed: ${err?.message || err}`);
+    patch: postEnrichSessionPatch,
   });
+  if (!postEnrichResult?.ok) {
+    console.error(`[import-start] session=${sessionId} post-enrichment session doc upsert FAILED: ${postEnrichResult?.error || "unknown"}`);
+    // LAST RESORT: try direct Cosmos write of minimal completion data
+    try {
+      const directContainer = getCompaniesCosmosContainer();
+      if (directContainer) {
+        const minimalDoc = {
+          id: `_import_session_${sessionId}`,
+          ...buildImportControlDocBase(sessionId),
+          request_id: requestId,
+          ...postEnrichSessionPatch,
+        };
+        await directContainer.items.upsert(minimalDoc, { partitionKey: "import" });
+        console.log(`[import-start] session=${sessionId} post-enrichment LAST-RESORT direct upsert OK`);
+      }
+    } catch (lastResortErr) {
+      console.error(`[import-start] session=${sessionId} post-enrichment LAST-RESORT ALSO FAILED: ${lastResortErr?.message || lastResortErr}`);
+    }
+  }
 
   // Update resume doc status
   await upsertResumeDoc({
@@ -3448,20 +3466,30 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
 }
 
 async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
+  const fnTag = `[import-start][session-doc]`;
+  const sid = String(sessionId || "").trim();
+  if (!sid) {
+    console.warn(`${fnTag} SKIP: missing sessionId`);
+    return { ok: false, error: "missing_session_id" };
+  }
+
+  const container = getCompaniesCosmosContainer();
+  if (!container) {
+    console.warn(`${fnTag} session=${sid} SKIP: no Cosmos container`);
+    return { ok: false, error: "no_container" };
+  }
+
+  const id = `_import_session_${sid}`;
+  const patchKeys = patch && typeof patch === "object" ? Object.keys(patch).join(",") : "none";
+
   try {
-    const sid = String(sessionId || "").trim();
-    if (!sid) return { ok: false, error: "missing_session_id" };
-
-    const container = getCompaniesCosmosContainer();
-    if (!container) return { ok: false, error: "no_container" };
-
-    const id = `_import_session_${sid}`;
-
     const existing = await readItemWithPkCandidates(container, id, {
       id,
       ...buildImportControlDocBase(sid),
       created_at: "",
     });
+
+    console.log(`${fnTag} session=${sid} existing=${existing ? "found" : "null"} patch_keys=${patchKeys}`);
 
     const createdAt = existing?.created_at || new Date().toISOString();
     const existingRequest = existing?.request && typeof existing.request === "object" ? existing.request : null;
@@ -3479,8 +3507,25 @@ async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
       ...(patch && typeof patch === "object" ? patch : {}),
     };
 
-    return await upsertItemWithPkCandidates(container, sessionDoc);
+    // Primary: use PK-candidates upsert
+    const result = await upsertItemWithPkCandidates(container, sessionDoc);
+    if (result.ok) {
+      console.log(`${fnTag} session=${sid} upsert OK`);
+      return result;
+    }
+
+    // Fallback: direct upsert with explicit PK="import"
+    console.warn(`${fnTag} session=${sid} pk-candidates upsert FAILED (${result.error}), trying direct upsert`);
+    try {
+      await container.items.upsert(sessionDoc, { partitionKey: "import" });
+      console.log(`${fnTag} session=${sid} direct upsert OK`);
+      return { ok: true, fallback: true };
+    } catch (directErr) {
+      console.error(`${fnTag} session=${sid} direct upsert ALSO FAILED: ${directErr?.message || directErr}`);
+      return { ok: false, error: directErr?.message || "direct_upsert_failed" };
+    }
   } catch (e) {
+    console.error(`${fnTag} session=${sid} EXCEPTION: ${e?.message || String(e)}`);
     return { ok: false, error: e?.message || String(e || "session_upsert_failed") };
   }
 }
@@ -10220,7 +10265,7 @@ Output JSON only:
                 .filter(Boolean)
                 .slice(0, 50);
 
-              await upsertCosmosImportSessionDoc({
+              const preSessionResult = await upsertCosmosImportSessionDoc({
                 sessionId,
                 requestId,
                 patch: {
@@ -10240,9 +10285,10 @@ Output JSON only:
                   stage_beacon: "seed_saved_enriching_async",
                   status: "running",
                 },
-              }).catch((err) => {
-                console.error(`[import-start] session=${sessionId} pre-202 session doc upsert FAILED: ${err?.message || err}`);
               });
+              if (!preSessionResult?.ok) {
+                console.error(`[import-start] session=${sessionId} pre-202 session doc upsert FAILED: ${preSessionResult?.error || "unknown"}`);
+              }
 
               const mandatoryCompanyIds = Array.from(
                 new Set(
