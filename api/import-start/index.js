@@ -10293,15 +10293,35 @@ Output JSON only:
               });
             }
 
+            // Compute saved company URLs early so both the in-memory sync and session doc upsert can use them.
+            const savedCompanyUrls = (Array.isArray(enriched) ? enriched : [])
+              .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+              .filter(Boolean)
+              .slice(0, 50);
+
+            // ── Sync in-memory store IMMEDIATELY after company save ──
+            // import-status may poll at any moment on the same Azure Functions process.
+            // By updating the in-memory store here (before the Cosmos session doc upsert),
+            // we ensure that even the earliest status polls see the correct seed data.
+            upsertImportSession({
+              session_id: sessionId,
+              request_id: requestId,
+              status: "running",
+              stage_beacon: "seed_saved_enriching_async",
+              saved: verifiedCount,
+              saved_verified_count: verifiedCount,
+              saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+              saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+              saved_company_urls: savedCompanyUrls,
+              save_outcome: "seed_saved",
+              resume_needed: true,
+              companies_count: enriched.length,
+            });
+
             // Critical: persist canonical saved IDs immediately so /import/status can recover even if SWA kills
             // later enrichment stages.
             try {
               const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
-
-              const savedCompanyUrls = (Array.isArray(enriched) ? enriched : [])
-                .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
-                .filter(Boolean)
-                .slice(0, 50);
 
               const preSessionResult = await upsertCosmosImportSessionDoc({
                 sessionId,
@@ -10403,25 +10423,8 @@ Output JSON only:
               if (isCompanyUrlFastPath && mandatoryCompanyIds.length > 0) {
                 mark("fast_path_202_accepted");
 
-                // ── CHANGE 1: Sync in-memory store with full seed data ──
-                // The mark() above only writes stage_beacon + companies_count.
-                // import-status reads saved, saved_verified_count, saved_company_ids_verified
-                // etc. from the in-memory store as a fast fallback. Without this call,
-                // same-process status polls always return saved=0, stage_beacon="fast_path_202_accepted".
-                upsertImportSession({
-                  session_id: sessionId,
-                  request_id: requestId,
-                  status: "running",
-                  stage_beacon: "seed_saved_enriching_async",
-                  saved: verifiedCount,
-                  saved_verified_count: verifiedCount,
-                  saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
-                  saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
-                  saved_company_urls: savedCompanyUrls,
-                  save_outcome: "seed_saved",
-                  resume_needed: true,
-                  companies_count: enriched.length,
-                });
+                // (In-memory store sync moved earlier — runs immediately after saveCompaniesToCosmos,
+                // before the Cosmos session doc upsert, to close the race window.)
 
                 // ── CHANGE 2: Write accept doc for fast-path 202 ──
                 // The fast-path 202 bypasses AcceptedResponseError, which is where accept docs

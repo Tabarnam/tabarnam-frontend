@@ -3911,7 +3911,7 @@ async function handler(req, context) {
     const errorDocId = `_import_error_${sessionId}`;
     const acceptDocId = `_import_accept_${sessionId}`;
 
-    const [sessionDoc, completionDoc, timeoutDoc, stopDoc, errorDoc, acceptDoc, resumeDoc] = await Promise.all([
+    let [sessionDoc, completionDoc, timeoutDoc, stopDoc, errorDoc, acceptDoc, resumeDoc] = await Promise.all([
       readControlDoc(container, sessionDocId, sessionId),
       readControlDoc(container, completionDocId, sessionId),
       readControlDoc(container, timeoutDocId, sessionId),
@@ -3922,6 +3922,7 @@ async function handler(req, context) {
     ]);
 
     let known = Boolean(sessionDoc || completionDoc || timeoutDoc || stopDoc || errorDoc || acceptDoc);
+    if (!known && mem) known = true; // In-memory store knows this session
     if (!known) known = await hasAnyCompanyDocs(container, sessionId);
 
     if (!known) {
@@ -3929,6 +3930,71 @@ async function handler(req, context) {
     }
 
     stageBeaconValues.status_seen_control_docs = nowIso();
+
+    // ── Memory override: when the in-memory store has newer data than Cosmos ──
+    // The same Azure Functions process may have updated the in-memory store
+    // (via mark() or upsertImportSession()) but the Cosmos write may not have
+    // replicated yet (new CosmosClient per request = no session consistency).
+    if (mem) {
+      if (!sessionDoc) {
+        // Cosmos didn't find a session doc but memory has one — create a surrogate
+        sessionDoc = {
+          id: `_import_session_${sessionId}`,
+          session_id: sessionId,
+          stage_beacon: mem.stage_beacon || "init",
+          status: mem.status || "running",
+          saved: typeof mem.saved === "number" ? mem.saved : 0,
+          saved_verified_count: typeof mem.saved_verified_count === "number" ? mem.saved_verified_count : 0,
+          saved_company_ids_verified: Array.isArray(mem.saved_company_ids_verified) ? mem.saved_company_ids_verified : [],
+          saved_company_ids_unverified: Array.isArray(mem.saved_company_ids_unverified) ? mem.saved_company_ids_unverified : [],
+          resume_needed: typeof mem.resume_needed === "boolean" ? mem.resume_needed : false,
+          request_id: mem.request_id || null,
+          created_at: mem.created_at || nowIso(),
+        };
+        stageBeaconValues.status_mem_surrogate_session_doc = true;
+      } else {
+        // Cosmos found a session doc — check if memory has newer data
+        const cosmosBeacon = String(sessionDoc.stage_beacon || "").trim();
+        const memBeacon = String(mem.stage_beacon || "").trim();
+        const memSaved = typeof mem.saved === "number" ? mem.saved : null;
+        const cosmosSaved = typeof sessionDoc.saved === "number" ? sessionDoc.saved : null;
+
+        // If Cosmos still shows "create_session" but memory has advanced further,
+        // patch the session doc object with the in-memory values so downstream
+        // computations use the freshest data.
+        const STALE_BEACONS = new Set(["create_session", "init", ""]);
+        if (STALE_BEACONS.has(cosmosBeacon) && memBeacon && !STALE_BEACONS.has(memBeacon)) {
+          sessionDoc.stage_beacon = memBeacon;
+          stageBeaconValues.status_mem_override_stage_beacon = memBeacon;
+          stageBeaconValues.status_mem_override_cosmos_beacon = cosmosBeacon;
+        }
+
+        if ((cosmosSaved === null || cosmosSaved === 0) && memSaved !== null && memSaved > 0) {
+          sessionDoc.saved = memSaved;
+          stageBeaconValues.status_mem_override_saved = memSaved;
+        }
+
+        if (typeof mem.resume_needed === "boolean" && !sessionDoc.resume_needed && mem.resume_needed) {
+          sessionDoc.resume_needed = mem.resume_needed;
+          stageBeaconValues.status_mem_override_resume_needed = true;
+        }
+
+        // Merge verified IDs from memory if Cosmos has none
+        if (
+          (!Array.isArray(sessionDoc.saved_company_ids_verified) || sessionDoc.saved_company_ids_verified.length === 0) &&
+          Array.isArray(mem.saved_company_ids_verified) && mem.saved_company_ids_verified.length > 0
+        ) {
+          sessionDoc.saved_company_ids_verified = mem.saved_company_ids_verified;
+        }
+
+        if (
+          (typeof sessionDoc.saved_verified_count !== "number" || sessionDoc.saved_verified_count === 0) &&
+          typeof mem.saved_verified_count === "number" && mem.saved_verified_count > 0
+        ) {
+          sessionDoc.saved_verified_count = mem.saved_verified_count;
+        }
+      }
+    }
 
     const errorPayload = normalizeErrorPayload(errorDoc?.error || null);
     const timedOut = Boolean(timeoutDoc);
