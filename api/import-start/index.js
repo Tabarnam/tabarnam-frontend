@@ -3353,19 +3353,32 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   const allOk = enrichmentResults.every((r) => r.ok);
   const anyOk = enrichmentResults.some((r) => r.ok);
 
-  // Update session doc with enrichment telemetry
+  // Update session doc with enrichment telemetry + completion status.
+  // CRITICAL: This must set `status: "complete"` when all fields succeeded,
+  // otherwise the session doc stays at "running" forever and the UI shows
+  // "company doc missing" even though the company data IS persisted.
   await upsertCosmosImportSessionDoc({
     sessionId,
     requestId,
     patch: {
+      status: allOk ? "complete" : "running",
+      stage_beacon: allOk ? "enrichment_complete" : "enrichment_partial",
       enrichment_completed_at: new Date().toISOString(),
       enrichment_mode: "direct_http",
       resume_needed: !allOk,
       resume_updated_at: new Date().toISOString(),
-      direct_enrichment_results: enrichmentResults.slice(0, 10), // Keep first 10 for telemetry
+      direct_enrichment_results: enrichmentResults.slice(0, 10),
+      saved: ids.length,
+      saved_count: ids.length,
+      saved_verified_count: ids.length,
+      saved_company_ids_verified: [...ids],
+      saved_company_ids: [...ids],
+      saved_ids: [...ids],
       updated_at: new Date().toISOString(),
     },
-  }).catch(() => null);
+  }).catch((err) => {
+    console.error(`[import-start] session doc enrichment-complete upsert failed: ${err?.message || err}`);
+  });
 
   // Update resume doc status
   await upsertResumeDoc({
@@ -10224,10 +10237,12 @@ Output JSON only:
                   skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                   failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                   ...(cosmosTarget ? cosmosTarget : {}),
-                  stage_beacon,
+                  stage_beacon: "seed_saved_enriching_async",
                   status: "running",
                 },
-              }).catch(() => null);
+              }).catch((err) => {
+                console.error(`[import-start] session=${sessionId} pre-202 session doc upsert FAILED: ${err?.message || err}`);
+              });
 
               const mandatoryCompanyIds = Array.from(
                 new Set(
