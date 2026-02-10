@@ -6051,6 +6051,9 @@ const importStartHandlerInner = async (req, context) => {
             status: "running",
             stage_beacon: beacon,
             companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+            accepted: true,
+            accepted_at: new Date().toISOString(),
+            accepted_reason: normalizedReason,
           });
         } catch {}
 

@@ -3996,6 +3996,20 @@ async function handler(req, context) {
       }
     }
 
+    // If Cosmos didn't find an accept doc but memory shows this session was accepted,
+    // create a surrogate accept doc so the status response shows accepted: true.
+    if (!acceptDoc && mem && mem.accepted) {
+      acceptDoc = {
+        id: `_import_accept_${sessionId}`,
+        session_id: sessionId,
+        accepted_at: mem.accepted_at || nowIso(),
+        reason: mem.accepted_reason || "upstream_timeout_returning_202",
+        stage_beacon: mem.stage_beacon || "unknown",
+        created_at: mem.accepted_at || nowIso(),
+      };
+      stageBeaconValues.status_mem_surrogate_accept_doc = true;
+    }
+
     const errorPayload = normalizeErrorPayload(errorDoc?.error || null);
     const timedOut = Boolean(timeoutDoc);
     const stopped = Boolean(stopDoc);
@@ -4330,6 +4344,29 @@ async function handler(req, context) {
 
     // resume_needed is derived from retryable missing fields only; it must not drift.
     let resume_needed = forceResume ? true : retryableMissingCount > 0;
+
+    // If the session is actively processing (not yet complete/errored), don't let
+    // resume_needed=false prematurely signal completion.  The session may still be
+    // saving companies and the saved count may be 0 simply because the first status
+    // poll raced ahead of import-start.
+    const ACTIVE_PROCESSING_BEACONS = new Set([
+      "create_session", "init",
+      "xai_primary_fetch_start", "xai_primary_fetch_done",
+      "xai_primary_fallback_company_url_seed",
+      "seed_saved_enriching_async", "fast_path_202_accepted",
+    ]);
+
+    if (
+      !resume_needed &&
+      !completed &&
+      !stopped &&
+      !timedOut &&
+      Number(saved || 0) === 0 &&
+      ACTIVE_PROCESSING_BEACONS.has(String(stage_beacon || "").trim())
+    ) {
+      resume_needed = true;
+      stageBeaconValues.status_active_processing_resume_override = String(stage_beacon || "").trim();
+    }
 
     const forceComplete = Boolean(
       stageBeaconValues.status_resume_terminal_only ||

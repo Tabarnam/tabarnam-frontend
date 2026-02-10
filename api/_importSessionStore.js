@@ -145,6 +145,28 @@ function upsertSession(input) {
           ? prev.request_url.trim()
           : null,
 
+    // Accepted state: tracks whether respondAcceptedBeforeGatewayTimeout() fired.
+    // Used by import-status to synthesize a surrogate accept doc when Cosmos
+    // hasn't replicated the accept doc yet.
+    accepted:
+      typeof input?.accepted === "boolean"
+        ? input.accepted
+        : typeof prev?.accepted === "boolean"
+          ? prev.accepted
+          : undefined,
+    accepted_at:
+      typeof input?.accepted_at === "string" && input.accepted_at.trim()
+        ? input.accepted_at.trim()
+        : typeof prev?.accepted_at === "string" && prev.accepted_at.trim()
+          ? prev.accepted_at.trim()
+          : null,
+    accepted_reason:
+      typeof input?.accepted_reason === "string" && input.accepted_reason.trim()
+        ? input.accepted_reason.trim()
+        : typeof prev?.accepted_reason === "string" && prev.accepted_reason.trim()
+          ? prev.accepted_reason.trim()
+          : null,
+
     created_at: prev?.created_at || nowIso(),
     updated_at: nowIso(),
   };

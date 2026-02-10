@@ -817,18 +817,25 @@ export default function AdminImport() {
         // Resume flags
         const resumeNeeded = Boolean(body?.resume_needed || body?.resume?.needed || report?.session?.resume_needed);
 
-        // Don't treat resume_needed=false as terminal when the session is still initializing.
-        // The create_session beacon means the import-start handler hasn't finished yet —
-        // the status poll raced ahead of the save and the backend has no company docs to analyze.
-        const sessionStillInitializing =
-          stageBeacon === "create_session" ||
-          stageBeacon === "init" ||
-          (!stageBeacon && saved === 0);
+        // Don't treat resume_needed=false as terminal when the session is still
+        // actively processing.  Any beacon that isn't an explicit completion/error
+        // signal means import-start is still working — the status poll simply
+        // raced ahead.
+        const TERMINAL_BEACONS = new Set([
+          "complete",
+          "enrichment_complete",
+          "status_resume_terminal_only",
+          "error",
+          "stopped",
+        ]);
+
+        const sessionStillProcessing =
+          !TERMINAL_BEACONS.has(stageBeacon) && saved === 0;
 
         const resumeNeededExplicitlyFalse =
           body?.resume_needed === false &&
           body?.resume?.needed === false &&
-          !sessionStillInitializing;
+          !sessionStillProcessing;
 
         // Completion signals (UI must stop polling quickly when ANY are true)
         const stageBeaconComplete = stageBeacon === "complete";
