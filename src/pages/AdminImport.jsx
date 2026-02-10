@@ -2144,11 +2144,11 @@ export default function AdminImport() {
 
           toast.info(isBackendCallFailureText ? "Gateway interrupted — auto-retrying…" : "Start failed — auto-retrying…");
 
-          // Auto-retry loop: up to 3 attempts with increasing delays (5s, 10s, 15s).
-          // The SWA gateway may repeatedly return 500 during cold starts. Each retry gives
-          // the Function App more time to warm up. The backend detects stuck sessions and
-          // resets them, so retries with the same session_id are safe.
-          const retryDelays = [5000, 10000, 15000];
+          // Auto-retry loop: single retry after 5s delay.
+          // The SWA gateway may return 500 during cold starts. With the save-first architecture,
+          // the backend saves the company stub and fires enrichment async. One retry is sufficient
+          // because the backend detects stuck sessions and resets them.
+          const retryDelays = [5000];
           let retrySucceeded = false;
           for (let retryIdx = 0; retryIdx < retryDelays.length; retryIdx++) {
             try {
@@ -2529,6 +2529,43 @@ export default function AdminImport() {
         const stageBeacon = asString(startResult.body?.stage_beacon).trim();
         const acceptReason = extractAcceptReason(startResult.body);
 
+        // ── "Seed saved, enriching async" fast path ──
+        // The backend saved the company stub and returned 202. Enrichment is running
+        // asynchronously in the background. Skip the async-primary wait loop and go
+        // directly to polling — the company is already persisted.
+        const isSeedSavedAsync =
+          stageBeacon === "seed_saved_enriching_async" ||
+          (startResult.body?.accepted === true && Number(startResult.body?.saved_count) > 0);
+
+        if (isSeedSavedAsync) {
+          const savedVerified = Number(startResult.body?.saved_verified_count) || Number(startResult.body?.saved_count) || 0;
+          const stageCompanies = updateRunCompanies(startResult.body?.companies, { async_primary_active: false });
+          if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
+
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === canonicalSessionId
+                ? {
+                    ...r,
+                    saved: savedVerified,
+                    saved_verified_count: savedVerified,
+                    saved_company_ids_verified: Array.isArray(startResult.body?.saved_company_ids_verified)
+                      ? startResult.body.saved_company_ids_verified
+                      : [],
+                    resume_needed: true,
+                    start_error: null,
+                    progress_notice: "Saved — enrichment running in background…",
+                    stage_beacon: stageBeacon,
+                    last_stage_beacon: stageBeacon,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : r
+            )
+          );
+
+          toast.success(`Saved (${savedVerified} verified). Enrichment in progress…`);
+          // Fall through to the normal post-stage polling below (don't return)
+        } else {
         const isAsyncPrimary =
           startResult.body?.reason === "primary_async_enqueued" ||
           isExpectedAsyncAcceptReason(acceptReason) ||
@@ -2709,6 +2746,7 @@ export default function AdminImport() {
 
         const resumeCompanies = updateRunCompanies(resumeResult.body?.companies, { async_primary_active: false });
         if (resumeCompanies.length > 0) companiesForNextStage = resumeCompanies;
+      } // end: else (isAsyncPrimary, not isSeedSavedAsync)
       } else {
         const stageCompanies = updateRunCompanies(startResult.body?.companies, { async_primary_active: false });
         if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;

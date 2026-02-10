@@ -4069,13 +4069,27 @@ async function saveCompaniesToCosmos({
                 doc.tagline_unknown = false;
               }
 
-              // headquarters_location + manufacturing_locations are Grok-only (handled in resume-worker).
-              // Do NOT extract from the website here and do NOT terminalize here.
-              // Keep types stable so downstream code/UI don't crash.
+              // headquarters_location — track in import_missing_fields like all other required fields.
+              // (Previously deferred to resume-worker only, but unified enrichment may have populated it.)
               if (typeof doc.headquarters_location !== "string") {
                 doc.headquarters_location = doc.headquarters_location == null ? "" : String(doc.headquarters_location);
               }
+              if (!doc.headquarters_location.trim() || doc.headquarters_location === "Not disclosed") {
+                if (doc.hq_unknown_reason === "not_disclosed" || doc.headquarters_location === "Not disclosed") {
+                  // Explicitly not disclosed — terminal, not retryable
+                } else {
+                  const policy = applyLowQualityPolicy("headquarters_location", "not_found");
+                  ensureMissing(
+                    "headquarters_location",
+                    policy.missing_reason,
+                    "extract_hq",
+                    "headquarters_location missing after seed/enrichment",
+                    policy.retryable
+                  );
+                }
+              }
 
+              // manufacturing_locations — same treatment as HQ.
               if (!Array.isArray(doc.manufacturing_locations)) {
                 doc.manufacturing_locations = doc.manufacturing_locations == null ? [] : [doc.manufacturing_locations];
               }
@@ -4084,7 +4098,20 @@ async function saveCompaniesToCosmos({
                 .map((v) => v.trim())
                 .filter(Boolean);
 
-              // Note: missing/attempt tracking + terminal sentinels for HQ/MFG are persisted by resume-worker only.
+              if (doc.manufacturing_locations.length === 0) {
+                if (doc.mfg_unknown_reason === "not_disclosed") {
+                  // Explicitly not disclosed — terminal, not retryable
+                } else {
+                  const policy = applyLowQualityPolicy("manufacturing_locations", "not_found");
+                  ensureMissing(
+                    "manufacturing_locations",
+                    policy.missing_reason,
+                    "extract_mfg",
+                    "manufacturing_locations missing after seed/enrichment",
+                    policy.retryable
+                  );
+                }
+              }
 
               // reviews (required fields can be empty, but must be explicitly set)
               if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
@@ -8936,12 +8963,41 @@ Output JSON only:
             );
           }
 
+          // ── Fast-path: for company_url imports, skip inline enrichment entirely. ──
+          // Save the stub company to Cosmos now, return 202, and let
+          // maybeQueueAndInvokeMandatoryEnrichment handle ALL enrichment async.
+          // This prevents the SWA gateway from killing the connection during the
+          // 30-90 second xAI call.
+          const isCompanyUrlFastPath =
+            (queryType === "company_url" || Boolean(companyUrlHint)) &&
+            enriched.length > 0 &&
+            !dryRunRequested &&
+            cosmosEnabled;
+
+          if (isCompanyUrlFastPath) {
+            // Ensure enrichment field defaults so import_missing_fields is populated correctly
+            // by saveCompaniesToCosmos. All real values will be populated by async enrichment.
+            for (const company of enriched) {
+              if (!company.tagline) company.tagline = "";
+              if (!company.headquarters_location) company.headquarters_location = "";
+              if (!Array.isArray(company.manufacturing_locations)) company.manufacturing_locations = [];
+              if (!Array.isArray(company.industries) || company.industries.length === 0) company.industries = [];
+              if (!company.product_keywords) company.product_keywords = "";
+              if (!Array.isArray(company.keywords) || company.keywords.length === 0) company.keywords = [];
+            }
+
+            mark("fast_path_company_url_skip_inline_enrichment");
+            console.log(
+              `[import-start] session=${sessionId} FAST PATH: company_url import — skipping keywords/location/geocode stages, saving stub immediately`
+            );
+          }
+
           const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start", "keywords");
           if (deadlineBeforeKeywords) return deadlineBeforeKeywords;
 
-          let keywordStageCompleted = !shouldRunStage("keywords");
+          let keywordStageCompleted = isCompanyUrlFastPath ? true : !shouldRunStage("keywords");
 
-          if (shouldRunStage("keywords")) {
+          if (shouldRunStage("keywords") && !isCompanyUrlFastPath) {
             const remainingBeforeKeywords = getRemainingMs();
             if (remainingBeforeKeywords < MIN_STAGE_REMAINING_MS) {
               keywordStageCompleted = false;
@@ -9039,9 +9095,9 @@ Output JSON only:
           }
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
-          let geocodeStageCompleted = !shouldRunStage("location");
+          let geocodeStageCompleted = isCompanyUrlFastPath ? true : !shouldRunStage("location");
 
-          if (shouldRunStage("location")) {
+          if (shouldRunStage("location") && !isCompanyUrlFastPath) {
             const remainingBeforeGeocode = getRemainingMs();
             if (remainingBeforeGeocode < MIN_STAGE_REMAINING_MS) {
               geocodeStageCompleted = false;
@@ -9104,9 +9160,9 @@ Output JSON only:
           // and we run it AFTER the company is persisted so it can be committed.
           const usePostSaveReviews = true;
 
-          let reviewStageCompleted = !shouldRunStage("reviews");
+          let reviewStageCompleted = isCompanyUrlFastPath ? true : !shouldRunStage("reviews");
 
-          if (shouldRunStage("reviews") && usePostSaveReviews) {
+          if (shouldRunStage("reviews") && usePostSaveReviews && !isCompanyUrlFastPath) {
             // Defer until after saveCompaniesToCosmos so we have stable company_id values.
             reviewStageCompleted = false;
             mark("xai_reviews_fetch_deferred");
@@ -10203,6 +10259,55 @@ Output JSON only:
                 }
               }
 
+              // ── Fast-path 202: return BEFORE enrichment so SWA doesn't kill the connection ──
+              if (isCompanyUrlFastPath && mandatoryCompanyIds.length > 0) {
+                mark("fast_path_202_accepted");
+                console.log(
+                  `[import-start] session=${sessionId} FAST PATH 202: returning 202 Accepted, firing enrichment async for ${mandatoryCompanyIds.length} companies`
+                );
+
+                // Fire-and-forget: run enrichment asynchronously.
+                // The Azure Function runtime keeps the execution context alive after
+                // returning the HTTP response. Don't await — let it run in background.
+                maybeQueueAndInvokeMandatoryEnrichment({
+                  sessionId,
+                  requestId,
+                  context,
+                  companyIds: mandatoryCompanyIds,
+                  companyDomainMap: mainDomainMap,
+                  reason: "seed_complete_auto_enrich",
+                  cosmosEnabled,
+                }).catch((enrichErr) => {
+                  console.error(`[import-start] async enrichment failed: ${enrichErr?.message || enrichErr}`);
+                });
+
+                return jsonWithRequestId(
+                  {
+                    ok: true,
+                    accepted: true,
+                    session_id: sessionId,
+                    request_id: requestId,
+                    stage_beacon: "seed_saved_enriching_async",
+                    saved: verifiedCount,
+                    saved_count: verifiedCount,
+                    saved_verified_count: verifiedCount,
+                    saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+                    resume_needed: true,
+                    companies: enriched.map((c) => ({
+                      id: c.id,
+                      company_name: c.company_name || c.name,
+                      website_url: c.website_url,
+                      normalized_domain: c.normalized_domain,
+                    })),
+                    meta: {
+                      enrichment_mode: "async",
+                      enrichment_budget_ms: 240000,
+                    },
+                  },
+                  202
+                );
+              }
+
               const enqueueResult = await maybeQueueAndInvokeMandatoryEnrichment({
                 sessionId,
                 requestId,
@@ -10240,6 +10345,39 @@ Output JSON only:
                     console.log(`[import-start] seed_complete_fallback_queue: resume-worker invoked, ok=${invokeRes?.ok}`);
                   } catch (invokeErr) {
                     console.warn(`[import-start] seed_complete_fallback_queue: resume-worker invoke failed: ${invokeErr?.message}`);
+                  }
+                }
+
+                // LAST RESORT: if queue also failed, run direct enrichment inline
+                if (!fallbackResult?.ok) {
+                  console.log(`[import-start] session=${sessionId} LAST RESORT: queue failed, running direct enrichment inline`);
+                  try {
+                    const lastResortContainer = getCompaniesCosmosContainer();
+                    for (const companyId of mandatoryCompanyIds.slice(0, 5)) {
+                      const doc = lastResortContainer
+                        ? await readItemWithPkCandidates(lastResortContainer, companyId, { id: companyId }).catch(() => null)
+                        : null;
+                      if (!doc) continue;
+
+                      const enrichResult = await runDirectEnrichment({
+                        company: doc,
+                        sessionId,
+                        budgetMs: 240000,
+                        fieldsToEnrich: [...MANDATORY_ENRICH_FIELDS],
+                      });
+
+                      if (enrichResult?.enriched && Object.keys(enrichResult.enriched).length > 0) {
+                        const updatedDoc = applyEnrichmentToCompany(doc, enrichResult);
+                        if (lastResortContainer) {
+                          await upsertItemWithPkCandidates(lastResortContainer, updatedDoc).catch(() => null);
+                        }
+                        console.log(
+                          `[import-start] session=${sessionId} last-resort enrichment OK for ${companyId}: ${Object.keys(enrichResult.enriched).join(", ")}`
+                        );
+                      }
+                    }
+                  } catch (directErr) {
+                    console.error(`[import-start] last-resort direct enrichment failed: ${directErr?.message || directErr}`);
                   }
                 }
               }

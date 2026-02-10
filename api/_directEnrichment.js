@@ -16,6 +16,7 @@ const {
 } = require("./_grokEnrichment");
 
 const { getXAIEndpoint, getXAIKey } = require("./_shared");
+const { sanitizeIndustries, sanitizeKeywords, isRealValue } = require("./_requiredFields");
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -335,11 +336,19 @@ function applyEnrichmentToCompany(company, enrichmentResult) {
     refreshedMissing.push("tagline");
     refreshedReasons.tagline = updated.tagline_status || "missing";
   }
-  if (
-    (!Array.isArray(updated.industries) || updated.industries.length === 0) &&
-    updated.industries_status !== "not_found" &&
-    updated.industries_status !== "not_disclosed"
-  ) {
+  // Industries: apply the same quality gate as saveCompaniesToCosmos
+  if (Array.isArray(updated.industries) && updated.industries.length > 0) {
+    try {
+      const sanitized = sanitizeIndustries(updated.industries);
+      if (sanitized.length === 0) {
+        refreshedMissing.push("industries");
+        refreshedReasons.industries = "low_quality";
+      }
+      // else: industries are valid after quality gate, don't add to missing
+    } catch {
+      // sanitizeIndustries unavailable — fall back to presence check (already has items)
+    }
+  } else if (updated.industries_status !== "not_found" && updated.industries_status !== "not_disclosed") {
     refreshedMissing.push("industries");
     refreshedReasons.industries = updated.industries_status || "missing";
   }
@@ -359,13 +368,31 @@ function applyEnrichmentToCompany(company, enrichmentResult) {
     refreshedMissing.push("manufacturing_locations");
     refreshedReasons.manufacturing_locations = updated.manufacturing_locations_status || "missing";
   }
-  if (
-    (!Array.isArray(updated.product_keywords) || updated.product_keywords.length === 0) &&
-    updated.product_keywords_status !== "not_found" &&
-    updated.product_keywords_status !== "not_disclosed"
-  ) {
-    refreshedMissing.push("product_keywords");
-    refreshedReasons.product_keywords = updated.product_keywords_status || "missing";
+  // Keywords: apply the same quality gate as saveCompaniesToCosmos
+  {
+    const kwArr = Array.isArray(updated.product_keywords)
+      ? updated.product_keywords
+      : typeof updated.product_keywords === "string" && updated.product_keywords.trim()
+        ? updated.product_keywords.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
+    const kwString = kwArr.join(", ");
+
+    if (kwArr.length > 0) {
+      try {
+        const stats = sanitizeKeywords({ product_keywords: kwString, keywords: updated.keywords || [] });
+        const meetsQuality = isRealValue("product_keywords", stats.sanitized.join(", "), { ...updated, keywords: stats.sanitized });
+        if (!meetsQuality) {
+          refreshedMissing.push("product_keywords");
+          refreshedReasons.product_keywords = "low_quality";
+        }
+        // else: keywords are valid after quality gate, don't add to missing
+      } catch {
+        // quality gate unavailable — fall back to presence check (already has items)
+      }
+    } else if (updated.product_keywords_status !== "not_found" && updated.product_keywords_status !== "not_disclosed") {
+      refreshedMissing.push("product_keywords");
+      refreshedReasons.product_keywords = updated.product_keywords_status || "missing";
+    }
   }
   if (
     (!Array.isArray(updated.reviews) || updated.reviews.length === 0) &&
