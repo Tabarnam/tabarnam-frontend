@@ -324,6 +324,74 @@ function applyEnrichmentToCompany(company, enrichmentResult) {
   }
   updated.last_enrichment_at = enrichmentResult.finished_at || new Date().toISOString();
 
+  // ── Recompute import_missing_fields based on actual field values ──
+  // This is critical: saveCompaniesToCosmos sets import_missing_fields at seed time
+  // (before enrichment runs).  Without this recomputation the import UI keeps showing
+  // fields as "missing" even though they were successfully enriched.
+  const refreshedMissing = [];
+  const refreshedReasons = {};
+
+  if (!updated.tagline && updated.tagline_status !== "not_found" && updated.tagline_status !== "not_disclosed") {
+    refreshedMissing.push("tagline");
+    refreshedReasons.tagline = updated.tagline_status || "missing";
+  }
+  if (
+    (!Array.isArray(updated.industries) || updated.industries.length === 0) &&
+    updated.industries_status !== "not_found" &&
+    updated.industries_status !== "not_disclosed"
+  ) {
+    refreshedMissing.push("industries");
+    refreshedReasons.industries = updated.industries_status || "missing";
+  }
+  if (
+    !updated.headquarters_location &&
+    updated.headquarters_location_status !== "not_found" &&
+    updated.headquarters_location_status !== "not_disclosed"
+  ) {
+    refreshedMissing.push("headquarters_location");
+    refreshedReasons.headquarters_location = updated.headquarters_location_status || "missing";
+  }
+  if (
+    (!Array.isArray(updated.manufacturing_locations) || updated.manufacturing_locations.length === 0) &&
+    updated.manufacturing_locations_status !== "not_found" &&
+    updated.manufacturing_locations_status !== "not_disclosed"
+  ) {
+    refreshedMissing.push("manufacturing_locations");
+    refreshedReasons.manufacturing_locations = updated.manufacturing_locations_status || "missing";
+  }
+  if (
+    (!Array.isArray(updated.product_keywords) || updated.product_keywords.length === 0) &&
+    updated.product_keywords_status !== "not_found" &&
+    updated.product_keywords_status !== "not_disclosed"
+  ) {
+    refreshedMissing.push("product_keywords");
+    refreshedReasons.product_keywords = updated.product_keywords_status || "missing";
+  }
+  if (
+    (!Array.isArray(updated.reviews) || updated.reviews.length === 0) &&
+    updated.reviews_status !== "not_found" &&
+    updated.reviews_status !== "not_disclosed"
+  ) {
+    refreshedMissing.push("reviews");
+    refreshedReasons.reviews = updated.reviews_status || "missing";
+  }
+  if (!updated.logo_url && updated.logo_status !== "not_found_on_site") {
+    refreshedMissing.push("logo");
+    refreshedReasons.logo = updated.logo_status || "missing";
+  }
+
+  updated.import_missing_fields = refreshedMissing;
+  updated.import_missing_reason = {
+    ...(updated.import_missing_reason || {}),
+    ...refreshedReasons,
+  };
+  // Back-compat field used by some tooling / UI.
+  updated.missing_fields = refreshedMissing.map((f) => {
+    if (f === "headquarters_location") return "hq";
+    if (f === "manufacturing_locations") return "mfg";
+    return f;
+  });
+
   return updated;
 }
 

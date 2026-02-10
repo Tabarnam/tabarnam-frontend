@@ -3212,6 +3212,45 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   if (ids.length === 0) return { queued: false, invoked: false, invocation_mode: null };
 
   const now = new Date().toISOString();
+
+  // ── SWA retry deduplication ──
+  // The SWA reverse proxy may fire 3-4 parallel import-start invocations when the
+  // initial request exceeds its ~30-50s timeout.  Each would independently run
+  // enrichment against xAI, wasting budget and creating race conditions.
+  // Check whether another invocation already started enrichment for this session.
+  try {
+    const resumeDocId = `_import_resume_${sessionId}`;
+    const container = getCompaniesCosmosContainer();
+    if (container) {
+      const existingResume = await readItemWithPkCandidates(container, resumeDocId, {
+        id: resumeDocId,
+        ...buildImportControlDocBase(sessionId),
+        created_at: "",
+      }).catch(() => null);
+
+      if (existingResume) {
+        const existingStatus = String(existingResume.status || "").trim();
+        const existingMode = String(existingResume.invocation_mode || "").trim();
+        const startedAt = existingResume.enrichment_started_at;
+        const ageMs = startedAt ? Date.now() - new Date(startedAt).getTime() : Infinity;
+
+        // If another direct_http invocation started within the last 5 minutes, skip this one.
+        if ((existingStatus === "in_progress" || existingStatus === "completed") && existingMode === "direct_http" && ageMs < 300000) {
+          logInfo(context, {
+            event: "enrichment_dedup_skip",
+            session_id: sessionId,
+            existing_status: existingStatus,
+            existing_started_at: startedAt,
+            age_ms: ageMs,
+          });
+          return { queued: false, invoked: false, invocation_mode: "dedup_skip" };
+        }
+      }
+    }
+  } catch {
+    // Dedup check failure is non-fatal; proceed with enrichment.
+  }
+
   const missing_by_company = ids.map((company_id) => ({
     company_id,
     missing_fields: [...MANDATORY_ENRICH_FIELDS],
@@ -3352,6 +3391,37 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     any_ok: anyOk,
     invocation_mode: "direct_http",
   });
+
+  // If some companies had field failures, queue resume-worker for retry.
+  // Previously this path was unreachable because invoked=true prevented the
+  // fallback at the call-site from firing.
+  if (!allOk) {
+    const failedCompanyIds = enrichmentResults
+      .filter((r) => !r.ok || (Array.isArray(r.fields_failed) && r.fields_failed.length > 0))
+      .map((r) => r.company_id)
+      .filter(Boolean);
+
+    if (failedCompanyIds.length > 0) {
+      try {
+        await enqueueResumeRun({
+          session_id: sessionId,
+          company_ids: failedCompanyIds,
+          reason: "partial_enrichment_retry",
+          requested_by: "direct_enrichment",
+          run_after_ms: 30000, // 30-second delay for transient failures
+        });
+        logInfo(context, {
+          event: "partial_enrichment_retry_queued",
+          session_id: sessionId,
+          failed_company_ids: failedCompanyIds,
+          delay_ms: 30000,
+        });
+      } catch (qErr) {
+        // Queue failure is non-fatal; the resume-worker may still pick it up via polling.
+        console.warn(`[maybeQueueAndInvokeMandatoryEnrichment] partial retry queue failed: ${qErr?.message || qErr}`);
+      }
+    }
+  }
 
   return {
     queued: false,

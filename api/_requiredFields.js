@@ -97,6 +97,16 @@ const INDUSTRY_ALLOWLIST = [
   "medical",
   "pharmaceutical",
   "biotech",
+  // Broader industries (tech, food, auto, etc.)
+  "technology",
+  "computer hardware",
+  "consumer electronics",
+  "confectionery",
+  "chocolate",
+  "automotive",
+  "industrial",
+  "education",
+  "toys & games",
 ];
 
 function toTitleCase(input) {
@@ -128,6 +138,16 @@ const INDUSTRY_CANONICAL_MAP = [
   { match: ["furniture", "home decor", "homegoods", "home goods"], canonical: "Home Goods" },
   { match: ["outdoor", "sports", "fitness"], canonical: "Sports & Fitness" },
   { match: ["food", "beverage", "snack"], canonical: "Food & Beverage" },
+
+  // Broader industries (tech, electronics, confectionery, auto, etc.)
+  { match: ["technology", "tech", "software", "saas", "cloud"], canonical: "Technology" },
+  { match: ["computer", "hardware", "peripheral", "accessory", "accessories"], canonical: "Computer Hardware" },
+  { match: ["electronics", "consumer electronics", "audio", "video", "av"], canonical: "Consumer Electronics" },
+  { match: ["chocolate", "confection", "candy", "sweets", "cocoa"], canonical: "Confectionery" },
+  { match: ["automotive", "auto", "vehicle", "car"], canonical: "Automotive" },
+  { match: ["industrial", "machinery", "equipment", "tools"], canonical: "Industrial Equipment" },
+  { match: ["education", "edtech", "learning", "training"], canonical: "Education" },
+  { match: ["toy", "toys", "games", "gaming"], canonical: "Toys & Games" },
 ];
 
 function isPlausibleIndustryCandidate(key, raw) {
@@ -318,6 +338,15 @@ function normalizeKeyword(value) {
   return s.replace(/\s+/g, " ").trim();
 }
 
+// Known product / tech acronyms that should NOT be rejected by the ALL CAPS heuristic.
+// These commonly appear as ALL CAPS in keyword lists but are real product terms.
+const PRODUCT_CAPS_ALLOWLIST = new Set([
+  "USB", "HDMI", "LED", "LCD", "SSD", "HDD", "NVMe", "RGB",
+  "AC", "DC", "HD", "4K", "VGA", "DVI", "AV", "PC", "TV",
+  "IOT", "GPS", "CPU", "GPU", "RAM", "LAN", "WAN", "POE",
+  "OLED", "AMOLED", "UHD", "HDR", "DAC", "AMP",
+]);
+
 function isKeywordJunk(keyword) {
   const raw = asString(keyword).trim();
   const key = normalizeKey(raw);
@@ -341,12 +370,14 @@ function isKeywordJunk(keyword) {
   if (KEYWORD_DISALLOW_TERMS.some((t) => key.includes(normalizeKey(t)))) return true;
 
   // Heuristic: ALL CAPS labels ("SHOP ALL", "BEST SELLERS") are rarely real product names.
-  // Keep anything with digits (SKUs) or longer descriptive phrases.
+  // Keep anything with digits (SKUs), known product acronyms, or longer descriptive phrases.
   const hasDigits = /\d/.test(raw);
   const isAllCaps = raw.length > 0 && raw === raw.toUpperCase() && /[A-Z]/.test(raw);
   if (isAllCaps && !hasDigits) {
     const words = raw.split(/\s+/).filter(Boolean);
-    if (words.length > 0 && words.length <= 4 && raw.length <= 30) return true;
+    // Bypass rejection when any word is a known product/tech acronym
+    const hasProductAcronym = words.some((w) => PRODUCT_CAPS_ALLOWLIST.has(w));
+    if (!hasProductAcronym && words.length > 0 && words.length <= 4 && raw.length <= 30) return true;
   }
 
   // Too short or just symbols
