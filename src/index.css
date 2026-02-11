@@ -41,16 +41,16 @@
     --popover-foreground: 187 15% 90%;
     --primary: 187 47% 45%;            /* #3F97A2 — Outline Bold, pops on dark */
     --primary-foreground: 187 50% 6%;
-    --secondary: 187 40% 18%;          /* #1C3F45 — subtle structure */
+    --secondary: 187 25% 16%;          /* desaturated panel/structure color */
     --secondary-foreground: 187 15% 90%;
-    --muted: 187 40% 18%;
+    --muted: 187 25% 16%;
     --muted-foreground: 187 20% 55%;   /* #758E92 — readable but recessive */
-    --accent: 187 40% 18%;
+    --accent: 187 25% 16%;
     --accent-foreground: 187 15% 90%;
     --destructive: 0 62.8% 40%;        /* warmer red visible on dark bg */
     --destructive-foreground: 0 0% 98%;
-    --border: 187 40% 18%;             /* #1C3F45 — subtle structure */
-    --input: 187 40% 18%;
+    --border: 187 20% 20%;             /* quiet neutral border, hint of teal */
+    --input: 187 25% 22%;              /* slightly more visible for input fields */
     --ring: 187 47% 45%;               /* focus ring = accent */
     --chart-1: 187 60% 50%;
     --chart-2: 160 60% 45%;
