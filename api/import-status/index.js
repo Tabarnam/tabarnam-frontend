@@ -415,9 +415,11 @@ function shouldForceTerminalizeSingle({
   resume_stuck_ms,
   infra_only_timeout,
   retryable_missing_count,
+  actively_processing,
 }) {
   if (!single) return { force: false, reason: null };
   if (!resume_needed) return { force: false, reason: null };
+  if (actively_processing) return { force: false, reason: null };
 
   const cycles = Number(resume_cycle_count || 0) || 0;
   const maxCycles = infra_only_timeout
@@ -2582,7 +2584,8 @@ async function handler(req, context) {
           const nowMs = Date.now();
           const queued = resumeStatus === "queued" && resume_needed === true;
           const noRecentProgress = !hasRecentWorkerProgress(resumeWorkerForProgress, nowMs, resumeStuckQueuedMs);
-          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress && retryableMissingCount === 0);
+          const activelyProcessing = Boolean(stageBeaconValues.status_active_processing_resume_override);
+          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress && retryableMissingCount === 0 && !activelyProcessing);
 
           stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
           stageBeaconValues.status_resume_cycle_count = currentCycleCount;
@@ -2592,6 +2595,7 @@ async function handler(req, context) {
           stageBeaconValues.status_resume_worker_last_finished_at = resumeWorkerForProgress.last_finished_at;
           stageBeaconValues.status_resume_worker_handler_entered_at = resumeWorkerForProgress.handler_entered_at;
           stageBeaconValues.status_resume_should_force_by_queued_timeout = shouldForceByQueuedTimeout;
+          if (activelyProcessing) stageBeaconValues.status_resume_force_skip_actively_processing = true;
 
           const docsForInfra =
             typeof savedDocsForHealth !== "undefined"
@@ -2633,6 +2637,7 @@ async function handler(req, context) {
                     resume_stuck_ms: resumeStuckQueuedMs,
                     infra_only_timeout: infraOnlyTimeout,
                     retryable_missing_count: retryableMissingCount,
+                    actively_processing: activelyProcessing,
                   });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).
@@ -4758,7 +4763,8 @@ async function handler(req, context) {
           const nowMs = Date.now();
           const queued = resumeStatus === "queued" && resume_needed === true;
           const noRecentProgress = !hasRecentWorkerProgress(resumeWorkerForProgress, nowMs, resumeStuckQueuedMs);
-          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress && retryableMissingCount === 0);
+          const activelyProcessing = Boolean(stageBeaconValues.status_active_processing_resume_override);
+          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress && retryableMissingCount === 0 && !activelyProcessing);
 
           stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
           stageBeaconValues.status_resume_cycle_count = currentCycleCount;
@@ -4768,6 +4774,7 @@ async function handler(req, context) {
           stageBeaconValues.status_resume_worker_last_finished_at = resumeWorkerForProgress.last_finished_at;
           stageBeaconValues.status_resume_worker_handler_entered_at = resumeWorkerForProgress.handler_entered_at;
           stageBeaconValues.status_resume_should_force_by_queued_timeout = shouldForceByQueuedTimeout;
+          if (activelyProcessing) stageBeaconValues.status_resume_force_skip_actively_processing = true;
 
           const docsForInfra =
             typeof savedDocsForHealth !== "undefined"
@@ -4809,6 +4816,7 @@ async function handler(req, context) {
                     resume_stuck_ms: resumeStuckQueuedMs,
                     infra_only_timeout: infraOnlyTimeout,
                     retryable_missing_count: retryableMissingCount,
+                    actively_processing: activelyProcessing,
                   });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).
