@@ -92,6 +92,100 @@ const {
   upsertJob: upsertImportPrimaryJob,
 } = require("../_importPrimaryJobStore");
 
+// â”€â”€ Extracted module: pure company/review utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const {
+  normalizeIndustries,
+  toBrandTokenFromWebsiteUrl,
+  normalizeKeywordList,
+  normalizeProductKeywords,
+  keywordListToString,
+  safeNum,
+  safeCenter,
+  toFiniteNumber,
+  toNormalizedDomain,
+  enrichCompany,
+  normalizeLocationEntries,
+  buildImportLocations,
+  normalizeUrlForCompare,
+  computeReviewDedupeKey,
+  dedupeCuratedReviews,
+  buildReviewCursor,
+} = require("./_importStartCompanyUtils");
+
+// ── Extracted module: request/body parsing, URL utilities, xAI helpers ────────
+const {
+  XAI_SYSTEM_PROMPT,
+  isResponsesEndpoint,
+  convertToResponsesPayload,
+  extractXaiResponseText,
+  AcceptedResponseError,
+  logImportStartMeta,
+  safeJsonParse,
+  InvalidJsonBodyError,
+  isBinaryBody,
+  binaryBodyToString,
+  parseJsonBodyStrict,
+  sanitizeTextPreview,
+  toTextPreview,
+  buildFirstBytesPreview,
+  buildHexPreview,
+  readQueryParam,
+  getBodyType,
+  getBodyLen,
+  getBodyKeysPreview,
+  isProbablyStreamBody,
+  parseJsonFromStringOrBinary,
+  toBufferChunk,
+  readStreamLikeToBuffer,
+  parseJsonFromStreamLike,
+  isJsonContentType,
+  readJsonBody,
+  toErrorString,
+  getHeader,
+  isDebugDiagnosticsEnabled,
+  buildBodyDiagnostics,
+  buildRequestDetails,
+  generateRequestId,
+  makeErrorId,
+  toStackFirstLine,
+  logImportStartErrorLine,
+  extractXaiRequestId,
+  tryParseUrl,
+  looksLikeCompanyUrlQuery,
+  isAzureWebsitesUrl,
+  joinUrlPath,
+  toHostPathOnlyForLog,
+  redactUrlQueryAndHash,
+  getHostPathFromUrl,
+  buildUpstreamResolutionSnapshot,
+  buildXaiExecutionPlan,
+  resolveXaiEndpointForModel,
+  safeParseJsonObject,
+  buildXaiPayloadMetaSnapshotFromOutboundBody,
+  ensureValidOutboundXaiBodyOrThrow,
+  postJsonWithTimeout,
+  isProxyExplicitlyDisabled,
+  isProxyExplicitlyEnabled,
+} = require("./_importStartRequestUtils");
+
+// ── Extracted module: Cosmos DB operations ────────────────────────────────────
+const {
+  getCompaniesCosmosContainer,
+  getCompaniesPartitionKeyPath,
+  redactHostForDiagnostics,
+  getCompaniesCosmosTargetDiagnostics,
+  verifySavedCompaniesReadAfterWrite,
+  applyReadAfterWriteVerification,
+  readItemWithPkCandidates,
+  upsertItemWithPkCandidates,
+  buildImportControlDocBase,
+  upsertResumeDoc,
+  logInfo,
+  upsertCosmosImportSessionDoc,
+  checkIfSessionStopped,
+} = require("./_importStartCosmos");
+const { getCosmosConfig } = require("../_cosmosConfig");
+
 const __importStartModuleBuildInfo = (() => {
   try {
     return getBuildInfo();
@@ -115,7 +209,7 @@ try {
   });
 } catch {}
 
-// SWA-safe timeout for external (browser→SWA→Function) calls.
+// SWA-safe timeout for external (browserâ†’SWAâ†’Function) calls.
 // The Azure SWA reverse-proxy kills connections after ~30-50 seconds with a
 // "Backend call failure" 500 and empty headers, BEFORE the Function returns.
 // We set the budget to 8 seconds so import-start returns `accepted` quickly
@@ -144,67 +238,6 @@ const DEADLINE_SAFETY_BUFFER_MS = 1_500;
 
 // Extra buffer before starting any upstream call.
 const UPSTREAM_TIMEOUT_MARGIN_MS = 1_200;
-
-const XAI_SYSTEM_PROMPT =
-  "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
-
-// Helper: Check if the URL is an xAI /responses endpoint (vs /chat/completions)
-function isResponsesEndpoint(rawUrl) {
-  const raw = String(rawUrl || "").trim().toLowerCase();
-  return raw.includes("/v1/responses") || raw.includes("/responses");
-}
-
-// Helper: Convert chat/completions payload to /responses format
-function convertToResponsesPayload(chatPayload) {
-  if (!chatPayload || typeof chatPayload !== "object") return chatPayload;
-
-  // If it already has 'input', it's already in responses format
-  if (Array.isArray(chatPayload.input)) return chatPayload;
-
-  // Convert messages array to input array
-  const messages = chatPayload.messages;
-  if (!Array.isArray(messages)) return chatPayload;
-
-  const responsesPayload = {
-    model: chatPayload.model || "grok-4-latest",
-    input: messages.map(m => ({
-      role: m.role,
-      content: typeof m.content === "string" ? m.content : String(m.content || ""),
-    })),
-  };
-
-  // Add search if search_parameters was present
-  if (chatPayload.search_parameters) {
-    responsesPayload.search = { mode: chatPayload.search_parameters.mode || "on" };
-  }
-
-  return responsesPayload;
-}
-
-// Helper: Extract text content from xAI response (works for both formats)
-function extractXaiResponseText(data) {
-  if (!data || typeof data !== "object") return "";
-
-  // Try /responses format first: data.output[0].content[...].text
-  if (Array.isArray(data.output)) {
-    const firstOutput = data.output[0];
-    if (firstOutput?.content) {
-      // Find output_text type or use first text
-      const textItem = Array.isArray(firstOutput.content)
-        ? firstOutput.content.find(c => c?.type === "output_text") || firstOutput.content[0]
-        : firstOutput.content;
-      if (textItem?.text) return String(textItem.text);
-    }
-  }
-
-  // Fall back to /chat/completions format: data.choices[0].message.content
-  if (Array.isArray(data.choices)) {
-    const content = data.choices[0]?.message?.content;
-    if (content) return String(content);
-  }
-
-  return "";
-}
 
 const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
@@ -273,1101 +306,6 @@ function json(obj, status = 200, extraHeaders) {
   };
 }
 
-class AcceptedResponseError extends Error {
-  constructor(response, message = "Accepted") {
-    super(message);
-    this.name = "AcceptedResponseError";
-    this.response = response;
-  }
-}
-
-function logImportStartMeta(meta) {
-  try {
-    const m = meta && typeof meta === "object" ? meta : {};
-
-    const out = {
-      handler_version: String(m.handler_version || ""),
-      stage: String(m.stage || ""),
-      queryTypes: Array.isArray(m.queryTypes) ? m.queryTypes.map((t) => String(t || "").trim()).filter(Boolean) : [],
-      query_len: Number.isFinite(Number(m.query_len)) ? Number(m.query_len) : 0,
-      prompt_len: Number.isFinite(Number(m.prompt_len)) ? Number(m.prompt_len) : 0,
-      messages_len: Number.isFinite(Number(m.messages_len)) ? Number(m.messages_len) : 0,
-      has_system_message: Boolean(m.has_system_message),
-      has_user_message: Boolean(m.has_user_message),
-      user_message_len: Number.isFinite(Number(m.user_message_len)) ? Number(m.user_message_len) : 0,
-      elapsedMs: Number.isFinite(Number(m.elapsedMs)) ? Number(m.elapsedMs) : 0,
-      upstream_status:
-        m.upstream_status === null || m.upstream_status === undefined || m.upstream_status === ""
-          ? null
-          : Number.isFinite(Number(m.upstream_status))
-            ? Number(m.upstream_status)
-            : null,
-    };
-
-    if (m.request_id) out.request_id = String(m.request_id);
-    if (m.session_id) out.session_id = String(m.session_id);
-
-    console.log(JSON.stringify(out));
-  } catch {
-    console.log("[import-start] meta_log_failed");
-  }
-}
-
-function safeJsonParse(text) {
-  const raw = typeof text === "string" ? text.trim() : "";
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-class InvalidJsonBodyError extends Error {
-  constructor(message = "Invalid JSON body", options) {
-    super(message);
-    this.name = "InvalidJsonBodyError";
-    this.code = "INVALID_JSON_BODY";
-
-    const parseError = options?.parseError;
-    this.parse_error =
-      parseError && typeof parseError === "object"
-        ? String(parseError.message || parseError.name || "")
-        : parseError
-          ? String(parseError)
-          : null;
-
-    this.content_type =
-      typeof options?.contentType === "string" && options.contentType.trim() ? options.contentType.trim() : null;
-
-    this.body_type = typeof options?.bodyType === "string" && options.bodyType.trim() ? options.bodyType.trim() : null;
-
-    this.is_body_object = typeof options?.isBodyObject === "boolean" ? options.isBodyObject : null;
-
-    this.body_source =
-      typeof options?.bodySource === "string" && options.bodySource.trim() ? options.bodySource.trim() : null;
-
-    this.body_source_detail =
-      typeof options?.bodySourceDetail === "string" && options.bodySourceDetail.trim() ? options.bodySourceDetail.trim() : null;
-
-    this.raw_text_preview =
-      typeof options?.rawTextPreview === "string" && options.rawTextPreview.trim() ? options.rawTextPreview.trim() : null;
-
-    this.raw_text_hex_preview =
-      typeof options?.rawTextHexPreview === "string" && options.rawTextHexPreview.trim() ? options.rawTextHexPreview.trim() : null;
-
-    // Back-compat fields.
-    this.first_bytes_preview =
-      typeof options?.firstBytesPreview === "string" && options.firstBytesPreview.trim()
-        ? options.firstBytesPreview.trim()
-        : this.raw_text_hex_preview;
-
-    this.raw_body_preview =
-      typeof options?.rawBodyPreview === "string" && options.rawBodyPreview.trim()
-        ? options.rawBodyPreview.trim()
-        : this.raw_text_preview;
-  }
-}
-
-function isBinaryBody(value) {
-  return (
-    Buffer.isBuffer(value) ||
-    value instanceof Uint8Array ||
-    value instanceof ArrayBuffer
-  );
-}
-
-function binaryBodyToString(value) {
-  if (typeof value === "string") return value;
-  if (Buffer.isBuffer(value)) return value.toString("utf8");
-  if (value instanceof Uint8Array) return Buffer.from(value).toString("utf8");
-  if (value instanceof ArrayBuffer) return Buffer.from(new Uint8Array(value)).toString("utf8");
-  return "";
-}
-
-function parseJsonBodyStrict(raw) {
-  const text = typeof raw === "string" ? raw.trim() : "";
-  if (!text) return { ok: true, value: {} };
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed && typeof parsed === "object") return { ok: true, value: parsed };
-    return { ok: true, value: {} };
-  } catch (error) {
-    return { ok: false, error };
-  }
-}
-
-function sanitizeTextPreview(text) {
-  let s = typeof text === "string" ? text : String(text ?? "");
-  if (!s) return "";
-
-  s = s.replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]");
-  s = s.replace(/x-functions-key\s*[:=]\s*[^\s"']+/gi, "x-functions-key: [REDACTED]");
-  s = s.replace(/api[_-]?key\s*[:=]\s*[^\s"']+/gi, "api_key: [REDACTED]");
-
-  return s;
-}
-
-function toTextPreview(value, maxChars = 500) {
-  if (value == null) return "";
-
-  let raw = "";
-  if (typeof value === "string") {
-    raw = value;
-  } else {
-    try {
-      raw = JSON.stringify(value);
-    } catch {
-      raw = String(value);
-    }
-  }
-
-  raw = sanitizeTextPreview(raw).trim();
-  if (!raw) return "";
-  return raw.length > maxChars ? raw.slice(0, maxChars) : raw;
-}
-
-function buildFirstBytesPreview(value, maxBytes = 50) {
-  try {
-    const buf = Buffer.isBuffer(value)
-      ? value
-      : value instanceof Uint8Array
-        ? Buffer.from(value)
-        : value instanceof ArrayBuffer
-          ? Buffer.from(new Uint8Array(value))
-          : typeof value === "string"
-            ? Buffer.from(value, "utf8")
-            : Buffer.from(String(value ?? ""), "utf8");
-
-    if (!buf.length) return "";
-
-    const slice = buf.subarray(0, Math.max(0, Math.min(maxBytes, buf.length)));
-    const hex = slice.toString("hex");
-    let ascii = slice.toString("utf8");
-    ascii = ascii.replace(/[^\x20-\x7E]/g, ".");
-    ascii = sanitizeTextPreview(ascii);
-
-    return `hex:${hex} ascii:${ascii}`;
-  } catch {
-    return "";
-  }
-}
-
-function buildHexPreview(value, maxBytes = 50) {
-  try {
-    const buf = Buffer.isBuffer(value)
-      ? value
-      : value instanceof Uint8Array
-        ? Buffer.from(value)
-        : value instanceof ArrayBuffer
-          ? Buffer.from(new Uint8Array(value))
-          : typeof value === "string"
-            ? Buffer.from(value, "utf8")
-            : Buffer.from(String(value ?? ""), "utf8");
-
-    if (!buf.length) return "";
-    const slice = buf.subarray(0, Math.max(0, Math.min(maxBytes, buf.length)));
-    return slice.toString("hex");
-  } catch {
-    return "";
-  }
-}
-
-function readQueryParam(req, name) {
-  if (!req || !name) return undefined;
-
-  const query = req.query;
-  if (query) {
-    if (typeof query.get === "function") {
-      try {
-        const v = query.get(name);
-        if (v !== null && v !== undefined) return v;
-      } catch {}
-    }
-
-    const direct = query[name] ?? query[name.toLowerCase()] ?? query[name.toUpperCase()];
-    if (direct !== null && direct !== undefined) return direct;
-  }
-
-  const rawUrl = typeof req.url === "string" ? req.url : "";
-  if (rawUrl) {
-    try {
-      const u = new URL(rawUrl, "http://localhost");
-      const v = u.searchParams.get(name);
-      if (v !== null && v !== undefined) return v;
-    } catch {}
-  }
-
-  return undefined;
-}
-
-function getBodyType(value) {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (Buffer.isBuffer(value)) return "Buffer";
-  if (value instanceof Uint8Array) return "Uint8Array";
-  if (value instanceof ArrayBuffer) return "ArrayBuffer";
-  if (typeof value === "object" && value?.constructor?.name) return value.constructor.name;
-  return typeof value;
-}
-
-function getBodyLen(value) {
-  if (value === null || value === undefined) return 0;
-  if (typeof value === "string") return value.length;
-  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return value.length;
-  if (value instanceof ArrayBuffer) return value.byteLength;
-  if (typeof value === "object") {
-    try {
-      return Object.keys(value).length;
-    } catch {
-      return 0;
-    }
-  }
-  return 0;
-}
-
-function getBodyKeysPreview(value, maxKeys = 20) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  try {
-    return Object.keys(value).slice(0, Math.max(0, Math.trunc(maxKeys)));
-  } catch {
-    return null;
-  }
-}
-
-function isProbablyStreamBody(value) {
-  return !!(
-    value &&
-    typeof value === "object" &&
-    (typeof value.getReader === "function" ||
-      typeof value.pipeTo === "function" ||
-      typeof value.on === "function" ||
-      typeof value[Symbol.asyncIterator] === "function")
-  );
-}
-
-function parseJsonFromStringOrBinary(value, meta) {
-  const text = typeof value === "string" ? value : binaryBodyToString(value);
-  const result = parseJsonBodyStrict(text);
-  if (!result.ok) {
-    const rawTextPreview = toTextPreview(text, 200);
-    const rawTextHexPreview = buildHexPreview(value || text, 80);
-
-    throw new InvalidJsonBodyError("Invalid JSON body", {
-      parseError: result.error,
-      rawTextPreview,
-      rawTextHexPreview,
-      firstBytesPreview: buildFirstBytesPreview(value || text),
-      rawBodyPreview: rawTextPreview,
-      bodySource: meta?.body_source || null,
-      bodySourceDetail: meta?.body_source_detail || null,
-    });
-  }
-  return result.value;
-}
-
-function toBufferChunk(chunk) {
-  if (chunk == null) return null;
-  if (Buffer.isBuffer(chunk)) return chunk;
-
-  if (chunk instanceof Uint8Array) return Buffer.from(chunk);
-  if (chunk instanceof ArrayBuffer) return Buffer.from(new Uint8Array(chunk));
-  if (typeof ArrayBuffer !== "undefined" && typeof ArrayBuffer.isView === "function" && ArrayBuffer.isView(chunk)) {
-    try {
-      return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-    } catch {
-      return Buffer.from(String(chunk), "utf8");
-    }
-  }
-
-  if (typeof chunk === "string") return Buffer.from(chunk, "utf8");
-
-  if (Array.isArray(chunk)) {
-    try {
-      return Buffer.from(chunk);
-    } catch {
-      return Buffer.from(String(chunk), "utf8");
-    }
-  }
-
-  if (typeof chunk === "object") {
-    const maybe = chunk;
-    if (maybe && maybe.type === "Buffer" && Array.isArray(maybe.data)) {
-      try {
-        return Buffer.from(maybe.data);
-      } catch {}
-    }
-    if (maybe && Array.isArray(maybe.data)) {
-      try {
-        return Buffer.from(maybe.data);
-      } catch {}
-    }
-    if (maybe && maybe.buffer instanceof ArrayBuffer) {
-      try {
-        const view = new Uint8Array(maybe.buffer, maybe.byteOffset || 0, maybe.byteLength || undefined);
-        return Buffer.from(view);
-      } catch {}
-    }
-  }
-
-  return Buffer.from(String(chunk), "utf8");
-}
-
-async function readStreamLikeToBuffer(streamLike) {
-  if (!streamLike) return Buffer.alloc(0);
-
-  const hasWebStreamSignals =
-    typeof streamLike.getReader === "function" || typeof streamLike.pipeTo === "function" || typeof streamLike.tee === "function";
-
-  if (hasWebStreamSignals && typeof Response === "function") {
-    try {
-      if (typeof streamLike.tee === "function") {
-        const [a, b] = streamLike.tee();
-        try {
-          const ab = await new Response(a).arrayBuffer();
-          return Buffer.from(new Uint8Array(ab));
-        } catch (err) {
-          streamLike = b;
-        }
-      }
-
-      const ab = await new Response(streamLike).arrayBuffer();
-      return Buffer.from(new Uint8Array(ab));
-    } catch {
-      // Fall through.
-    }
-  }
-
-  if (typeof streamLike.getReader === "function") {
-    const reader = streamLike.getReader();
-    const chunks = [];
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const buf = toBufferChunk(value);
-      if (buf && buf.length) chunks.push(buf);
-    }
-    return chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0);
-  }
-
-  if (typeof streamLike[Symbol.asyncIterator] === "function") {
-    const chunks = [];
-    for await (const chunk of streamLike) {
-      const buf = toBufferChunk(chunk);
-      if (buf && buf.length) chunks.push(buf);
-    }
-    return chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0);
-  }
-
-  if (typeof streamLike.on === "function") {
-    return await new Promise((resolve, reject) => {
-      const chunks = [];
-      let settled = false;
-
-      const cleanup = () => {
-        try {
-          streamLike.off?.("data", onData);
-          streamLike.off?.("end", onEnd);
-          streamLike.off?.("error", onError);
-        } catch {}
-      };
-
-      const onData = (chunk) => {
-        const buf = toBufferChunk(chunk);
-        if (buf && buf.length) chunks.push(buf);
-      };
-
-      const onEnd = () => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        resolve(chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0));
-      };
-
-      const onError = (err) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(err);
-      };
-
-      try {
-        streamLike.on("data", onData);
-        streamLike.on("end", onEnd);
-        streamLike.on("error", onError);
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  return Buffer.alloc(0);
-}
-
-async function parseJsonFromStreamLike(value, meta) {
-  const buf = await readStreamLikeToBuffer(value);
-  if (!buf || !buf.length) return {};
-  return parseJsonFromStringOrBinary(buf, meta);
-}
-
-function isJsonContentType(value) {
-  const v = String(value || "").toLowerCase();
-  return v.includes("application/json") || v.includes("+json");
-}
-
-async function readJsonBody(req) {
-  if (!req) {
-    return { body: {}, body_source: "unknown", body_source_detail: "no_req" };
-  }
-
-  const rawBody = req.rawBody;
-  const body = req.body;
-  const bufferBody = req.bufferBody;
-
-  const contentType = getHeader(req, "content-type") || "";
-  const prefersBodyObject = isJsonContentType(contentType);
-
-  const isStreamBody = isProbablyStreamBody(rawBody) || isProbablyStreamBody(body) || isProbablyStreamBody(bufferBody);
-
-  const decorateInvalidJsonError = (err, meta) => {
-    if (!err || err.code !== "INVALID_JSON_BODY") return err;
-
-    const bodyType = typeof req?.body;
-    const isBodyObject = Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body));
-    const bodyKeysPreview = getBodyKeysPreview(req?.body);
-
-    err.content_type ||= contentType || null;
-    err.body_type ||= bodyType || null;
-    err.is_body_object = typeof err.is_body_object === "boolean" ? err.is_body_object : isBodyObject;
-    err.body_keys_preview ||= bodyKeysPreview;
-
-    err.body_source ||= meta?.body_source || null;
-    err.body_source_detail ||= meta?.body_source_detail || null;
-
-    return err;
-  };
-
-  try {
-    console.log("[import-start] body_sources", {
-      hasRawBody: rawBody !== undefined && rawBody !== null,
-      rawBodyType: getBodyType(rawBody),
-      rawBodyLen: getBodyLen(rawBody),
-      bodyType: getBodyType(body),
-      bodyLen: getBodyLen(body),
-      hasBufferBody: bufferBody !== undefined && bufferBody !== null,
-      bufferBodyLen: getBodyLen(bufferBody),
-      isStreamBody,
-    });
-  } catch {
-    console.log("[import-start] body_sources");
-  }
-
-  const bodyIsNonNullObject = body !== null && typeof body === "object" && !Array.isArray(body);
-  const bodyIsPlainObject = bodyIsNonNullObject && !isBinaryBody(body) && !isProbablyStreamBody(body);
-  const bodyKeysLen = bodyIsPlainObject ? getBodyLen(body) : 0;
-  const bodyIsEmptyObject = bodyIsPlainObject && bodyKeysLen === 0;
-
-  if (prefersBodyObject && bodyIsPlainObject && bodyKeysLen > 0) {
-    const keysPreview = getBodyKeysPreview(body);
-    try {
-      console.log(
-        "[import-start] readJsonBody: using req.body object branch (json content-type)",
-        JSON.stringify({ keys: keysPreview })
-      );
-    } catch {
-      console.log("[import-start] readJsonBody: using req.body object branch (json content-type)");
-    }
-
-    return { body, body_source: "req.body", body_source_detail: "req.body" };
-  }
-
-  if (bodyIsPlainObject && bodyKeysLen > 0) {
-    const keysPreview = getBodyKeysPreview(body);
-    try {
-      console.log(
-        "[import-start] readJsonBody: using req.body object branch",
-        JSON.stringify({ keys: keysPreview })
-      );
-    } catch {
-      console.log("[import-start] readJsonBody: using req.body object branch");
-    }
-
-    return { body, body_source: "req.body", body_source_detail: "req.body" };
-  }
-
-  // Prefer explicit raw body fields (common in Azure Functions).
-  if (getBodyLen(rawBody) > 0) {
-    try {
-      if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
-        const meta = {
-          body_source: "req.rawBody",
-          body_source_detail: typeof rawBody === "string" ? "req.rawBody:text" : "req.rawBody:binary",
-        };
-
-        const rawText = binaryBodyToString(rawBody);
-        return {
-          body: parseJsonFromStringOrBinary(rawBody, meta),
-          raw_text_preview: toTextPreview(rawText, 200) || null,
-          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
-          ...meta,
-        };
-      }
-
-      if (isProbablyStreamBody(rawBody)) {
-        const meta = { body_source: "req.rawBody", body_source_detail: "req.rawBody:stream" };
-        const buf = await readStreamLikeToBuffer(rawBody);
-        const rawText = buf && buf.length ? buf.toString("utf8") : "";
-        return {
-          body: buf && buf.length ? parseJsonFromStringOrBinary(buf, meta) : {},
-          raw_text_preview: toTextPreview(rawText, 200) || null,
-          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
-          ...meta,
-        };
-      }
-    } catch (err) {
-      throw decorateInvalidJsonError(err, { body_source: "req.rawBody", body_source_detail: "req.rawBody" });
-    }
-  }
-
-  // Prefer the platform's raw text reader when available (closest to bytes-on-the-wire).
-  if (typeof req.text === "function") {
-    const meta = { body_source: "req.text", body_source_detail: "req.text" };
-    try {
-      const rawVal = await req.text();
-      if (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal)) {
-        const rawText = (() => {
-          try {
-            return JSON.stringify(rawVal);
-          } catch {
-            return "";
-          }
-        })();
-        return {
-          body: rawVal,
-          raw_text_preview: toTextPreview(rawText, 200) || null,
-          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
-          body_source: "req.text",
-          body_source_detail: "req.text:object",
-        };
-      }
-
-      const rawText = typeof rawVal === "string" ? rawVal : "";
-      if (rawText && rawText.trim()) {
-        return {
-          body: parseJsonFromStringOrBinary(rawText, meta),
-          raw_text_preview: toTextPreview(rawText, 200) || null,
-          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
-          ...meta,
-        };
-      }
-    } catch (err) {
-      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err, meta);
-      // Otherwise, fall through (body may already be consumed or unreadable via this API).
-    }
-  }
-
-  if (typeof req.arrayBuffer === "function") {
-    const meta = { body_source: "req.arrayBuffer", body_source_detail: "req.arrayBuffer" };
-    try {
-      const ab = await req.arrayBuffer();
-      if (ab) {
-        const rawText = binaryBodyToString(ab);
-        return {
-          body: parseJsonFromStringOrBinary(ab, meta),
-          raw_text_preview: toTextPreview(rawText, 200) || null,
-          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
-          ...meta,
-        };
-      }
-    } catch (err) {
-      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err, meta);
-      // Otherwise, fall through.
-    }
-  }
-
-  // Then fall back to body/bufferBody if they look like raw strings/buffers.
-  try {
-    if (typeof body === "string" || isBinaryBody(body)) {
-      const meta = {
-        body_source: typeof body === "string" ? "req.text" : "req.arrayBuffer",
-        body_source_detail: "req.body",
-      };
-      return { body: parseJsonFromStringOrBinary(body, meta), ...meta };
-    }
-
-    if (isProbablyStreamBody(body)) {
-      const meta = { body_source: "unknown", body_source_detail: "req.body:stream" };
-      return { body: await parseJsonFromStreamLike(body, meta), ...meta };
-    }
-
-    if (getBodyLen(bufferBody) > 0) {
-      if (typeof bufferBody === "string" || isBinaryBody(bufferBody)) {
-        const meta = {
-          body_source: typeof bufferBody === "string" ? "req.text" : "req.arrayBuffer",
-          body_source_detail: "req.bufferBody",
-        };
-        return { body: parseJsonFromStringOrBinary(bufferBody, meta), ...meta };
-      }
-    }
-
-    if (isProbablyStreamBody(bufferBody)) {
-      const meta = { body_source: "unknown", body_source_detail: "req.bufferBody:stream" };
-      return { body: await parseJsonFromStreamLike(bufferBody, meta), ...meta };
-    }
-  } catch (err) {
-    throw decorateInvalidJsonError(err, { body_source: "unknown", body_source_detail: "fallback" });
-  }
-
-  // As a last resort, try the runtime JSON parser.
-  if (typeof req.json === "function") {
-    try {
-      const val = await req.json();
-      if (val && typeof val === "object") {
-        return { body: val, body_source: "unknown", body_source_detail: "req.json" };
-      }
-    } catch {
-      // Fall through.
-    }
-  }
-
-  // If body is a plain object but empty, return it only when we have no other body sources.
-  if (body && typeof body === "object" && !Array.isArray(body) && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
-    const otherLen = getBodyLen(rawBody) + getBodyLen(bufferBody);
-    if (otherLen === 0) {
-      return { body, body_source: "req.body", body_source_detail: "req.body" };
-    }
-  }
-
-  return { body: {}, body_source: "unknown", body_source_detail: "empty" };
-}
-
-function toErrorString(err) {
-  if (!err) return "Unknown error";
-  if (typeof err === "string") return err;
-  if (typeof err.message === "string" && err.message.trim()) return err.message;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
-}
-
-function getHeader(req, name) {
-  if (!req || !name) return null;
-  const headers = req.headers;
-  if (headers && typeof headers.get === "function") {
-    try {
-      const v = headers.get(name);
-      return typeof v === "string" && v.trim() ? v.trim() : null;
-    } catch {
-      return null;
-    }
-  }
-  const h = headers && typeof headers === "object" ? headers : {};
-  const v = h[name] ?? h[name.toLowerCase()] ?? h[name.toUpperCase()];
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
-
-function isDebugDiagnosticsEnabled(req) {
-  const raw = getHeader(req, "x-debug");
-  if (!raw) return false;
-  const v = raw.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
-}
-
-function buildBodyDiagnostics(req, extra) {
-  const rawBody = req?.rawBody;
-  const body = req?.body;
-  const bufferBody = req?.bufferBody;
-
-  const base = {
-    body_sources: {
-      rawBodyType: getBodyType(rawBody),
-      rawBodyLen: getBodyLen(rawBody),
-      bodyType: getBodyType(body),
-      bodyLen: getBodyLen(body),
-      bufferBodyType: getBodyType(bufferBody),
-      bufferBodyLen: getBodyLen(bufferBody),
-      isStreamBody:
-        isProbablyStreamBody(rawBody) || isProbablyStreamBody(body) || isProbablyStreamBody(bufferBody),
-    },
-    body_keys_preview: getBodyKeysPreview(body),
-    headers_subset: {
-      "content-type": getHeader(req, "content-type"),
-      "content-length": getHeader(req, "content-length"),
-      "transfer-encoding": getHeader(req, "transfer-encoding"),
-      expect: getHeader(req, "expect"),
-      "user-agent": getHeader(req, "user-agent"),
-      "x-ms-middleware-request-id": getHeader(req, "x-ms-middleware-request-id"),
-    },
-  };
-
-  if (extra && typeof extra === "object") return { ...base, ...extra };
-  return base;
-}
-
-function buildRequestDetails(
-  req,
-  { body_source = "unknown", body_source_detail = "", raw_text_preview = null, raw_text_starts_with_brace = false } = {}
-) {
-  const contentType = getHeader(req, "content-type") || "";
-  const contentLengthHeader = getHeader(req, "content-length") || "";
-
-  const body = req?.body;
-  const isBodyNonNullObject = body !== null && typeof body === "object" && !Array.isArray(body);
-  const isBodyPlainObject = isBodyNonNullObject && !isBinaryBody(body) && !isProbablyStreamBody(body);
-  const bodyKeysLen = isBodyPlainObject ? getBodyLen(body) : 0;
-
-  const details = {
-    body_source: String(body_source || "unknown"),
-    ...(body_source_detail ? { body_source_detail: String(body_source_detail) } : {}),
-    content_type: contentType,
-    content_length_header: contentLengthHeader,
-    body_keys_preview: getBodyKeysPreview(body),
-    body_is_empty_object: Boolean(isBodyPlainObject && bodyKeysLen === 0),
-    raw_available: {
-      has_rawBody: req?.rawBody !== undefined && req?.rawBody !== null,
-      has_text_reader: typeof req?.text === "function",
-      has_arrayBuffer_reader: typeof req?.arrayBuffer === "function",
-    },
-    raw_text_starts_with_brace: Boolean(raw_text_starts_with_brace),
-  };
-
-  const rawPreview = typeof raw_text_preview === "string" ? raw_text_preview.trim() : "";
-  if (rawPreview) {
-    details.raw_text_preview = rawPreview.length > 200 ? rawPreview.slice(0, 200) : rawPreview;
-  }
-
-  return details;
-}
-
-function generateRequestId(req) {
-  const existing =
-    getHeader(req, "x-request-id") ||
-    getHeader(req, "x-correlation-id") ||
-    getHeader(req, "x-client-request-id");
-  if (existing) return existing;
-  if (typeof randomUUID === "function") return randomUUID();
-  return `rid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-}
-
-function makeErrorId() {
-  if (typeof randomUUID === "function") return randomUUID();
-  return `err_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-}
-
-function toStackFirstLine(err) {
-  try {
-    const stack = typeof err?.stack === "string" ? err.stack : "";
-    const line = stack.split("\n").map((s) => s.trim()).filter(Boolean)[0] || "";
-    return line.length > 300 ? line.slice(0, 300) : line;
-  } catch {
-    return "";
-  }
-}
-
-function logImportStartErrorLine({ error_id, stage_beacon, root_cause, err }) {
-  try {
-    const line = {
-      error_id: String(error_id || ""),
-      stage_beacon: String(stage_beacon || ""),
-      root_cause: String(root_cause || ""),
-      stack_first_line: toStackFirstLine(err),
-    };
-    console.error("[import-start] error", JSON.stringify(line));
-  } catch {
-    console.error("[import-start] error");
-  }
-}
-
-function extractXaiRequestId(headers) {
-  const h = headers || {};
-  const get = (k) => {
-    const v = h[k] ?? h[k.toLowerCase()] ?? h[k.toUpperCase()];
-    return typeof v === "string" && v.trim() ? v.trim() : null;
-  };
-  return (
-    get("x-request-id") ||
-    get("xai-request-id") ||
-    get("x-correlation-id") ||
-    get("x-ms-request-id") ||
-    get("request-id") ||
-    null
-  );
-}
-
-function tryParseUrl(raw) {
-  const s = String(raw || "").trim();
-  if (!s) return null;
-  try {
-    return new URL(s);
-  } catch {
-    try {
-      return new URL(`https://${s}`);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function looksLikeCompanyUrlQuery(raw) {
-  const u = tryParseUrl(raw);
-  if (!u) return false;
-  const host = String(u.hostname || "").toLowerCase();
-  if (!host || !host.includes(".")) return false;
-  if (host === "localhost" || host.endsWith(".localhost")) return false;
-  const parts = host.split(".").filter(Boolean);
-  if (parts.length < 2) return false;
-  const tld = parts[parts.length - 1];
-  if (!tld || tld.length < 2) return false;
-  return true;
-}
-
-function isAzureWebsitesUrl(rawUrl) {
-  const u = tryParseUrl(rawUrl);
-  if (!u) return false;
-  return /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
-}
-
-function joinUrlPath(basePath, suffixPath) {
-  const a = String(basePath || "").trim();
-  const b = String(suffixPath || "").trim();
-  if (!a) return b.startsWith("/") ? b : `/${b}`;
-  if (!b) return a;
-
-  const left = a.endsWith("/") ? a.slice(0, -1) : a;
-  const right = b.startsWith("/") ? b : `/${b}`;
-
-  return `${left}${right}`.replace(/\/{2,}/g, "/");
-}
-
-function toHostPathOnlyForLog(rawUrl) {
-  const u = tryParseUrl(rawUrl);
-  if (u) return `${u.host}${u.pathname}`;
-
-  const raw = String(rawUrl || "").trim();
-  if (!raw) return "";
-
-  // Best effort: strip scheme + query.
-  const noQuery = raw.split("?")[0];
-  const noScheme = noQuery.replace(/^https?:\/\//i, "");
-  return noScheme;
-}
-
-function redactUrlQueryAndHash(rawUrl) {
-  const u = tryParseUrl(rawUrl);
-  if (u) {
-    u.search = "";
-    u.hash = "";
-    return u.toString();
-  }
-
-  const raw = String(rawUrl || "").trim();
-  if (!raw) return "";
-  return raw.split("?")[0].split("#")[0];
-}
-
-function getHostPathFromUrl(rawUrl) {
-  const u = tryParseUrl(rawUrl);
-  if (!u) return { host: null, path: null };
-  return {
-    host: typeof u.host === "string" && u.host.trim() ? u.host : null,
-    path: typeof u.pathname === "string" && u.pathname.trim() ? u.pathname : null,
-  };
-}
-
-function buildUpstreamResolutionSnapshot({ url, authHeaderValue, timeoutMsUsed, executionPlan }) {
-  const { host, path } = getHostPathFromUrl(url);
-  const authVal = typeof authHeaderValue === "string" ? authHeaderValue : "";
-  const prefix = authVal.toLowerCase().startsWith("bearer ") ? "Bearer" : null;
-
-  return {
-    resolved_upstream_url_redacted: redactUrlQueryAndHash(url) || null,
-    resolved_upstream_host: host,
-    resolved_upstream_path: path,
-    auth_header_present: Boolean(authVal),
-    auth_header_prefix: prefix,
-    timeout_ms_used: Number.isFinite(Number(timeoutMsUsed)) ? Number(timeoutMsUsed) : null,
-    execution_plan: Array.isArray(executionPlan) ? executionPlan : [],
-  };
-}
-
-function buildXaiExecutionPlan(xaiPayload) {
-  const plan = ["xai_primary_fetch", "xai_keywords_fetch", "xai_reviews_fetch", "xai_location_refinement_fetch"];
-  if (xaiPayload && xaiPayload.expand_if_few) plan.push("xai_expand_fetch");
-  return plan;
-}
-
-function resolveXaiEndpointForModel(rawEndpoint, model) {
-  let raw = String(rawEndpoint || "").trim();
-
-  // Normalize missing scheme so diagnostics always show a full URL.
-  // Only apply when the value looks like a hostname (avoid breaking proxies/relative paths).
-  if (raw && !/^https?:\/\//i.test(raw) && /^[a-z0-9.-]+\.[a-z]{2,}(?::\d+)?(\/.*)?$/i.test(raw)) {
-    raw = `https://${raw}`;
-  }
-
-  const u = tryParseUrl(raw);
-  if (!u) return raw;
-
-  const pathLower = String(u.pathname || "").toLowerCase();
-  if (pathLower.includes("/proxy-xai") || pathLower.includes("/api/xai")) return u.toString();
-
-  const alreadyChat = /\/v1\/chat\/completions\/?$/i.test(u.pathname || "");
-  const alreadyResponses = /\/v1\/responses\/?$/i.test(u.pathname || "");
-  if (alreadyChat || alreadyResponses) return u.toString();
-
-  const m = String(model || "").toLowerCase();
-  const wantsResponses = m.includes("vision") || m.includes("image") || m.includes("audio");
-  const desiredSuffix = wantsResponses ? "/v1/responses" : "/v1/chat/completions";
-
-  // If the URL was set to a base like https://api.x.ai or https://api.x.ai/v1, normalize it.
-  let basePath = String(u.pathname || "").replace(/\/+$/, "");
-
-  // Prevent common misconfiguration: https://api.x.ai/api (xAI does not use /api).
-  // Only apply this normalization to the real xAI hostname so we don't break proxies.
-  if (String(u.hostname || "").toLowerCase() === "api.x.ai") {
-    const lower = basePath.toLowerCase();
-    if (lower === "/api") basePath = "";
-    else if (lower.endsWith("/api")) basePath = basePath.slice(0, -4);
-    else if (lower.endsWith("/api/v1")) basePath = basePath.slice(0, -7);
-  }
-
-  if (basePath.toLowerCase().endsWith("/v1")) basePath = basePath.slice(0, -3);
-  u.pathname = joinUrlPath(basePath || "", desiredSuffix);
-
-  return u.toString();
-}
-
-function safeParseJsonObject(raw) {
-  const text = typeof raw === "string" ? raw.trim() : "";
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function buildXaiPayloadMetaSnapshotFromOutboundBody(outboundBodyJsonText, { handler_version, build_id }) {
-  const parsed = safeParseJsonObject(outboundBodyJsonText);
-
-  const modelRaw = parsed && typeof parsed.model === "string" ? parsed.model.trim() : "";
-  const model = modelRaw ? modelRaw : null;
-
-  const messages = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
-
-  const content_lens = messages.map((m) => {
-    if (!m || typeof m !== "object") return 0;
-    const c = m.content;
-    return typeof c === "string" ? c.length : 0;
-  });
-
-  const has_empty_trimmed_content = messages.some((m) => {
-    if (!m || typeof m !== "object") return true;
-    const c = m.content;
-    if (typeof c !== "string") return true;
-    return c.trim().length === 0;
-  });
-
-  const system_count = messages.filter((m) => m && typeof m === "object" && m.role === "system").length;
-  const user_count = messages.filter((m) => m && typeof m === "object" && m.role === "user").length;
-
-  return {
-    handler_version: String(handler_version || ""),
-    build_id: String(build_id || ""),
-    model,
-    messages_len: messages.length,
-    system_count,
-    user_count,
-    content_lens,
-    has_empty_trimmed_content,
-  };
-}
-
-function ensureValidOutboundXaiBodyOrThrow(payloadMeta) {
-  if (!payloadMeta || typeof payloadMeta !== "object") {
-    throw new Error("Invalid outbound payload meta");
-  }
-
-  if (!Number.isFinite(Number(payloadMeta.messages_len)) || Number(payloadMeta.messages_len) < 2) {
-    throw new Error("Bad data: Messages cannot be empty");
-  }
-
-  if (Number(payloadMeta.system_count) < 1 || Number(payloadMeta.user_count) < 1) {
-    throw new Error("Bad data: Missing system or user message");
-  }
-
-  if (payloadMeta.has_empty_trimmed_content) {
-    throw new Error("Bad data: Message content cannot be empty");
-  }
-}
-
-async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
-  const u = String(url || "").trim();
-  if (!u) throw new Error("Missing URL");
-
-  const ms = Number.isFinite(Number(timeoutMs)) ? Math.max(1, Number(timeoutMs)) : 30_000;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    try {
-      controller.abort();
-    } catch {}
-  }, ms);
-
-  try {
-    const res = await fetch(u, {
-      method: "POST",
-      headers: headers && typeof headers === "object" ? headers : {},
-      body: typeof body === "string" ? body : "",
-      signal: controller.signal,
-    });
-
-    const text = await res.text().catch(() => "");
-    const data = safeParseJsonObject(text) || (text ? { text } : {});
-
-    const headersObj = {};
-    try {
-      for (const [k, v] of res.headers.entries()) headersObj[k] = v;
-    } catch {}
-
-    return { status: res.status, headers: headersObj, data };
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e || "fetch failed"));
-    if (String(err.name || "").toLowerCase().includes("abort")) {
-      err.code = "ECONNABORTED";
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-
-function isProxyExplicitlyDisabled(value) {
-  if (value === false) return true;
-  if (value === 0) return true;
-  if (value === null) return false;
-  if (typeof value === "string") {
-    const v = value.trim().toLowerCase();
-    if (!v) return false;
-    return v === "false" || v === "0" || v === "no" || v === "off";
-  }
-  return false;
-}
-
-function isProxyExplicitlyEnabled(value) {
-  if (value === true) return true;
-  if (value === 1) return true;
-  if (typeof value === "string") {
-    const v = value.trim().toLowerCase();
-    if (!v) return false;
-    return v === "true" || v === "1" || v === "yes" || v === "on";
-  }
-  return false;
-}
-
 function buildCounts({ enriched, debugOutput }) {
   const candidates_found = Array.isArray(enriched) ? enriched.length : 0;
 
@@ -1393,236 +331,6 @@ function buildCounts({ enriched, debugOutput }) {
     reviews_valid,
     reviews_rejected,
     keywords_generated,
-  };
-}
-
-// Helper: normalize industries array
-function normalizeIndustries(input) {
-  if (Array.isArray(input))
-    return [...new Set(input.map((s) => String(s).trim()).filter(Boolean))];
-  if (typeof input === "string")
-    return [
-      ...new Set(
-        input
-          .split(/[,;|]/)
-          .map((s) => s.trim())
-          .filter(Boolean)
-      ),
-    ];
-  return [];
-}
-
-function toBrandTokenFromWebsiteUrl(websiteUrl) {
-  try {
-    const raw = String(websiteUrl || "").trim();
-    if (!raw) return "";
-    const u = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
-    let h = u.hostname.toLowerCase();
-    if (h.startsWith("www.")) h = h.slice(4);
-    const parts = h.split(".").filter(Boolean);
-    return parts[0] || "";
-  } catch {
-    return "";
-  }
-}
-
-function normalizeKeywordList(value) {
-  const raw = value;
-  const items = [];
-
-  if (Array.isArray(raw)) {
-    for (const v of raw) items.push(String(v));
-  } else if (typeof raw === "string") {
-    items.push(raw);
-  }
-
-  const split = items
-    .flatMap((s) => String(s).split(/[,;|\n]/))
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const seen = new Set();
-  const out = [];
-  for (const k of split) {
-    const key = k.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(k);
-  }
-  return out;
-}
-
-function normalizeProductKeywords(value, { companyName, websiteUrl } = {}) {
-  const list = normalizeKeywordList(value);
-  const name = String(companyName || "").trim();
-  const nameNorm = name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const brandToken = toBrandTokenFromWebsiteUrl(websiteUrl);
-
-  return list
-    .map((k) => k.trim())
-    .filter(Boolean)
-    .filter((k) => {
-      const kl = k.toLowerCase();
-      if (nameNorm && kl.includes(nameNorm)) return false;
-      if (brandToken && (kl === brandToken || kl.includes(brandToken))) return false;
-      return true;
-    })
-    .slice(0, 25);
-}
-
-function keywordListToString(list) {
-  return (Array.isArray(list) ? list : []).join(", ");
-}
-
-// Helper: get safe number
-const safeNum = (n) => (Number.isFinite(Number(n)) ? Number(n) : undefined);
-
-// Helper: parse center coordinates
-function safeCenter(c) {
-  const lat = safeNum(c?.lat),
-    lng = safeNum(c?.lng);
-  return lat !== undefined && lng !== undefined ? { lat, lng } : undefined;
-}
-
-// Helper: get normalized domain
-const toNormalizedDomain = (s = "") => {
-  try {
-    const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
-    let h = u.hostname.toLowerCase();
-    if (h.startsWith("www.")) h = h.slice(4);
-    return h || "unknown";
-  } catch {
-    return "unknown";
-  }
-};
-
-// Helper: enrich company data with location fields
-function enrichCompany(company, center) {
-  const c = { ...(company || {}) };
-
-  // IMPORTANT: canonical industries must be Grok-only.
-  // If a doc carries industries without industries_source="grok", treat it as debug-only.
-  const industriesSource = String(c.industries_source || "").trim().toLowerCase();
-  c.industries = industriesSource === "grok" ? normalizeIndustries(c.industries) : [];
-
-  const websiteUrl = c.website_url || c.canonical_url || c.url || c.amazon_url || "";
-  const companyName = c.company_name || c.name || "";
-
-  // IMPORTANT: canonical product_keywords must be Grok-only.
-  // We still normalize + keep site-derived terms in keywords[] for non-canonical/debug/search usage.
-  const productKeywords = normalizeProductKeywords(c.product_keywords, {
-    companyName,
-    websiteUrl,
-  });
-
-  c.keywords = productKeywords;
-
-  const keywordsSource = String(c.product_keywords_source || c.keywords_source || "").trim().toLowerCase();
-  if (keywordsSource === "grok") {
-    c.product_keywords = keywordListToString(productKeywords);
-  } else {
-    c.product_keywords = "";
-  }
-
-  const urlForDomain = c.canonical_url || c.website_url || c.url || c.amazon_url || "";
-  c.normalized_domain = toNormalizedDomain(urlForDomain);
-
-  // Ensure location fields are present
-  c.headquarters_location = String(c.headquarters_location || "").trim();
-
-  // Handle manufacturing_locations - accept country-only entries like "United States", "China", etc.
-  if (Array.isArray(c.manufacturing_locations)) {
-    c.manufacturing_locations = c.manufacturing_locations
-      .map(l => String(l).trim())
-      .filter(l => l.length > 0);
-  } else if (typeof c.manufacturing_locations === 'string') {
-    // If it's a single string, wrap it in an array
-    const trimmed = String(c.manufacturing_locations || "").trim();
-    c.manufacturing_locations = trimmed ? [trimmed] : [];
-  } else {
-    c.manufacturing_locations = [];
-  }
-
-  // Handle location_sources - structured data with source attribution
-  if (!Array.isArray(c.location_sources)) {
-    c.location_sources = [];
-  }
-
-  // Ensure each location_source has required fields
-  c.location_sources = c.location_sources
-    .filter((s) => s && s.location)
-    .map((s) => {
-      const locationTypeRaw = String(s.location_type || s.locationType || "other").trim() || "other";
-      const location_type = locationTypeRaw === "hq"
-        ? "headquarters"
-        : locationTypeRaw === "mfg"
-          ? "manufacturing"
-          : locationTypeRaw;
-
-      const sourceMethod = String(s.source_method || s.sourceMethod || "").trim();
-
-      return {
-        location: String(s.location || "").trim(),
-        source_url: String(s.source_url || "").trim(),
-        source_type: s.source_type || "other",
-        location_type,
-        ...(sourceMethod ? { source_method: sourceMethod } : {}),
-      };
-    });
-
-  // Handle tagline
-  c.tagline = String(c.tagline || "").trim();
-
-  c.red_flag = Boolean(c.red_flag);
-  c.red_flag_reason = String(c.red_flag_reason || "").trim();
-  c.location_confidence = (c.location_confidence || "medium").toString().toLowerCase();
-
-  return c;
-}
-
-function toFiniteNumber(v) {
-  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
-  if (typeof v === "string" && v.trim()) {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : undefined;
-  }
-  return undefined;
-}
-
-function normalizeLocationEntries(entries) {
-  if (!Array.isArray(entries)) return [];
-  return entries
-    .map((entry) => {
-      if (typeof entry === "string") {
-        const address = entry.trim();
-        return address ? { address } : null;
-      }
-      if (entry && typeof entry === "object") return entry;
-      return null;
-    })
-    .filter(Boolean);
-}
-
-function buildImportLocations(company) {
-  const headquartersBase =
-    Array.isArray(company.headquarters) && company.headquarters.length > 0
-      ? company.headquarters
-      : Array.isArray(company.headquarters_locations) && company.headquarters_locations.length > 0
-        ? company.headquarters_locations
-        : company.headquarters_location && String(company.headquarters_location).trim()
-          ? [{ address: String(company.headquarters_location).trim() }]
-          : [];
-
-  const manufacturingBase =
-    Array.isArray(company.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
-      ? company.manufacturing_geocodes
-      : Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0
-        ? company.manufacturing_locations
-        : [];
-
-  return {
-    headquartersBase: normalizeLocationEntries(headquartersBase),
-    manufacturingBase: normalizeLocationEntries(manufacturingBase),
   };
 }
 
@@ -1985,81 +693,6 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
   }
 }
 
-function normalizeUrlForCompare(s) {
-  const raw = typeof s === "string" ? s.trim() : s == null ? "" : String(s).trim();
-  if (!raw) return "";
-  try {
-    const u = new URL(raw);
-    u.hash = "";
-    const host = String(u.hostname || "").toLowerCase().replace(/^www\./, "");
-    const path = String(u.pathname || "").replace(/\/+$/, "");
-    const search = u.searchParams.toString();
-    return `${u.protocol}//${host}${path}${search ? `?${search}` : ""}`;
-  } catch {
-    return raw.toLowerCase();
-  }
-}
-
-function computeReviewDedupeKey(review) {
-  const r = review && typeof review === "object" ? review : {};
-  const normUrl = normalizeUrlForCompare(r.source_url || r.url || "");
-  const title = String(r.title || "").trim().toLowerCase();
-  const author = String(r.author || "").trim().toLowerCase();
-  const date = String(r.date || "").trim();
-  const rating = r.rating == null ? "" : String(r.rating);
-  const excerpt = String(r.excerpt || r.abstract || "").trim().toLowerCase().slice(0, 160);
-
-  const base = [normUrl, title, author, date, rating, excerpt].filter(Boolean).join("|");
-  if (!base) return "";
-
-  try {
-    return crypto.createHash("sha1").update(base).digest("hex");
-  } catch {
-    return base;
-  }
-}
-
-function dedupeCuratedReviews(reviews) {
-  const list = Array.isArray(reviews) ? reviews : [];
-  const out = [];
-  const seen = new Set();
-
-  for (const r of list) {
-    if (!r || typeof r !== "object") continue;
-    const k = String(r._dedupe_key || "").trim() || computeReviewDedupeKey(r);
-    if (!k) continue;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push({ ...r, _dedupe_key: k });
-  }
-
-  return out;
-}
-
-function buildReviewCursor({ nowIso, count, exhausted, last_error, prev_cursor }) {
-  const n = Math.max(0, Math.trunc(Number(count) || 0));
-  const exhaustedBool = typeof exhausted === "boolean" ? exhausted : false;
-  const errObj =
-    last_error && typeof last_error === "object" ? last_error : last_error ? { message: String(last_error) } : null;
-
-  const prev = prev_cursor && typeof prev_cursor === "object" ? prev_cursor : null;
-  const prevSuccessAt =
-    typeof prev?.last_success_at === "string" && prev.last_success_at.trim() ? prev.last_success_at.trim() : null;
-
-  // Semantics: last_success_at means "we saved at least 1 review".
-  // Do not update it on failures or on 0-saved runs.
-  const last_success_at = errObj == null && n > 0 ? nowIso : prevSuccessAt;
-
-  return {
-    source: "xai_reviews",
-    last_offset: n,
-    total_fetched: n,
-    exhausted: exhaustedBool,
-    last_attempt_at: nowIso,
-    last_success_at,
-    last_error: errObj,
-  };
-}
 
 function buildReviewsUpstreamPayloadForImportStart({ reviewMessage, companyWebsiteHost } = {}) {
   const { buildSearchParameters } = require("../_buildSearchParameters");
@@ -2135,7 +768,7 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
       if (host === "amazon.com" || host.endsWith(".amazon.com")) return true;
       if (host.endsWith(".amazon") || host.includes("amazon.")) return true;
 
-      // Google (disallowed) — but allow YouTube
+      // Google (disallowed) â€” but allow YouTube
       if (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be") return false;
       if (host === "g.co" || host.endsWith(".g.co") || host === "goo.gl" || host.endsWith(".goo.gl")) return true;
       if (host === "google.com" || host.endsWith(".google.com") || host.endsWith(".google")) return true;
@@ -2314,9 +947,9 @@ Rules:
 - Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.
 - Each review must be an object with keys:
   - source_name (string, optional)
-  - source_url (string, REQUIRED) — direct link to the specific article/video/post
+  - source_url (string, REQUIRED) â€” direct link to the specific article/video/post
   - date (string, optional; prefer YYYY-MM-DD if known)
-  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)
+  - excerpt (string, REQUIRED) â€” short excerpt/quote (1-2 sentences)
 - Output JSON only (no markdown).`,
     };
 
@@ -2536,7 +1169,7 @@ Rules:
     const loopStart = Date.now();
 
     for (const r of candidates) {
-      // Stay inside the overall handler budget; better to return 0–2 than time out.
+      // Stay inside the overall handler budget; better to return 0â€“2 than time out.
       if (getRemainingMs && getRemainingMs() < deadlineSafetyBufferMs + minValidationWindowMs) {
         telemetry.time_budget_exhausted = true;
         telemetry.stage_status = "timed_out";
@@ -2845,350 +1478,6 @@ Rules:
   }
 }
 
-let cosmosCompaniesClient = null;
-let companiesPkPathPromise;
-
-function getCompaniesCosmosContainer() {
-  try {
-    const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-    const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-    const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
-    const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
-
-    if (!endpoint || !key) return null;
-    if (!CosmosClient) return null;
-
-    cosmosCompaniesClient ||= new CosmosClient({ endpoint, key });
-    return cosmosCompaniesClient.database(databaseId).container(containerId);
-  } catch {
-    return null;
-  }
-}
-
-async function getCompaniesPartitionKeyPath(companiesContainer) {
-  if (!companiesContainer) return "/normalized_domain";
-  companiesPkPathPromise ||= getContainerPartitionKeyPath(companiesContainer, "/normalized_domain");
-  try {
-    return await companiesPkPathPromise;
-  } catch {
-    return "/normalized_domain";
-  }
-}
-
-let companiesCosmosTargetPromise;
-
-function redactHostForDiagnostics(value) {
-  const host = typeof value === "string" ? value.trim() : "";
-  if (!host) return "";
-  if (host.length <= 12) return host;
-  return `${host.slice(0, 8)}…${host.slice(-8)}`;
-}
-
-async function getCompaniesCosmosTargetDiagnostics() {
-  companiesCosmosTargetPromise ||= (async () => {
-    const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-    const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
-    const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
-
-    let host = "";
-    try {
-      host = endpoint ? new URL(endpoint).host : "";
-    } catch {
-      host = "";
-    }
-
-    const container = getCompaniesCosmosContainer();
-    const pkPath = await getCompaniesPartitionKeyPath(container);
-
-    return {
-      cosmos_account_host_redacted: redactHostForDiagnostics(host),
-      cosmos_db_name: databaseId,
-      cosmos_container_name: containerId,
-      cosmos_container_partition_key_path: pkPath,
-    };
-  })();
-
-  try {
-    return await companiesCosmosTargetPromise;
-  } catch {
-    return {
-      cosmos_account_host_redacted: "",
-      cosmos_db_name: (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim(),
-      cosmos_container_name: (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim(),
-      cosmos_container_partition_key_path: "/normalized_domain",
-    };
-  }
-}
-
-async function verifySavedCompaniesReadAfterWrite(saveResult) {
-  const result = saveResult && typeof saveResult === "object" ? saveResult : {};
-
-  const savedIds = Array.isArray(result.saved_ids)
-    ? result.saved_ids.map((id) => String(id || "").trim()).filter(Boolean)
-    : [];
-
-  const persisted = Array.isArray(result.persisted_items) ? result.persisted_items : [];
-  const domainById = new Map();
-  for (const item of persisted) {
-    const id = String(item?.id || "").trim();
-    if (!id) continue;
-    const normalizedDomain = String(item?.normalized_domain || "").trim();
-    if (normalizedDomain) domainById.set(id, normalizedDomain);
-  }
-
-  const container = getCompaniesCosmosContainer();
-  if (!container) {
-    return {
-      verified_ids: [],
-      unverified_ids: savedIds,
-      verified_persisted_items: [],
-    };
-  }
-
-  const BATCH_SIZE = 4;
-  const verified = [];
-  const unverified = [];
-
-  for (let i = 0; i < savedIds.length; i += BATCH_SIZE) {
-    const batch = savedIds.slice(i, i + BATCH_SIZE);
-    const reads = await Promise.all(
-      batch.map(async (companyId) => {
-        const normalizedDomain = domainById.get(companyId) || "unknown";
-        const doc = await readItemWithPkCandidates(container, companyId, {
-          id: companyId,
-          normalized_domain: normalizedDomain,
-          partition_key: normalizedDomain,
-        }).catch(() => null);
-
-        const companyName = String(doc?.company_name || doc?.name || "").trim();
-        const websiteUrlRaw = String(doc?.website_url || doc?.url || doc?.canonical_url || "").trim();
-
-        const hasWorkingWebsite = (() => {
-          if (!websiteUrlRaw) return false;
-          const lowered = websiteUrlRaw.toLowerCase();
-          if (lowered === "unknown" || lowered === "n/a" || lowered === "na") return false;
-          try {
-            const u = websiteUrlRaw.includes("://") ? new URL(websiteUrlRaw) : new URL(`https://${websiteUrlRaw}`);
-            const host = String(u.hostname || "").toLowerCase();
-            return Boolean(host && host.includes("."));
-          } catch {
-            return false;
-          }
-        })();
-
-        const complete = Boolean(doc) && Boolean(companyName) && hasWorkingWebsite;
-
-        return { companyId, ok: Boolean(doc), complete };
-      })
-    );
-
-    for (const r of reads) {
-      if (r.complete) verified.push(r.companyId);
-      else unverified.push(r.companyId);
-    }
-  }
-
-  const verifiedSet = new Set(verified);
-  const verifiedPersistedItems = persisted.filter((it) => verifiedSet.has(String(it?.id || "").trim()));
-
-  return {
-    verified_ids: verified,
-    unverified_ids: unverified,
-    verified_persisted_items: verifiedPersistedItems,
-  };
-}
-
-function applyReadAfterWriteVerification(saveResult, verification) {
-  const result = saveResult && typeof saveResult === "object" ? { ...saveResult } : {};
-
-  const writeCount = Number(result.saved || 0) || 0;
-  const writeIds = Array.isArray(result.saved_ids) ? result.saved_ids : [];
-
-  const verifiedIds = Array.isArray(verification?.verified_ids)
-    ? verification.verified_ids.map((id) => String(id || "").trim()).filter(Boolean)
-    : [];
-  const unverifiedIds = Array.isArray(verification?.unverified_ids)
-    ? verification.unverified_ids.map((id) => String(id || "").trim()).filter(Boolean)
-    : [];
-
-  const verifiedCount = verifiedIds.length;
-
-  return {
-    ...result,
-    saved_write_count: writeCount,
-    saved_ids_write: writeIds,
-    saved_company_ids_verified: verifiedIds,
-    saved_company_ids_unverified: unverifiedIds,
-    saved_verified_count: verifiedCount,
-    saved: verifiedCount,
-    saved_ids: verifiedIds,
-    persisted_items: Array.isArray(verification?.verified_persisted_items) ? verification.verified_persisted_items : result.persisted_items,
-  };
-}
-
-async function readItemWithPkCandidates(container, id, docForCandidates) {
-  if (!container || !id) return null;
-  const containerPkPath = await getCompaniesPartitionKeyPath(container);
-
-  const candidates = buildPartitionKeyCandidates({
-    doc: docForCandidates,
-    containerPkPath,
-    requestedId: id,
-  });
-
-  let lastErr = null;
-  for (const partitionKeyValue of candidates) {
-    try {
-      const item =
-        partitionKeyValue !== undefined
-          ? container.item(id, partitionKeyValue)
-          : container.item(id);
-      const { resource } = await item.read();
-      return resource || null;
-    } catch (e) {
-      lastErr = e;
-      if (e?.code === 404) return null;
-    }
-  }
-
-  if (lastErr && lastErr.code !== 404) {
-    console.warn(`[import-start] readItem failed id=${id} pkPath=${containerPkPath}: ${lastErr.message}`);
-  }
-  return null;
-}
-
-async function upsertItemWithPkCandidates(container, doc) {
-  if (!container || !doc) return { ok: false, error: "no_container" };
-  const id = String(doc.id || "").trim();
-  if (!id) return { ok: false, error: "missing_id" };
-
-  // Patch company documents with computed search text fields
-  if (doc && doc.company_name) {
-    patchCompanyWithSearchText(doc);
-  }
-
-  const containerPkPath = await getCompaniesPartitionKeyPath(container);
-  const pkValue = getValueAtPath(doc, containerPkPath);
-  const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
-
-  let lastErr = null;
-  for (const partitionKeyValue of candidates) {
-    // Retry transient Cosmos failures (429 throttle, 503 service unavailable, ETIMEDOUT)
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        if (partitionKeyValue !== undefined) {
-          await container.items.upsert(doc, { partitionKey: partitionKeyValue });
-        } else if (pkValue !== undefined) {
-          await container.items.upsert(doc, { partitionKey: pkValue });
-        } else {
-          await container.items.upsert(doc);
-        }
-        return { ok: true };
-      } catch (e) {
-        lastErr = e;
-        const code = Number(e?.code || e?.statusCode || 0);
-        const isTransient = code === 429 || code === 503 || code === 408 ||
-          /ETIMEDOUT|ECONNRESET|socket hang up/i.test(String(e?.message || ""));
-        if (isTransient && attempt < 2) {
-          const delayMs = code === 429 ? Math.min(2000 * (attempt + 1), 5000) : 1000 * (attempt + 1);
-          console.warn(`[import-start] upsert transient error (attempt ${attempt + 1}/3, code=${code}), retrying in ${delayMs}ms: ${e?.message || String(e)}`);
-          await new Promise((r) => setTimeout(r, delayMs));
-          continue;
-        }
-        console.warn(`[import-start] upsert failed id=${id} pk=${partitionKeyValue} code=${code}: ${e?.message || String(e)}`);
-        break; // Non-transient error, try next PK candidate
-      }
-    }
-  }
-
-  return { ok: false, error: lastErr?.message || "upsert_failed", cosmos_error_code: Number(lastErr?.code || lastErr?.statusCode || 0) || null };
-}
-
-function buildImportControlDocBase(sessionId) {
-  return {
-    session_id: sessionId,
-    normalized_domain: "import",
-    partition_key: "import",
-    type: "import_control",
-    updated_at: new Date().toISOString(),
-  };
-}
-
-async function upsertResumeDoc({
-  session_id,
-  status,
-  cycle_count,
-  missing_by_company,
-  created_at,
-  updated_at,
-  resume_error,
-  blocked_at,
-  lock_expires_at,
-  enrichment_queued_at,
-  next_allowed_run_at,
-  last_backoff_reason,
-  last_backoff_ms,
-}) {
-  const sid = String(session_id || "").trim();
-  if (!sid) return { ok: false, error: "missing_session_id" };
-
-  const container = getCompaniesCosmosContainer();
-  if (!container) return { ok: false, error: "no_container" };
-
-  const id = `_import_resume_${sid}`;
-  const nowIso = new Date().toISOString();
-
-  // Preserve previously-written state (progress, errors, etc.).
-  const existing = await readItemWithPkCandidates(container, id, {
-    id,
-    ...buildImportControlDocBase(sid),
-    created_at: "",
-  }).catch(() => null);
-
-  const resumeDoc = {
-    ...(existing && typeof existing === "object" ? existing : {}),
-    id,
-    ...buildImportControlDocBase(sid),
-    status: typeof status === "string" && status.trim() ? status.trim() : "queued",
-    cycle_count: Number.isFinite(Number(cycle_count)) ? Number(cycle_count) : Number(existing?.cycle_count || 0) || 0,
-    missing_by_company: Array.isArray(missing_by_company) ? missing_by_company : Array.isArray(existing?.missing_by_company) ? existing.missing_by_company : [],
-    created_at: typeof created_at === "string" && created_at.trim() ? created_at : String(existing?.created_at || nowIso),
-    updated_at: typeof updated_at === "string" && updated_at.trim() ? updated_at : nowIso,
-    resume_error: resume_error === undefined ? (existing?.resume_error ?? null) : resume_error,
-    blocked_at: blocked_at === undefined ? (existing?.blocked_at ?? null) : blocked_at,
-    lock_expires_at: lock_expires_at === undefined ? (existing?.lock_expires_at ?? null) : lock_expires_at,
-    enrichment_queued_at:
-      enrichment_queued_at === undefined
-        ? (existing?.enrichment_queued_at ?? null)
-        : enrichment_queued_at,
-    next_allowed_run_at:
-      next_allowed_run_at === undefined
-        ? (existing?.next_allowed_run_at ?? null)
-        : next_allowed_run_at,
-    last_backoff_reason:
-      last_backoff_reason === undefined
-        ? (existing?.last_backoff_reason ?? null)
-        : last_backoff_reason,
-    last_backoff_ms:
-      last_backoff_ms === undefined
-        ? (existing?.last_backoff_ms ?? null)
-        : last_backoff_ms,
-  };
-
-  const upserted = await upsertItemWithPkCandidates(container, resumeDoc).catch((e) => ({ ok: false, error: e?.message || String(e) }));
-  return upserted;
-}
-
-function logInfo(context, payload) {
-  try {
-    const logger = context?.log;
-    const fn = logger?.info || logger;
-    if (typeof fn === "function") return fn(payload);
-  } catch {}
-  try {
-    console.log(payload);
-  } catch {}
-}
 
 async function maybeQueueAndInvokeMandatoryEnrichment({
   sessionId,
@@ -3213,7 +1502,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
 
   const now = new Date().toISOString();
 
-  // ── CHANGE 2A + 4: Write resume lock doc EARLY ──
+  // â”€â”€ CHANGE 2A + 4: Write resume lock doc EARLY â”€â”€
   // The resume-worker can start within 1 second of the 202 return (triggered by
   // the first status poll). We MUST write the resume doc with invocation_mode=
   // "direct_http" and status="in_progress" BEFORE the dedup check so the
@@ -3237,7 +1526,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     console.log(`[import-start] session=${sessionId} early resume lock doc written (direct_http, in_progress)`);
   }
 
-  // ── SWA retry deduplication ──
+  // â”€â”€ SWA retry deduplication â”€â”€
   // The SWA reverse proxy may fire 3-4 parallel import-start invocations when the
   // initial request exceeds its ~30-50s timeout.  Each would independently run
   // enrichment against xAI, wasting budget and creating race conditions.
@@ -3360,7 +1649,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
           }
         }
       } else {
-        console.warn(`[import-start] session=${sessionId} company=${companyId} enrichment returned ZERO enriched keys — skipping company doc write`);
+        console.warn(`[import-start] session=${sessionId} company=${companyId} enrichment returned ZERO enriched keys â€” skipping company doc write`);
       }
 
       enrichmentResults.push({
@@ -3523,89 +1812,6 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   };
 }
 
-async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
-  const fnTag = `[import-start][session-doc]`;
-  const sid = String(sessionId || "").trim();
-  if (!sid) {
-    console.warn(`${fnTag} SKIP: missing sessionId`);
-    return { ok: false, error: "missing_session_id" };
-  }
-
-  const container = getCompaniesCosmosContainer();
-  if (!container) {
-    console.warn(`${fnTag} session=${sid} SKIP: no Cosmos container`);
-    return { ok: false, error: "no_container" };
-  }
-
-  const id = `_import_session_${sid}`;
-  const patchKeys = patch && typeof patch === "object" ? Object.keys(patch).join(",") : "none";
-
-  try {
-    const existing = await readItemWithPkCandidates(container, id, {
-      id,
-      ...buildImportControlDocBase(sid),
-      created_at: "",
-    });
-
-    console.log(`${fnTag} session=${sid} existing=${existing ? "found" : "null"} existing_pk=${existing?.normalized_domain || "?"} existing_beacon=${existing?.stage_beacon || "?"} patch_keys=${patchKeys}`);
-
-    const createdAt = existing?.created_at || new Date().toISOString();
-    const existingRequest = existing?.request && typeof existing.request === "object" ? existing.request : null;
-
-    // IMPORTANT: This doc is upserted many times during a session (progress, resume errors, etc).
-    // Never drop previously-written fields (e.g. saved ids), otherwise /import/status loses its
-    // source of truth and the UI appears "stalled" even though we wrote earlier.
-    const sessionDoc = {
-      ...(existing && typeof existing === "object" ? existing : {}),
-      id,
-      ...buildImportControlDocBase(sid),
-      created_at: createdAt,
-      request_id: requestId,
-      ...(existingRequest ? { request: existingRequest } : {}),
-      ...(patch && typeof patch === "object" ? patch : {}),
-    };
-
-    // Primary: use PK-candidates upsert
-    const result = await upsertItemWithPkCandidates(container, sessionDoc);
-    if (result.ok) {
-      console.log(`${fnTag} session=${sid} upsert OK (pk=${sessionDoc.normalized_domain || "?"} beacon=${sessionDoc.stage_beacon || "?"})`);
-      return result;
-    }
-
-    // Fallback: direct upsert with explicit PK="import"
-    console.warn(`${fnTag} session=${sid} pk-candidates upsert FAILED (${result.error}), trying direct upsert`);
-    try {
-      await container.items.upsert(sessionDoc, { partitionKey: "import" });
-      console.log(`${fnTag} session=${sid} direct upsert OK`);
-      return { ok: true, fallback: true };
-    } catch (directErr) {
-      console.error(`${fnTag} session=${sid} direct upsert ALSO FAILED: ${directErr?.message || directErr}`);
-      return { ok: false, error: directErr?.message || "direct_upsert_failed" };
-    }
-  } catch (e) {
-    console.error(`${fnTag} session=${sid} EXCEPTION: ${e?.message || String(e)}`);
-    return { ok: false, error: e?.message || String(e || "session_upsert_failed") };
-  }
-}
-
-// Check if a session has been stopped
-async function checkIfSessionStopped(sessionId) {
-  try {
-    const container = getCompaniesCosmosContainer();
-    if (!container) return false;
-
-    const stopDocId = `_import_stop_${sessionId}`;
-    const resource = await readItemWithPkCandidates(container, stopDocId, {
-      id: stopDocId,
-      ...buildImportControlDocBase(sessionId),
-      stopped_at: "",
-    });
-    return !!resource;
-  } catch (e) {
-    console.warn(`[import-start] Error checking stop status: ${e?.message || String(e)}`);
-    return false;
-  }
-}
 
 // Save companies to Cosmos DB (skip duplicates)
 async function saveCompaniesToCosmos({
@@ -3625,10 +1831,7 @@ async function saveCompaniesToCosmos({
     const importRequestId = typeof requestId === "string" && requestId.trim() ? requestId.trim() : null;
     const importCreatedAt =
       typeof sessionCreatedAt === "string" && sessionCreatedAt.trim() ? sessionCreatedAt.trim() : new Date().toISOString();
-    const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-    const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-    const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
-    const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+    const { endpoint, key, databaseId, containerId } = getCosmosConfig();
 
     if (!endpoint || !key) {
       console.warn("[import-start] Cosmos DB not configured, skipping save");
@@ -4103,7 +2306,7 @@ async function saveCompaniesToCosmos({
                 ensureMissing("website_url", "missing", "primary", "website_url missing; set to placeholder 'Unknown'", false);
               }
 
-              // industries (required) — quality gate
+              // industries (required) â€” quality gate
               const industriesRaw = Array.isArray(doc.industries) ? doc.industries : [];
               const industriesSanitized = sanitizeIndustries(industriesRaw);
 
@@ -4130,7 +2333,7 @@ async function saveCompaniesToCosmos({
                 doc.industries_unknown = false;
               }
 
-              // keywords/product_keywords (required) — sanitize + quality gate
+              // keywords/product_keywords (required) â€” sanitize + quality gate
               if (!Array.isArray(doc.keywords)) doc.keywords = [];
 
               const keywordStats = sanitizeKeywords({
@@ -4185,14 +2388,14 @@ async function saveCompaniesToCosmos({
                 doc.tagline_unknown = false;
               }
 
-              // headquarters_location — track in import_missing_fields like all other required fields.
+              // headquarters_location â€” track in import_missing_fields like all other required fields.
               // (Previously deferred to resume-worker only, but unified enrichment may have populated it.)
               if (typeof doc.headquarters_location !== "string") {
                 doc.headquarters_location = doc.headquarters_location == null ? "" : String(doc.headquarters_location);
               }
               if (!doc.headquarters_location.trim() || doc.headquarters_location === "Not disclosed") {
                 if (doc.hq_unknown_reason === "not_disclosed" || doc.headquarters_location === "Not disclosed") {
-                  // Explicitly not disclosed — terminal, not retryable
+                  // Explicitly not disclosed â€” terminal, not retryable
                 } else {
                   const policy = applyLowQualityPolicy("headquarters_location", "not_found");
                   ensureMissing(
@@ -4205,7 +2408,7 @@ async function saveCompaniesToCosmos({
                 }
               }
 
-              // manufacturing_locations — same treatment as HQ.
+              // manufacturing_locations â€” same treatment as HQ.
               if (!Array.isArray(doc.manufacturing_locations)) {
                 doc.manufacturing_locations = doc.manufacturing_locations == null ? [] : [doc.manufacturing_locations];
               }
@@ -4216,7 +2419,7 @@ async function saveCompaniesToCosmos({
 
               if (doc.manufacturing_locations.length === 0) {
                 if (doc.mfg_unknown_reason === "not_disclosed") {
-                  // Explicitly not disclosed — terminal, not retryable
+                  // Explicitly not disclosed â€” terminal, not retryable
                 } else {
                   const policy = applyLowQualityPolicy("manufacturing_locations", "not_found");
                   ensureMissing(
@@ -6698,16 +4901,16 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    - If government guides or B2B directories list the company as a "Manufacturer" with specific location, include that location
    - If packaging or product listings consistently say "Made in [X]", include X even if the brand website doesn't explicitly state it
    - If multiple independent sources consistently point to one or more countries, include those countries
-   - "All made in the USA" or similar inclusive statements → manufacturing_locations: ["United States"]
+   - "All made in the USA" or similar inclusive statements â†’ manufacturing_locations: ["United States"]
    - If only country-level information is available after exhaustive checking, country-only entries are FULLY VALID and PREFERRED
    - When inferring from suppliers, customs, packaging, or government guides, set location_confidence to "medium" and note the inference source in red_flag_reason
    - Inferred manufacturing locations from secondary sources should NOT trigger red_flag: true (the flag is only for completely unknown locations)
 
 3. CONFIDENCE AND RED FLAGS:
    - location_confidence: "high" if HQ and manufacturing are clearly stated on official site; "medium" if inferred from reliable secondary sources (government guides, B2B directories, customs, packaging); "low" if from limited sources
-   - If HQ is found but manufacturing is completely unknown AFTER exhaustive checking → red_flag: true, reason: "Manufacturing location unknown, not found in official site, government guides, B2B directories, customs records, or packaging"
-   - If manufacturing is inferred from government guides, B2B directories, customs data, suppliers, or packaging → red_flag: false (this is NOT a reason to flag), location_confidence: "medium"
-   - If BOTH HQ and manufacturing are documented → red_flag: false, reason: ""
+   - If HQ is found but manufacturing is completely unknown AFTER exhaustive checking â†’ red_flag: true, reason: "Manufacturing location unknown, not found in official site, government guides, B2B directories, customs records, or packaging"
+   - If manufacturing is inferred from government guides, B2B directories, customs data, suppliers, or packaging â†’ red_flag: false (this is NOT a reason to flag), location_confidence: "medium"
+   - If BOTH HQ and manufacturing are documented â†’ red_flag: false, reason: ""
    - Only leave manufacturing_locations empty and red_flag: true if there is TRULY no credible signal after checking government guides, B2B directories, custom records, supplier data, packaging, and media
 
 4. SOURCE PRIORITY FOR HQ:
@@ -6735,20 +4938,20 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
 
 7. PRODUCT KEYWORDS (Required - MUST follow these rules strictly):
    You are extracting structured product intelligence for a consumer-facing company.
-   Your task is to generate a comprehensive, concrete list of the company’s actual products and product categories.
+   Your task is to generate a comprehensive, concrete list of the companyâ€™s actual products and product categories.
    Rules:
-   • Return up to 25 product keywords
-   • Each keyword must be a real product, product line, or specific product category
-   • Avoid vague marketing terms (e.g., “premium,” “high-quality,” “innovative,” “lifestyle”)
-   • Prefer noun-based product names
-   • Include both flagship products and secondary products
-   • If exact product names are not available, infer industry-standard product types sold by the company
-   • Do NOT repeat near-duplicates (e.g., “water bottle” and “bottles”)
-   • Do NOT include services unless the company primarily sells services
+   â€¢ Return up to 25 product keywords
+   â€¢ Each keyword must be a real product, product line, or specific product category
+   â€¢ Avoid vague marketing terms (e.g., â€œpremium,â€ â€œhigh-quality,â€ â€œinnovative,â€ â€œlifestyleâ€)
+   â€¢ Prefer noun-based product names
+   â€¢ Include both flagship products and secondary products
+   â€¢ If exact product names are not available, infer industry-standard product types sold by the company
+   â€¢ Do NOT repeat near-duplicates (e.g., â€œwater bottleâ€ and â€œbottlesâ€)
+   â€¢ Do NOT include services unless the company primarily sells services
    Output format for product_keywords field:
-   • Return a comma-separated list
-   • Maximum 25 items
-   • No explanations or extra text
+   â€¢ Return a comma-separated list
+   â€¢ Maximum 25 items
+   â€¢ No explanations or extra text
 
 CRITICAL REQUIREMENTS FOR THIS SEARCH:
 - Do NOT return empty manufacturing_locations arrays unless you have exhaustively checked government guides, B2B directories, and trade data
@@ -8395,13 +6598,13 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               });
 
               if (matchIdx >= 0) {
-                // Grok found the company — ensure website_url and normalized_domain are set
+                // Grok found the company â€” ensure website_url and normalized_domain are set
                 const match = enriched[matchIdx];
                 if (!match.website_url) match.website_url = `https://${hintDomain}/`;
                 if (!match.normalized_domain) match.normalized_domain = hintDomain;
                 console.log(`[import-start] company_url_hint matched enriched[${matchIdx}] "${match.company_name}" (${hintDomain})`);
               } else {
-                // Grok didn't return a company matching the hint domain — inject a seed
+                // Grok didn't return a company matching the hint domain â€” inject a seed
                 const hintSeed = buildCompanyUrlSeedFromQuery(query);
                 if (hintSeed) {
                   enriched.unshift(hintSeed);
@@ -8603,16 +6806,16 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             const prompt = `SYSTEM (KEYWORDS / PRODUCTS LIST)
 You are generating a comprehensive product keyword list for a company to power search and filtering.
 Company:
-• Name: ${companyName}
-• Website: ${websiteUrl}
-• Short description/tagline (if available): ${tagline}
+â€¢ Name: ${companyName}
+â€¢ Website: ${websiteUrl}
+â€¢ Short description/tagline (if available): ${tagline}
 Rules:
-• Output ONLY a JSON object with a single field: "keywords".
-• "keywords" must be an array of 15 to 25 short product phrases the company actually sells or makes.
-• Use product-level specificity (e.g., "insulated cooler", "hard-sided cooler", "travel tumbler") not vague categories (e.g., "outdoor", "quality", "premium").
-• Do NOT include brand name, company name, marketing adjectives, or locations.
-• Do NOT repeat near-duplicates.
-• If uncertain, infer from the website content and product collections; prioritize what is most likely sold.
+â€¢ Output ONLY a JSON object with a single field: "keywords".
+â€¢ "keywords" must be an array of 15 to 25 short product phrases the company actually sells or makes.
+â€¢ Use product-level specificity (e.g., "insulated cooler", "hard-sided cooler", "travel tumbler") not vague categories (e.g., "outdoor", "quality", "premium").
+â€¢ Do NOT include brand name, company name, marketing adjectives, or locations.
+â€¢ Do NOT repeat near-duplicates.
+â€¢ If uncertain, infer from the website content and product collections; prioritize what is most likely sold.
 ${websiteText ? `\nWebsite content excerpt:\n${websiteText}\n` : ""}
 Output JSON only:
 { "keywords": ["...", "..."] }`;
@@ -8678,14 +6881,14 @@ Output JSON only:
             const prompt = `SYSTEM (INDUSTRIES)
 You are classifying a company into a small set of industries for search filtering.
 Company:
-• Name: ${companyName}
-• Website: ${websiteUrl}
-• Products: ${keywordText}
+â€¢ Name: ${companyName}
+â€¢ Website: ${websiteUrl}
+â€¢ Products: ${keywordText}
 Rules:
-• Output ONLY valid JSON with a single field: "industries".
-• "industries" must be an array of 1 to 4 short industry names.
-• Use commonly understood industries (e.g., "Textiles", "Apparel", "Industrial Equipment", "Electronics", "Food & Beverage").
-• Do NOT include locations.
+â€¢ Output ONLY valid JSON with a single field: "industries".
+â€¢ "industries" must be an array of 1 to 4 short industry names.
+â€¢ Use commonly understood industries (e.g., "Textiles", "Apparel", "Industrial Equipment", "Electronics", "Food & Beverage").
+â€¢ Do NOT include locations.
 Output JSON only:
 { "industries": ["..."] }`;
 
@@ -8855,7 +7058,7 @@ Output JSON only:
             const companyName = String(company?.company_name || company?.name || "").trim();
             const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
-            // ── Try unified enrichment first (single Grok call for ALL fields) ──
+            // â”€â”€ Try unified enrichment first (single Grok call for ALL fields) â”€â”€
             if (companyName && websiteUrl && !company._unified_enrichment_done) {
               const unifiedOk = await tryUnifiedEnrichment(company);
               if (unifiedOk && company._unified_enrichment_done) {
@@ -8879,7 +7082,7 @@ Output JSON only:
               }
             }
 
-            // ── Fallback: individual Grok calls (original behavior) ──
+            // â”€â”€ Fallback: individual Grok calls (original behavior) â”€â”€
 
             // Tagline: prefer Grok live search over website scraping (sites are often incomplete).
             if (!String(company?.tagline || "").trim() && companyName && websiteUrl) {
@@ -9082,7 +7285,7 @@ Output JSON only:
             );
           }
 
-          // ── Fast-path: for company_url imports, skip inline enrichment entirely. ──
+          // â”€â”€ Fast-path: for company_url imports, skip inline enrichment entirely. â”€â”€
           // Save the stub company to Cosmos now, return 202, and let
           // maybeQueueAndInvokeMandatoryEnrichment handle ALL enrichment async.
           // This prevents the SWA gateway from killing the connection during the
@@ -9107,7 +7310,7 @@ Output JSON only:
 
             mark("fast_path_company_url_skip_inline_enrichment");
             console.log(
-              `[import-start] session=${sessionId} FAST PATH: company_url import — skipping keywords/location/geocode stages, saving stub immediately`
+              `[import-start] session=${sessionId} FAST PATH: company_url import â€” skipping keywords/location/geocode stages, saving stub immediately`
             );
           }
 
@@ -10083,7 +8286,7 @@ Output JSON only:
                   ensureMissing("website_url", "missing", "website_url missing; set to placeholder 'Unknown'", false);
                 }
 
-                // industries — quality gate
+                // industries â€” quality gate
                 const industriesRaw = Array.isArray(base.industries) ? base.industries : [];
                 const industriesSanitized = sanitizeIndustries(industriesRaw);
 
@@ -10110,7 +8313,7 @@ Output JSON only:
                   base.industries_unknown = false;
                 }
 
-                // product keywords — sanitize + quality gate
+                // product keywords â€” sanitize + quality gate
                 if (!Array.isArray(base.keywords)) base.keywords = [];
 
                 const keywordStats = sanitizeKeywords({
@@ -10322,7 +8525,7 @@ Output JSON only:
               .filter(Boolean)
               .slice(0, 50);
 
-            // ── Sync in-memory store IMMEDIATELY after company save ──
+            // â”€â”€ Sync in-memory store IMMEDIATELY after company save â”€â”€
             // import-status may poll at any moment on the same Azure Functions process.
             // By updating the in-memory store here (before the Cosmos session doc upsert),
             // we ensure that even the earliest status polls see the correct seed data.
@@ -10371,7 +8574,7 @@ Output JSON only:
                 console.error(`[import-start] session=${sessionId} pre-202 session doc upsert FAILED: ${preSessionResult?.error || "unknown"}`);
               }
 
-              // ── CHANGE 3: Read-back verification ──
+              // â”€â”€ CHANGE 3: Read-back verification â”€â”€
               // Verify the upsert actually persisted seed_saved_enriching_async.
               // If the read-back shows a stale beacon, force a direct upsert with explicit PK.
               if (preSessionResult?.ok) {
@@ -10442,14 +8645,14 @@ Output JSON only:
                 }
               }
 
-              // ── Fast-path 202: return BEFORE enrichment so SWA doesn't kill the connection ──
+              // â”€â”€ Fast-path 202: return BEFORE enrichment so SWA doesn't kill the connection â”€â”€
               if (isCompanyUrlFastPath && mandatoryCompanyIds.length > 0) {
                 mark("fast_path_202_accepted");
 
-                // (In-memory store sync moved earlier — runs immediately after saveCompaniesToCosmos,
+                // (In-memory store sync moved earlier â€” runs immediately after saveCompaniesToCosmos,
                 // before the Cosmos session doc upsert, to close the race window.)
 
-                // ── CHANGE 2: Write accept doc for fast-path 202 ──
+                // â”€â”€ CHANGE 2: Write accept doc for fast-path 202 â”€â”€
                 // The fast-path 202 bypasses AcceptedResponseError, which is where accept docs
                 // are normally written. Without this, import-status returns accepted: false.
                 try {
@@ -10474,7 +8677,7 @@ Output JSON only:
 
                 // Fire-and-forget: run enrichment asynchronously.
                 // The Azure Function runtime keeps the execution context alive after
-                // returning the HTTP response. Don't await — let it run in background.
+                // returning the HTTP response. Don't await â€” let it run in background.
                 maybeQueueAndInvokeMandatoryEnrichment({
                   sessionId,
                   requestId,
@@ -10887,7 +9090,7 @@ Output JSON only:
             }
           }
 
-          // Detect when ALL results were skipped as duplicates — short-circuit expansion and return immediately
+          // Detect when ALL results were skipped as duplicates â€” short-circuit expansion and return immediately
           const allSkippedAsDuplicates =
             cosmosEnabled &&
             Number(saveResult.saved || 0) === 0 &&
@@ -11073,7 +9276,7 @@ Return ONLY the JSON array, no other text.`,
                       const geoResult = await geocodeHQLocation(company.headquarters_location);
                       if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
                         enrichedExpansion[i] = { ...company, ...geoResult };
-                        console.log(`[import-start] Geocoded expansion company ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
+                        console.log(`[import-start] Geocoded expansion company ${company.company_name}: ${company.headquarters_location} â†’ (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
                       }
                     }
                   }
