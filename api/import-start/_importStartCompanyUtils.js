@@ -311,6 +311,83 @@ function buildReviewCursor({ nowIso, count, exhausted, last_error, prev_cursor }
   };
 }
 
+// ── Seed Validation ──────────────────────────────────────────────────────────
+
+function isMeaningfulString(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return false;
+  return true;
+}
+
+function hasMeaningfulSeedEnrichment(c) {
+  if (!c || typeof c !== "object") return false;
+
+  const industries = Array.isArray(c.industries) ? c.industries.filter(Boolean) : [];
+
+  const keywordsRaw = c.keywords ?? c.product_keywords ?? c.keyword_list;
+  const keywords =
+    typeof keywordsRaw === "string"
+      ? keywordsRaw.split(/\s*,\s*/g).filter(Boolean)
+      : Array.isArray(keywordsRaw)
+        ? keywordsRaw.filter(Boolean)
+        : [];
+
+  const manufacturingLocations = Array.isArray(c.manufacturing_locations)
+    ? c.manufacturing_locations
+        .map((loc) => {
+          if (typeof loc === "string") return loc.trim();
+          if (loc && typeof loc === "object") return String(loc.formatted || loc.address || loc.location || "").trim();
+          return "";
+        })
+        .filter(Boolean)
+    : [];
+
+  const curatedReviews = Array.isArray(c.curated_reviews) ? c.curated_reviews.filter((r) => r && typeof r === "object") : [];
+  const reviewCount = Number.isFinite(Number(c.review_count)) ? Number(c.review_count) : curatedReviews.length;
+
+  return (
+    industries.length > 0 ||
+    keywords.length > 0 ||
+    isMeaningfulString(c.headquarters_location) ||
+    manufacturingLocations.length > 0 ||
+    curatedReviews.length > 0 ||
+    reviewCount > 0
+  );
+}
+
+function isValidSeedCompany(c) {
+  if (!c || typeof c !== "object") return false;
+
+  const companyName = String(c.company_name || c.name || "").trim();
+  const websiteUrl = String(c.website_url || c.url || c.canonical_url || "").trim();
+  if (!companyName || !websiteUrl) return false;
+
+  const id = String(c.id || c.company_id || c.companyId || "").trim();
+
+  // Rule: if we already persisted a company doc (id exists), we can resume enrichment for it.
+  if (id && !id.startsWith("_import_")) return true;
+
+  const source = String(c.source || "").trim();
+
+  // Critical: company_url_shortcut is NEVER a valid resume seed unless it already contains meaningful enrichment
+  // (keywords/industries/HQ/MFG/reviews) or carries an explicit seed_ready marker.
+  if (source === "company_url_shortcut") {
+    if (c.seed_ready === true) return true;
+    return hasMeaningfulSeedEnrichment(c);
+  }
+
+  if (source) return true;
+
+  // Fallback: allow explicit markers that the seed came from primary.
+  if (c.primary_candidate === true) return true;
+  if (c.seed === true) return true;
+  if (String(c.source_stage || "").trim() === "primary") return true;
+
+  return false;
+}
+
 module.exports = {
   // Industry & Keywords
   normalizeIndustries,
@@ -339,4 +416,9 @@ module.exports = {
   computeReviewDedupeKey,
   dedupeCuratedReviews,
   buildReviewCursor,
+
+  // Seed validation
+  isMeaningfulString,
+  hasMeaningfulSeedEnrichment,
+  isValidSeedCompany,
 };

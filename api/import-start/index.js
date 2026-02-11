@@ -103,6 +103,9 @@ const {
   computeReviewDedupeKey,
   dedupeCuratedReviews,
   buildReviewCursor,
+  isMeaningfulString: _isMeaningfulString,
+  hasMeaningfulSeedEnrichment: _hasMeaningfulSeedEnrichment,
+  isValidSeedCompany: _isValidSeedCompany,
 } = require("./_importStartCompanyUtils");
 
 // ── Extracted module: request/body parsing, URL utilities, xAI helpers ────────
@@ -179,6 +182,26 @@ const {
 } = require("./_importStartCosmos");
 const { getCosmosConfig } = require("../_cosmosConfig");
 
+// ── Extracted module: inline enrichment (keywords, industries, tagline) ────
+const {
+  mapWithConcurrency: _mapWithConcurrency,
+  ensureCompanyKeywords: _ensureCompanyKeywordsBase,
+} = require("./_importStartInlineEnrichment");
+
+// ── Extracted module: XAI request pipeline ───────────────────────────────────
+const {
+  DEFAULT_UPSTREAM_TIMEOUT_MS,
+  STAGE_MAX_MS,
+  MIN_STAGE_REMAINING_MS,
+  DEADLINE_SAFETY_BUFFER_MS,
+  UPSTREAM_TIMEOUT_MARGIN_MS,
+  postXaiJsonWithBudget: _postXaiJsonWithBudget,
+  postXaiJsonWithBudgetRetry: _postXaiJsonWithBudgetRetry,
+  ensureStageBudgetOrThrow: _ensureStageBudgetOrThrow,
+  sleep,
+  shouldRetryUpstreamStatus,
+} = require("./_importStartXaiRequest");
+
 // ── Extracted module: save-companies, geocoding, logo fetch ──────────────────
 const {
   saveCompaniesToCosmos,
@@ -228,26 +251,9 @@ try {
 // budgets via the `deadline_ms` query parameter, which overrides this default.
 const DEFAULT_HARD_TIMEOUT_MS = 8_000;
 
-// Generous upstream timeouts to allow deep, accurate XAI searches.
-const DEFAULT_UPSTREAM_TIMEOUT_MS = 60_000;
-
-// Per-stage upstream caps - generous to allow thorough research.
-const STAGE_MAX_MS = {
-  primary: 60_000,
-  keywords: 60_000,
-  reviews: 90_000,
-  location: 60_000,
-  expand: 8_000,
-};
-
-// Minimum remaining budget required to start a new network stage.
-const MIN_STAGE_REMAINING_MS = 4_000;
-
-// Safety buffer we reserve for Cosmos writes + formatting the response.
-const DEADLINE_SAFETY_BUFFER_MS = 1_500;
-
-// Extra buffer before starting any upstream call.
-const UPSTREAM_TIMEOUT_MARGIN_MS = 1_200;
+// Constants imported from _importStartXaiRequest.js:
+// DEFAULT_UPSTREAM_TIMEOUT_MS, STAGE_MAX_MS, MIN_STAGE_REMAINING_MS,
+// DEADLINE_SAFETY_BUFFER_MS, UPSTREAM_TIMEOUT_MARGIN_MS
 
 const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
@@ -1048,80 +1054,10 @@ const importStartHandlerInner = async (req, context) => {
       const providedCompaniesRaw = Array.isArray(bodyObj.companies) ? bodyObj.companies : [];
       const providedCompanies = providedCompaniesRaw.filter((c) => c && typeof c === "object");
 
-      const isMeaningfulString = (raw) => {
-        const s = String(raw ?? "").trim();
-        if (!s) return false;
-        const lower = s.toLowerCase();
-        if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return false;
-        return true;
-      };
-
-      const hasMeaningfulSeedEnrichment = (c) => {
-        if (!c || typeof c !== "object") return false;
-
-        const industries = Array.isArray(c.industries) ? c.industries.filter(Boolean) : [];
-
-        const keywordsRaw = c.keywords ?? c.product_keywords ?? c.keyword_list;
-        const keywords =
-          typeof keywordsRaw === "string"
-            ? keywordsRaw.split(/\s*,\s*/g).filter(Boolean)
-            : Array.isArray(keywordsRaw)
-              ? keywordsRaw.filter(Boolean)
-              : [];
-
-        const manufacturingLocations = Array.isArray(c.manufacturing_locations)
-          ? c.manufacturing_locations
-              .map((loc) => {
-                if (typeof loc === "string") return loc.trim();
-                if (loc && typeof loc === "object") return String(loc.formatted || loc.address || loc.location || "").trim();
-                return "";
-              })
-              .filter(Boolean)
-          : [];
-
-        const curatedReviews = Array.isArray(c.curated_reviews) ? c.curated_reviews.filter((r) => r && typeof r === "object") : [];
-        const reviewCount = Number.isFinite(Number(c.review_count)) ? Number(c.review_count) : curatedReviews.length;
-
-        return (
-          industries.length > 0 ||
-          keywords.length > 0 ||
-          isMeaningfulString(c.headquarters_location) ||
-          manufacturingLocations.length > 0 ||
-          curatedReviews.length > 0 ||
-          reviewCount > 0
-        );
-      };
-
-      const isValidSeedCompany = (c) => {
-        if (!c || typeof c !== "object") return false;
-
-        const companyName = String(c.company_name || c.name || "").trim();
-        const websiteUrl = String(c.website_url || c.url || c.canonical_url || "").trim();
-        if (!companyName || !websiteUrl) return false;
-
-        const id = String(c.id || c.company_id || c.companyId || "").trim();
-
-        // Rule: if we already persisted a company doc (id exists), we can resume enrichment for it.
-        if (id && !id.startsWith("_import_")) return true;
-
-        const source = String(c.source || "").trim();
-
-        // Critical: company_url_shortcut is NEVER a valid resume seed unless it already contains meaningful enrichment
-        // (keywords/industries/HQ/MFG/reviews) or carries an explicit seed_ready marker.
-        if (source === "company_url_shortcut") {
-          if (c.seed_ready === true) return true;
-          return hasMeaningfulSeedEnrichment(c);
-        }
-
-        if (source) return true;
-
-        // Fallback: allow explicit markers that the seed came from primary.
-        if (c.primary_candidate === true) return true;
-        if (c.seed === true) return true;
-        if (String(c.source_stage || "").trim() === "primary") return true;
-
-        return false;
-      };
+      // ── Seed validation (delegated to _importStartCompanyUtils.js) ──
+      const isMeaningfulString = _isMeaningfulString;
+      const hasMeaningfulSeedEnrichment = _hasMeaningfulSeedEnrichment;
+      const isValidSeedCompany = _isValidSeedCompany;
 
       const validSeedCompanies = providedCompanies.filter(isValidSeedCompany);
 
@@ -2076,6 +2012,7 @@ const importStartHandlerInner = async (req, context) => {
 
         const getRemainingMs = () => budget.getRemainingMs();
 
+        // throwAccepted stays in handler — it closes over respondAcceptedBeforeGatewayTimeout
         const throwAccepted = (nextStageBeacon, reason, extra) => {
           const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
           const remainingMs = getRemainingMs();
@@ -2099,190 +2036,12 @@ const importStartHandlerInner = async (req, context) => {
           );
         };
 
-        const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) => {
-          const remainingMs = getRemainingMs();
-
-          if (remainingMs < MIN_STAGE_REMAINING_MS) {
-            // Only primary is allowed to continue async. Downstream stages should defer and let
-            // resume-worker finish.
-            if (stageKey === "primary") {
-              throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey, remainingMs });
-            }
-          }
-
-          return remainingMs;
-        };
-
-        const postXaiJsonWithBudget = async ({ stageKey, stageBeacon, body, stageCapMsOverride }) => {
-          const remainingMs = ensureStageBudgetOrThrow(stageKey, stageBeacon);
-          const stageCapMsBase = Number(STAGE_MAX_MS?.[stageKey]) || DEFAULT_UPSTREAM_TIMEOUT_MS;
-          const stageCapMsOverrideNumber =
-            Number.isFinite(Number(stageCapMsOverride)) && Number(stageCapMsOverride) > 0 ? Number(stageCapMsOverride) : null;
-          const stageCapMs = stageCapMsOverrideNumber ? Math.min(stageCapMsOverrideNumber, stageCapMsBase) : stageCapMsBase;
-
-          // Extended stage timeouts to allow thorough XAI searches (3-5+ minutes per field).
-          const timeoutForThisStage = budget.clampStageTimeoutMs({
-            remainingMs,
-            minMs: 2500,
-            maxMs: stageCapMs,
-            safetyMarginMs: DEADLINE_SAFETY_BUFFER_MS + UPSTREAM_TIMEOUT_MARGIN_MS,
-          });
-
-          // If we can't safely run the upstream call within this request, bail out early.
-          const minRequired = DEADLINE_SAFETY_BUFFER_MS + UPSTREAM_TIMEOUT_MARGIN_MS + 2500;
-          if (remainingMs < minRequired) {
-            if (stageKey === "primary") {
-              throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
-                stage: stageKey,
-                remainingMs,
-                timeoutForThisStage,
-                stageCapMs,
-              });
-            }
-
-            const err = new Error("Insufficient time for upstream fetch");
-            err.code = "INSUFFICIENT_TIME_FOR_FETCH";
-            err.stage = stageKey;
-            err.stage_beacon = stageBeacon;
-            err.remainingMs = remainingMs;
-            err.timeoutForThisStage = timeoutForThisStage;
-            err.stageCapMs = stageCapMs;
-            throw err;
-          }
-
-          const fetchStart = Date.now();
-
-          try {
-            console.log("[import-start] fetch_begin", {
-              stage: stageKey,
-              remainingMs,
-              timeoutForThisStage,
-              request_id: requestId,
-              session_id: sessionId,
-            });
-          } catch {}
-
-          try {
-            // Convert payload to /responses format if using that endpoint
-            let finalBody = typeof body === "string" ? body : "";
-            if (isResponsesEndpoint(xaiUrl) && finalBody) {
-              try {
-                const parsed = JSON.parse(finalBody);
-                const converted = convertToResponsesPayload(parsed);
-                finalBody = JSON.stringify(converted);
-              } catch (parseErr) {
-                // If parsing fails, use original body
-                console.error("[import-start] payload conversion failed:", parseErr?.message);
-              }
-            }
-
-            const res = await postJsonWithTimeout(xaiUrl, {
-              headers: (() => {
-                const headers = {
-                  "Content-Type": "application/json",
-                };
-
-                if (isAzureWebsitesUrl(xaiUrl)) {
-                  headers["x-functions-key"] = xaiKey;
-                } else {
-                  headers["Authorization"] = `Bearer ${xaiKey}`;
-                }
-
-                return headers;
-              })(),
-              body: finalBody,
-              timeoutMs: timeoutForThisStage,
-            });
-
-            const elapsedMs = Date.now() - fetchStart;
-            try {
-              console.log("[import-start] fetch_end", {
-                stage: stageKey,
-                elapsedMs,
-                request_id: requestId,
-                session_id: sessionId,
-                status: res?.status,
-              });
-            } catch {}
-
-            return res;
-          } catch (e) {
-            const name = String(e?.name || "").toLowerCase();
-            const code = String(e?.code || "").toUpperCase();
-            const isAbort = code === "ECONNABORTED" || name.includes("abort");
-
-            if (isAbort) {
-              if (stageKey === "primary") {
-                throwAccepted(stageBeacon, "upstream_timeout_returning_202", {
-                  stage: stageKey,
-                  timeoutForThisStage,
-                  stageCapMs,
-                });
-              }
-
-              const err = new Error("Upstream timeout");
-              err.code = "UPSTREAM_TIMEOUT";
-              err.stage = stageKey;
-              err.stage_beacon = stageBeacon;
-              err.timeoutForThisStage = timeoutForThisStage;
-              err.stageCapMs = stageCapMs;
-              throw err;
-            }
-
-            throw e;
-          }
-        };
-
-        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-        const STAGE_RETRY_BACKOFF_MS = [0, 2000, 5000, 10000];
-
-        const shouldRetryUpstreamStatus = (status) => {
-          const s = Number(status);
-          if (!Number.isFinite(s)) return true;
-          if (s === 408 || s === 421 || s === 429) return true;
-          return s >= 500 && s <= 599;
-        };
-
-        const postXaiJsonWithBudgetRetry = async ({ stageKey, stageBeacon, body, stageCapMsOverride }) => {
-          const attempts = STAGE_RETRY_BACKOFF_MS.length;
-
-          for (let attempt = 0; attempt < attempts; attempt += 1) {
-            const delayMs = STAGE_RETRY_BACKOFF_MS[attempt] || 0;
-            if (delayMs > 0) {
-              const remaining = getRemainingMs();
-              if (remaining < delayMs + DEADLINE_SAFETY_BUFFER_MS) {
-                // Not enough budget to wait and retry.
-                break;
-              }
-              await sleep(delayMs);
-            }
-
-            try {
-              const res = await postXaiJsonWithBudget({ stageKey, stageBeacon, body, stageCapMsOverride });
-
-              if (res && typeof res.status === "number" && shouldRetryUpstreamStatus(res.status) && attempt < attempts - 1) {
-                continue;
-              }
-
-              return res;
-            } catch (e) {
-              if (e instanceof AcceptedResponseError) throw e;
-
-              const code = String(e?.code || "").toUpperCase();
-              const retryable = code === "UPSTREAM_TIMEOUT" || code === "INSUFFICIENT_TIME_FOR_FETCH";
-
-              if (retryable && attempt < attempts - 1) {
-                continue;
-              }
-
-              throw e;
-            }
-          }
-
-          // Fall back to a final attempt (will throw on failure).
-          return await postXaiJsonWithBudget({ stageKey, stageBeacon, body, stageCapMsOverride });
-        };
+        // ── XAI request pipeline (delegated to _importStartXaiRequest.js) ──
+        const _xaiReqCtx = { budget, requestId, sessionId, xaiUrl, xaiKey, throwAccepted };
+        const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) =>
+          _ensureStageBudgetOrThrow(stageKey, nextStageBeacon, _xaiReqCtx);
+        const postXaiJsonWithBudget = (opts) => _postXaiJsonWithBudget(opts, _xaiReqCtx);
+        const postXaiJsonWithBudgetRetry = (opts) => _postXaiJsonWithBudgetRetry(opts, _xaiReqCtx);
 
         // Early check: if import was already stopped, return immediately
         if (!noUpstreamMode) {
@@ -4346,482 +4105,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             );
           }
 
-          // Ensure product keywords exist and persistable
-          async function mapWithConcurrency(items, concurrency, mapper) {
-            const out = new Array(items.length);
-            let idx = 0;
-
-            const workers = new Array(Math.max(1, concurrency)).fill(0).map(async () => {
-              while (idx < items.length) {
-                const cur = idx++;
-                try {
-                  out[cur] = await mapper(items[cur], cur);
-                } catch {
-                  out[cur] = items[cur];
-                }
-              }
+          // ── Enrichment functions (delegated to _importStartInlineEnrichment.js) ──
+          const mapWithConcurrency = _mapWithConcurrency;
+          const ensureCompanyKeywords = (company) =>
+            _ensureCompanyKeywordsBase(company, {
+              xaiUrl, xaiKey, postXaiJsonWithBudgetRetry, getRemainingMs, timeout, debugOutput,
             });
-
-            const results = await Promise.allSettled(workers);
-            for (const r of results) {
-              if (r.status === "rejected") {
-                console.warn(`[import-start] mapWithConcurrency worker rejected: ${r.reason?.message || String(r.reason || "")}`);
-              }
-            }
-            return out;
-          }
-
-          async function generateProductKeywords(company, { timeoutMs }) {
-            const companyName = String(company?.company_name || company?.name || "").trim();
-            const websiteUrl = String(company?.website_url || company?.url || "").trim();
-            const tagline = String(company?.tagline || "").trim();
-
-            const websiteText = await (async () => {
-              const h = await checkUrlHealthAndFetchText(websiteUrl, {
-                timeoutMs: Math.min(8000, timeoutMs),
-                maxBytes: 80000,
-              }).catch(() => null);
-              return h?.ok ? String(h.text || "").slice(0, 4000) : "";
-            })();
-
-            const prompt = `SYSTEM (KEYWORDS / PRODUCTS LIST)
-You are generating a comprehensive product keyword list for a company to power search and filtering.
-Company:
-â€¢ Name: ${companyName}
-â€¢ Website: ${websiteUrl}
-â€¢ Short description/tagline (if available): ${tagline}
-Rules:
-â€¢ Output ONLY a JSON object with a single field: "keywords".
-â€¢ "keywords" must be an array of 15 to 25 short product phrases the company actually sells or makes.
-â€¢ Use product-level specificity (e.g., "insulated cooler", "hard-sided cooler", "travel tumbler") not vague categories (e.g., "outdoor", "quality", "premium").
-â€¢ Do NOT include brand name, company name, marketing adjectives, or locations.
-â€¢ Do NOT repeat near-duplicates.
-â€¢ If uncertain, infer from the website content and product collections; prioritize what is most likely sold.
-${websiteText ? `\nWebsite content excerpt:\n${websiteText}\n` : ""}
-Output JSON only:
-{ "keywords": ["...", "..."] }`;
-
-            const payload = {
-              model: "grok-4-latest",
-              messages: [
-                { role: "system", content: XAI_SYSTEM_PROMPT },
-                { role: "user", content: prompt },
-              ],
-              temperature: 0.2,
-              stream: false,
-            };
-
-            console.log(`[import-start] Calling XAI API (keywords) at: ${toHostPathOnlyForLog(xaiUrl)}`);
-            const res = await postXaiJsonWithBudgetRetry({
-              stageKey: "keywords",
-              stageBeacon: "xai_keywords_fetch_start",
-              body: JSON.stringify(payload),
-              stageCapMsOverride: timeoutMs,
-            });
-
-            const text = extractXaiResponseText(res?.data) || "";
-
-            let obj = null;
-            try {
-              const match = text.match(/\{[\s\S]*\}/);
-              if (match) obj = JSON.parse(match[0]);
-            } catch {
-              obj = null;
-            }
-
-            const keywords = normalizeProductKeywords(obj?.keywords, {
-              companyName,
-              websiteUrl,
-            });
-
-            const prompt_hash = (() => {
-              try {
-                if (!createHash) return null;
-                return createHash("sha256").update(prompt).digest("hex").slice(0, 16);
-              } catch {
-                return null;
-              }
-            })();
-
-            return {
-              prompt,
-              prompt_hash,
-              source_url: websiteUrl || null,
-              source_text_preview: websiteText ? websiteText.slice(0, 800) : "",
-              raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
-              keywords,
-            };
-          }
-
-          async function generateIndustries(company, { timeoutMs }) {
-            const companyName = String(company?.company_name || company?.name || "").trim();
-            const websiteUrl = String(company?.website_url || company?.url || "").trim();
-
-            const keywordText = String(company?.product_keywords || "").trim();
-
-            const prompt = `SYSTEM (INDUSTRIES)
-You are classifying a company into a small set of industries for search filtering.
-Company:
-â€¢ Name: ${companyName}
-â€¢ Website: ${websiteUrl}
-â€¢ Products: ${keywordText}
-Rules:
-â€¢ Output ONLY valid JSON with a single field: "industries".
-â€¢ "industries" must be an array of 1 to 4 short industry names.
-â€¢ Use commonly understood industries (e.g., "Textiles", "Apparel", "Industrial Equipment", "Electronics", "Food & Beverage").
-â€¢ Do NOT include locations.
-Output JSON only:
-{ "industries": ["..."] }`;
-
-            const payload = {
-              model: "grok-4-latest",
-              messages: [
-                { role: "system", content: XAI_SYSTEM_PROMPT },
-                { role: "user", content: prompt },
-              ],
-              temperature: 0.1,
-              stream: false,
-            };
-
-            const res = await postXaiJsonWithBudgetRetry({
-              stageKey: "keywords",
-              stageBeacon: "xai_industries_fetch_start",
-              body: JSON.stringify(payload),
-              stageCapMsOverride: timeoutMs,
-            });
-
-            const text = extractXaiResponseText(res?.data) || "";
-
-            let obj = null;
-            try {
-              const match = text.match(/\{[\s\S]*\}/);
-              if (match) obj = JSON.parse(match[0]);
-            } catch {
-              obj = null;
-            }
-
-            const industries = normalizeIndustries(obj?.industries).slice(0, 6);
-
-            const prompt_hash = (() => {
-              try {
-                if (!createHash) return null;
-                return createHash("sha256").update(prompt).digest("hex").slice(0, 16);
-              } catch {
-                return null;
-              }
-            })();
-
-            return {
-              prompt,
-              prompt_hash,
-              source_url: websiteUrl || null,
-              raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
-              industries,
-            };
-          }
-
-          /**
-           * Unified enrichment for a single company during import.
-           * Calls enrichCompanyFieldsUnified() (single Grok prompt for ALL fields),
-           * then maps results back onto the company object.
-           * Returns true if unified enrichment succeeded, false if caller should fall back.
-           */
-          async function tryUnifiedEnrichment(company) {
-            const companyName = String(company?.company_name || company?.name || "").trim();
-            const websiteUrl = String(company?.website_url || company?.url || "").trim();
-            const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
-
-            if (!companyName || !websiteUrl) return false;
-
-            const budgetMs = Math.min(
-              240_000,
-              Math.max(30_000, (typeof getRemainingMs === "function" ? getRemainingMs() : timeout) - DEADLINE_SAFETY_BUFFER_MS)
-            );
-
-            try {
-              const ecf = await enrichCompanyFieldsUnified({
-                companyName,
-                websiteUrl,
-                normalizedDomain,
-                budgetMs,
-                xaiUrl,
-                xaiKey,
-              });
-
-              if (!ecf || !ecf.ok || !ecf.proposed) return false;
-
-              const proposed = ecf.proposed;
-              const statuses = ecf.field_statuses || {};
-
-              company.enrichment_debug =
-                company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-
-              // Tagline
-              if (typeof proposed.tagline === "string" && proposed.tagline.trim()) {
-                company.tagline = proposed.tagline.trim();
-              }
-
-              // Product keywords
-              if (Array.isArray(proposed.product_keywords) && proposed.product_keywords.length > 0) {
-                const stats = sanitizeKeywords({ product_keywords: proposed.product_keywords.join(", "), keywords: [] });
-                const sanitized = Array.isArray(stats?.sanitized) ? stats.sanitized : proposed.product_keywords;
-                company.keywords = sanitized.slice(0, 25);
-                company.product_keywords = keywordListToString(sanitized);
-                company.keywords_source = "grok_unified";
-                company.product_keywords_source = "grok_unified";
-                company.enrichment_debug.keywords = {
-                  source: "unified",
-                  keyword_count: sanitized.length,
-                  stage_status: statuses.product_keywords || "ok",
-                };
-              }
-
-              // Industries
-              if (Array.isArray(proposed.industries) && proposed.industries.length > 0) {
-                const sanitized = sanitizeIndustries(proposed.industries);
-                if (sanitized.length > 0) {
-                  company.industries = sanitized;
-                  company.industries_unknown = false;
-                  company.industries_source = "grok_unified";
-                  company.enrichment_debug.industries = {
-                    source: "unified",
-                    industries: sanitized,
-                    stage_status: statuses.industries || "ok",
-                  };
-                }
-              }
-
-              // Headquarters location
-              if (typeof proposed.headquarters_location === "string" && proposed.headquarters_location.trim()) {
-                company.headquarters_location = proposed.headquarters_location.trim();
-                company.hq_unknown = false;
-                company.hq_unknown_reason = null;
-              } else if (statuses.headquarters_location === "not_disclosed") {
-                company.headquarters_location = "Not disclosed";
-                company.hq_unknown = true;
-                company.hq_unknown_reason = "not_disclosed";
-              }
-
-              // Manufacturing locations
-              if (Array.isArray(proposed.manufacturing_locations) && proposed.manufacturing_locations.length > 0) {
-                company.manufacturing_locations = proposed.manufacturing_locations;
-                company.mfg_unknown = false;
-                company.mfg_unknown_reason = null;
-              } else if (statuses.manufacturing_locations === "not_disclosed") {
-                company.manufacturing_locations = ["Not disclosed"];
-                company.mfg_unknown = true;
-                company.mfg_unknown_reason = "not_disclosed";
-              }
-
-              // Reviews
-              if (Array.isArray(proposed.reviews) && proposed.reviews.length > 0) {
-                company._unified_reviews = proposed.reviews;
-                company._unified_reviews_status = statuses.reviews || "ok";
-              }
-
-              // Store raw response and method for debugging
-              company.enrichment_method = ecf.method || "unified";
-              company.last_enrichment_raw_response = ecf.raw_response || null;
-              company.last_enrichment_at = new Date().toISOString();
-
-              // Mark that unified enrichment was used (stages can check this to skip)
-              company._unified_enrichment_done = true;
-
-              return true;
-            } catch (e) {
-              if (e instanceof AcceptedResponseError) throw e;
-              console.warn(`[import-start] unified enrichment failed for ${companyName}: ${e?.message || String(e)}`);
-              return false;
-            }
-          }
-
-          async function ensureCompanyKeywords(company) {
-            const companyName = String(company?.company_name || company?.name || "").trim();
-            const websiteUrl = String(company?.website_url || company?.url || "").trim();
-
-            // â”€â”€ Try unified enrichment first (single Grok call for ALL fields) â”€â”€
-            if (companyName && websiteUrl && !company._unified_enrichment_done) {
-              const unifiedOk = await tryUnifiedEnrichment(company);
-              if (unifiedOk && company._unified_enrichment_done) {
-                // Unified succeeded - keywords, industries, tagline already populated.
-                // Build debug entry for compatibility.
-                const debugEntry = {
-                  company_name: companyName,
-                  website_url: websiteUrl,
-                  initial_count: 0,
-                  initial_keywords: [],
-                  generated: true,
-                  generated_count: (company.keywords || []).length,
-                  final_count: (company.keywords || []).length,
-                  final_keywords: company.keywords || [],
-                  prompt: null,
-                  raw_response: null,
-                  source: "unified",
-                };
-                if (debugOutput) debugOutput.keywords_debug.push(debugEntry);
-                return company;
-              }
-            }
-
-            // â”€â”€ Fallback: individual Grok calls (original behavior) â”€â”€
-
-            // Tagline: prefer Grok live search over website scraping (sites are often incomplete).
-            if (!String(company?.tagline || "").trim() && companyName && websiteUrl) {
-              const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
-              const budgetMs = Math.min(
-                8_000,
-                Math.max(3_000, (typeof getRemainingMs === "function" ? getRemainingMs() : timeout) - DEADLINE_SAFETY_BUFFER_MS)
-              );
-
-              try {
-                const grok = await fetchTaglineGrok({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey, model: "grok-4-latest" });
-                if (String(grok?.tagline_status || "").trim() === "ok" && String(grok?.tagline || "").trim()) {
-                  company.tagline = String(grok.tagline).trim();
-                }
-              } catch (e) {
-                if (e instanceof AcceptedResponseError) throw e;
-              }
-            }
-
-            const initialList = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
-              companyName,
-              websiteUrl,
-            });
-
-            let finalList = initialList.slice(0, 25);
-            const debugEntry = {
-              company_name: companyName,
-              website_url: websiteUrl,
-              initial_count: initialList.length,
-              initial_keywords: initialList,
-              generated: false,
-              generated_count: 0,
-              final_count: 0,
-              final_keywords: [],
-              prompt: null,
-              raw_response: null,
-            };
-
-            company.enrichment_debug =
-              company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-            if (Array.isArray(initialList) && initialList.length > 0) {
-              company.enrichment_debug.raw_site_terms = initialList.slice(0, 200);
-            }
-
-            let keywordsAll = [];
-
-            // Primary source of truth: Grok live search (not the company website parser).
-            if (companyName && websiteUrl && keywordsAll.length < 10) {
-              const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
-              const budgetMs = Math.min(
-                12_000,
-                Math.max(4_000, (typeof getRemainingMs === "function" ? getRemainingMs() : timeout) - DEADLINE_SAFETY_BUFFER_MS)
-              );
-
-              try {
-                const grok = await fetchProductKeywordsGrok({
-                  companyName,
-                  normalizedDomain,
-                  budgetMs,
-                  xaiUrl,
-                  xaiKey,
-                  model: "grok-4-latest",
-                });
-
-                const listRaw = Array.isArray(grok?.keywords) ? grok.keywords : [];
-                const stats = sanitizeKeywords({ product_keywords: listRaw.join(", "), keywords: [] });
-                const sanitized = Array.isArray(stats?.sanitized) ? stats.sanitized : [];
-
-                if (sanitized.length >= 20) {
-                  keywordsAll = sanitized;
-                  company.keywords_source = "grok";
-                  company.product_keywords_source = "grok";
-
-                  company.enrichment_debug =
-                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                  company.enrichment_debug.keywords = {
-                    prompt_hash: null,
-                    source_url: null,
-                    source_text_preview: null,
-                    raw_response_preview: null,
-                    error: null,
-                    stage_status: String(grok?.keywords_status || "").trim() || null,
-                    completeness: String(grok?.keywords_completeness || "").trim() || null,
-                    incomplete_reason: grok?.keywords_incomplete_reason ?? null,
-                    keyword_count: sanitized.length,
-                  };
-                }
-              } catch (e) {
-                if (e instanceof AcceptedResponseError) throw e;
-              }
-
-              // No website fallback: site-derived terms are stored only in enrichment_debug.raw_site_terms.
-            }
-
-            // Store an exhaustive product list in product_keywords, but keep keywords[] clamped for UI/search.
-            company.keywords = Array.isArray(keywordsAll) ? keywordsAll.slice(0, 25) : [];
-            company.product_keywords = keywordListToString(Array.isArray(keywordsAll) ? keywordsAll : []);
-
-            // Industries are required for a "complete enough" profile. Primary source: Grok live search.
-            const existingIndustries = normalizeIndustries(company?.industries);
-            if (existingIndustries.length > 0) {
-              company.enrichment_debug.raw_site_industries = existingIndustries;
-            }
-
-            let industriesFinal = [];
-
-            if (industriesFinal.length === 0 && companyName && websiteUrl) {
-              const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
-              const budgetMs = Math.min(
-                10_000,
-                Math.max(3_500, (typeof getRemainingMs === "function" ? getRemainingMs() : timeout) - DEADLINE_SAFETY_BUFFER_MS)
-              );
-
-              try {
-                const grok = await fetchIndustriesGrok({
-                  companyName,
-                  normalizedDomain,
-                  budgetMs,
-                  xaiUrl,
-                  xaiKey,
-                  model: "grok-4-latest",
-                });
-                const list = Array.isArray(grok?.industries) ? grok.industries : [];
-                const sanitized = sanitizeIndustries(list);
-
-                if (Array.isArray(sanitized) && sanitized.length > 0) {
-                  industriesFinal = sanitized;
-                  company.industries_source = "grok";
-                  company.industries_unknown = false;
-
-                  company.enrichment_debug =
-                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                  company.enrichment_debug.industries = {
-                    prompt_hash: null,
-                    source_url: null,
-                    raw_response_preview: null,
-                    industries: industriesFinal,
-                    error: null,
-                    stage_status: String(grok?.industries_status || "").trim() || null,
-                  };
-                }
-              } catch (e) {
-                if (e instanceof AcceptedResponseError) throw e;
-              }
-
-              // No website fallback: industries are canonical only when produced by Grok.
-            }
-
-            company.industries_unknown = industriesFinal.length === 0;
-            company.industries = industriesFinal;
-
-            debugEntry.final_keywords = Array.isArray(keywordsAll) ? keywordsAll : [];
-            debugEntry.final_count = Array.isArray(keywordsAll) ? keywordsAll.length : 0;
-
-            if (debugOutput) debugOutput.keywords_debug.push(debugEntry);
-
-            return company;
-          }
 
           if (shouldStopAfterStage("primary")) {
             const companiesCount = Array.isArray(enriched) ? enriched.length : 0;
@@ -7912,151 +7201,8 @@ const importStartHandler = async (req, context) => {
   }
 };
 
-const xaiSmokeHandler = async (req, context) => {
-  try {
-    const requestId = generateRequestId(req);
-    const responseHeaders = { "x-request-id": requestId };
-
-    const method = String(req.method || "").toUpperCase();
-    if (method === "OPTIONS") {
-      return {
-        status: 200,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers":
-            "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
-          "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id",
-          ...responseHeaders,
-        },
-      };
-    }
-
-    if (method !== "GET") {
-      return json(
-        {
-          ok: false,
-          error: { code: "METHOD_NOT_ALLOWED", message: "Method not allowed" },
-        },
-        405,
-        responseHeaders
-      );
-    }
-
-    const buildInfo = getBuildInfo();
-    const handlerVersion = getImportStartHandlerVersion(buildInfo);
-
-    const model = String(readQueryParam(req, "model") || "grok-4-0709").trim() || "grok-4-0709";
-
-    const xaiEndpointRaw = getXAIEndpoint();
-    const xaiKey = getXAIKey();
-    const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, model);
-
-    const resolved_upstream_url_redacted = redactUrlQueryAndHash(xaiUrl) || null;
-    const auth_header_present = Boolean(xaiKey);
-
-    if (!xaiUrl || !xaiKey) {
-      return json(
-        {
-          ok: false,
-          handler_version: handlerVersion,
-          build_id: buildInfo?.build_id || null,
-          resolved_upstream_url_redacted,
-          auth_header_present,
-          status: null,
-          model_returned: null,
-        },
-        500,
-        responseHeaders
-      );
-    }
-
-    const timeoutMsUsed = Math.min(20000, Number(process.env.XAI_TIMEOUT_MS) || 20000);
-
-    // Detect if using /responses endpoint (newer xAI API) vs /chat/completions
-    const useResponsesFormat = /\/v1\/responses\/?$/i.test(xaiUrl) || xaiUrl.includes("/responses");
-
-    const upstreamBody = useResponsesFormat
-      ? {
-          // /v1/responses format
-          model,
-          input: [
-            { role: "system", content: XAI_SYSTEM_PROMPT },
-            {
-              role: "user",
-              content:
-                'Return ONLY valid JSON with the schema {"ok":true,"source":"xai_smoke"} and no other text.',
-            },
-          ],
-          search: { mode: "off" },
-        }
-      : {
-          // /v1/chat/completions format (legacy)
-          model,
-          messages: [
-            { role: "system", content: XAI_SYSTEM_PROMPT },
-            {
-              role: "user",
-              content:
-                'Return ONLY valid JSON with the schema {"ok":true,"source":"xai_smoke"} and no other text.',
-            },
-          ],
-          temperature: 0,
-          stream: false,
-        };
-
-    const res = await postJsonWithTimeout(xaiUrl, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${xaiKey}`,
-      },
-      body: JSON.stringify(upstreamBody),
-      timeoutMs: timeoutMsUsed,
-    });
-
-    const model_returned =
-      typeof res?.data?.model === "string" && res.data.model.trim() ? res.data.model.trim() : model;
-
-    const upstream_status = res?.status ?? null;
-    const okUpstream = upstream_status === 200;
-
-    const headersObj = res && typeof res === "object" ? res.headers : null;
-    const xai_request_id =
-      (headersObj && typeof headersObj === "object" && (headersObj["xai-request-id"] || headersObj["x-request-id"] || headersObj["request-id"])) ||
-      null;
-
-    return json(
-      {
-        ok: okUpstream,
-        handler_version: handlerVersion,
-        build_id: buildInfo?.build_id || null,
-        resolved_upstream_url_redacted,
-        auth_header_present,
-        status: upstream_status,
-        model_returned,
-        xai_request_id,
-      },
-      okUpstream ? 200 : 502,
-      responseHeaders
-    );
-  } catch (e) {
-    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const responseHeaders = { "x-request-id": requestId };
-
-    return json(
-      {
-        ok: false,
-        resolved_upstream_url_redacted: null,
-        auth_header_present: false,
-        status: null,
-        model_returned: null,
-        upstream_text_preview: toTextPreview(e?.message || String(e || ""), 2000),
-      },
-      502,
-      responseHeaders
-    );
-  }
-};
+// ── Extracted module: xAI smoke handler + safe handler wrapper ─────────────
+const { xaiSmokeHandler, createSafeHandler } = require("./_importStartXaiSmoke");
 
 app.http("xai-smoke", {
   route: "xai/smoke",
@@ -8081,70 +7227,6 @@ app.http("import-start-legacy", {
   authLevel: "anonymous",
   handler: async (req, context) => importStartSwaWrapper(req, context),
 });
-
-function createSafeHandler(handler, { stage = "import_start" } = {}) {
-  return async (req, context) => {
-    try {
-      const result = await handler(req, context);
-
-      if (!result || typeof result !== "object") {
-        return json(
-          {
-            ok: false,
-            root_cause: "handler_contract",
-            stage,
-            message: "Handler returned no response",
-          },
-          200
-        );
-      }
-
-      const status = Number(result.status || 200) || 200;
-
-      // Never let a raw 5xx response escape: SWA can mask it as plain-text "Backend call failure".
-      if (status >= 500) {
-        return json(
-          {
-            ok: false,
-            root_cause: "handler_5xx",
-            stage,
-            http_status: status,
-            message: `Handler returned HTTP ${status}`,
-          },
-          200
-        );
-      }
-
-      if (result.body && typeof result.body === "object") {
-        return {
-          ...result,
-          status: 200,
-          headers: {
-            ...(result.headers && typeof result.headers === "object" ? result.headers : {}),
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(result.body),
-        };
-      }
-
-      return result;
-    } catch (e) {
-      const message = sanitizeTextPreview(e?.message || String(e || "Unhandled exception"));
-      try {
-        console.error("[import-start] safeHandler caught exception:", message);
-      } catch {}
-      return json(
-        {
-          ok: false,
-          root_cause: "unhandled_exception",
-          message,
-          stage,
-        },
-        200
-      );
-    }
-  };
-}
 
 const safeHandler = createSafeHandler(importStartHandler, { stage: "import_start" });
 
