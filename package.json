@@ -12,7 +12,7 @@
     "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "node scripts/write-build-id.mjs && vite build",
     "preview": "vite preview --host ::1 --port 5173",
-    "test": "node --test api/_companyDocMerge.test.js api/_requiredFields.test.js api/get-reviews/contract.test.js api/search-companies/contract.test.js api/import-start/contract.test.js api/admin-companies-v2/contract.test.js api/admin-refresh-company/contract.test.js api/admin-refresh-reviews/contract.test.js api/xadmin-api-refresh-company/contract.test.js api/xadmin-api-refresh-reviews/contract.test.js api/admin-apply-reviews-from-notes/contract.test.js api/index.routes.contract.test.js api/import/resume-worker/queue-trigger.contract.test.js",
+    "test": "node --test api/_companyDocMerge.test.js api/_requiredFields.test.js api/get-reviews/contract.test.js api/search-companies/contract.test.js api/import-start/contract.test.js api/admin-companies-v2/contract.test.js api/admin-refresh-company/contract.test.js api/admin-refresh-reviews/contract.test.js api/xadmin-api-refresh-company/contract.test.js api/xadmin-api-refresh-reviews/contract.test.js api/admin-apply-reviews-from-notes/contract.test.js api/index.routes.contract.test.js api/import/resume-worker/queue-trigger.contract.test.js api/import-status/contract.test.js api/companies-list/contract.test.js api/save-companies/contract.test.js api/health/contract.test.js api/version/contract.test.js api/ping/contract.test.js",
     "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",
     "inspect:import-session": "node scripts/inspect-import-session.mjs"
   },

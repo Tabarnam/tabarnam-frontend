@@ -55,3 +55,13 @@ jobs:
           app_location: "dist"
           api_location: ""
           skip_app_build: true
+
+      - name: Post-deploy smoke test
+        if: success() && vars.PRODUCTION_URL != ''
+        run: |
+          sleep 30
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "${{ vars.PRODUCTION_URL }}/api/health" || echo "000")
+          echo "Health check returned: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::Post-deploy health check failed (HTTP $STATUS)"
+          fi
