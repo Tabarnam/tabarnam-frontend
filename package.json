@@ -14,6 +14,9 @@
     "preview": "vite preview --host ::1 --port 5173",
     "test": "node scripts/run-tests.mjs",
     "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",
+    "migrate": "node scripts/run-migrations.mjs",
+    "migrate:apply": "node scripts/run-migrations.mjs --apply",
+    "migrate:status": "node scripts/run-migrations.mjs --status",
     "inspect:import-session": "node scripts/inspect-import-session.mjs",
     "prepare": "husky"
   },

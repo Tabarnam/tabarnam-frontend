@@ -5,8 +5,12 @@
  * package.json so new test files are picked up automatically.
  */
 import { execSync } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
-import { join, posix } from "node:path";
+import { readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = join(__dirname, "..");
 
 function findTestFiles(dir) {
   const results = [];
@@ -22,7 +26,7 @@ function findTestFiles(dir) {
   return results;
 }
 
-const files = findTestFiles("api");
+const files = findTestFiles(join(PROJECT_ROOT, "api"));
 if (!files.length) {
   console.log("No test files found.");
   process.exit(0);
