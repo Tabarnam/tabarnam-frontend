@@ -40,7 +40,7 @@ export default function ShareButton({ company, className = "" }) {
   const companyName = getCompanyDisplayName(company) || "this company";
   const tagline = (company?.tagline || "").trim();
   const hqLocation = (company?.headquarters_location || "").trim();
-  const companyUrl = company?.website_url || window.location.href;
+  const companyUrl = `${window.location.origin}/results?q=${encodeURIComponent(companyName)}`;
 
   const shareTitle = `Check out ${companyName} on Tabarnam`;
   const shareText = [tagline, hqLocation ? `HQ in ${hqLocation}.` : ""]
