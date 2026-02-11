@@ -34,3 +34,27 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Bundle size check
+        run: |
+          # Main JS bundle threshold: 600 KB (current ~534 KB)
+          MAIN_JS=$(find dist/assets -name 'index-*.js' -not -name '*.map' | head -1)
+          if [ -z "$MAIN_JS" ]; then
+            echo "::error::Could not find main JS bundle in dist/assets"
+            exit 1
+          fi
+          SIZE_BYTES=$(stat -c%s "$MAIN_JS")
+          SIZE_KB=$((SIZE_BYTES / 1024))
+          echo "Main bundle: $MAIN_JS — ${SIZE_KB} KB"
+
+          # Threshold: 600 KB (leaves ~12% headroom over current 534 KB)
+          THRESHOLD_KB=600
+          if [ "$SIZE_KB" -gt "$THRESHOLD_KB" ]; then
+            echo "::error::Main JS bundle (${SIZE_KB} KB) exceeds threshold (${THRESHOLD_KB} KB)"
+            exit 1
+          fi
+
+          # Report all asset sizes for visibility
+          echo ""
+          echo "All build assets:"
+          find dist/assets -type f -not -name '*.map' -exec ls -lh {} \; | sort -k5 -h

@@ -2469,6 +2469,7 @@ export default function AdminImport() {
       }
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
+      // eslint-disable-next-line no-undef -- canonicalSessionId is defined in the try block above (line ~1614)
       setRuns((prev) => prev.map((r) => (r.session_id === canonicalSessionId ? { ...r, start_error: msg } : r)));
       if (e?.name === "AbortError") {
         setActiveStatus("idle");
