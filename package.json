@@ -12,8 +12,13 @@
     "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "node scripts/write-build-id.mjs && vite build",
     "preview": "vite preview --host ::1 --port 5173",
-    "test": "node --test api/_companyDocMerge.test.js api/_requiredFields.test.js api/get-reviews/contract.test.js api/search-companies/contract.test.js api/import-start/contract.test.js api/admin-companies-v2/contract.test.js api/admin-refresh-company/contract.test.js api/admin-refresh-reviews/contract.test.js api/xadmin-api-refresh-company/contract.test.js api/xadmin-api-refresh-reviews/contract.test.js api/admin-apply-reviews-from-notes/contract.test.js api/index.routes.contract.test.js api/import/resume-worker/queue-trigger.contract.test.js",
-    "inspect:import-session": "node scripts/inspect-import-session.mjs"
+    "test": "node scripts/run-tests.mjs",
+    "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",
+    "migrate": "node scripts/run-migrations.mjs",
+    "migrate:apply": "node scripts/run-migrations.mjs --apply",
+    "migrate:status": "node scripts/run-migrations.mjs --status",
+    "inspect:import-session": "node scripts/inspect-import-session.mjs",
+    "prepare": "husky"
   },
   "dependencies": {
     "@azure/cosmos": "^4.7.0",
@@ -65,11 +70,17 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^13.0.0"
   },
+  "lint-staged": {
+    "src/**/*.{js,jsx,ts,tsx}": "eslint --fix",
+    "api/**/*.test.js": "node --test --test-force-exit --test-timeout 60000"
+  },
   "devDependencies": {
     "@babel/generator": "^7.27.0",
     "@babel/parser": "^7.27.0",
     "@babel/traverse": "^7.27.0",
     "@babel/types": "^7.27.0",
+    "@commitlint/cli": "^20.4.1",
+    "@commitlint/config-conventional": "^20.4.1",
     "@types/node": "^20.8.3",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
@@ -77,7 +88,9 @@
     "autoprefixer": "^10.4.16",
     "eslint": "^8.57.1",
     "eslint-config-react-app": "^7.0.1",
+    "husky": "^9.1.7",
     "iso-3166-2": "^1.0.0",
+    "lint-staged": "^16.2.7",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.3",
     "terser": "^5.39.0",

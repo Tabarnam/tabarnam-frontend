@@ -9,10 +9,9 @@ const EMAIL = 'duh@tabarnam.com';
 
 export default function FeedbackWidget() {
   const { pathname } = useLocation();
+  const { toast } = useToast();
   // Hide on admin pages
   if (pathname.startsWith('/admin')) return null;
-
-  const { toast } = useToast();
 
   const copy = async () => {
     try {

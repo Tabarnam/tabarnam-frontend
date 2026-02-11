@@ -11,6 +11,7 @@ const {
   buildPartitionKeyCandidates,
   getValueAtPath,
 } = require("./_cosmosPartitionKey");
+const { getCosmosConfig } = require("./_cosmosConfig");
 
 function normalizeId(id) {
   const str = String(id || "").trim();
@@ -92,8 +93,7 @@ function getMemoryJobsByBatch(batchId) {
 }
 
 function isCosmosConfigured() {
-  const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-  const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+  const { endpoint, key } = getCosmosConfig();
   return Boolean(endpoint && key);
 }
 
@@ -102,10 +102,7 @@ function getCosmosContainer() {
   if (_cosmosContainerPromise) return _cosmosContainerPromise;
 
   _cosmosContainerPromise = (async () => {
-    const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-    const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-    const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
-    const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+    const { endpoint, key, databaseId, containerId } = getCosmosConfig();
 
     if (!endpoint || !key) return null;
 

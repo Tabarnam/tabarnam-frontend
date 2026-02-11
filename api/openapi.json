@@ -1,0 +1,2531 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Tabarnam API",
+    "description": "Auto-generated OpenAPI specification for the Tabarnam Functions API.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Default (relative)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Public",
+      "description": "Public-facing endpoints"
+    },
+    {
+      "name": "Admin",
+      "description": "Admin endpoints (require authentication)"
+    },
+    {
+      "name": "XAdmin",
+      "description": "Cross-admin / super-admin endpoints (require authentication)"
+    },
+    {
+      "name": "Import",
+      "description": "Data import endpoints"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "health",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ping": {
+      "get": {
+        "operationId": "ping",
+        "summary": "ping",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/version": {
+      "get": {
+        "operationId": "version",
+        "summary": "version",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diag": {
+      "get": {
+        "operationId": "diag",
+        "summary": "diag",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diag/xai": {
+      "get": {
+        "operationId": "diag-xai",
+        "summary": "diag-xai",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diag/sharp": {
+      "get": {
+        "operationId": "diag-sharp",
+        "summary": "diag-sharp",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diag/session": {
+      "get": {
+        "operationId": "diag-session",
+        "summary": "diag-session",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diag/xai-v2": {
+      "get": {
+        "operationId": "diag-xai-v2",
+        "summary": "diag-xai-v2",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diag/xai-alias": {
+      "get": {
+        "operationId": "diag-xai-alias",
+        "summary": "diag-xai-alias",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diag/queue-mismatch": {
+      "get": {
+        "operationId": "diagQueueMismatch",
+        "summary": "diagQueueMismatch",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/_diag/hello": {
+      "get": {
+        "operationId": "_diagHello",
+        "summary": "_diagHello",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/_ping": {
+      "get": {
+        "operationId": "_ping",
+        "summary": "_ping",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hello": {
+      "get": {
+        "operationId": "hello",
+        "summary": "hello",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/proxy-xai": {
+      "get": {
+        "operationId": "proxy-xai_get",
+        "summary": "proxy-xai",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "proxy-xai_post",
+        "summary": "proxy-xai",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat/completions": {
+      "post": {
+        "operationId": "v1-chat-completions",
+        "summary": "v1-chat-completions",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/_debug/ingress/latest": {
+      "get": {
+        "operationId": "_debug-ingress-latest",
+        "summary": "_debug-ingress-latest",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/_debug/egress/latest": {
+      "get": {
+        "operationId": "_debug-egress-latest",
+        "summary": "_debug-egress-latest",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/submit-review": {
+      "post": {
+        "operationId": "submit-review",
+        "summary": "submit-review",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/get-reviews": {
+      "get": {
+        "operationId": "get-reviews",
+        "summary": "get-reviews",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/xadmin-api-recalc-review-counts": {
+      "post": {
+        "operationId": "xadminApiRecalcReviewCounts",
+        "summary": "xadminApiRecalcReviewCounts",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/search-companies": {
+      "get": {
+        "operationId": "search-companies",
+        "summary": "search-companies",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/suggest-refinements": {
+      "get": {
+        "operationId": "suggest-refinements",
+        "summary": "suggest-refinements",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/suggest-cities": {
+      "get": {
+        "operationId": "suggest-cities",
+        "summary": "suggest-cities",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/suggest-states": {
+      "get": {
+        "operationId": "suggest-states",
+        "summary": "suggest-states",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/save-companies": {
+      "post": {
+        "operationId": "save-companies",
+        "summary": "save-companies",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logo-scrape": {
+      "post": {
+        "operationId": "logo-scrape",
+        "summary": "logo-scrape",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cosmos/smoke": {
+      "get": {
+        "operationId": "cosmos-smoke",
+        "summary": "cosmos-smoke",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/xai/smoke": {
+      "get": {
+        "operationId": "xai-smoke",
+        "summary": "xai-smoke",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/start": {
+      "get": {
+        "operationId": "import-start_get",
+        "summary": "import-start",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "import-start_post",
+        "summary": "import-start",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import-start": {
+      "get": {
+        "operationId": "import-start-legacy_get",
+        "summary": "import-start-legacy",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "import-start-legacy_post",
+        "summary": "import-start-legacy",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/backend-ping": {
+      "get": {
+        "operationId": "import-backend-ping",
+        "summary": "import-backend-ping",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/status": {
+      "get": {
+        "operationId": "import-status",
+        "summary": "import-status",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import-status": {
+      "get": {
+        "operationId": "import-status-alt",
+        "summary": "import-status-alt",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/status/session-raw": {
+      "get": {
+        "operationId": "import-status-session-raw",
+        "summary": "import-status-session-raw",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/resume-enqueue": {
+      "post": {
+        "operationId": "import-resume-enqueue",
+        "summary": "import-resume-enqueue",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/progress": {
+      "get": {
+        "operationId": "import-progress",
+        "summary": "import-progress",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import-one": {
+      "post": {
+        "operationId": "import-one",
+        "summary": "import-one",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/stop": {
+      "post": {
+        "operationId": "import-stop",
+        "summary": "import-stop",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/import/resume-worker": {
+      "post": {
+        "operationId": "import-resume-worker",
+        "summary": "import-resume-worker",
+        "tags": [
+          "Import"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test-echo": {
+      "get": {
+        "operationId": "test-echo_get",
+        "summary": "test-echo",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "test-echo_post",
+        "summary": "test-echo",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "test-echo_put",
+        "summary": "test-echo",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "test-echo_delete",
+        "summary": "test-echo",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies-list": {
+      "get": {
+        "operationId": "companies-list_get",
+        "summary": "companies-list",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "companies-list_post",
+        "summary": "companies-list",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "companies-list_put",
+        "summary": "companies-list",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "companies-list_delete",
+        "summary": "companies-list",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/keywords-list": {
+      "get": {
+        "operationId": "keywords-list_get",
+        "summary": "keywords-list",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "keywords-list_post",
+        "summary": "keywords-list",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "keywords-list_put",
+        "summary": "keywords-list",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "keywords-list_delete",
+        "summary": "keywords-list",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload-logo-blob": {
+      "post": {
+        "operationId": "upload-logo-blob",
+        "summary": "upload-logo-blob",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/delete-logo-blob": {
+      "post": {
+        "operationId": "delete-logo-blob",
+        "summary": "delete-logo-blob",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/company-logo": {
+      "get": {
+        "operationId": "company-logo",
+        "summary": "company-logo",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/xadmin-api-logos/{companyId}": {
+      "put": {
+        "operationId": "xadmin-api-logos",
+        "summary": "xadmin-api-logos",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/retry-logo-import": {
+      "post": {
+        "operationId": "retry-logo-import",
+        "summary": "retry-logo-import",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/xadmin-api-keywords": {
+      "get": {
+        "operationId": "adminKeywords_get",
+        "summary": "adminKeywords",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "adminKeywords_put",
+        "summary": "adminKeywords",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-analytics": {
+      "get": {
+        "operationId": "adminAnalytics",
+        "summary": "adminAnalytics",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-apply-reviews-from-notes": {
+      "post": {
+        "operationId": "adminApplyReviewsFromNotes",
+        "summary": "adminApplyReviewsFromNotes",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-batch-update": {
+      "post": {
+        "operationId": "adminBatchUpdate",
+        "summary": "adminBatchUpdate",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-bulk-import-config": {
+      "get": {
+        "operationId": "adminBulkImportConfig",
+        "summary": "adminBulkImportConfig",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin/diag/triggers": {
+      "get": {
+        "operationId": "adminDiagTriggers",
+        "summary": "adminDiagTriggers",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-companies/{id?}": {
+      "get": {
+        "operationId": "adminCompanies_get",
+        "summary": "adminCompanies",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminCompanies_post",
+        "summary": "adminCompanies",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "adminCompanies_put",
+        "summary": "adminCompanies",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "adminCompanies_delete",
+        "summary": "adminCompanies",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin/companies/{company_id}/history": {
+      "get": {
+        "operationId": "adminCompanyHistory",
+        "summary": "adminCompanyHistory",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin-company-history": {
+      "get": {
+        "operationId": "adminCompanyHistoryAlias",
+        "summary": "adminCompanyHistoryAlias",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-debug": {
+      "get": {
+        "operationId": "adminDebug",
+        "summary": "adminDebug",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-echo": {
+      "get": {
+        "operationId": "adminEcho",
+        "summary": "adminEcho",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-import-stats": {
+      "get": {
+        "operationId": "adminImportStats",
+        "summary": "adminImportStats",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin/cleanup-import-placeholders": {
+      "post": {
+        "operationId": "admin-cleanup-import-placeholders",
+        "summary": "admin-cleanup-import-placeholders",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin/cleanup-seed-fallback-dups": {
+      "post": {
+        "operationId": "admin-cleanup-seed-fallback-dups",
+        "summary": "admin-cleanup-seed-fallback-dups",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-login": {
+      "post": {
+        "operationId": "adminLogin",
+        "summary": "adminLogin",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-notes": {
+      "get": {
+        "operationId": "adminNotes_get",
+        "summary": "adminNotes",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminNotes_post",
+        "summary": "adminNotes",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "adminNotes_put",
+        "summary": "adminNotes",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "adminNotes_delete",
+        "summary": "adminNotes",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-recalc-stars": {
+      "post": {
+        "operationId": "adminRecalcStars",
+        "summary": "adminRecalcStars",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-reviews": {
+      "get": {
+        "operationId": "adminReviews_get",
+        "summary": "adminReviews",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminReviews_post",
+        "summary": "adminReviews",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "adminReviews_put",
+        "summary": "adminReviews",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "adminReviews_delete",
+        "summary": "adminReviews",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-save-diagnostic": {
+      "get": {
+        "operationId": "adminSaveDiagnostic_get",
+        "summary": "adminSaveDiagnostic",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminSaveDiagnostic_post",
+        "summary": "adminSaveDiagnostic",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-star-config": {
+      "get": {
+        "operationId": "adminStarConfig_get",
+        "summary": "adminStarConfig",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "adminStarConfig_put",
+        "summary": "adminStarConfig",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-undo": {
+      "post": {
+        "operationId": "adminUndo",
+        "summary": "adminUndo",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-undo-history": {
+      "get": {
+        "operationId": "adminUndoHistory_get",
+        "summary": "adminUndoHistory",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "adminUndoHistory_delete",
+        "summary": "adminUndoHistory",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-update-logos": {
+      "post": {
+        "operationId": "adminUpdateLogos",
+        "summary": "adminUpdateLogos",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-recent-imports": {
+      "get": {
+        "operationId": "adminRecentImports",
+        "summary": "adminRecentImports",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-refresh-import": {
+      "post": {
+        "operationId": "adminRefreshImport",
+        "summary": "adminRefreshImport",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin-refresh-company": {
+      "get": {
+        "operationId": "adminRefreshCompany_get",
+        "summary": "adminRefreshCompany",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminRefreshCompany_post",
+        "summary": "adminRefreshCompany",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-refresh-company": {
+      "get": {
+        "operationId": "xadminApiRefreshCompany_get",
+        "summary": "xadminApiRefreshCompany",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "xadminApiRefreshCompany_post",
+        "summary": "xadminApiRefreshCompany",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/refresh-status": {
+      "get": {
+        "operationId": "refreshStatus",
+        "summary": "refreshStatus",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin-refresh-reviews": {
+      "get": {
+        "operationId": "adminRefreshReviews_get",
+        "summary": "adminRefreshReviews",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "adminRefreshReviews_post",
+        "summary": "adminRefreshReviews",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-refresh-reviews": {
+      "get": {
+        "operationId": "xadminApiRefreshReviews_get",
+        "summary": "xadminApiRefreshReviews",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "xadminApiRefreshReviews_post",
+        "summary": "xadminApiRefreshReviews",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/xadmin-api-geocode-location": {
+      "post": {
+        "operationId": "adminGeocodeLocation",
+        "summary": "adminGeocodeLocation",
+        "tags": [
+          "XAdmin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin-init-search-synonyms": {
+      "post": {
+        "operationId": "admin-init-search-synonyms",
+        "summary": "admin-init-search-synonyms",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    },
+    "/api/admin-backfill-search-text": {
+      "post": {
+        "operationId": "admin-backfill-search-text",
+        "summary": "admin-backfill-search-text",
+        "tags": [
+          "Admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "adminAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "adminAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-admin-key",
+        "description": "Admin API key required for admin and xadmin routes."
+      }
+    },
+    "schemas": {}
+  }
+}
