@@ -6,7 +6,6 @@ import { RatingDots, RatingHearts } from "@/components/Stars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { getQQDefaultIconType, getQQScore, hasQQRating } from "@/lib/stars/qqRating";
-import ShareButton from "@/components/ShareButton";
 
 const CompanyCard = ({ company, index }) => {
   const cardVariants = {

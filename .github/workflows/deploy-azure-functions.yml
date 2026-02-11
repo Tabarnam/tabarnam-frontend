@@ -1,15 +1,20 @@
 # .github/workflows/deploy-azure-functions.yml
-name: Deploy Azure Functions (Manual)
+name: Deploy Azure Functions
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - ".github/workflows/deploy-azure-functions.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: deploy-azure-functions-manual
-  cancel-in-progress: false
+  group: deploy-azure-functions
+  cancel-in-progress: true
 
 jobs:
   deploy-functions:

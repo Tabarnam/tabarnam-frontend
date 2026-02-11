@@ -1,6 +1,9 @@
 // api/index.js - register all functions (CommonJS / v4 app model)
 // Rebuild tick: 2026-01-28T00:58:00Z (fixed _app module path in import/resume-worker)
 const { app } = require("./_app");
+const { validateConfig } = require("./_validateConfig");
+
+validateConfig();
 
 console.log("[api/index.js] Starting handler registration...");
 

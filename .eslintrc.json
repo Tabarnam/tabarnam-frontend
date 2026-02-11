@@ -1,0 +1,13 @@
+{
+  "extends": ["react-app"],
+  "env": {
+    "browser": true,
+    "es2021": true,
+    "node": true
+  },
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-console": "off"
+  },
+  "ignorePatterns": ["dist/", "node_modules/", "api/", "worker/", "scripts/"]
+}
