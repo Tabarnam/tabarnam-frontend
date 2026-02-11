@@ -32,25 +32,25 @@
   }
 
   .dark {
-    /* Deep Ocean palette — Hue 187 throughout */
+    /* Deep Ocean palette — Hue 187, near-neutral structural colors */
     --background: 187 50% 6%;          /* #081A1C — almost-black, rich teal undertone */
-    --foreground: 187 15% 90%;         /* light teal-white for body text */
-    --card: 187 45% 10%;               /* #0E2A2E — slightly lifted panels */
-    --card-foreground: 187 15% 90%;
-    --popover: 187 45% 10%;
-    --popover-foreground: 187 15% 90%;
+    --foreground: 187 10% 93%;         /* near-white text, barely teal */
+    --card: 187 15% 11%;               /* subtle panel lift, no green glow */
+    --card-foreground: 187 10% 93%;
+    --popover: 187 15% 11%;
+    --popover-foreground: 187 10% 93%;
     --primary: 187 47% 45%;            /* #3F97A2 — Outline Bold, pops on dark */
     --primary-foreground: 187 50% 6%;
-    --secondary: 187 25% 16%;          /* desaturated panel/structure color */
-    --secondary-foreground: 187 15% 90%;
-    --muted: 187 25% 16%;
-    --muted-foreground: 187 20% 55%;   /* #758E92 — readable but recessive */
-    --accent: 187 25% 16%;
-    --accent-foreground: 187 15% 90%;
+    --secondary: 187 12% 15%;          /* near-neutral panel/structure */
+    --secondary-foreground: 187 10% 93%;
+    --muted: 187 12% 15%;
+    --muted-foreground: 187 15% 55%;   /* recessive text, slightly desaturated */
+    --accent: 187 12% 15%;
+    --accent-foreground: 187 10% 93%;
     --destructive: 0 62.8% 40%;        /* warmer red visible on dark bg */
     --destructive-foreground: 0 0% 98%;
-    --border: 187 20% 20%;             /* quiet neutral border, hint of teal */
-    --input: 187 25% 22%;              /* slightly more visible for input fields */
+    --border: 187 10% 18%;             /* near-neutral border, whisper of teal */
+    --input: 187 12% 20%;              /* slightly more visible for input fields */
     --ring: 187 47% 45%;               /* focus ring = accent */
     --chart-1: 187 60% 50%;
     --chart-2: 160 60% 45%;
