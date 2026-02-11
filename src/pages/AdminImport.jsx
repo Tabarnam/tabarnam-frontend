@@ -3750,13 +3750,13 @@ export default function AdminImport() {
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-slate-50 dark:bg-background">
         <AdminHeader />
 
         <main className="container mx-auto py-6 px-4 space-y-6">
           <header className="flex flex-col gap-2">
-            <h1 className="text-3xl font-bold text-slate-900">Company Import</h1>
-            <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-foreground">Company Import</h1>
+            <p className="text-sm text-slate-600 dark:text-muted-foreground">Start an import session and poll progress until it completes.</p>
           </header>
 
           {/* Error status */}
@@ -3955,12 +3955,12 @@ export default function AdminImport() {
             </div>
           ) : null}
 
-          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+          <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
               {successionCount <= 1 ? (
                 <>
                   <div className="lg:col-span-2 space-y-1">
-                    <label className="text-sm text-slate-700">Company Name</label>
+                    <label className="text-sm text-slate-700 dark:text-muted-foreground">Company Name</label>
                     <Input
                       value={query}
                       onChange={(e) => {
@@ -3977,7 +3977,7 @@ export default function AdminImport() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-sm text-slate-700">Company URL</label>
+                    <label className="text-sm text-slate-700 dark:text-muted-foreground">Company URL</label>
                     <Input
                       value={companyUrl}
                       onChange={(e) => {
@@ -3995,7 +3995,7 @@ export default function AdminImport() {
               ) : null}
 
               <div className={successionCount > 1 ? "lg:col-span-3 space-y-1" : "space-y-1"}>
-                <label className="text-sm text-slate-700">Location (optional)</label>
+                <label className="text-sm text-slate-700 dark:text-muted-foreground">Location (optional)</label>
                 <Input
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
@@ -4004,7 +4004,7 @@ export default function AdminImport() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm text-slate-700"># of Imports to Run in Succession</label>
+                <label className="text-sm text-slate-700 dark:text-muted-foreground"># of Imports to Run in Succession</label>
                 <Input
                   value={successionCountInput}
                   onChange={(e) => {
@@ -4022,12 +4022,12 @@ export default function AdminImport() {
 
             {successionCount > 1 ? (
               <div className="space-y-2">
-                <div className="text-sm font-medium text-slate-700">Import queue ({successionCount} companies)</div>
+                <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Import queue ({successionCount} companies)</div>
                 {successionRows.map((row, i) => (
                   <div key={i} className="grid grid-cols-[2rem_2fr_1fr] gap-2 items-end">
-                    <div className="text-xs text-slate-500 text-right pb-2">{i + 1}.</div>
+                    <div className="text-xs text-slate-500 dark:text-muted-foreground text-right pb-2">{i + 1}.</div>
                     <div className="space-y-1">
-                      {i === 0 ? <label className="text-xs text-slate-500">Company Name</label> : null}
+                      {i === 0 ? <label className="text-xs text-slate-500 dark:text-muted-foreground">Company Name</label> : null}
                       <Input
                         value={row.companyName}
                         onChange={(e) => updateSuccessionRow(i, "companyName", e.target.value)}
@@ -4036,7 +4036,7 @@ export default function AdminImport() {
                       />
                     </div>
                     <div className="space-y-1">
-                      {i === 0 ? <label className="text-xs text-slate-500">Company URL</label> : null}
+                      {i === 0 ? <label className="text-xs text-slate-500 dark:text-muted-foreground">Company URL</label> : null}
                       <Input
                         value={row.companyUrl}
                         onChange={(e) => updateSuccessionRow(i, "companyUrl", e.target.value)}
@@ -4050,7 +4050,7 @@ export default function AdminImport() {
             ) : null}
 
             <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-700">Query types</div>
+              <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Query types</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {[
                   { key: "product_keyword", label: "Keyword" },
@@ -4062,7 +4062,7 @@ export default function AdminImport() {
                 ].map((opt) => (
                   <label
                     key={opt.key}
-                    className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+                    className="flex items-center gap-2 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-sm text-slate-800 dark:text-foreground"
                   >
                     <input
                       type="checkbox"
@@ -4086,14 +4086,14 @@ export default function AdminImport() {
               ) : urlTypeValidationError ? (
                 <div className="text-xs text-red-700">{urlTypeValidationError}</div>
               ) : (
-                <div className="text-xs text-slate-600">If you provide a location, results that match it are ranked higher.</div>
+                <div className="text-xs text-slate-600 dark:text-muted-foreground">If you provide a location, results that match it are ranked higher.</div>
               )}
             </div>
 
-            <details className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
-              <summary className="cursor-pointer select-none text-sm font-medium text-slate-800">Advanced import config</summary>
+            <details className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
+              <summary className="cursor-pointer select-none text-sm font-medium text-slate-800 dark:text-foreground">Advanced import config</summary>
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-3 text-xs text-slate-600 space-y-1">
+                <div className="sm:col-span-3 text-xs text-slate-600 dark:text-muted-foreground space-y-1">
                   <div>
                     <span className="font-semibold">Safety rule:</span> the initial “Start import” call always sends max_stage=expand, skip_stages=(none),
                     dry_run=false.
@@ -4106,7 +4106,7 @@ export default function AdminImport() {
               </div>
             </details>
 
-            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 space-y-1">
+            <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-xs text-slate-700 dark:text-muted-foreground space-y-1">
               <div>
                 <span className="font-semibold">Pipeline:</span> {effectiveImportConfig.pipeline}
               </div>
@@ -4293,13 +4293,13 @@ export default function AdminImport() {
               ) : null}
 
               {activeSessionId ? (
-                <div className="text-sm text-slate-700">
+                <div className="text-sm text-slate-700 dark:text-muted-foreground">
                   Session:{" "}
-                  <code className="rounded bg-slate-100 px-1 py-0.5">{activeRun?.session_id_confirmed ? activeSessionId : "—"}</code>
+                  <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{activeRun?.session_id_confirmed ? activeSessionId : "—"}</code>
                 </div>
               ) : null}
 
-              {activeSummary ? <div className="text-sm text-slate-600">{activeSummary}</div> : null}
+              {activeSummary ? <div className="text-sm text-slate-600 dark:text-muted-foreground">{activeSummary}</div> : null}
             </div>
 
             {activeAsyncPrimaryMessage ? (
@@ -4309,18 +4309,18 @@ export default function AdminImport() {
             ) : null}
 
             {explainResponseText ? (
-              <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-medium text-slate-700">Explain payload response</div>
-                <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(explainResponseText)}</pre>
+              <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3">
+                <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Explain payload response</div>
+                <pre className="mt-2 max-h-64 overflow-auto rounded bg-white dark:bg-card p-2 text-[11px] leading-relaxed text-slate-900 dark:text-foreground">{toDisplayText(explainResponseText)}</pre>
               </div>
             ) : null}
 
             {lastRequestExplain ? (
-              <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <div className="text-xs font-medium text-slate-700">Last request repro (Windows PowerShell)</div>
-                    <div className="mt-0.5 text-[11px] text-slate-600">
+                    <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Last request repro (Windows PowerShell)</div>
+                    <div className="mt-0.5 text-[11px] text-slate-600 dark:text-muted-foreground">
                       Uses a here-string and writes JSON to a file first to avoid PowerShell + curl quoting issues.
                     </div>
                   </div>
@@ -4363,17 +4363,17 @@ export default function AdminImport() {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div className="rounded border border-slate-200 bg-white p-2">
-                    <div className="text-[11px] font-medium text-slate-700">Request</div>
-                    <div className="mt-1 text-[11px] text-slate-700">
+                  <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
+                    <div className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Request</div>
+                    <div className="mt-1 text-[11px] text-slate-700 dark:text-muted-foreground">
                       <span className="font-medium">{lastRequestExplain.method}</span> {toAbsoluteUrlForRepro(lastRequestExplain.url)}
                     </div>
-                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 text-[11px] leading-snug text-slate-900">{toDisplayText(lastRequestExplain)}</pre>
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 dark:bg-muted p-2 text-[11px] leading-snug text-slate-900 dark:text-foreground">{toDisplayText(lastRequestExplain)}</pre>
                   </div>
 
-                  <div className="rounded border border-slate-200 bg-white p-2">
-                    <div className="text-[11px] font-medium text-slate-700">PowerShell script (curl.exe via @file)</div>
-                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 text-[11px] leading-snug text-slate-900">
+                  <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
+                    <div className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">PowerShell script (curl.exe via @file)</div>
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 dark:bg-muted p-2 text-[11px] leading-snug text-slate-900 dark:text-foreground">
                       {lastRequestWindowsCurlScript || "Run an import to generate a repro."}
                     </pre>
                   </div>
@@ -4443,7 +4443,7 @@ export default function AdminImport() {
                   };
 
                   return (
-                    <div className="rounded border border-red-200 bg-white/60 p-2 text-xs text-red-900 space-y-2">
+                    <div className="rounded border border-red-200 bg-white dark:bg-card/60 p-2 text-xs text-red-900 space-y-2">
                       <div className="space-y-1">
                         <Row label="error.code" value={code} />
                         <Row label="error.message" value={message} />
@@ -4531,11 +4531,11 @@ export default function AdminImport() {
           </section>
 
           {/* Bulk Import Section */}
-          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+          <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-4">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-slate-900">Bulk Import Queue</h2>
-                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Bulk Import Queue</h2>
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-muted-foreground cursor-pointer">
                   <input
                     type="checkbox"
                     checked={bulkMode}
@@ -4546,8 +4546,8 @@ export default function AdminImport() {
                 </label>
               </div>
               {activeBatchId && batchJobs.length > 0 ? (
-                <div className="text-sm text-slate-600">
-                  Batch: <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">{activeBatchId.slice(0, 8)}...</code>
+                <div className="text-sm text-slate-600 dark:text-muted-foreground">
+                  Batch: <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 text-xs">{activeBatchId.slice(0, 8)}...</code>
                 </div>
               ) : null}
             </div>
@@ -4555,15 +4555,15 @@ export default function AdminImport() {
             {bulkMode ? (
               <>
                 <div className="space-y-2">
-                  <label className="text-sm text-slate-700">Company URLs (one per line, max 50)</label>
+                  <label className="text-sm text-slate-700 dark:text-muted-foreground">Company URLs (one per line, max 50)</label>
                   <textarea
                     value={bulkUrls}
                     onChange={(e) => setBulkUrls(e.target.value)}
                     placeholder={"https://example.com\nhttps://another-company.com\nhttps://third-company.com"}
-                    className="w-full h-32 rounded border border-slate-300 bg-white px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full h-32 rounded border border-slate-300 bg-white dark:bg-card px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <div className="flex items-center justify-between">
-                    <div className="text-xs text-slate-500">{bulkUrlCount} URL{bulkUrlCount !== 1 ? "s" : ""} entered</div>
+                    <div className="text-xs text-slate-500 dark:text-muted-foreground">{bulkUrlCount} URL{bulkUrlCount !== 1 ? "s" : ""} entered</div>
                     <Button
                       onClick={handleBulkEnqueue}
                       disabled={bulkEnqueueLoading || bulkUrlCount === 0}
@@ -4575,13 +4575,13 @@ export default function AdminImport() {
 
                 {batchJobs.length > 0 ? (
                   <div className="space-y-2">
-                    <div className="text-sm font-medium text-slate-700">Queue Progress</div>
-                    <div className="rounded border border-slate-200 divide-y divide-slate-200 max-h-64 overflow-y-auto">
+                    <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Queue Progress</div>
+                    <div className="rounded border border-slate-200 dark:border-border divide-y divide-slate-200 max-h-64 overflow-y-auto">
                       {batchJobs.map((job) => (
                         <div key={job.job_id} className="flex items-center gap-3 px-3 py-2 text-sm">
                           <div className="flex-shrink-0">
                             {job.status === "queued" ? (
-                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                              <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-muted px-2 py-0.5 text-xs font-medium text-slate-600 dark:text-muted-foreground">
                                 Queued
                               </span>
                             ) : job.status === "running" ? (
@@ -4598,12 +4598,12 @@ export default function AdminImport() {
                                 Failed
                               </span>
                             ) : (
-                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                              <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-muted px-2 py-0.5 text-xs font-medium text-slate-600 dark:text-muted-foreground">
                                 {job.status || "Unknown"}
                               </span>
                             )}
                           </div>
-                          <div className="flex-1 min-w-0 truncate font-mono text-xs text-slate-600" title={job.url}>
+                          <div className="flex-1 min-w-0 truncate font-mono text-xs text-slate-600 dark:text-muted-foreground" title={job.url}>
                             {job.url}
                           </div>
                           {job.session_id ? (
@@ -4631,7 +4631,7 @@ export default function AdminImport() {
                         </div>
                       ))}
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-slate-500">
+                    <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-muted-foreground">
                       <span>Queued: {batchJobs.filter((j) => j.status === "queued").length}</span>
                       <span>Running: {batchJobs.filter((j) => j.status === "running").length}</span>
                       <span>Completed: {batchJobs.filter((j) => j.status === "completed").length}</span>
@@ -4641,23 +4641,23 @@ export default function AdminImport() {
                 ) : null}
               </>
             ) : (
-              <div className="text-sm text-slate-500">
+              <div className="text-sm text-slate-500 dark:text-muted-foreground">
                 Enable bulk mode to queue multiple company URLs for sequential import.
               </div>
             )}
           </section>
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold text-slate-900">Active results</h2>
-                <div className="text-sm text-slate-600">{activeItemsCount} companies</div>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Active results</h2>
+                <div className="text-sm text-slate-600 dark:text-muted-foreground">{activeItemsCount} companies</div>
               </div>
 
               {!activeSessionId ? (
-                <div className="mt-4 text-sm text-slate-600">Start an import to see results.</div>
+                <div className="mt-4 text-sm text-slate-600 dark:text-muted-foreground">Start an import to see results.</div>
               ) : activeIsTerminal && activeSavedCount === 0 ? (
-                <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-1">
+                <div className="mt-4 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-sm text-slate-700 dark:text-muted-foreground space-y-1">
                   {(() => {
                     const stageBeacon = asString(activeRun?.final_stage_beacon || activeRun?.stage_beacon || activeRun?.last_stage_beacon).trim();
                     const isSkipped = isPrimarySkippedCompanyUrl(stageBeacon);
@@ -4669,9 +4669,9 @@ export default function AdminImport() {
                     return (
                       <>
                         <div className="font-medium">{isSkipped ? "Skipped: company not persisted" : "Completed: no company persisted"}</div>
-                        <div className="text-slate-600">{plainEnglishProgress.reasonText || "No company was saved for this run."}</div>
+                        <div className="text-slate-600 dark:text-muted-foreground">{plainEnglishProgress.reasonText || "No company was saved for this run."}</div>
                         {failureLine ? <div className="text-red-700 break-words">{failureLine}</div> : null}
-                        {isSkipped ? <div className="text-slate-600">Reviews stage did not run (company was never saved).</div> : null}
+                        {isSkipped ? <div className="text-slate-600 dark:text-muted-foreground">Reviews stage did not run (company was never saved).</div> : null}
                       </>
                     );
                   })()}
@@ -4744,10 +4744,10 @@ export default function AdminImport() {
                     if (shouldEvaluateKeywords && keywordsList.length === 0) issues.push("missing keywords");
 
                     return (
-                      <div key={asString(c?.id || c?.company_id)} className="rounded border border-slate-200 p-3">
+                      <div key={asString(c?.id || c?.company_id)} className="rounded border border-slate-200 dark:border-border p-3">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <div className="font-semibold text-slate-900">{name}</div>
+                            <div className="font-semibold text-slate-900 dark:text-foreground">{name}</div>
                             {displayUrl ? (
                               <div className="mt-1 flex flex-wrap items-center gap-2">
                                 <a
@@ -4765,7 +4765,7 @@ export default function AdminImport() {
                                 ) : null}
                               </div>
                             ) : (
-                              <div className="text-sm text-slate-500">No URL</div>
+                              <div className="text-sm text-slate-500 dark:text-muted-foreground">No URL</div>
                             )}
                           </div>
 
@@ -4778,7 +4778,7 @@ export default function AdminImport() {
                         </div>
 
                         {keywordsText ? (
-                          <div className="mt-2 text-xs text-slate-600">{keywordsText}</div>
+                          <div className="mt-2 text-xs text-slate-600 dark:text-muted-foreground">{keywordsText}</div>
                         ) : null}
 
                         {(() => {
@@ -4807,13 +4807,13 @@ export default function AdminImport() {
                                 ? "border-sky-200 bg-sky-50 text-sky-900"
                                 : statusKind === "warning"
                                   ? "border-amber-200 bg-amber-50 text-amber-900"
-                                  : "border-slate-200 bg-slate-50 text-slate-700";
+                                  : "border-slate-200 dark:border-border bg-slate-50 dark:bg-muted text-slate-700 dark:text-muted-foreground";
 
                           if (!companyId && !stageStatus && reviewCount === 0) return null;
 
                           return (
                             <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-                              <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">
+                              <span className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-2 py-0.5 text-slate-700 dark:text-muted-foreground">
                                 review_count: {reviewCount}
                               </span>
                               {stageStatus ? (
@@ -4823,7 +4823,7 @@ export default function AdminImport() {
                               ) : null}
                               {companyId ? (
                                 <a
-                                  className="rounded border border-slate-200 bg-white px-2 py-0.5 text-slate-700 hover:bg-slate-50"
+                                  className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-0.5 text-slate-700 dark:text-muted-foreground hover:bg-slate-50 dark:bg-muted dark:hover:bg-accent"
                                   href={`/admin?company_id=${encodeURIComponent(companyId)}#reviews`}
                                   onClick={(e) => e.stopPropagation()}
                                 >
@@ -4840,11 +4840,11 @@ export default function AdminImport() {
               )}
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-5">
-              <h2 className="text-lg font-semibold text-slate-900">Run history</h2>
+            <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Run history</h2>
               <div className="mt-4 space-y-2 max-h-[520px] overflow-auto">
                 {runs.length === 0 ? (
-                  <div className="text-sm text-slate-600">No runs yet.</div>
+                  <div className="text-sm text-slate-600 dark:text-muted-foreground">No runs yet.</div>
                 ) : (
                   runs.map((r) => {
                     const savedCompanies = Array.isArray(r.saved_companies) ? r.saved_companies : [];
@@ -5029,7 +5029,7 @@ export default function AdminImport() {
                                 ? "border-amber-200 bg-amber-50 text-amber-900"
                                 : "border-emerald-200 bg-emerald-50 text-emerald-800"
                               : isCompleteNoSave
-                                ? "border-slate-200 bg-slate-50 text-slate-700"
+                                ? "border-slate-200 dark:border-border bg-slate-50 dark:bg-muted text-slate-700 dark:text-muted-foreground"
                                 : "border-sky-200 bg-sky-50 text-sky-800";
 
                     return (
@@ -5039,8 +5039,8 @@ export default function AdminImport() {
                         tabIndex={0}
                         className={`w-full text-left rounded border p-3 transition cursor-pointer ${
                           r.session_id === activeSessionId
-                            ? "border-slate-900 bg-slate-50"
-                            : "border-slate-200 bg-white hover:bg-slate-50"
+                            ? "border-slate-900 bg-slate-50 dark:bg-muted"
+                            : "border-slate-200 dark:border-border bg-white dark:bg-card hover:bg-slate-50 dark:bg-muted dark:hover:bg-accent"
                         }`}
                         onClick={() => setActiveSessionId(r.session_id)}
                         onKeyDown={(e) => {
@@ -5049,7 +5049,7 @@ export default function AdminImport() {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="font-semibold text-slate-900 truncate">{companyName}</div>
+                            <div className="font-semibold text-slate-900 dark:text-foreground truncate">{companyName}</div>
                             {websiteUrl ? (
                               <div className="mt-1 flex flex-wrap items-center gap-2">
                                 <a
@@ -5068,15 +5068,15 @@ export default function AdminImport() {
                                 ) : null}
                               </div>
                             ) : (
-                              <div className="mt-1 text-xs text-slate-500">No URL</div>
+                              <div className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">No URL</div>
                             )}
-                            <div className="mt-1 text-xs text-slate-600 truncate">Query: {r.query}</div>
+                            <div className="mt-1 text-xs text-slate-600 dark:text-muted-foreground truncate">Query: {r.query}</div>
                           </div>
 
-                          <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
+                          <div className="flex flex-col items-end gap-2 text-xs text-slate-600 dark:text-muted-foreground">
                             <div className="flex items-center gap-2">
                               <span>Persisted: {savedCount}</span>
-                              <span className="text-slate-500">Verified: {savedVerifiedCount}</span>
+                              <span className="text-slate-500 dark:text-muted-foreground">Verified: {savedVerifiedCount}</span>
                               <span className={`rounded border px-2 py-0.5 text-[11px] ${statusBadgeClass}`}>{statusLabel}</span>
                               <Button
                                 variant="outline"
@@ -5139,17 +5139,17 @@ export default function AdminImport() {
                           </div>
                         </div>
 
-                        <div className="mt-2 text-xs text-slate-600">
-                          <code className="rounded bg-slate-100 px-1 py-0.5">{r.session_id}</code>
+                        <div className="mt-2 text-xs text-slate-600 dark:text-muted-foreground">
+                          <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{r.session_id}</code>
                         </div>
-                        <div className="mt-1 text-xs text-slate-500">{new Date(r.startedAt).toLocaleString()}</div>
+                        <div className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">{new Date(r.startedAt).toLocaleString()}</div>
                       </div>
                     );
                   })
                 )}
 
                 {activeRun ? (
-                  <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800 space-y-2">
+                  <div className="mt-4 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-sm text-slate-800 dark:text-foreground space-y-2">
                     {(() => {
                       const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
@@ -5281,7 +5281,7 @@ export default function AdminImport() {
                         <>
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="font-semibold text-slate-900">{companyName}</div>
+                              <div className="font-semibold text-slate-900 dark:text-foreground">{companyName}</div>
                               {websiteUrl ? (
                                 <div className="mt-1 flex flex-wrap items-center gap-2">
                                   <a
@@ -5299,7 +5299,7 @@ export default function AdminImport() {
                                   ) : null}
                                 </div>
                               ) : (
-                                <div className="mt-1 text-sm text-slate-600">No URL</div>
+                                <div className="mt-1 text-sm text-slate-600 dark:text-muted-foreground">No URL</div>
                               )}
 
                               {primaryDocError && persistedCount > 0 ? (
@@ -5308,8 +5308,8 @@ export default function AdminImport() {
                                 </div>
                               ) : null}
                             </div>
-                            <div className="text-sm text-slate-700">
-                              Persisted: {persistedCount} <span className="text-slate-500">(verified: {savedVerifiedCount})</span>
+                            <div className="text-sm text-slate-700 dark:text-muted-foreground">
+                              Persisted: {persistedCount} <span className="text-slate-500 dark:text-muted-foreground">(verified: {savedVerifiedCount})</span>
                             </div>
                           </div>
 
@@ -5360,8 +5360,8 @@ export default function AdminImport() {
                           ) : null}
 
                           {primaryDoc ? (
-                            <details className="mt-2 rounded border border-slate-200 bg-white p-3">
-                              <summary className="cursor-pointer text-xs font-medium text-slate-800">
+                            <details className="mt-2 rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-3">
+                              <summary className="cursor-pointer text-xs font-medium text-slate-800 dark:text-foreground">
                                 Location sources (admin debug)
                               </summary>
                               {(() => {
@@ -5378,15 +5378,15 @@ export default function AdminImport() {
                                 const mfgUrls = Array.isArray(debugSources?.mfg_source_urls) ? debugSources.mfg_source_urls : [];
 
                                 if (locationSources.length === 0 && hqUrls.length === 0 && mfgUrls.length === 0) {
-                                  return <div className="mt-2 text-xs text-slate-600">No location sources recorded.</div>;
+                                  return <div className="mt-2 text-xs text-slate-600 dark:text-muted-foreground">No location sources recorded.</div>;
                                 }
 
                                 return (
                                   <div className="mt-2 space-y-3">
                                     {locationSources.length > 0 ? (
                                       <div>
-                                        <div className="text-xs font-medium text-slate-800">location_sources</div>
-                                        <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                                        <div className="text-xs font-medium text-slate-800 dark:text-foreground">location_sources</div>
+                                        <ul className="mt-1 space-y-1 text-xs text-slate-700 dark:text-muted-foreground">
                                           {locationSources.slice(0, 20).map((s, idx) => {
                                             const location = asString(s?.location).trim();
                                             const type = asString(s?.location_type).trim();
@@ -5413,8 +5413,8 @@ export default function AdminImport() {
 
                                     {hqUrls.length > 0 ? (
                                       <div>
-                                        <div className="text-xs font-medium text-slate-800">enrichment_debug.location_sources.hq_source_urls</div>
-                                        <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                                        <div className="text-xs font-medium text-slate-800 dark:text-foreground">enrichment_debug.location_sources.hq_source_urls</div>
+                                        <ul className="mt-1 space-y-1 text-xs text-slate-700 dark:text-muted-foreground">
                                           {hqUrls.slice(0, 12).map((url, idx) => {
                                             const u = asString(url).trim();
                                             return u ? (
@@ -5431,8 +5431,8 @@ export default function AdminImport() {
 
                                     {mfgUrls.length > 0 ? (
                                       <div>
-                                        <div className="text-xs font-medium text-slate-800">enrichment_debug.location_sources.mfg_source_urls</div>
-                                        <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                                        <div className="text-xs font-medium text-slate-800 dark:text-foreground">enrichment_debug.location_sources.mfg_source_urls</div>
+                                        <ul className="mt-1 space-y-1 text-xs text-slate-700 dark:text-muted-foreground">
                                           {mfgUrls.slice(0, 12).map((url, idx) => {
                                             const u = asString(url).trim();
                                             return u ? (
@@ -5691,12 +5691,12 @@ export default function AdminImport() {
                             </div>
                           ) : null}
 
-                          <div className="mt-3 rounded border border-slate-200 bg-white p-3 space-y-2">
+                          <div className="mt-3 rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-3 space-y-2">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div>
-                                <div className="text-sm font-medium text-slate-900">Resume Diagnostics</div>
-                                <div className="mt-0.5 text-[11px] text-slate-600">
-                                  Populated from <code className="rounded bg-slate-100 px-1 py-0.5">/api/import/status</code>. Click “View status” to refresh.
+                                <div className="text-sm font-medium text-slate-900 dark:text-foreground">Resume Diagnostics</div>
+                                <div className="mt-0.5 text-[11px] text-slate-600 dark:text-muted-foreground">
+                                  Populated from <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">/api/import/status</code>. Click “View status” to refresh.
                                 </div>
                               </div>
 
@@ -5763,31 +5763,31 @@ export default function AdminImport() {
                               const missingTerminal = Number(stageBeaconValues.status_resume_missing_terminal);
 
                               return (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-700">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-700 dark:text-muted-foreground">
                                   <div>
                                     <span className="font-medium">build_id:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{buildId || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{buildId || "—"}</code>
                                   </div>
                                   <div>
                                     <span className="font-medium">resume.gateway_key_attached:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5">{String(resume?.gateway_key_attached ?? "—")}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{String(resume?.gateway_key_attached ?? "—")}</code>
                                   </div>
                                   <div className="md:col-span-2">
                                     <span className="font-medium">resume.trigger_request_id:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{asString(resume?.trigger_request_id).trim() || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{asString(resume?.trigger_request_id).trim() || "—"}</code>
                                   </div>
 
                                   <div>
                                     <span className="font-medium">resume.status:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5">{resumeStatus || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{resumeStatus || "—"}</code>
                                   </div>
                                   <div>
                                     <span className="font-medium">resume_worker.last_result:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5">{resumeWorkerLastResult || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{resumeWorkerLastResult || "—"}</code>
                                   </div>
                                   <div className="md:col-span-2">
                                     <span className="font-medium">missing fields:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5">
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">
                                       {Number.isFinite(missingRetryable) ? missingRetryable : "—"} retryable ·{" "}
                                       {Number.isFinite(missingTerminal) ? missingTerminal : "—"} terminal
                                       {Boolean(stageBeaconValues.status_resume_terminal_only) ? " · terminal-only" : ""}
@@ -5795,44 +5795,44 @@ export default function AdminImport() {
                                   </div>
                                   <div>
                                     <span className="font-medium">resume_worker.last_invoked_at:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{resumeWorkerLastInvokedAt || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{resumeWorkerLastInvokedAt || "—"}</code>
                                   </div>
                                   <div>
                                     <span className="font-medium">resume_worker.last_finished_at:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{resumeWorkerLastFinishedAt || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{resumeWorkerLastFinishedAt || "—"}</code>
                                   </div>
 
                                   <div>
                                     <span className="font-medium">resume_worker_handler_entered_at:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{handlerEnteredAt || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{handlerEnteredAt || "—"}</code>
                                   </div>
                                   <div>
                                     <span className="font-medium">resume_worker_handler_build_id:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{handlerBuildId || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{handlerBuildId || "—"}</code>
                                   </div>
                                   <div>
                                     <span className="font-medium">resume_worker_last_http_status:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5">{lastHttpStatus != null ? lastHttpStatus : "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{lastHttpStatus != null ? lastHttpStatus : "—"}</code>
                                   </div>
                                   <div>
                                     <span className="font-medium">resume_worker_last_reject_layer:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5">{lastRejectLayer || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{lastRejectLayer || "—"}</code>
                                   </div>
                                   <div>
                                     <span className="font-medium">resume_worker_last_auth.auth_ok:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5">{authOk || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{authOk || "—"}</code>
                                   </div>
                                   <div>
                                     <span className="font-medium">resume_worker_last_auth.auth_method_used:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5">{authMethodUsed || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{authMethodUsed || "—"}</code>
                                   </div>
                                   <div className="md:col-span-2">
                                     <span className="font-medium">resume_worker_last_auth.secret_source:</span>{" "}
-                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{secretSource || "—"}</code>
+                                    <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{secretSource || "—"}</code>
                                   </div>
 
                                   {!statusBody ? (
-                                    <div className="md:col-span-2 text-[11px] text-slate-500">
+                                    <div className="md:col-span-2 text-[11px] text-slate-500 dark:text-muted-foreground">
                                       No status payload captured yet — click “View status”.
                                     </div>
                                   ) : null}
@@ -5840,9 +5840,9 @@ export default function AdminImport() {
                               );
                             })()}
 
-                            <details className="rounded border border-slate-200 bg-slate-50 p-2">
-                              <summary className="cursor-pointer select-none text-xs font-medium text-slate-700">Raw status JSON</summary>
-                              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-800">
+                            <details className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-2">
+                              <summary className="cursor-pointer select-none text-xs font-medium text-slate-700 dark:text-muted-foreground">Raw status JSON</summary>
+                              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-800 dark:text-foreground">
                                 {activeRun?.last_status_body ? toPrettyJsonText(activeRun.last_status_body) : "No status payload yet."}
                               </pre>
                             </details>
@@ -5856,82 +5856,82 @@ export default function AdminImport() {
             </div>
           </section>
 
-          <div className="pt-2 text-xs text-slate-500">
+          <div className="pt-2 text-xs text-slate-500 dark:text-muted-foreground">
             API Version:{" "}
             {apiVersionLoading ? (
               <span>loading…</span>
             ) : apiVersion && typeof apiVersion === "object" ? (
               <span>
-                <code className="rounded bg-slate-100 px-1 py-0.5">{String(apiVersion?.source || "unknown")}</code>{" "}
-                <code className="rounded bg-slate-100 px-1 py-0.5">{String(apiVersion?.build_id || "unknown")}</code>
+                <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{String(apiVersion?.source || "unknown")}</code>{" "}
+                <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{String(apiVersion?.build_id || "unknown")}</code>
               </span>
             ) : (
               <span>unknown</span>
             )}
           </div>
 
-          <div className="rounded border border-slate-200 bg-white p-3 text-xs text-slate-700 space-y-1">
+          <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-3 text-xs text-slate-700 dark:text-muted-foreground space-y-1">
             <div>
               <span className="font-medium">FUNCTIONS_BASE:</span>{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{FUNCTIONS_BASE || "(same-origin)"}</code>
+              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{FUNCTIONS_BASE || "(same-origin)"}</code>
             </div>
             <div>
               <span className="font-medium">API_BASE:</span>{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{API_BASE}</code>
+              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{API_BASE}</code>
             </div>
             <div>
               <span className="font-medium">Start URL (try 1):</span>{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">POST {join(API_BASE, "/import/start")}</code>
+              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">POST {join(API_BASE, "/import/start")}</code>
             </div>
             <div>
               <span className="font-medium">Start URL (try 2):</span>{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">POST {join(API_BASE, "/import-start")}</code>
+              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">POST {join(API_BASE, "/import-start")}</code>
             </div>
             <div>
               <span className="font-medium">Status URL (try 1):</span>{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import/status")}</code>
+              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">GET {join(API_BASE, "/import/status")}</code>
             </div>
             <div>
               <span className="font-medium">Status URL (deprecated):</span>{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import-status")}</code>
+              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">GET {join(API_BASE, "/import-status")}</code>
             </div>
           </div>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+          <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold text-slate-900">Import progress (plain English)</h2>
-              <div className="text-xs text-slate-500">Shows what the importer is doing without reading logs.</div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Import progress (plain English)</h2>
+              <div className="text-xs text-slate-500 dark:text-muted-foreground">Shows what the importer is doing without reading logs.</div>
             </div>
 
-            <div className="rounded border border-slate-200 bg-slate-50 p-4 space-y-2">
+            <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-4 space-y-2">
               {!plainEnglishProgress.hasRun ? (
-                <div className="text-sm text-slate-700">Start an import to see a step-by-step explanation.</div>
+                <div className="text-sm text-slate-700 dark:text-muted-foreground">Start an import to see a step-by-step explanation.</div>
               ) : (
                 <>
-                  <div className="text-sm text-slate-900">
+                  <div className="text-sm text-slate-900 dark:text-foreground">
                     <span className="font-medium">{plainEnglishProgress.isTerminal ? "Final step:" : "Current step:"}</span>{" "}
                     {plainEnglishProgress.stepText || (activeStatus === "running" ? "Starting import…" : "Waiting for the next update…")}
                   </div>
 
                   {plainEnglishProgress.isTerminal ? (
                     <>
-                      <div className="text-sm text-slate-900">
+                      <div className="text-sm text-slate-900 dark:text-foreground">
                         <span className="font-medium">{plainEnglishProgress.terminalKind === "error" ? "Stopped at:" : "Finished at:"}</span>{" "}
                         {plainEnglishProgress.stepText || "—"}
                       </div>
 
                       {plainEnglishProgress.terminalKind === "error" ? (
-                        <div className="text-sm text-slate-900">
+                        <div className="text-sm text-slate-900 dark:text-foreground">
                           <span className="font-medium">Reason:</span> {plainEnglishProgress.reasonText || "Import failed."}
                         </div>
                       ) : (
-                        <div className="text-sm text-slate-900">
+                        <div className="text-sm text-slate-900 dark:text-foreground">
                           <span className="font-medium">Result:</span> {activeSavedCount > 0 ? "Import completed." : "Completed: no company persisted."}
                         </div>
                       )}
 
                       {plainEnglishProgress.terminalKind !== "error" && activeSavedCount === 0 ? (
-                        <div className="text-sm text-slate-900">
+                        <div className="text-sm text-slate-900 dark:text-foreground">
                           <span className="font-medium">Reason:</span> {plainEnglishProgress.reasonText || "Completed: no company persisted."}
                         </div>
                       ) : null}
@@ -5941,15 +5941,15 @@ export default function AdminImport() {
               )}
             </div>
           </section>
-          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+          <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">Import Debug Panel (temporary)</h2>
-              <div className="text-xs text-slate-500">Tries /api/import/start (fallback /api/import-start) and /api/import/status (fallback /api/import-status).</div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Import Debug Panel (temporary)</h2>
+              <div className="text-xs text-slate-500 dark:text-muted-foreground">Tries /api/import/start (fallback /api/import-start) and /api/import/status (fallback /api/import-status).</div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="md:col-span-2 space-y-1">
-                <label className="text-sm text-slate-700">Query string</label>
+                <label className="text-sm text-slate-700 dark:text-muted-foreground">Query string</label>
                 <Input
                   value={debugQuery}
                   onChange={(e) => setDebugQuery(e.target.value)}
@@ -5958,7 +5958,7 @@ export default function AdminImport() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm text-slate-700">Limit (number)</label>
+                <label className="text-sm text-slate-700 dark:text-muted-foreground">Limit (number)</label>
                 <Input
                   value={debugLimitInput}
                   onChange={(e) => {
@@ -5975,7 +5975,7 @@ export default function AdminImport() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-sm text-slate-700">Session id (for status)</label>
+              <label className="text-sm text-slate-700 dark:text-muted-foreground">Session id (for status)</label>
               <Input value={debugSessionId} onChange={(e) => setDebugSessionId(e.target.value)} placeholder="session id" />
             </div>
 
@@ -5994,10 +5994,10 @@ export default function AdminImport() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-medium text-slate-700">session_id</div>
+              <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3">
+                <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">session_id</div>
                 <div className="mt-1 flex items-start justify-between gap-2">
-                  <code className="text-xs text-slate-900 break-all">{debugSessionId || "—"}</code>
+                  <code className="text-xs text-slate-900 dark:text-foreground break-all">{debugSessionId || "—"}</code>
                   <Button
                     type="button"
                     variant="ghost"
@@ -6016,36 +6016,36 @@ export default function AdminImport() {
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="mt-2 text-[11px] text-slate-600">
-                  Polling session_id: <code className="text-[11px] text-slate-900 break-all">{pollingSessionId || "—"}</code>
+                <div className="mt-2 text-[11px] text-slate-600 dark:text-muted-foreground">
+                  Polling session_id: <code className="text-[11px] text-slate-900 dark:text-foreground break-all">{pollingSessionId || "—"}</code>
                 </div>
 
                 {sessionIdMismatchDebug ? (
-                  <pre className="mt-2 max-h-24 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
+                  <pre className="mt-2 max-h-24 overflow-auto rounded bg-white dark:bg-card p-2 text-[11px] leading-relaxed text-slate-900 dark:text-foreground">
                     {toDisplayText(toPrettyJsonText(sessionIdMismatchDebug))}
                   </pre>
                 ) : null}
               </div>
 
-              <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-medium text-slate-700">Start response</div>
-                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStartResponseText)}</pre>
+              <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3">
+                <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Start response</div>
+                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white dark:bg-card p-2 text-[11px] leading-relaxed text-slate-900 dark:text-foreground">{toDisplayText(debugStartResponseText)}</pre>
               </div>
             </div>
 
-            <div className="rounded border border-slate-200 bg-slate-50 p-3">
-              <div className="text-xs font-medium text-slate-700">Status response</div>
-              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStatusResponseText)}</pre>
+            <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3">
+              <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Status response</div>
+              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white dark:bg-card p-2 text-[11px] leading-relaxed text-slate-900 dark:text-foreground">{toDisplayText(debugStatusResponseText)}</pre>
             </div>
           </section>
 
           {/* Import Report Section */}
-          <section className="rounded-lg border border-slate-300 bg-slate-100 shadow">
+          <section className="rounded-lg border border-slate-300 bg-slate-100 dark:bg-muted shadow">
             <div className="px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <div>
-                  <div className="text-xs font-medium text-slate-700">Import report</div>
-                  <div className="text-[10px] text-slate-500">
+                  <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Import report</div>
+                  <div className="text-[10px] text-slate-500 dark:text-muted-foreground">
                     Live report — auto-scrolls to bottom. Use buttons to copy/download.
                   </div>
                 </div>
@@ -6105,7 +6105,7 @@ export default function AdminImport() {
               </div>
               <pre
                 ref={importReportRef}
-                className="h-[358px] overflow-y-scroll rounded border border-slate-300 bg-white p-2 text-[11px] leading-relaxed text-slate-900 font-mono"
+                className="h-[358px] overflow-y-scroll rounded border border-slate-300 bg-white dark:bg-card p-2 text-[11px] leading-relaxed text-slate-900 dark:text-foreground font-mono"
               >
                 {activeReportText ? toDisplayText(activeReportText) : "No report yet. Run an import to populate."}
               </pre>

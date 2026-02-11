@@ -356,7 +356,7 @@ export default function ResultsPage() {
           <div className={`px-4 py-2 rounded ${
             status.includes("❌") ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" :
             status.includes("⚠️") ? "bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" :
-            status.includes("Found") ? "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300" :
+            status.includes("Found") ? "bg-primary/10 text-primary dark:bg-primary/15 dark:text-primary" :
             "text-foreground"
           }`}>
             {status}

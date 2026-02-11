@@ -71,11 +71,11 @@ function ValueBlock({ value }) {
 
   return (
     <div className="space-y-2">
-      <pre className="whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-900">
+      <pre className="whitespace-pre-wrap break-words rounded-md border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-2 text-xs text-slate-900 dark:text-foreground">
         {shown}
       </pre>
       {isLong ? (
-        <button type="button" className="text-xs text-slate-600 hover:underline" onClick={() => setExpanded((v) => !v)}>
+        <button type="button" className="text-xs text-slate-600 dark:text-muted-foreground hover:underline" onClick={() => setExpanded((v) => !v)}>
           {expanded ? "Show less" : "Show more"}
         </button>
       ) : null}
@@ -345,11 +345,11 @@ export default function AdminEditHistory({ companyId }) {
   const showUnavailable = historySupported === false || companyBlocked || (id && history404ByCompanyId.has(id));
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+    <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-4 space-y-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <div className="text-sm font-semibold text-slate-900">Edit History</div>
-          <div className="text-xs text-slate-600">UTC stored • shown in your local time</div>
+          <div className="text-sm font-semibold text-slate-900 dark:text-foreground">Edit History</div>
+          <div className="text-xs text-slate-600 dark:text-muted-foreground">UTC stored • shown in your local time</div>
         </div>
 
         <div className="flex items-center gap-2 justify-end">
@@ -366,7 +366,7 @@ export default function AdminEditHistory({ companyId }) {
       </div>
 
       {!open ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+        <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-sm text-slate-700 dark:text-muted-foreground">
           History is loaded on demand to avoid noisy 404 requests when the endpoint is unavailable.
         </div>
       ) : null}
@@ -374,10 +374,10 @@ export default function AdminEditHistory({ companyId }) {
       {open ? (
         <div className="space-y-3">
           {showUnavailable ? (
-            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex flex-col gap-2">
+            <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-sm text-slate-700 dark:text-muted-foreground flex flex-col gap-2">
               <div>History unavailable on this build.</div>
               <div className="flex gap-2">
-                <Button type="button" size="sm" variant="outline" className="bg-white" onClick={retryHistory}>
+                <Button type="button" size="sm" variant="outline" className="bg-white dark:bg-card" onClick={retryHistory}>
                   Retry
                 </Button>
               </div>
@@ -386,9 +386,9 @@ export default function AdminEditHistory({ companyId }) {
             <>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-slate-600">Filter field</label>
+                  <label className="text-xs text-slate-600 dark:text-muted-foreground">Filter field</label>
                   <select
-                    className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                    className="h-9 rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-2 text-sm"
                     value={fieldFilter}
                     onChange={(e) => setFieldFilter(e.target.value)}
                   >
@@ -415,7 +415,7 @@ export default function AdminEditHistory({ companyId }) {
               </div>
 
               {loading ? (
-                <div className="flex items-center gap-2 text-sm text-slate-700">
+                <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading history…
                 </div>
@@ -424,7 +424,7 @@ export default function AdminEditHistory({ companyId }) {
               {error ? <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</div> : null}
 
               {!loading && !error && items.length === 0 ? (
-                <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">No edits yet.</div>
+                <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-sm text-slate-700 dark:text-muted-foreground">No edits yet.</div>
               ) : null}
 
               <div className="space-y-3">
@@ -441,30 +441,30 @@ export default function AdminEditHistory({ companyId }) {
                   const diff = entry?.diff && typeof entry.diff === "object" ? entry.diff : {};
 
                   return (
-                    <div key={asString(entry?.id) || `${entry?.created_at}-${actor}-${action}`} className="rounded-lg border border-slate-200">
-                      <div className="p-3 bg-slate-50 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div key={asString(entry?.id) || `${entry?.created_at}-${actor}-${action}`} className="rounded-lg border border-slate-200 dark:border-border">
+                      <div className="p-3 bg-slate-50 dark:bg-muted flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <div className="text-sm font-semibold text-slate-900">{action}</div>
+                            <div className="text-sm font-semibold text-slate-900 dark:text-foreground">{action}</div>
                             {source ? (
-                              <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
+                              <span className="rounded-full bg-white dark:bg-card border border-slate-200 dark:border-border px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground">
                                 {source}
                               </span>
                             ) : null}
                           </div>
-                          <div className="mt-1 text-xs text-slate-600">{when ? `${when}` : asString(entry?.created_at)}</div>
-                          <div className="mt-1 text-xs text-slate-600">By: {actor}</div>
+                          <div className="mt-1 text-xs text-slate-600 dark:text-muted-foreground">{when ? `${when}` : asString(entry?.created_at)}</div>
+                          <div className="mt-1 text-xs text-slate-600 dark:text-muted-foreground">By: {actor}</div>
                           <div className="mt-2 flex flex-wrap gap-1">
                             {changed.length > 0 ? (
                               changed.slice(0, 12).map((f) => (
-                                <span key={f} className="rounded bg-white border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
+                                <span key={f} className="rounded bg-white dark:bg-card border border-slate-200 dark:border-border px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground">
                                   {f}
                                 </span>
                               ))
                             ) : (
-                              <span className="text-xs text-slate-500">No changed fields recorded.</span>
+                              <span className="text-xs text-slate-500 dark:text-muted-foreground">No changed fields recorded.</span>
                             )}
-                            {changed.length > 12 ? <span className="text-[11px] text-slate-500">+{changed.length - 12} more</span> : null}
+                            {changed.length > 12 ? <span className="text-[11px] text-slate-500 dark:text-muted-foreground">+{changed.length - 12} more</span> : null}
                           </div>
                         </div>
 
@@ -488,23 +488,23 @@ export default function AdminEditHistory({ companyId }) {
 
                       <div className="p-3">
                         <details>
-                          <summary className="cursor-pointer select-none text-sm text-slate-800">Details</summary>
+                          <summary className="cursor-pointer select-none text-sm text-slate-800 dark:text-foreground">Details</summary>
                           <div className="mt-3 space-y-3">
                             {Object.keys(diff).length === 0 ? (
-                              <div className="text-sm text-slate-600">No detailed diff available.</div>
+                              <div className="text-sm text-slate-600 dark:text-muted-foreground">No detailed diff available.</div>
                             ) : (
                               Object.entries(diff).map(([field, change]) => (
-                                <div key={field} className="rounded border border-slate-200 bg-white p-3">
-                                  <div className="text-sm font-medium text-slate-900">{field}</div>
+                                <div key={field} className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-3">
+                                  <div className="text-sm font-medium text-slate-900 dark:text-foreground">{field}</div>
                                   <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
                                     <div>
-                                      <div className="text-xs font-medium text-slate-700">Before</div>
+                                      <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Before</div>
                                       <div className="mt-1">
                                         <ValueBlock value={change?.before} />
                                       </div>
                                     </div>
                                     <div>
-                                      <div className="text-xs font-medium text-slate-700">After</div>
+                                      <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">After</div>
                                       <div className="mt-1">
                                         <ValueBlock value={change?.after} />
                                       </div>

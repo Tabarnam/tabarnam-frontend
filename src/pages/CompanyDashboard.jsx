@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, us
 import { Helmet } from "react-helmet-async";
 import { Link } from "react-router-dom";
 import DataTable from "react-data-table-component";
+import { useTheme } from "next-themes";
 import {
   Save,
   Trash2,
@@ -272,24 +273,24 @@ function LocationSourcesEditor({ value, onChange }) {
 
   return (
     <div className="space-y-2">
-      <div className="text-sm text-slate-700 font-medium">Location sources</div>
-      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      <div className="text-sm text-slate-700 dark:text-muted-foreground font-medium">Location sources</div>
+      <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card overflow-hidden">
         {list.length === 0 ? (
-          <div className="p-3 text-xs text-slate-600">No sources yet.</div>
+          <div className="p-3 text-xs text-slate-600 dark:text-muted-foreground">No sources yet.</div>
         ) : (
           <div className="p-3 space-y-3">
             {list.map((entry, idx) => (
-              <div key={`${entry.location}-${idx}`} className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <div key={`${entry.location}-${idx}`} className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 space-y-2">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-700">Location</label>
+                    <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Location</label>
                     <Input
                       value={asString(entry.location)}
                       onChange={(e) => update(idx, { location: e.target.value })}
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-700">Source URL</label>
+                    <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Source URL</label>
                     <Input
                       value={asString(entry.source_url)}
                       onChange={(e) => update(idx, { source_url: e.target.value })}
@@ -299,9 +300,9 @@ function LocationSourcesEditor({ value, onChange }) {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-700">Source type</label>
+                    <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Source type</label>
                     <select
-                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      className="h-10 w-full rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-3 text-sm"
                       value={asString(entry.source_type || "other")}
                       onChange={(e) => update(idx, { source_type: e.target.value })}
                     >
@@ -316,9 +317,9 @@ function LocationSourcesEditor({ value, onChange }) {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-700">Location type</label>
+                    <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Location type</label>
                     <select
-                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      className="h-10 w-full rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-3 text-sm"
                       value={asString(entry.location_type || "headquarters")}
                       onChange={(e) => update(idx, { location_type: e.target.value })}
                     >
@@ -339,7 +340,7 @@ function LocationSourcesEditor({ value, onChange }) {
           </div>
         )}
 
-        <div className="border-t border-slate-200 p-3">
+        <div className="border-t border-slate-200 dark:border-border p-3">
           <Button type="button" variant="outline" onClick={add}>
             <Plus className="h-4 w-4 mr-2" />
             Add source
@@ -407,23 +408,23 @@ function StringListEditor({ label, value, onChange, placeholder = "" }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-sm text-slate-700 font-medium">{label}</div>
+        <div className="text-sm text-slate-700 dark:text-muted-foreground font-medium">{label}</div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white">
+      <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card">
         {list.length === 0 ? (
-          <div className="p-3 text-xs text-slate-500">None yet.</div>
+          <div className="p-3 text-xs text-slate-500 dark:text-muted-foreground">None yet.</div>
         ) : (
           <div className="p-3 flex flex-wrap gap-2">
             {list.map((item, idx) => (
               <span
                 key={`${item}-${idx}`}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-800"
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-1 text-xs text-slate-800 dark:text-foreground"
               >
                 {item}
                 <button
                   type="button"
-                  className="text-slate-500 hover:text-red-600"
+                  className="text-slate-500 dark:text-muted-foreground hover:text-red-600"
                   onClick={() => remove(idx)}
                   aria-label={`Remove ${item}`}
                 >
@@ -434,10 +435,10 @@ function StringListEditor({ label, value, onChange, placeholder = "" }) {
           </div>
         )}
 
-        <div className="border-t border-slate-200 p-3">
+        <div className="border-t border-slate-200 dark:border-border p-3">
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[240px] flex-1 space-y-1">
-              <label className="text-xs font-medium text-slate-700">Add</label>
+              <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Add</label>
               <Input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} />
             </div>
             <Button type="button" onClick={add} disabled={!canSubmit}>
@@ -559,7 +560,7 @@ function LocationStatusBadge({ loc }) {
       ? "bg-emerald-50 text-emerald-800 border-emerald-200"
       : status === "failed"
         ? "bg-red-50 text-red-800 border-red-200"
-        : "bg-slate-50 text-slate-700 border-slate-200";
+        : "bg-slate-50 dark:bg-muted text-slate-700 dark:text-muted-foreground border-slate-200 dark:border-border";
 
   const label = status === "found" ? "Found" : status === "failed" ? "Failed" : "Missing";
   const detail =
@@ -613,11 +614,11 @@ function StructuredLocationListEditor({ label, value, onChange }) {
 
   return (
     <div className="space-y-2">
-      <div className="text-sm text-slate-700 font-medium">{label}</div>
+      <div className="text-sm text-slate-700 dark:text-muted-foreground font-medium">{label}</div>
 
-      <div className="rounded-lg border border-slate-200 bg-white">
+      <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card">
         {list.length === 0 ? (
-          <div className="p-3 text-xs text-slate-500">No locations yet.</div>
+          <div className="p-3 text-xs text-slate-500 dark:text-muted-foreground">No locations yet.</div>
         ) : (
           <div className="divide-y divide-slate-100">
             {list.map((loc, idx) => {
@@ -625,11 +626,11 @@ function StructuredLocationListEditor({ label, value, onChange }) {
               return (
                 <div key={idx} className="flex items-center gap-2 p-3">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-slate-900">{display}</div>
+                    <div className="truncate text-sm text-slate-900 dark:text-foreground">{display}</div>
                     <div className="mt-1 flex items-center gap-2">
                       <LocationStatusBadge loc={loc} />
                       {asString(loc?.geocode_source).trim() ? (
-                        <span className="text-[11px] text-slate-500">{asString(loc.geocode_source).trim()}</span>
+                        <span className="text-[11px] text-slate-500 dark:text-muted-foreground">{asString(loc.geocode_source).trim()}</span>
                       ) : null}
                     </div>
                   </div>
@@ -650,18 +651,18 @@ function StructuredLocationListEditor({ label, value, onChange }) {
           </div>
         )}
 
-        <div className="border-t border-slate-200 p-3">
+        <div className="border-t border-slate-200 dark:border-border p-3">
           <div className="grid grid-cols-1 gap-2 md:grid-cols-4 md:items-end">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">City</label>
+              <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">City</label>
               <Input value={city} onChange={(e) => setCity(e.target.value)} onKeyDown={onKeyDown} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Region/State</label>
+              <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Region/State</label>
               <Input value={region} onChange={(e) => setRegion(e.target.value)} onKeyDown={onKeyDown} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Country</label>
+              <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Country</label>
               <Input value={country} onChange={(e) => setCountry(e.target.value)} onKeyDown={onKeyDown} />
             </div>
             <Button type="button" onClick={addEntry} disabled={!normalizeStructuredLocationEntry({ city, region, state: region, country })}>
@@ -1005,7 +1006,7 @@ function CompanyNotesEditor({ value, onChange }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-sm text-slate-700 font-medium">Manual note (admin)</div>
+        <div className="text-sm text-slate-700 dark:text-muted-foreground font-medium">Manual note (admin)</div>
         <Button type="button" onClick={() => setOpen((v) => !v)}>
           <Plus className="h-4 w-4 mr-2" />
           Note
@@ -1013,22 +1014,22 @@ function CompanyNotesEditor({ value, onChange }) {
       </div>
 
       {open && (
-        <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+        <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-3 space-y-2">
           <div className="grid grid-cols-1 gap-2">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Title</label>
+              <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Title</label>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Short title…" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Body</label>
+              <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Body</label>
               <textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                className="min-h-[120px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                className="min-h-[120px] w-full rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
                 placeholder="Write details…"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
               <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
               Public
             </label>
@@ -1045,11 +1046,11 @@ function CompanyNotesEditor({ value, onChange }) {
       )}
 
       {notes.length === 0 ? (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">No notes yet.</div>
+        <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-600 dark:text-muted-foreground">No notes yet.</div>
       ) : (
         <div className="space-y-3">
           {notes.map((n, idx) => (
-            <div key={n.id} className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+            <div key={n.id} className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-3 space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <Input
@@ -1058,7 +1059,7 @@ function CompanyNotesEditor({ value, onChange }) {
                     placeholder="Title"
                     className="font-medium"
                   />
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-muted-foreground">
                     <span>{n.is_public ? "Public" : "Private"}</span>
                     <span>·</span>
                     <span>{n.created_at ? new Date(n.created_at).toLocaleString() : ""}</span>
@@ -1080,19 +1081,19 @@ function CompanyNotesEditor({ value, onChange }) {
               <textarea
                 value={asString(n.body)}
                 onChange={(e) => update(idx, { body: e.target.value })}
-                className="min-h-[100px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                className="min-h-[100px] w-full rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
                 placeholder="Body"
               />
 
               {/* Preview with clickable URLs */}
               {asString(n.body).includes("http") && (
-                <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700 whitespace-pre-wrap">
-                  <div className="text-xs text-slate-500 mb-1">Preview (clickable links):</div>
+                <div className="rounded-md border border-slate-100 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-sm text-slate-700 dark:text-muted-foreground whitespace-pre-wrap">
+                  <div className="text-xs text-slate-500 dark:text-muted-foreground mb-1">Preview (clickable links):</div>
                   <TextWithLinks text={asString(n.body)} />
                 </div>
               )}
 
-              <label className="flex items-center gap-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
                 <input
                   type="checkbox"
                   checked={Boolean(n.is_public)}
@@ -1898,12 +1899,12 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   }, [items, onApply]);
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+    <div className="space-y-3 rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold text-slate-900">Reviews import</div>
-          <div className="text-xs text-slate-500">Fetch editorial/pro reviews without running company enrichment.</div>
-          <div className="mt-1 text-xs text-slate-600">
+          <div className="text-sm font-semibold text-slate-900 dark:text-foreground">Reviews import</div>
+          <div className="text-xs text-slate-500 dark:text-muted-foreground">Fetch editorial/pro reviews without running company enrichment.</div>
+          <div className="mt-1 text-xs text-slate-600 dark:text-muted-foreground">
             Existing imported reviews: <span className="font-medium">{existingCount}</span>
             <span className="mx-1">•</span>
             Publicly visible: <span className="font-medium">{existingVisibleCount}</span>
@@ -1912,7 +1913,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-slate-700">Count</label>
+            <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Count</label>
             <Input
               type="number"
               min={1}
@@ -1934,14 +1935,14 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         </div>
       </div>
 
-      <label className="flex items-start gap-2 text-sm text-slate-800">
+      <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-foreground">
         <Checkbox
           checked={includeExisting}
           onCheckedChange={(v) => setIncludeExisting(Boolean(v))}
           disabled={!stableId || loading || disabled}
         />
         <span>
-          Include existing imported reviews in context <span className="text-xs text-slate-500">(recommended)</span>
+          Include existing imported reviews in context <span className="text-xs text-slate-500 dark:text-muted-foreground">(recommended)</span>
         </span>
       </label>
 
@@ -2040,7 +2041,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       })() : null}
 
       {!stableId ? (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-600 dark:text-muted-foreground">
           Save the company first to generate a <code className="text-[11px]">company_id</code>.
         </div>
       ) : error ? (
@@ -2058,7 +2059,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             type="button"
             size="sm"
             variant="outline"
-            className="bg-white shrink-0"
+            className="bg-white dark:bg-card shrink-0"
             onClick={async () => {
               const payloadObj = error?.debug_bundle && typeof error.debug_bundle === "object" ? error.debug_bundle : error;
               const ok = await copyToClipboard(prettyJson(payloadObj));
@@ -2082,13 +2083,13 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           </div>
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-600 dark:text-muted-foreground">
           No proposed reviews yet. Click <span className="font-medium">Fetch more reviews</span>.
         </div>
       ) : (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs text-slate-600">
+            <div className="text-xs text-slate-600 dark:text-muted-foreground">
               Proposed reviews: <span className="font-medium">{items.length}</span> • Selected: <span className="font-medium">{selectedCount}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -2104,7 +2105,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
           <div className="space-y-3">
             {items.map((review) => (
-              <div key={review.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <div key={review.id} className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 space-y-2">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="flex items-start gap-2">
                     <Checkbox
@@ -2126,7 +2127,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                       aria-label="Include on save"
                     />
                     <div className="min-w-0">
-                      <div className="text-xs text-slate-600">
+                      <div className="text-xs text-slate-600 dark:text-muted-foreground">
                         Include on save
                         {review.duplicate ? (
                           <span className="ml-2 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-900">
@@ -2136,7 +2137,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                       </div>
                       <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-slate-700">Title</label>
+                          <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Title</label>
                           <Input
                             value={asString(review.title)}
                             onChange={(e) =>
@@ -2146,7 +2147,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[11px] font-medium text-slate-700">Source URL</label>
+                          <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Source URL</label>
                           <Input
                             value={asString(review.source_url)}
                             onChange={(e) =>
@@ -2179,7 +2180,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-700">Excerpt</label>
+                  <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Excerpt</label>
                   <Textarea
                     value={asString(review.excerpt)}
                     onChange={(e) =>
@@ -2192,7 +2193,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-slate-700">Author</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Author</label>
                     <Input
                       value={asString(review.author)}
                       onChange={(e) =>
@@ -2202,7 +2203,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-slate-700">Date</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Date</label>
                     <Input
                       value={asString(review.date)}
                       onChange={(e) =>
@@ -2213,7 +2214,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-slate-700">Rating</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Rating</label>
                     <Input
                       value={review.rating == null ? "" : String(review.rating)}
                       onChange={(e) => {
@@ -2403,19 +2404,19 @@ function ImportedReviewsPanel({
   }, [stableId]);
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+    <div className="space-y-3 rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold text-slate-900">Imported reviews (read only)</div>
-          <div className="mt-1 text-xs text-slate-600">
+          <div className="text-sm font-semibold text-slate-900 dark:text-foreground">Imported reviews (read only)</div>
+          <div className="mt-1 text-xs text-slate-600 dark:text-muted-foreground">
             Saved on company record: <span className="font-medium">{savedItems.length}</span>
             <span className="mx-1">•</span>
             Publicly visible: <span className="font-medium">{savedVisibleCount}</span>
           </div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">
             Public list fetched from <code className="text-[11px]">/api/get-reviews?company_id=…</code>
           </div>
-          <div className="mt-1 text-xs text-slate-500">To remove a curated review, click the red trash icon, then Save changes.</div>
+          <div className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">To remove a curated review, click the red trash icon, then Save changes.</div>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={load} disabled={!stableId || loading}>
           <RefreshCcw className="h-4 w-4 mr-2" />
@@ -2440,7 +2441,7 @@ function ImportedReviewsPanel({
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <div className="space-y-1 text-sm text-slate-700">
+          <div className="space-y-1 text-sm text-slate-700 dark:text-muted-foreground">
             <div>
               Review:
               <span className="font-semibold"> {asString(getReviewSourceName(deleteReviewTarget?.review) || "Unknown source")}</span>
@@ -2469,15 +2470,15 @@ function ImportedReviewsPanel({
       </AlertDialog>
 
       {!stableId ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-600 dark:text-muted-foreground">
           Save the company first to generate a <code className="text-[11px]">company_id</code>.
         </div>
       ) : (
         <div className="space-y-4">
           <div className="space-y-2">
-            <div className="text-xs font-medium text-slate-700">Saved curated reviews (company.curated_reviews)</div>
+            <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Saved curated reviews (company.curated_reviews)</div>
             {savedItems.length === 0 ? (
-              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-600 dark:text-muted-foreground">
                 No curated reviews are saved on this company record.
               </div>
             ) : (
@@ -2509,19 +2510,19 @@ function ImportedReviewsPanel({
                   return (
                     <div
                       key={asString(review?.id).trim() || `${stableId}-saved-${idx}`}
-                      className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2"
+                      className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 space-y-2"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-slate-900 truncate">{sourceName}</div>
-                          {date ? <div className="text-xs text-slate-500">{toDisplayDate(date)}</div> : null}
+                          <div className="text-sm font-medium text-slate-900 dark:text-foreground truncate">{sourceName}</div>
+                          {date ? <div className="text-xs text-slate-500 dark:text-muted-foreground">{toDisplayDate(date)}</div> : null}
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <span
                             className={
                               publishable
                                 ? "inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-900"
-                                : "inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700"
+                                : "inline-flex items-center rounded-full border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground"
                             }
                             title={publishable ? "Returned by /api/get-reviews" : "Not returned by /api/get-reviews"}
                           >
@@ -2541,7 +2542,7 @@ function ImportedReviewsPanel({
                           </Button>
 
                           {linkStatus ? (
-                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                            <span className="inline-flex items-center rounded-full border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground">
                               link_status: {linkStatus}
                             </span>
                           ) : (
@@ -2551,13 +2552,13 @@ function ImportedReviewsPanel({
                           )}
 
                           {typeof mc === "number" && Number.isFinite(mc) ? (
-                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                            <span className="inline-flex items-center rounded-full border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground">
                               match: {mc.toFixed(2)}
                             </span>
                           ) : null}
 
                           {rating != null ? (
-                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                            <span className="inline-flex items-center rounded-full border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground">
                               Rating: {rating}
                             </span>
                           ) : null}
@@ -2577,13 +2578,13 @@ function ImportedReviewsPanel({
                       </div>
 
                       {asString(review?.title).trim() ? (
-                        <div className="text-xs font-medium text-slate-800">{asString(review.title).trim()}</div>
+                        <div className="text-xs font-medium text-slate-800 dark:text-foreground">{asString(review.title).trim()}</div>
                       ) : null}
 
                       {text ? (
-                        <div className="text-sm text-slate-800 whitespace-pre-wrap break-words">{text}</div>
+                        <div className="text-sm text-slate-800 dark:text-foreground whitespace-pre-wrap break-words">{text}</div>
                       ) : (
-                        <div className="text-xs text-slate-500">(No text snippet saved)</div>
+                        <div className="text-xs text-slate-500 dark:text-muted-foreground">(No text snippet saved)</div>
                       )}
 
                       {url ? (
@@ -2599,7 +2600,7 @@ function ImportedReviewsPanel({
                           </a>
                         </div>
                       ) : (
-                        <div className="text-xs text-slate-500">(No valid URL)</div>
+                        <div className="text-xs text-slate-500 dark:text-muted-foreground">(No valid URL)</div>
                       )}
                     </div>
                   );
@@ -2609,7 +2610,7 @@ function ImportedReviewsPanel({
           </div>
 
           <div className="space-y-2">
-            <div className="text-xs font-medium text-slate-700">Public reviews (returned by /api/get-reviews)</div>
+            <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Public reviews (returned by /api/get-reviews)</div>
 
             {error ? (
               <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
@@ -2622,12 +2623,12 @@ function ImportedReviewsPanel({
                 </div>
               </div>
             ) : loading ? (
-              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">Loading public reviews…</div>
+              <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-700 dark:text-muted-foreground">Loading public reviews…</div>
             ) : items.length === 0 ? (
-              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-600 dark:text-muted-foreground">
                 No public reviews returned for this company_id.
                 {savedItems.length > 0 && savedVisibleCount === 0 ? (
-                  <div className="mt-2 text-[11px] text-slate-500">
+                  <div className="mt-2 text-[11px] text-slate-500 dark:text-muted-foreground">
                     Note: curated reviews are saved, but are not publishable until they have a valid URL, <code>link_status</code> set to <code>ok</code>, and (optionally) a high <code>match_confidence</code>.
                   </div>
                 ) : null}
@@ -2646,21 +2647,21 @@ function ImportedReviewsPanel({
                   return (
                     <div
                       key={asString(review?.id).trim() || `${stableId}-public-${idx}`}
-                      className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2"
+                      className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 space-y-2"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-slate-900 truncate">{sourceName}</div>
-                          {date ? <div className="text-xs text-slate-500">{toDisplayDate(date)}</div> : null}
+                          <div className="text-sm font-medium text-slate-900 dark:text-foreground truncate">{sourceName}</div>
+                          {date ? <div className="text-xs text-slate-500 dark:text-muted-foreground">{toDisplayDate(date)}</div> : null}
                         </div>
                         <div className="flex items-center gap-2">
                           {rating != null ? (
-                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                            <span className="inline-flex items-center rounded-full border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground">
                               Rating: {rating}
                             </span>
                           ) : null}
                           {asString(review?.type).trim() ? (
-                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                            <span className="inline-flex items-center rounded-full border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground">
                               {asString(review.type).trim()}
                             </span>
                           ) : null}
@@ -2668,9 +2669,9 @@ function ImportedReviewsPanel({
                       </div>
 
                       {text ? (
-                        <div className="text-sm text-slate-800 whitespace-pre-wrap break-words">{text}</div>
+                        <div className="text-sm text-slate-800 dark:text-foreground whitespace-pre-wrap break-words">{text}</div>
                       ) : (
-                        <div className="text-xs text-slate-500">(No text snippet returned)</div>
+                        <div className="text-xs text-slate-500 dark:text-muted-foreground">(No text snippet returned)</div>
                       )}
 
                       {url ? (
@@ -2692,7 +2693,7 @@ function ImportedReviewsPanel({
                           {metadata.map(([k, v]) => (
                             <span
                               key={k}
-                              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700"
+                              className="inline-flex items-center rounded-full border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground"
                               title={`${k}: ${v}`}
                             >
                               {k}: {truncateMiddle(v, 40)}
@@ -2747,14 +2748,14 @@ function StarNotesEditor({ star, onChange }) {
       {notes.length > 0 ? (
         <div className="space-y-2">
           {notes.map((n, idx) => (
-            <div key={n?.id || idx} className="rounded border border-slate-200 bg-slate-50 p-2">
+            <div key={n?.id || idx} className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium text-slate-700">
+                  <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">
                     {n?.is_public ? "Public" : "Private"}
                     {n?.created_at ? ` · ${new Date(n.created_at).toLocaleString()}` : ""}
                   </div>
-                  <div className="mt-1 text-sm text-slate-900 whitespace-pre-wrap break-words">{asString(n?.text)}</div>
+                  <div className="mt-1 text-sm text-slate-900 dark:text-foreground whitespace-pre-wrap break-words">{asString(n?.text)}</div>
                 </div>
                 <Button
                   type="button"
@@ -2771,19 +2772,19 @@ function StarNotesEditor({ star, onChange }) {
           ))}
         </div>
       ) : (
-        <div className="text-xs text-slate-500">No notes.</div>
+        <div className="text-xs text-slate-500 dark:text-muted-foreground">No notes.</div>
       )}
 
-      <div className="rounded border border-slate-200 bg-white p-3 space-y-2">
-        <div className="text-xs font-medium text-slate-700">Add note</div>
+      <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-3 space-y-2">
+        <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Add note</div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="min-h-[80px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+          className="min-h-[80px] w-full rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
           placeholder="Write a note…"
         />
         <div className="flex items-center justify-between gap-2">
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
             <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
             Public
           </label>
@@ -2882,11 +2883,11 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
   const hasAny = list.length > 0;
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+    <div className="space-y-3 rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold text-slate-900">Admin reviews</div>
-          <div className="mt-1 text-xs text-slate-600">
+          <div className="text-sm font-semibold text-slate-900 dark:text-foreground">Admin reviews</div>
+          <div className="mt-1 text-xs text-slate-600 dark:text-muted-foreground">
             Create/edit curated reviews. These can appear on the public company page when <code>show_to_users</code> is enabled.
           </div>
         </div>
@@ -2897,7 +2898,7 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
       </div>
 
       {!hasAny ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-600 dark:text-muted-foreground">
           No curated reviews yet.
         </div>
       ) : (
@@ -2913,13 +2914,13 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
             const urlIsInvalid = Boolean(urlRaw) && !normalizedUrl;
 
             return (
-              <div key={asString(review?.id).trim() || `manual-${idx}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div key={asString(review?.id).trim() || `manual-${idx}`} className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-900 truncate">
+                    <div className="text-sm font-medium text-slate-900 dark:text-foreground truncate">
                       {asString(review?.source_name || review?.author || review?.source || "Review").trim() || "Review"}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">
+                    <div className="mt-0.5 text-[11px] text-slate-500 dark:text-muted-foreground">
                       {showToUsers ? "show_to_users" : "hidden"}
                       {urlIsInvalid ? " • invalid URL" : ""}
                     </div>
@@ -2962,7 +2963,7 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
 
                 <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-slate-700">Source name</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Source name</label>
                     <Input
                       value={asString(review?.source_name)}
                       onChange={(e) => updateReview(idx, { source_name: e.target.value })}
@@ -2971,7 +2972,7 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-slate-700">Author</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Author</label>
                     <Input
                       value={asString(review?.author)}
                       onChange={(e) => updateReview(idx, { author: e.target.value })}
@@ -2981,7 +2982,7 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
                   </div>
 
                   <div className="space-y-1 md:col-span-2">
-                    <label className="text-[11px] font-medium text-slate-700">Source URL</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Source URL</label>
                     <Input
                       value={asString(review?.source_url || review?.url)}
                       onChange={(e) => updateReview(idx, { source_url: e.target.value, url: e.target.value })}
@@ -2992,7 +2993,7 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
                   </div>
 
                   <div className="space-y-1 md:col-span-2">
-                    <label className="text-[11px] font-medium text-slate-700">Title</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Title</label>
                     <Input
                       value={asString(review?.title)}
                       onChange={(e) => updateReview(idx, { title: e.target.value })}
@@ -3002,7 +3003,7 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-slate-700">Date</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Date</label>
                     <Input
                       value={asString(review?.date)}
                       onChange={(e) => updateReview(idx, { date: e.target.value })}
@@ -3012,7 +3013,7 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-slate-700">Rating</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Rating</label>
                     <Input
                       value={review?.rating == null ? "" : String(review.rating)}
                       onChange={(e) => {
@@ -3026,7 +3027,7 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
                   </div>
 
                   <div className="md:col-span-2">
-                    <label className="flex items-start gap-2 text-sm text-slate-800">
+                    <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-foreground">
                       <Checkbox
                         checked={Boolean(showToUsers)}
                         onCheckedChange={(v) => updateReview(idx, { show_to_users: Boolean(v) })}
@@ -3037,7 +3038,7 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
                   </div>
 
                   <div className="space-y-1 md:col-span-2">
-                    <label className="text-[11px] font-medium text-slate-700">Excerpt</label>
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Excerpt</label>
                     <Textarea
                       value={asString(review?.excerpt || review?.abstract || review?.content)}
                       onChange={(e) => updateReview(idx, { excerpt: e.target.value, abstract: e.target.value, content: e.target.value })}
@@ -3093,10 +3094,10 @@ function RatingEditor({ draft, onChange }) {
     const currentValue = clampStarValue(Number(star.value ?? 0));
 
     return (
-      <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
+      <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-3 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-slate-900">{label}</div>
-          <div className="flex items-center gap-2 text-xs text-slate-600">
+          <div className="text-sm font-semibold text-slate-900 dark:text-foreground">{label}</div>
+          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-muted-foreground">
             {autoText != null ? <span>Auto: {autoText}</span> : <span>Manual</span>}
             {starKey === "star3" ? (
               reviewsStarSource === "manual" ? (
@@ -3112,7 +3113,7 @@ function RatingEditor({ draft, onChange }) {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:items-end">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-700">Value (0.0–1.0)</label>
+            <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Value (0.0–1.0)</label>
             <Input
               value={String(currentValue)}
               inputMode="decimal"
@@ -3142,7 +3143,7 @@ function RatingEditor({ draft, onChange }) {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-700">Icon</label>
+            <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Icon</label>
             <div className="flex gap-2">
               <Button
                 type="button"
@@ -3174,7 +3175,7 @@ function RatingEditor({ draft, onChange }) {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-700">Quick set</label>
+            <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Quick set</label>
             <div className="flex gap-2 flex-wrap">
               {[0, 0.5, 1].map((v) => (
                 <Button
@@ -3247,13 +3248,13 @@ function RatingEditor({ draft, onChange }) {
 
   return (
     <div className="space-y-3">
-      <div className="text-sm text-slate-700 font-medium">Stars</div>
+      <div className="text-sm text-slate-700 dark:text-muted-foreground font-medium">Stars</div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+      <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-3 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
-            <div className="text-sm font-semibold text-slate-900">Frontend icon</div>
-            <div className="text-xs text-slate-600">
+            <div className="text-sm font-semibold text-slate-900 dark:text-foreground">Frontend icon</div>
+            <div className="text-xs text-slate-600 dark:text-muted-foreground">
               Used on cards and other places that don’t support per-star icon overrides.
             </div>
           </div>
@@ -3335,6 +3336,8 @@ async function copyToClipboard(value) {
 }
 
 export default function CompanyDashboard() {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const { play: playNotification } = useNotificationSound();
 
   const [search, setSearch] = useState("");
@@ -5363,11 +5366,11 @@ export default function CompanyDashboard() {
           const name = getCompanyName(row);
           return (
             <div className="flex flex-wrap items-center gap-2 min-w-0 group/name">
-              <span className={isDeletedCompany(row) ? "text-slate-500 line-through" : "text-slate-900"}>{name || "(missing)"}</span>
+              <span className={isDeletedCompany(row) ? "text-slate-500 dark:text-muted-foreground line-through" : "text-slate-900 dark:text-foreground"}>{name || "(missing)"}</span>
               {name && (
                 <button
                   type="button"
-                  className="opacity-0 group-hover/name:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100"
+                  className="opacity-0 group-hover/name:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:bg-muted"
                   onClick={(e) => {
                     e.stopPropagation();
                     navigator.clipboard.writeText(name);
@@ -5375,11 +5378,11 @@ export default function CompanyDashboard() {
                   }}
                   title="Copy name"
                 >
-                  <Copy className="h-3 w-3 text-slate-500" />
+                  <Copy className="h-3 w-3 text-slate-500 dark:text-muted-foreground" />
                 </button>
               )}
               {isDeletedCompany(row) ? (
-                <span className="rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
+                <span className="rounded-full bg-slate-100 dark:bg-muted border border-slate-200 dark:border-border px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground">
                   deleted
                 </span>
               ) : null}
@@ -5400,7 +5403,7 @@ export default function CompanyDashboard() {
               {domain && (
                 <button
                   type="button"
-                  className="opacity-0 group-hover/domain:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100"
+                  className="opacity-0 group-hover/domain:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:bg-muted"
                   onClick={(e) => {
                     e.stopPropagation();
                     navigator.clipboard.writeText(domain);
@@ -5408,7 +5411,7 @@ export default function CompanyDashboard() {
                   }}
                   title="Copy domain"
                 >
-                  <Copy className="h-3 w-3 text-slate-500" />
+                  <Copy className="h-3 w-3 text-slate-500 dark:text-muted-foreground" />
                 </button>
               )}
             </div>
@@ -5447,8 +5450,8 @@ export default function CompanyDashboard() {
         width: "80px",
         cell: (row) => {
           const val = getQQScore(row);
-          if (!val) return <span className="text-xs text-slate-400">—</span>;
-          return <span className="text-xs text-slate-900">{val.toFixed(1)}</span>;
+          if (!val) return <span className="text-xs text-slate-400 dark:text-muted-foreground">—</span>;
+          return <span className="text-xs text-slate-900 dark:text-foreground">{val.toFixed(1)}</span>;
         },
       },
       {
@@ -5489,7 +5492,7 @@ export default function CompanyDashboard() {
         selector: (row) => asString(row?.updated_at || row?.created_at).trim(),
         sortable: true,
         cell: (row) => (
-          <span className="text-xs text-slate-700">{toDisplayDate(row?.updated_at || row?.created_at)}</span>
+          <span className="text-xs text-slate-700 dark:text-muted-foreground">{toDisplayDate(row?.updated_at || row?.created_at)}</span>
         ),
         width: "160px",
       },
@@ -5611,9 +5614,24 @@ export default function CompanyDashboard() {
 
   const tableTheme = useMemo(
     () => ({
+      table: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 10% 93%)" : undefined,
+        },
+      },
       header: {
         style: {
           minHeight: "48px",
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 10% 93%)" : undefined,
+        },
+      },
+      headRow: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 12% 15%)" : undefined,
+          color: isDark ? "hsl(187 10% 93%)" : undefined,
+          borderBottomColor: isDark ? "hsl(187 10% 18%)" : undefined,
         },
       },
       headCells: {
@@ -5622,10 +5640,40 @@ export default function CompanyDashboard() {
           fontSize: "12px",
           textTransform: "uppercase",
           letterSpacing: "0.06em",
+          color: isDark ? "hsl(187 15% 55%)" : undefined,
+        },
+      },
+      rows: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 10% 93%)" : undefined,
+          borderBottomColor: isDark ? "hsl(187 10% 18%)" : undefined,
+          "&:hover": {
+            backgroundColor: isDark ? "hsl(187 12% 15%)" : undefined,
+          },
+        },
+      },
+      pagination: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 10% 93%)" : undefined,
+          borderTopColor: isDark ? "hsl(187 10% 18%)" : undefined,
+        },
+      },
+      noData: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 15% 55%)" : undefined,
+        },
+      },
+      progress: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 15% 55%)" : undefined,
         },
       },
     }),
-    []
+    [isDark]
   );
 
   const contextActions = useMemo(() => {
@@ -5644,13 +5692,13 @@ export default function CompanyDashboard() {
 
   const noDataComponent = useMemo(() => {
     if (lastError && (lastError.status === 503 || lastError.status === 404 || lastError.status >= 500)) {
-      return <div className="p-6 text-sm text-slate-600">Unable to load companies (see error above).</div>;
+      return <div className="p-6 text-sm text-slate-600 dark:text-muted-foreground">Unable to load companies (see error above).</div>;
     }
-    return <div className="p-6 text-sm text-slate-600">No companies found.</div>;
+    return <div className="p-6 text-sm text-slate-600 dark:text-muted-foreground">No companies found.</div>;
   }, [lastError]);
 
   const progressComponent = useMemo(() => {
-    return <div className="p-6 text-sm text-slate-600">Loading companies…</div>;
+    return <div className="p-6 text-sm text-slate-600 dark:text-muted-foreground">Loading companies…</div>;
   }, []);
 
   const editorValidationError = useMemo(() => {
@@ -5675,13 +5723,13 @@ export default function CompanyDashboard() {
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-slate-50 dark:bg-background">
         <AdminHeader />
 
         <main className="container mx-auto py-6 px-4 space-y-4">
           <header className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h1 className="text-3xl font-bold text-slate-900">Companies</h1>
+              <h1 className="text-3xl font-bold text-slate-900 dark:text-foreground">Companies</h1>
 
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="outline" onClick={() => loadCompanies({ search: search.trim(), take })} disabled={loading}>
@@ -5706,7 +5754,7 @@ export default function CompanyDashboard() {
               </div>
 
               <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-700">Take</label>
+                <label className="text-sm text-slate-700 dark:text-muted-foreground">Take</label>
                 <Input
                   value={String(take)}
                   onChange={(e) => setTake(Number(e.target.value || DEFAULT_TAKE))}
@@ -5724,7 +5772,7 @@ export default function CompanyDashboard() {
                 Incomplete ({incompleteCount})
               </Button>
 
-              <div className="text-sm text-slate-600">
+              <div className="text-sm text-slate-600 dark:text-muted-foreground">
                 Showing {filteredItems.length} companies{loading ? " · Loading…" : ""}
               </div>
             </div>
@@ -5759,7 +5807,7 @@ export default function CompanyDashboard() {
             </div>
           )}
 
-          <section className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+          <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card overflow-hidden">
             <DataTable
               columns={columns}
               data={filteredItems}
@@ -5767,8 +5815,8 @@ export default function CompanyDashboard() {
                 {
                   when: (row) => isDeletedCompany(row),
                   style: {
-                    backgroundColor: "#f8fafc",
-                    color: "#64748b",
+                    backgroundColor: isDark ? "hsl(187 12% 15%)" : "#f8fafc",
+                    color: isDark ? "hsl(187 15% 55%)" : "#64748b",
                   },
                 },
               ]}
@@ -5779,7 +5827,7 @@ export default function CompanyDashboard() {
               paginationRowsPerPageOptions={[10, 25, 50, 100]}
               highlightOnHover
               dense
-              theme={tableTheme}
+              customStyles={tableTheme}
               selectableRows
               onSelectedRowsChange={(state) => setSelectedRows(state?.selectedRows || [])}
               clearSelectedRows={selectedRows.length === 0}
@@ -5789,17 +5837,17 @@ export default function CompanyDashboard() {
           </section>
 
           <Dialog open={editorOpen} onOpenChange={handleEditorOpenChange}>
-            <DialogContent className="w-[95vw] max-w-[1500px] h-[90vh] max-h-[90vh] p-0 bg-white overflow-hidden flex flex-col gap-0">
+            <DialogContent className="w-[95vw] max-w-[1500px] h-[90vh] max-h-[90vh] p-0 bg-white dark:bg-card overflow-hidden flex flex-col gap-0">
               <ErrorBoundary
                 resetKeys={[editorOriginalId, editorOpen]}
                 fallback={({ error }) => (
-                  <div className="bg-white opacity-100 w-full h-full max-h-[90vh] overflow-auto">
+                  <div className="bg-white dark:bg-card opacity-100 w-full h-full max-h-[90vh] overflow-auto">
                     <div className="p-6 space-y-4">
-                      <div className="text-lg font-semibold text-slate-900">Edit dialog crashed</div>
-                      <div className="text-sm text-slate-700 font-mono whitespace-pre-wrap break-words">
+                      <div className="text-lg font-semibold text-slate-900 dark:text-foreground">Edit dialog crashed</div>
+                      <div className="text-sm text-slate-700 dark:text-muted-foreground font-mono whitespace-pre-wrap break-words">
                         {asString(error?.message || error)}
                       </div>
-                      <pre className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 whitespace-pre-wrap break-words">
+                      <pre className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-800 dark:text-foreground whitespace-pre-wrap break-words">
                         {prettyJson(error)}
                       </pre>
                       <Button type="button" onClick={closeEditor}>
@@ -5810,7 +5858,7 @@ export default function CompanyDashboard() {
                 )}
               >
                 <div className="flex h-full min-h-0 flex-col">
-                  <DialogHeader className="flex-none px-6 py-4 border-b bg-white">
+                  <DialogHeader className="flex-none px-6 py-4 border-b bg-white dark:bg-card">
                     <DialogTitle>{editorOriginalId ? "Edit Company" : "New company"}</DialogTitle>
                     <DialogDescription className="sr-only">
                       Edit company details. Use Refresh search to fetch proposed updates.
@@ -5830,7 +5878,7 @@ export default function CompanyDashboard() {
                   ) : null}
 
                   {editorLoading && !editorLoadError ? (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                    <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-4 text-sm text-slate-700 dark:text-muted-foreground">
                       Loading company…
                     </div>
                   ) : null}
@@ -5843,13 +5891,13 @@ export default function CompanyDashboard() {
 
                   {editorDraft ? (
                     <div className="space-y-5">
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                      <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div className="min-w-0">
-                            <div className="text-xs font-medium text-slate-700">company_id</div>
+                            <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">company_id</div>
                             <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                               <div className="flex flex-wrap items-center gap-2">
-                                <code className="rounded bg-white border border-slate-200 px-2 py-1 text-xs text-slate-900">
+                                <code className="rounded bg-white dark:bg-card border border-slate-200 dark:border-border px-2 py-1 text-xs text-slate-900 dark:text-foreground">
                                   {editorOriginalId ? asString(editorDraft.company_id).trim() || "(missing)" : editorCompanyId || "(auto)"}
                                 </code>
                                 <Button
@@ -5900,7 +5948,7 @@ export default function CompanyDashboard() {
 
                           {!editorOriginalId ? (
                             <div className="min-w-[260px]">
-                              <label className="text-xs font-medium text-slate-700">Override company_id (optional)</label>
+                              <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Override company_id (optional)</label>
                               <Input
                                 value={asString(editorDraft.company_id)}
                                 onChange={(e) => setEditorDraft((d) => ({ ...d, company_id: e.target.value }))}
@@ -5973,9 +6021,9 @@ export default function CompanyDashboard() {
                       })() : null}
 
                       {editorOriginalId && (refreshLoading || refreshError || proposedDraft) ? (
-                        <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+                        <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-4 space-y-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-sm font-semibold text-slate-900">Proposed refresh</div>
+                            <div className="text-sm font-semibold text-slate-900 dark:text-foreground">Proposed refresh</div>
                             {proposedDraft ? (
                               <div className="flex flex-wrap items-center gap-2">
                                 {diffRows.length > 0 ? (
@@ -6010,30 +6058,30 @@ export default function CompanyDashboard() {
                           </div>
 
                           {refreshTaglineMeta ? (
-                            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 space-y-2">
-                              <div className="font-semibold text-slate-900">Tagline verification (xAI)</div>
+                            <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-xs text-slate-700 dark:text-muted-foreground space-y-2">
+                              <div className="font-semibold text-slate-900 dark:text-foreground">Tagline verification (xAI)</div>
                               {asString(refreshTaglineMeta?.error).trim() ? (
                                 <div className="text-red-800">Error: {asString(refreshTaglineMeta.error).trim()}</div>
                               ) : (
                                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                                   <div>
-                                    <div className="font-medium text-slate-800">Confirmed company name</div>
-                                    <div className="mt-0.5 break-words text-slate-900">
+                                    <div className="font-medium text-slate-800 dark:text-foreground">Confirmed company name</div>
+                                    <div className="mt-0.5 break-words text-slate-900 dark:text-foreground">
                                       {asString(refreshTaglineMeta?.confirmed_company_name).trim() || "—"}
                                     </div>
                                     {asString(refreshTaglineMeta?.confirm_reason).trim() ? (
-                                      <div className="mt-1 text-slate-600">{asString(refreshTaglineMeta.confirm_reason).trim()}</div>
+                                      <div className="mt-1 text-slate-600 dark:text-muted-foreground">{asString(refreshTaglineMeta.confirm_reason).trim()}</div>
                                     ) : null}
                                   </div>
                                   <div>
-                                    <div className="font-medium text-slate-800">Confidence</div>
-                                    <div className="mt-0.5 text-slate-900">
+                                    <div className="font-medium text-slate-800 dark:text-foreground">Confidence</div>
+                                    <div className="mt-0.5 text-slate-900 dark:text-foreground">
                                       Name: {formatConfidencePct(refreshTaglineMeta?.confirm_confidence)}
-                                      <span className="mx-2 text-slate-400">•</span>
+                                      <span className="mx-2 text-slate-400 dark:text-muted-foreground">•</span>
                                       Tagline: {formatConfidencePct(refreshTaglineMeta?.tagline_confidence)}
                                     </div>
                                     {asString(refreshTaglineMeta?.tagline_reason).trim() ? (
-                                      <div className="mt-1 text-slate-600">{asString(refreshTaglineMeta.tagline_reason).trim()}</div>
+                                      <div className="mt-1 text-slate-600 dark:text-muted-foreground">{asString(refreshTaglineMeta.tagline_reason).trim()}</div>
                                     ) : null}
                                   </div>
                                 </div>
@@ -6097,7 +6145,7 @@ export default function CompanyDashboard() {
                                         type="button"
                                         size="sm"
                                         variant="outline"
-                                        className="bg-white"
+                                        className="bg-white dark:bg-card"
                                         onClick={async () => {
                                           const bundle =
                                             refreshError?.debug_bundle && typeof refreshError.debug_bundle === "object"
@@ -6123,7 +6171,7 @@ export default function CompanyDashboard() {
 
                                     <details>
                                       <summary className="cursor-pointer select-none text-xs font-semibold text-red-900/90">Raw debug</summary>
-                                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-red-200 bg-white p-2 text-[11px] text-red-900">
+                                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-red-200 bg-white dark:bg-card p-2 text-[11px] text-red-900">
                                         {rawDebugText}
                                       </pre>
                                     </details>
@@ -6134,7 +6182,7 @@ export default function CompanyDashboard() {
                           ) : null}
 
                           {refreshLoading && !proposedDraft && !refreshError ? (
-                            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                            <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-sm text-slate-700 dark:text-muted-foreground">
                               Fetching proposed updates…
                             </div>
                           ) : proposedDraft ? (
@@ -6156,7 +6204,7 @@ export default function CompanyDashboard() {
                                   ].includes(row.key);
 
                                   return (
-                                    <div key={row.key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                    <div key={row.key} className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3">
                                       <div className="flex items-start gap-3">
                                         <Checkbox
                                           checked={Boolean(refreshSelection[row.key])}
@@ -6169,14 +6217,14 @@ export default function CompanyDashboard() {
                                           aria-label={`Overwrite ${row.label}`}
                                         />
                                         <div className="flex-1 min-w-0">
-                                          <div className="text-sm font-medium text-slate-900">{row.label}</div>
+                                          <div className="text-sm font-medium text-slate-900 dark:text-foreground">{row.label}</div>
                                           <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                            <div className="rounded border border-slate-200 bg-white p-2">
-                                              <div className="text-xs font-semibold text-slate-700">Current</div>
-                                              <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.currentText}</pre>
+                                            <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
+                                              <div className="text-xs font-semibold text-slate-700 dark:text-muted-foreground">Current</div>
+                                              <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800 dark:text-foreground">{row.currentText}</pre>
                                             </div>
-                                            <div className="rounded border border-slate-200 bg-white p-2">
-                                              <div className="text-xs font-semibold text-slate-700">Proposed (editable)</div>
+                                            <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
+                                              <div className="text-xs font-semibold text-slate-700 dark:text-muted-foreground">Proposed (editable)</div>
                                               <div className="mt-1 flex items-start gap-2">
                                                 {isMultiLine ? (
                                                   <Textarea
@@ -6238,28 +6286,28 @@ export default function CompanyDashboard() {
                                   );
                                 })}
 
-                                <div className="text-xs text-slate-600">
+                                <div className="text-xs text-slate-600 dark:text-muted-foreground">
                                   Selected rows will be written on Save. Protected fields are never overwritten: logo, structured notes, and manual stars.
                                 </div>
 
                                 {/* Raw Grok response viewer */}
                                 {refreshProposed?.last_enrichment_raw_response ? (
-                                  <details className="rounded-lg border border-slate-200 bg-slate-50">
-                                    <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                                  <details className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted">
+                                    <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-700 dark:text-muted-foreground hover:bg-slate-100 dark:bg-muted">
                                       Raw Grok response
                                       {refreshProposed?.enrichment_method ? (
-                                        <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] text-slate-600">
+                                        <span className="ml-2 rounded-full bg-slate-200 dark:bg-muted px-2 py-0.5 text-[10px] text-slate-600 dark:text-muted-foreground">
                                           {refreshProposed.enrichment_method}
                                         </span>
                                       ) : null}
                                       {refreshProposed?.last_enrichment_at ? (
-                                        <span className="ml-2 text-[10px] text-slate-500">
+                                        <span className="ml-2 text-[10px] text-slate-500 dark:text-muted-foreground">
                                           {new Date(refreshProposed.last_enrichment_at).toLocaleTimeString()}
                                         </span>
                                       ) : null}
                                     </summary>
-                                    <div className="border-t border-slate-200 p-3">
-                                      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-slate-200 bg-white p-3 text-[11px] text-slate-800 leading-relaxed">
+                                    <div className="border-t border-slate-200 dark:border-border p-3">
+                                      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-3 text-[11px] text-slate-800 dark:text-foreground leading-relaxed">
                                         {typeof refreshProposed.last_enrichment_raw_response === "string"
                                           ? refreshProposed.last_enrichment_raw_response
                                           : JSON.stringify(refreshProposed.last_enrichment_raw_response, null, 2)}
@@ -6287,7 +6335,7 @@ export default function CompanyDashboard() {
                                 ) : null}
                               </div>
                             ) : (
-                              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                              <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 text-sm text-slate-700 dark:text-muted-foreground">
                                 No differences found.
                               </div>
                             )
@@ -6300,7 +6348,7 @@ export default function CompanyDashboard() {
                           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                             <div className="space-y-1 md:col-span-2">
                               <div className="flex items-center justify-between gap-2">
-                                <label className="text-sm text-slate-700">
+                                <label className="text-sm text-slate-700 dark:text-muted-foreground">
                                   Company name <span className="text-red-600">*</span>
                                 </label>
                                 {asString(editorDisplayNameOverride).trim() ? (
@@ -6329,7 +6377,7 @@ export default function CompanyDashboard() {
                             <div className="space-y-2 md:col-span-2">
                               <button
                                 type="button"
-                                className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 hover:bg-slate-50"
+                                className="flex w-full items-center justify-between rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-3 py-2 text-sm text-slate-800 dark:text-foreground hover:bg-slate-50 dark:bg-muted dark:hover:bg-accent"
                                 onClick={() => setEditorShowAdvanced((v) => !v)}
                                 aria-expanded={editorShowAdvanced}
                               >
@@ -6338,9 +6386,9 @@ export default function CompanyDashboard() {
                               </button>
 
                               {editorShowAdvanced ? (
-                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                                <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 space-y-2">
                                   <div className="space-y-1">
-                                    <label className="text-sm text-slate-700">Display name (optional)</label>
+                                    <label className="text-sm text-slate-700 dark:text-muted-foreground">Display name (optional)</label>
                                     <Input
                                       value={editorDisplayNameOverride}
                                       onChange={(e) => {
@@ -6355,7 +6403,7 @@ export default function CompanyDashboard() {
                                       placeholder={asString(editorDraft.company_name) || ""}
                                     />
                                   </div>
-                                  <div className="text-xs text-slate-600">
+                                  <div className="text-xs text-slate-600 dark:text-muted-foreground">
                                     If set, this is what users see. If empty, we show Company name.
                                   </div>
                                 </div>
@@ -6363,7 +6411,7 @@ export default function CompanyDashboard() {
                             </div>
 
                             <div className="space-y-1 md:col-span-2">
-                              <label className="text-sm text-slate-700">Website URL</label>
+                              <label className="text-sm text-slate-700 dark:text-muted-foreground">Website URL</label>
                               <Input
                                 value={asString(editorDraft.website_url)}
                                 onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
@@ -6372,7 +6420,7 @@ export default function CompanyDashboard() {
                             </div>
 
                             <div className="space-y-1 md:col-span-2">
-                              <label className="text-sm text-slate-700">Tagline</label>
+                              <label className="text-sm text-slate-700 dark:text-muted-foreground">Tagline</label>
                               <Input
                                 value={asString(editorDraft.tagline)}
                                 onChange={(e) => setEditorDraft((d) => ({ ...d, tagline: e.target.value }))}
@@ -6381,12 +6429,12 @@ export default function CompanyDashboard() {
                             </div>
 
                             <div className="space-y-1">
-                              <label className="text-sm text-slate-700">Amazon URL</label>
+                              <label className="text-sm text-slate-700 dark:text-muted-foreground">Amazon URL</label>
                               <Input
                                 value={asString(editorDraft.amazon_url)}
                                 onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
                               />
-                              <label className="flex items-center gap-2 text-sm text-slate-700 mt-2">
+                              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-2">
                                 <Checkbox
                                   checked={Boolean(editorDraft.no_amazon_store)}
                                   onCheckedChange={(v) =>
@@ -6403,7 +6451,7 @@ export default function CompanyDashboard() {
                           </div>
 
                           <div className="space-y-2">
-                            <label className="text-sm text-slate-700">Logo</label>
+                            <label className="text-sm text-slate-700 dark:text-muted-foreground">Logo</label>
 
                             {(() => {
                               const rawLogoUrl = asString(editorDraft?.logo_url).trim();
@@ -6411,7 +6459,7 @@ export default function CompanyDashboard() {
 
                               if (!rawLogoUrl) {
                                 return (
-                                  <div className="text-xs text-slate-500">
+                                  <div className="text-xs text-slate-500 dark:text-muted-foreground">
                                     {status === "not_found_on_site"
                                       ? "No logo found on company website."
                                       : status === "not_found"
@@ -6422,24 +6470,24 @@ export default function CompanyDashboard() {
                               }
 
                               return (
-                                <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
+                                <div className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
                                   {!logoPreviewFailed ? (
                                     <img
                                       src={getCompanyLogoUrl({ ...editorDraft, id: editorOriginalId, logo_url: rawLogoUrl })}
                                       alt="Company logo"
-                                      className="h-12 w-12 rounded border border-slate-200 object-contain bg-white"
+                                      className="h-12 w-12 rounded border border-slate-200 dark:border-border object-contain bg-white dark:bg-card"
                                       loading="lazy"
                                       onError={() => setLogoPreviewFailed(true)}
                                     />
                                   ) : (
-                                    <div className="h-12 w-12 rounded border border-slate-200 bg-slate-50 flex items-center justify-center text-[11px] text-slate-600 text-center px-1">
+                                    <div className="h-12 w-12 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted flex items-center justify-center text-[11px] text-slate-600 dark:text-muted-foreground text-center px-1">
                                       {status === "not_found_on_site" ? "No logo on site" : "No logo found"}
                                     </div>
                                   )}
 
                                   <div className="flex-1 min-w-0">
-                                    <div className="text-xs text-slate-500">Current logo_url</div>
-                                    <div className="text-xs text-slate-800 break-all">{rawLogoUrl}</div>
+                                    <div className="text-xs text-slate-500 dark:text-muted-foreground">Current logo_url</div>
+                                    <div className="text-xs text-slate-800 dark:text-foreground break-all">{rawLogoUrl}</div>
                                   </div>
                                 </div>
                               );
@@ -6450,7 +6498,7 @@ export default function CompanyDashboard() {
                                 type="file"
                                 accept="image/png,image/jpeg,image/svg+xml"
                                 onChange={handleLogoFileChange}
-                                className="block w-full max-w-[360px] text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
+                                className="block w-full max-w-[360px] text-sm text-slate-700 dark:text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
                                 disabled={logoUploading || logoDeleting}
                               />
 
@@ -6488,7 +6536,7 @@ export default function CompanyDashboard() {
                             </div>
 
                             {logoFile ? (
-                              <div className="text-xs text-slate-600">
+                              <div className="text-xs text-slate-600 dark:text-muted-foreground">
                                 Selected: {logoFile.name} ({Math.round((logoFile.size / 1024) * 10) / 10}KB)
                               </div>
                             ) : null}
@@ -6496,7 +6544,7 @@ export default function CompanyDashboard() {
                             {logoUploadError ? <div className="text-xs text-red-700">{logoUploadError}</div> : null}
 
                             {!editorOriginalId ? (
-                              <div className="text-xs text-slate-600">Save the company first to enable uploads.</div>
+                              <div className="text-xs text-slate-600 dark:text-muted-foreground">Save the company first to enable uploads.</div>
                             ) : null}
                           </div>
 
@@ -6546,10 +6594,10 @@ export default function CompanyDashboard() {
                         </div>
 
                         <div className="space-y-5">
-                          <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-                            <div className="text-sm font-semibold text-slate-900">Visibility</div>
+                          <div className="space-y-3 rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-4">
+                            <div className="text-sm font-semibold text-slate-900 dark:text-foreground">Visibility</div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-foreground">
                                 <Checkbox
                                   checked={Boolean(editorDraft.show_location_sources_to_users)}
                                   onCheckedChange={(v) =>
@@ -6562,7 +6610,7 @@ export default function CompanyDashboard() {
                                 <span>Show location sources to users</span>
                               </label>
 
-                              <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-foreground">
                                 <Checkbox
                                   checked={Boolean(editorDraft.visibility?.hq_public)}
                                   onCheckedChange={(v) =>
@@ -6575,7 +6623,7 @@ export default function CompanyDashboard() {
                                 <span>Show HQ location</span>
                               </label>
 
-                              <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-foreground">
                                 <Checkbox
                                   checked={Boolean(editorDraft.visibility?.manufacturing_public)}
                                   onCheckedChange={(v) =>
@@ -6591,7 +6639,7 @@ export default function CompanyDashboard() {
                                 <span>Show manufacturing locations</span>
                               </label>
 
-                              <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-foreground">
                                 <Checkbox
                                   checked={Boolean(editorDraft.visibility?.admin_rating_public)}
                                   onCheckedChange={(v) =>
@@ -6643,14 +6691,14 @@ export default function CompanyDashboard() {
 
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <label className="text-sm text-slate-700">Paste reviews (Grok / manual)</label>
+                              <label className="text-sm text-slate-700 dark:text-muted-foreground">Paste reviews (Grok / manual)</label>
                               <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex items-center gap-2 text-xs text-slate-700">
+                                <div className="flex items-center gap-2 text-xs text-slate-700 dark:text-muted-foreground">
                                   <span className="font-medium">Notes → Reviews</span>
                                   <select
                                     value={notesToReviewsMode}
                                     onChange={(e) => setNotesToReviewsMode(e.target.value)}
-                                    className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                                    className="h-8 rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-2 text-xs"
                                     disabled={notesToReviewsLoading}
                                     aria-label="Apply mode"
                                   >
@@ -6686,14 +6734,14 @@ export default function CompanyDashboard() {
                             <textarea
                               value={asString(editorDraft.notes)}
                               onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}
-                              className="min-h-[200px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                              className="min-h-[200px] w-full rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
                               placeholder={"Paste Grok review output here\u2026\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
                             />
 
                             {notesToReviewsPreviewMeta ? (
-                              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                              <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 space-y-2">
                                 <div className="flex flex-wrap items-start justify-between gap-2">
-                                  <div className="text-xs text-slate-700">
+                                  <div className="text-xs text-slate-700 dark:text-muted-foreground">
                                     <div className="font-medium">Dry run preview</div>
                                     <div className="mt-1">
                                       Parsed: <span className="font-medium">{notesToReviewsPreviewMeta.parsedCount}</span>
@@ -6705,7 +6753,7 @@ export default function CompanyDashboard() {
                                       Mode: <span className="font-medium">{notesToReviewsPreviewMeta.mode}</span>
                                     </div>
                                     {Array.isArray(notesToReviewsPreviewMeta.warnings) && notesToReviewsPreviewMeta.warnings.length ? (
-                                      <div className="mt-1 text-[11px] text-slate-500">
+                                      <div className="mt-1 text-[11px] text-slate-500 dark:text-muted-foreground">
                                         Warnings: {notesToReviewsPreviewMeta.warnings.join(", ")}
                                       </div>
                                     ) : null}
@@ -6726,23 +6774,23 @@ export default function CompanyDashboard() {
                                 {Array.isArray(notesToReviewsPreview) && notesToReviewsPreview.length ? (
                                   <div className="space-y-2">
                                     {notesToReviewsPreview.map((r, idx) => (
-                                      <div key={asString(r?.id).trim() || `preview-${idx}`} className="rounded border border-slate-200 bg-white p-2">
-                                        <div className="text-xs text-slate-800">
+                                      <div key={asString(r?.id).trim() || `preview-${idx}`} className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
+                                        <div className="text-xs text-slate-800 dark:text-foreground">
                                           <span className="font-medium">{asString(r?.title).trim() || "(no title)"}</span>
-                                          {asString(r?.source_name).trim() ? <span className="text-slate-500"> · {asString(r?.source_name).trim()}</span> : null}
-                                          {asString(r?.author).trim() ? <span className="text-slate-500"> · {asString(r?.author).trim()}</span> : null}
-                                          {asString(r?.date).trim() ? <span className="text-slate-500"> · {asString(r?.date).trim()}</span> : null}
-                                          {r?.rating != null ? <span className="text-slate-500"> · {String(r.rating)}/5</span> : null}
+                                          {asString(r?.source_name).trim() ? <span className="text-slate-500 dark:text-muted-foreground"> · {asString(r?.source_name).trim()}</span> : null}
+                                          {asString(r?.author).trim() ? <span className="text-slate-500 dark:text-muted-foreground"> · {asString(r?.author).trim()}</span> : null}
+                                          {asString(r?.date).trim() ? <span className="text-slate-500 dark:text-muted-foreground"> · {asString(r?.date).trim()}</span> : null}
+                                          {r?.rating != null ? <span className="text-slate-500 dark:text-muted-foreground"> · {String(r.rating)}/5</span> : null}
                                         </div>
-                                        <div className="mt-1 whitespace-pre-wrap text-[11px] text-slate-700">{asString(r?.text).trim()}</div>
+                                        <div className="mt-1 whitespace-pre-wrap text-[11px] text-slate-700 dark:text-muted-foreground">{asString(r?.text).trim()}</div>
                                         {asString(r?.url).trim() ? (
-                                          <div className="mt-1 text-[11px] text-slate-500">URL: {asString(r?.url).trim()}</div>
+                                          <div className="mt-1 text-[11px] text-slate-500 dark:text-muted-foreground">URL: {asString(r?.url).trim()}</div>
                                         ) : null}
                                       </div>
                                     ))}
                                   </div>
                                 ) : (
-                                  <div className="text-xs text-slate-600">No preview items returned.</div>
+                                  <div className="text-xs text-slate-600 dark:text-muted-foreground">No preview items returned.</div>
                                 )}
                               </div>
                             ) : null}
@@ -6810,9 +6858,9 @@ export default function CompanyDashboard() {
 
               <div className="space-y-2">
                 {deleteConfirm?.kind === "bulk" ? (
-                  <div className="text-sm text-slate-700">Delete {asString(deleteConfirm.label)}?</div>
+                  <div className="text-sm text-slate-700 dark:text-muted-foreground">Delete {asString(deleteConfirm.label)}?</div>
                 ) : (
-                  <div className="text-sm text-slate-700">
+                  <div className="text-sm text-slate-700 dark:text-muted-foreground">
                     Delete <span className="font-semibold">{asString(deleteConfirm?.company_name) || "this company"}</span> (
                     <code className="text-xs">{asString(deleteConfirm?.company_id)}</code>)?
                   </div>

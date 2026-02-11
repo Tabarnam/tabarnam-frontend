@@ -265,7 +265,7 @@ export default function SearchCard({
                 const badgeColors = {
                   Company: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
                   Keyword: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
-                  Industry: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+                  Industry: "bg-primary/15 text-primary dark:bg-primary/20 dark:text-primary",
                 };
                 const badgeClass = badgeColors[s.type] || "bg-muted text-foreground";
                 return (

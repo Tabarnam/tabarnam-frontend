@@ -268,12 +268,12 @@ export default function AdminPanel() {
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-slate-50 dark:bg-background">
         <AdminHeader user={user} />
 
         <main className="container mx-auto py-6 px-4 space-y-6">
           <header className="flex flex-col gap-2">
-            <h1 className="text-3xl font-bold text-slate-900">Admin Dashboard</h1>
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-foreground">Admin Dashboard</h1>
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill ok={cosmosConfigured} label={cosmosConfigured ? "Cosmos configured" : "Cosmos not configured"} />
               <StatusPill ok={true} label={`Functions base: ${FUNCTIONS_BASE || "(same-origin)"}`} />
@@ -288,14 +288,14 @@ export default function AdminPanel() {
           {configBanner}
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-slate-900">Configuration diagnostics</h2>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Configuration diagnostics</h2>
                 <Button variant="outline" onClick={refreshDiagnostic} disabled={diagnosticLoading}>
                   {diagnosticLoading ? "Loading…" : "Refresh"}
                 </Button>
               </div>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-slate-600 dark:text-muted-foreground">
                 Reads <code>/api/xadmin-api-save-diagnostic</code> and reports environment status.
               </p>
               <pre className="mt-4 max-h-[420px] overflow-auto rounded bg-slate-950 text-slate-100 p-3 text-xs">
@@ -303,14 +303,14 @@ export default function AdminPanel() {
               </pre>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-slate-900">Debug endpoint</h2>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Debug endpoint</h2>
                 <Button onClick={runDebug} disabled={debugLoading}>
                   {debugLoading ? "Pinging…" : "Ping /xadmin-api-debug"}
                 </Button>
               </div>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-slate-600 dark:text-muted-foreground">
                 Calls <code>/api/xadmin-api-debug</code>.
               </p>
               <pre className="mt-4 max-h-[420px] overflow-auto rounded bg-slate-950 text-slate-100 p-3 text-xs">
@@ -318,19 +318,19 @@ export default function AdminPanel() {
               </pre>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-slate-900">Companies API health</h2>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Companies API health</h2>
                 <Button onClick={testCompaniesApi} disabled={companiesTestLoading}>
                   {companiesTestLoading ? "Testing…" : "Test Companies API"}
                 </Button>
               </div>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-slate-600 dark:text-muted-foreground">
                 Calls <code>/api/xadmin-api-companies?take=1</code> and shows status + response body.
               </p>
 
               <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                <span className="text-slate-700">Status:</span>
+                <span className="text-slate-700 dark:text-muted-foreground">Status:</span>
                 <code className="rounded bg-slate-100 px-2 py-1 text-xs">
                   {companiesTest ? (companiesTest.status ? `${companiesTest.status}${companiesTest.ok ? " OK" : ""}` : "(network error)") : "(not run)"}
                 </code>
@@ -341,24 +341,24 @@ export default function AdminPanel() {
               </pre>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-slate-900">Refresh reviews probe (raw)</h2>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Refresh reviews probe (raw)</h2>
                 <Button onClick={probeRefreshReviews} disabled={reviewsProbeLoading || !reviewsProbeCompanyId.trim()}>
                   {reviewsProbeLoading ? "Calling…" : "POST /xadmin-api-refresh-reviews"}
                 </Button>
               </div>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-slate-600 dark:text-muted-foreground">
                 Calls <code>/api/xadmin-api-refresh-reviews</code> and prints the raw response body + parsed JSON.
               </p>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-slate-700">company_id</label>
+                  <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">company_id</label>
                   <Input value={reviewsProbeCompanyId} onChange={(e) => setReviewsProbeCompanyId(e.target.value)} placeholder="company_..." />
                 </div>
                 <div className="flex flex-col justify-end">
-                  <div className="text-xs text-slate-600">
+                  <div className="text-xs text-slate-600 dark:text-muted-foreground">
                     Status:{" "}
                     <code className="rounded bg-slate-100 px-2 py-1 text-[11px]">
                       {reviewsProbeResult ? `${reviewsProbeResult.status}${reviewsProbeResult.ok ? " OK" : ""}` : "(not run)"}
@@ -379,24 +379,24 @@ export default function AdminPanel() {
               </pre>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-slate-900">Recalc review counts</h2>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Recalc review counts</h2>
                 <Button onClick={runRecalc} disabled={recalcLoading || !cosmosConfigured}>
                   {recalcLoading ? "Running…" : "Run"}
                 </Button>
               </div>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-sm text-slate-600 dark:text-muted-foreground">
                 Calls <code>/api/xadmin-api-recalc-review-counts</code>. Disabled until Cosmos is configured.
               </p>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-slate-700">company_id</label>
+                  <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">company_id</label>
                   <Input value={recalcCompanyId} onChange={(e) => setRecalcCompanyId(e.target.value)} placeholder="company_123" />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-slate-700">company_name (optional)</label>
+                  <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">company_name (optional)</label>
                   <Input
                     value={recalcCompanyName}
                     onChange={(e) => setRecalcCompanyName(e.target.value)}
