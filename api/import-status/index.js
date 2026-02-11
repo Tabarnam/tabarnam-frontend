@@ -4345,6 +4345,12 @@ async function handler(req, context) {
     // resume_needed is derived from retryable missing fields only; it must not drift.
     let resume_needed = forceResume ? true : retryableMissingCount > 0;
 
+    // Mutable resume_error / resume_error_details for the Cosmos-backed path.
+    // These are assigned during the single-company policy check (lines ~4658, ~4855)
+    // and read in the response object (lines ~5363, ~5639, etc.).
+    let resume_error = null;
+    let resume_error_details = null;
+
     // If the session is actively processing (not yet complete/errored), don't let
     // resume_needed=false prematurely signal completion.  The session may still be
     // saving companies and the saved count may be 0 simply because the first status
@@ -5304,10 +5310,14 @@ async function handler(req, context) {
             .filter(Boolean)
             .slice(0, 50);
 
-    const resume_error =
+    // NOTE: These MUST use different names from the `let resume_error` / `let resume_error_details`
+    // declared earlier in the primary-job block (line ~1763). Using `const resume_error` here
+    // caused a TDZ ReferenceError at line ~4855 where `resume_error = errorCode` was assigned
+    // before this `const` initialization point.
+    const sessionDoc_resume_error =
       typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
 
-    const resume_error_details =
+    const sessionDoc_resume_error_details =
       sessionDoc?.resume_error_details && typeof sessionDoc.resume_error_details === "object" ? sessionDoc.resume_error_details : null;
 
     const requestObj = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null;
@@ -5356,9 +5366,9 @@ async function handler(req, context) {
           saved_company_ids_unverified,
           saved_company_urls,
           save_outcome,
-          resume_error,
-          resume_error_details,
-        resume_error_details,
+          resume_error: resume_error || sessionDoc_resume_error,
+          resume_error_details: resume_error_details || sessionDoc_resume_error_details,
+        resume_error_details: resume_error_details || sessionDoc_resume_error_details,
         enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? sessionDoc?.enrichment_last_write_error || null
           : null,
@@ -5849,9 +5859,9 @@ async function handler(req, context) {
           saved_company_ids_unverified,
           saved_company_urls,
           save_outcome,
-          resume_error,
-          resume_error_details,
-        resume_error_details,
+          resume_error: resume_error || sessionDoc_resume_error,
+          resume_error_details: resume_error_details || sessionDoc_resume_error_details,
+        resume_error_details: resume_error_details || sessionDoc_resume_error_details,
         enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? sessionDoc?.enrichment_last_write_error || null
           : null,
@@ -6174,8 +6184,8 @@ async function handler(req, context) {
         saved_company_ids_unverified,
         saved_company_urls,
         save_outcome,
-        resume_error,
-        resume_error_details,
+        resume_error: resume_error || sessionDoc_resume_error,
+        resume_error_details: resume_error_details || sessionDoc_resume_error_details,
         enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? sessionDoc?.enrichment_last_write_error || null
           : null,

@@ -1819,6 +1819,15 @@ async function resumeWorkerHandler(req, context) {
       .filter(Boolean)
       .slice(0, 50);
 
+    // Guard: on a fresh seed with no planned company IDs, the seed hasn't been saved yet.
+    // This happens when import-status triggers the resume-worker inline before import-start
+    // has finished writing the seed company doc and resume doc. The async enrichment
+    // fire-and-forget in import-start will handle enrichment — don't run empty.
+    if (plannedIds.length === 0 && isFreshSeed) {
+      console.log(`[resume-worker] SKIPPING: fresh seed with no planned IDs for session=${sessionId} — seed not yet saved`);
+      return gracefulExit("seed_not_ready");
+    }
+
     const plannedDocs = plannedIds.length > 0 ? await fetchCompaniesByIds(container, plannedIds).catch(() => []) : [];
     const docsById = new Map(plannedDocs.map((d) => [String(d?.id || "").trim(), d]));
 

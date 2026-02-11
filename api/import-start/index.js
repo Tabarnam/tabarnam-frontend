@@ -3436,6 +3436,26 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     }
   }
 
+  // Update in-memory session store so import-status polls see completion immediately.
+  // Without this, import-status reads stale in-memory data (stage_beacon="xai_primary_fetch_start")
+  // because the async enrichment runs after the HTTP response was already sent.
+  try {
+    upsertImportSession({
+      session_id: sessionId,
+      request_id: requestId,
+      status: allOk ? "complete" : "running",
+      stage_beacon: allOk ? "enrichment_complete" : "enrichment_partial",
+      saved: ids.length,
+      saved_count: ids.length,
+      saved_verified_count: ids.length,
+      saved_company_ids_verified: [...ids],
+      resume_needed: !allOk,
+    });
+    console.log(`[import-start] session=${sessionId} in-memory session store updated: beacon=${allOk ? "enrichment_complete" : "enrichment_partial"} resume_needed=${!allOk}`);
+  } catch (memErr) {
+    console.warn(`[import-start] session=${sessionId} in-memory session store update failed: ${memErr?.message || memErr}`);
+  }
+
   // Update resume doc status
   await upsertResumeDoc({
     session_id: sessionId,
