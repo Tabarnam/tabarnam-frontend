@@ -32,7 +32,7 @@ function TextWithLinks({ text, className = "" }) {
               href={part}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-600 hover:underline break-all"
+              className="text-blue-600 dark:text-blue-400 hover:underline break-all"
               onClick={(e) => e.stopPropagation()}
             >
               {part}
@@ -366,14 +366,14 @@ export default function ExpandableCompanyRow({
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {loc.formatted !== "—" && (
-                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)]">
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
-              <div className="text-gray-900">{loc.formatted}</div>
+              <div className="text-foreground">{loc.formatted}</div>
             </div>
           ))}
-          {manuLocations.length === 0 && <div className="text-sm text-gray-500">—</div>}
+          {manuLocations.length === 0 && <div className="text-sm text-muted-foreground">—</div>}
         </div>
       );
     }
@@ -384,14 +384,14 @@ export default function ExpandableCompanyRow({
           {hqLocation.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {loc.formatted !== "—" && (
-                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)]">
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
-              <div className="text-gray-900">{loc.formatted}</div>
+              <div className="text-foreground">{loc.formatted}</div>
             </div>
           ))}
-          {hqLocation.length === 0 && <div className="text-sm text-gray-500">—</div>}
+          {hqLocation.length === 0 && <div className="text-sm text-muted-foreground">—</div>}
         </div>
       );
     }
@@ -402,14 +402,14 @@ export default function ExpandableCompanyRow({
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {loc.formatted !== "—" && (
-                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)]">
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
-              <div className="text-gray-900">{loc.formatted}</div>
+              <div className="text-foreground">{loc.formatted}</div>
             </div>
           ))}
-          {manuLocations.length === 0 && <div className="text-sm text-gray-500">—</div>}
+          {manuLocations.length === 0 && <div className="text-sm text-muted-foreground">—</div>}
         </div>
       );
     }
@@ -434,36 +434,36 @@ export default function ExpandableCompanyRow({
 
           {showReviewPreview && (
             <>
-              <div className="text-xs font-semibold text-gray-700">Features & Reviews</div>
+              <div className="text-xs font-semibold text-foreground">Features & Reviews</div>
 
               {reviews.length > 0 ? (
                 <div className="space-y-2">
                   {reviews.map((r, idx) => (
-                    <div key={idx} className="text-xs text-gray-600">
+                    <div key={idx} className="text-xs text-muted-foreground">
                       <div className="line-clamp-1">{r.text || "—"}</div>
                       {r.sourceUrl ? (
                         <a
                           href={withAmazonAffiliate(r.sourceUrl)}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-blue-600 hover:underline"
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
                           onClick={(e) => e.stopPropagation()}
                           title={withAmazonAffiliate(r.sourceUrl)}
                         >
                           Source: {r.sourceName}
                         </a>
                       ) : (
-                        <div className="text-gray-500">Source: {r.sourceName}</div>
+                        <div className="text-muted-foreground">Source: {r.sourceName}</div>
                       )}
                     </div>
                   ))}
                 </div>
               ) : typeof company.reviews_count === "number" && company.reviews_count > 0 ? (
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   {company.reviews_count} review{company.reviews_count === 1 ? "" : "s"} available
                 </div>
               ) : (
-                <div className="text-xs text-gray-400">No reviews available</div>
+                <div className="text-xs text-muted-foreground">No reviews available</div>
               )}
             </>
           )}
@@ -500,14 +500,14 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-2 border-[#B1DDE3] rounded-lg mb-4 p-4 sm:p-6 bg-white cursor-pointer relative"
+        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-4 sm:p-6 bg-card cursor-pointer relative"
       >
         <div className="absolute top-2 right-2 z-10">
           <ShareButton company={company} />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6 pb-6 border-b">
           <div className="sm:col-span-2 lg:col-span-2">
-            <h2 className="font-bold text-lg text-gray-900">
+            <h2 className="font-bold text-lg text-foreground">
               {websiteUrl ? (
                 <CompanyNameWithUrlTooltip
                   href={withAmazonAffiliate(websiteUrl)}
@@ -516,11 +516,11 @@ export default function ExpandableCompanyRow({
                   {websiteLabel}
                 </CompanyNameWithUrlTooltip>
               ) : (
-                <span className="text-gray-900">{displayName}</span>
+                <span className="text-foreground">{displayName}</span>
               )}
             </h2>
             {company.tagline && (
-              <div className="text-sm text-gray-600 mt-1">{company.tagline}</div>
+              <div className="text-sm text-muted-foreground mt-1">{company.tagline}</div>
             )}
 
             {(affiliateLinks.length > 0 || amazonLink) && (
@@ -531,7 +531,7 @@ export default function ExpandableCompanyRow({
                       href={withAmazonAffiliate(link.url)}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-blue-600 hover:underline"
+                      className="text-blue-600 dark:text-blue-400 hover:underline"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
@@ -544,7 +544,7 @@ export default function ExpandableCompanyRow({
                       href={withAmazonAffiliate(amazonLink)}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-blue-600 hover:underline"
+                      className="text-blue-600 dark:text-blue-400 hover:underline"
                       onClick={(e) => e.stopPropagation()}
                     >
                       Amazon
@@ -554,8 +554,8 @@ export default function ExpandableCompanyRow({
               </div>
             )}
 
-            <div className="text-sm font-semibold text-gray-700 mt-3">Industries</div>
-            <div className="text-sm text-gray-600 mt-1 flex flex-wrap gap-1">
+            <div className="text-sm font-semibold text-foreground mt-3">Industries</div>
+            <div className="text-sm text-muted-foreground mt-1 flex flex-wrap gap-1">
               {Array.isArray(company.industries) &&
                 company.industries.map((ind, idx) => (
                   <button
@@ -564,7 +564,7 @@ export default function ExpandableCompanyRow({
                       e.stopPropagation();
                       onKeywordSearch(ind);
                     }}
-                    className="text-blue-600 hover:underline"
+                    className="text-blue-600 dark:text-blue-400 hover:underline"
                   >
                     {ind}
                     {idx < company.industries.length - 1 && ","}
@@ -582,11 +582,11 @@ export default function ExpandableCompanyRow({
                 onError={() => setLogoFailed(true)}
               />
             ) : (
-              <div className="w-full h-40 mb-3 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-2xl">
+              <div className="w-full h-40 mb-3 bg-muted rounded flex items-center justify-center text-foreground font-bold text-2xl">
                 {logoStatus === "not_found_on_site" ? (
-                  <span className="text-sm font-semibold text-gray-500">No logo found on company website</span>
+                  <span className="text-sm font-semibold text-muted-foreground">No logo found on company website</span>
                 ) : logoStatus === "not_found" ? (
-                  <span className="text-sm font-semibold text-gray-500">No logo found</span>
+                  <span className="text-sm font-semibold text-muted-foreground">No logo found</span>
                 ) : (
                   displayName
                     .split(" ")
@@ -601,7 +601,7 @@ export default function ExpandableCompanyRow({
 
           {rightColsOrder.map((colKey) => (
             <div key={colKey}>
-              <div className="text-sm font-semibold text-gray-700 mb-2">
+              <div className="text-sm font-semibold text-foreground mb-2">
                 {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "Home/HQ" : "QQ"}
               </div>
               {renderRightColumn(colKey)}
@@ -610,15 +610,15 @@ export default function ExpandableCompanyRow({
         </div>
 
         <div className="mt-2 keywordsRow">
-          <div className="text-sm font-semibold text-gray-700">Keywords</div>
-          <div className="mt-2 text-sm text-gray-600">
+          <div className="text-sm font-semibold text-foreground">Keywords</div>
+          <div className="mt-2 text-sm text-muted-foreground">
             {sortedKeywords.length > 0 ? (
               <ul className="keywordsCols">
                 {sortedKeywords.map((kw, idx) => (
                   <li key={`${kw}-${idx}`}>
                     <a
                       href="#"
-                      className="text-blue-600 hover:underline text-xs"
+                      className="text-blue-600 dark:text-blue-400 hover:underline text-xs"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -631,28 +631,28 @@ export default function ExpandableCompanyRow({
                 ))}
               </ul>
             ) : (
-              <div className="text-sm text-gray-500">—</div>
+              <div className="text-sm text-muted-foreground">—</div>
             )}
           </div>
         </div>
 
         <div className="mt-6 space-y-4">
           {Array.isArray(company?.notes_entries) && company.notes_entries.some((n) => n?.is_public) && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="text-sm font-semibold text-gray-800 mb-2">Notes from Tabarnam</div>
+            <div className="rounded-lg border border-border bg-muted/50 p-4">
+              <div className="text-sm font-semibold text-foreground mb-2">Notes from Tabarnam</div>
               <div className="space-y-3">
                 {company.notes_entries
                   .filter((n) => n && typeof n === "object" && (n.is_public === true || String(n.is_public).toLowerCase() === "true"))
                   .slice()
                   .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
                   .map((n, idx) => (
-                    <div key={n.id || idx} className="rounded border border-slate-200 bg-white p-3">
-                      {n.title ? <div className="font-semibold text-sm text-gray-900">{n.title}</div> : null}
+                    <div key={n.id || idx} className="rounded border border-border bg-card p-3">
+                      {n.title ? <div className="font-semibold text-sm text-foreground">{n.title}</div> : null}
                       {n.created_at ? (
-                        <div className="text-xs text-gray-500 mt-0.5">{new Date(n.created_at).toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{new Date(n.created_at).toLocaleString()}</div>
                       ) : null}
                       {n.body ? (
-                        <div className="text-sm text-gray-700 mt-2 whitespace-pre-wrap break-words">
+                        <div className="text-sm text-foreground mt-2 whitespace-pre-wrap break-words">
                           <TextWithLinks text={n.body} />
                         </div>
                       ) : null}
@@ -665,7 +665,7 @@ export default function ExpandableCompanyRow({
           <ReviewsWidget companyId={company.company_id || company.id} companyName={canonicalName} displayName={displayName} />
         </div>
 
-        <div className="text-xs text-gray-500 mt-4 text-center">Click anywhere to collapse</div>
+        <div className="text-xs text-muted-foreground mt-4 text-center">Click anywhere to collapse</div>
       </div>
     );
   }
@@ -673,13 +673,13 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-[#649BA0] rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors relative"
+      className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
     >
       <div className="absolute top-1 right-1 z-10">
         <ShareButton company={company} />
       </div>
       <div className="col-span-4 lg:col-span-1">
-        <h2 className="font-bold text-gray-900">
+        <h2 className="font-bold text-foreground">
           {websiteUrl ? (
             <CompanyNameWithUrlTooltip
               href={withAmazonAffiliate(websiteUrl)}
@@ -693,19 +693,19 @@ export default function ExpandableCompanyRow({
           )}
         </h2>
         {company.tagline && (
-          <div className="text-xs text-gray-600 mt-1">{company.tagline}</div>
+          <div className="text-xs text-muted-foreground mt-1">{company.tagline}</div>
         )}
 
         {(affiliateLinks.length > 0 || amazonLink) && (
           <div className="mt-2 space-y-0.5 text-xs">
             {affiliateLinks.map((link, idx) => (
               <div key={link.url || idx} className="truncate">
-                <span className="font-semibold text-gray-700 mr-1">Aff.</span>
+                <span className="font-semibold text-foreground mr-1">Aff.</span>
                 <a
                   href={withAmazonAffiliate(link.url)}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-blue-600 hover:underline"
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
@@ -714,12 +714,12 @@ export default function ExpandableCompanyRow({
             ))}
             {amazonLink && (
               <div className="truncate">
-                <span className="font-semibold text-gray-700 mr-1">Aff.</span>
+                <span className="font-semibold text-foreground mr-1">Aff.</span>
                 <a
                   href={withAmazonAffiliate(amazonLink)}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-blue-600 hover:underline"
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
                   Amazon
@@ -732,17 +732,17 @@ export default function ExpandableCompanyRow({
         {/* Industries - inline in column 1, one line only */}
         {Array.isArray(company.industries) && company.industries.length > 0 && (
           <div className="mt-2">
-            <div className="text-xs font-semibold text-gray-500 mb-1">Industries</div>
+            <div className="text-xs font-semibold text-muted-foreground mb-1">Industries</div>
             <div className="text-xs truncate">
               {company.industries.map((ind, idx) => (
                 <React.Fragment key={idx}>
-                  {idx > 0 && <span className="text-gray-400 mx-1">·</span>}
+                  {idx > 0 && <span className="text-muted-foreground mx-1">·</span>}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onKeywordSearch(ind);
                     }}
-                    className="text-blue-600 hover:underline"
+                    className="text-blue-600 dark:text-blue-400 hover:underline"
                   >
                     {ind}
                   </button>
@@ -763,11 +763,11 @@ export default function ExpandableCompanyRow({
             onError={() => setLogoFailed(true)}
           />
         ) : (
-          <div className="w-full h-32 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-lg">
+          <div className="w-full h-32 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
             {logoStatus === "not_found_on_site" ? (
-              <span className="text-xs font-semibold text-gray-500">No logo found on company website</span>
+              <span className="text-xs font-semibold text-muted-foreground">No logo found on company website</span>
             ) : logoStatus === "not_found" ? (
-              <span className="text-xs font-semibold text-gray-500">No logo found</span>
+              <span className="text-xs font-semibold text-muted-foreground">No logo found</span>
             ) : (
               displayName
                 .split(" ")
@@ -783,7 +783,7 @@ export default function ExpandableCompanyRow({
       {/* Manufacturing/HQ/QQ columns - spans 3 columns */}
       {rightColsOrder.map((colKey, colIdx) => (
         <div key={colKey} className="col-span-2 lg:col-span-1">
-          <div className="text-xs font-semibold text-gray-700 flex items-center gap-1 mb-2">
+          <div className="text-xs font-semibold text-foreground flex items-center gap-1 mb-2">
             {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "Home/HQ" : "QQ"}
           </div>
           {renderRightColumn(colKey)}
@@ -792,7 +792,7 @@ export default function ExpandableCompanyRow({
 
       {/* Keywords Row - spans full width, 2 lines max */}
       <div className="col-span-6 lg:col-span-5 mt-2 border-t pt-2">
-        <div className="text-xs font-semibold text-gray-500 mb-1">Keywords</div>
+        <div className="text-xs font-semibold text-muted-foreground mb-1">Keywords</div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 overflow-hidden max-h-10 relative">
           {(Array.isArray(company.keywords) && company.keywords.length > 0
             ? company.keywords
@@ -804,13 +804,13 @@ export default function ExpandableCompanyRow({
                 e.stopPropagation();
                 onKeywordSearch(kw);
               }}
-              className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
             >
               {kw}
             </button>
           ))}
           {((Array.isArray(company.keywords) ? company.keywords.length : String(company.product_keywords || "").split(",").filter(Boolean).length) > 12) && (
-            <span className="text-xs text-gray-400 ml-1">...</span>
+            <span className="text-xs text-muted-foreground ml-1">...</span>
           )}
         </div>
       </div>
@@ -818,12 +818,12 @@ export default function ExpandableCompanyRow({
       {/* Location Sources Section */}
       {company.show_location_sources_to_users && Array.isArray(company.location_sources) && company.location_sources.length > 0 && (
         <div className="col-span-6 lg:col-span-5 border-t pt-4 mt-4">
-          <div className="text-xs font-semibold text-gray-700 mb-3">📍 Location Sources</div>
+          <div className="text-xs font-semibold text-foreground mb-3">📍 Location Sources</div>
           <div className="grid grid-cols-2 gap-3 text-xs">
             {company.location_sources.map((source, idx) => (
-              <div key={idx} className="border rounded p-2 bg-gray-50">
-                <div className="font-medium text-gray-700">{source.location}</div>
-                <div className="text-gray-600 text-xs mt-1">
+              <div key={idx} className="border rounded p-2 bg-muted/50">
+                <div className="font-medium text-foreground">{source.location}</div>
+                <div className="text-muted-foreground text-xs mt-1">
                   Type: <span className="font-medium capitalize">{source.location_type}</span>
                 </div>
                 {source.source_url && (
@@ -832,7 +832,7 @@ export default function ExpandableCompanyRow({
                       href={withAmazonAffiliate(normalizeExternalUrl(String(source.source_url || "")))}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline text-xs"
+                      className="text-blue-600 dark:text-blue-400 hover:underline text-xs"
                       onClick={(e) => e.stopPropagation()}
                     >
                       View source ({source.source_type})
@@ -840,7 +840,7 @@ export default function ExpandableCompanyRow({
                   </div>
                 )}
                 {!source.source_url && (
-                  <div className="text-gray-500 text-xs mt-2">Source: {source.source_type}</div>
+                  <div className="text-muted-foreground text-xs mt-2">Source: {source.source_type}</div>
                 )}
               </div>
             ))}

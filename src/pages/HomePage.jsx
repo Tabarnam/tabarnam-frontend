@@ -18,7 +18,7 @@ export default function HomePage() {
           <img
             src="/tabarnam.png"
             alt="Tabarnam™"
-            className="h-16 sm:h-20 md:h-24 transition-transform duration-150 hover:scale-[1.04]"
+            className="h-16 sm:h-20 md:h-24 transition-transform duration-150 hover:scale-[1.04] dark:brightness-110"
           />
         </Link>
 

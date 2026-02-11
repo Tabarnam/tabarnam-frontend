@@ -325,7 +325,7 @@ export default function ScrollScrubber({
       <div className="absolute inset-0 flex flex-col items-center justify-between py-2">
         <button
           type="button"
-          className={`h-6 w-6 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100 ${
+          className={`h-6 w-6 rounded-md border border-border bg-card text-foreground shadow-sm hover:bg-accent active:bg-accent ${
             disabled ? "opacity-40 pointer-events-none" : ""
           }`}
           onClick={() => scrollTo(0, "smooth")}
@@ -339,7 +339,7 @@ export default function ScrollScrubber({
 
         <div
           ref={trackRef}
-          className={`relative w-[10px] flex-1 rounded-full ${disabled ? "bg-slate-100" : "bg-slate-200"}`}
+          className={`relative w-[10px] flex-1 rounded-full ${disabled ? "bg-muted" : "bg-muted"}`}
           style={{ touchAction: "none" }}
           onPointerDown={onTrackPointerDown}
           aria-hidden={disabled}
@@ -350,7 +350,7 @@ export default function ScrollScrubber({
             aria-valuemax={Math.max(0, Math.round(scrollRange))}
             aria-valuenow={Math.round(metrics.scrollTop)}
             tabIndex={-1}
-            className={`absolute left-0 right-0 rounded-full ${disabled ? "bg-slate-300" : "bg-slate-500"}`}
+            className={`absolute left-0 right-0 rounded-full ${disabled ? "bg-muted-foreground/30" : "bg-muted-foreground"}`}
             style={{
               top: geometry.thumbTop,
               height: geometry.thumbHeight,
@@ -366,7 +366,7 @@ export default function ScrollScrubber({
 
         <button
           type="button"
-          className={`h-6 w-6 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100 ${
+          className={`h-6 w-6 rounded-md border border-border bg-card text-foreground shadow-sm hover:bg-accent active:bg-accent ${
             disabled ? "opacity-40 pointer-events-none" : ""
           }`}
           onClick={() => scrollTo(scrollRange, "smooth")}

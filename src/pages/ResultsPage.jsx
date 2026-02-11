@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { searchCompanies } from "@/lib/searchCompanies";
 import { API_BASE } from "@/lib/api";
 import { getQQScore } from "@/lib/stars/qqRating";
+import { cn } from "@/lib/utils";
 
 // Countries that use miles (for distance unit inference)
 const milesCountries = new Set([
@@ -291,10 +292,10 @@ export default function ResultsPage() {
   const headerClassFor = (key) =>
     `p-2 select-none cursor-pointer border-l ${
       sortBy === key
-        ? "bg-amber-100 text-amber-900 font-semibold border-amber-200"
-        : "bg-gray-100 text-gray-800"
+        ? "bg-amber-100 text-amber-900 font-semibold border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700"
+        : "bg-muted text-foreground"
     }`;
-  const cellClassFor = (key) => `p-2 ${sortBy === key ? "bg-amber-50 text-gray-900" : ""}`;
+  const cellClassFor = (key) => `p-2 ${sortBy === key ? "bg-amber-50 dark:bg-amber-900/20 text-foreground" : ""}`;
 
   const clickSort = (key) => {
     if (key === "manu") setSortBy("manu");
@@ -310,7 +311,7 @@ export default function ResultsPage() {
 
   const languageSelector = (
     <select
-      className="h-11 text-sm border border-gray-300 rounded-md px-3 bg-gray-50 text-gray-900 font-medium hover:border-gray-400 transition-colors"
+      className="h-11 text-sm border border-input rounded-md px-3 bg-background text-foreground font-medium hover:border-muted-foreground transition-colors"
       defaultValue="en"
       aria-label="Language"
     >
@@ -353,10 +354,10 @@ export default function ResultsPage() {
       <div className="text-sm mb-3">
         {status && (
           <div className={`px-4 py-2 rounded ${
-            status.includes("❌") ? "bg-red-50 text-red-700" :
-            status.includes("⚠️") ? "bg-yellow-50 text-yellow-700" :
-            status.includes("Found") ? "bg-green-50 text-green-700" :
-            "text-gray-700"
+            status.includes("❌") ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" :
+            status.includes("⚠️") ? "bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" :
+            status.includes("Found") ? "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300" :
+            "text-foreground"
           }`}>
             {status}
           </div>
@@ -366,7 +367,7 @@ export default function ResultsPage() {
       {/* Column Headers — uses same grid as ExpandableCompanyRow so labels align */}
       {results.length > 0 && (
         <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 mb-4 px-2 items-center">
-          <div className="col-span-6 lg:col-span-2 font-semibold flex items-center gap-1" style={{ color: "#649BA0", fontSize: "15px" }}>
+          <div className="col-span-6 lg:col-span-2 font-semibold flex items-center gap-1 text-tabarnam-blue-bold text-[15px]">
             Sort Results:
           </div>
           {rightColsOrder.map((colKey, idx) => {
@@ -379,14 +380,12 @@ export default function ResultsPage() {
             const button = (
               <button
                 onClick={() => clickSort(colKey)}
-                className="font-semibold rounded transition-colors"
-                style={{
-                  fontSize: "15px",
-                  padding: "6.25px 10px",
-                  backgroundColor: isSelected ? "#B1DDE3" : "transparent",
-                  color: isSelected ? "#374151" : "#649BA0",
-                  border: `1px solid ${isSelected ? "#B1DDE3" : "#649BA0"}`
-                }}
+                className={cn(
+                  "font-semibold rounded transition-colors text-[15px] px-2.5 py-1.5 border",
+                  isSelected
+                    ? "bg-tabarnam-blue text-gray-800 dark:text-gray-900 border-tabarnam-blue"
+                    : "bg-transparent text-tabarnam-blue-bold border-tabarnam-blue-bold"
+                )}
               >
                 {colLabel}
               </button>
@@ -444,10 +443,10 @@ export default function ResultsPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                 </div>
-                <span className="text-gray-600">Searching…</span>
+                <span className="text-muted-foreground">Searching…</span>
               </div>
             ) : (
-              <div className="text-gray-500">
+              <div className="text-muted-foreground">
                 <p className="text-lg font-medium mb-1">No companies found</p>
                 <p className="text-sm">Try adjusting your search terms or filters</p>
               </div>
@@ -460,7 +459,7 @@ export default function ResultsPage() {
         <div className="mt-2 flex justify-center">
           <button
             type="button"
-            className="text-xs px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-gray-700 font-medium transition-colors disabled:opacity-60"
+            className="text-xs px-4 py-2 border border-border rounded hover:bg-accent text-foreground font-medium transition-colors disabled:opacity-60"
             disabled={loading}
             onClick={() =>
               doSearch({

@@ -3,6 +3,11 @@
   --tab-blue-stroke: rgb(101,188,200);  /* outline */
 }
 
+.dark {
+  --tab-blue: rgb(63, 151, 162);        /* Outline Bold — brighter on dark */
+  --tab-blue-stroke: rgb(95, 175, 185); /* Outline Standard — lighter stroke */
+}
+
 .tab-chip {
   background: color-mix(in srgb, var(--tab-blue) 30%, transparent);
   color: color-mix(in srgb, var(--tab-blue-stroke) 80%, black);

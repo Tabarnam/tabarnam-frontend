@@ -1,20 +1,22 @@
 // src/components/ui/sonner.tsx
 import { Toaster as Sonner } from 'sonner';
+import { useTheme } from 'next-themes';
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const theme = 'system'; // Default to system theme without next-themes
+  const { resolvedTheme } = useTheme();
+  const theme = (resolvedTheme === 'dark' ? 'dark' : 'light') as ToasterProps['theme'];
 
   return (
     <Sonner
       position="bottom-left"
-      theme={theme as ToasterProps['theme']}
+      theme={theme}
       className="toaster group"
       toastOptions={{
         classNames: {
           toast:
-            'group toast group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg group-[.toaster]:[background:hsl(187_47%_82%)] group-[.toaster]:hover:[background:hsl(187_47%_78%)] dark:group-[.toaster]:[background:hsl(var(--popover))] dark:group-[.toaster]:hover:[background:hsl(var(--card))]',
+            'group toast group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg group-[.toaster]:[background:hsl(var(--card))] group-[.toaster]:hover:[background:hsl(var(--accent))]',
           description: 'group-[.toast]:text-muted-foreground',
           actionButton:
             'group-[.toast]:bg-primary group-[.toast]:text-primary-foreground group-[.toast]:hover:bg-primary/90',

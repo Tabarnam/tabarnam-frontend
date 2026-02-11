@@ -37,7 +37,7 @@ const Keyword = ({ text, onKeywordSearch, language, viewTranslated }) => {
               e.stopPropagation();
               onKeywordSearch(text);
             }}
-            className="bg-gray-100 text-gray-700 text-xs font-medium px-2.5 py-1 rounded-full hover:bg-gray-200 transition-colors truncate"
+            className="bg-muted text-foreground text-xs font-medium px-2.5 py-1 rounded-full hover:bg-accent transition-colors truncate"
           >
             {loading && viewTranslated ? (
               <span className="h-3 w-3 animate-spin border-2 border-slate-300 border-t-transparent rounded-full inline-block mr-1" />
@@ -45,7 +45,7 @@ const Keyword = ({ text, onKeywordSearch, language, viewTranslated }) => {
             {displayText}
           </button>
         </TooltipTrigger>
-        <TooltipContent className="bg-gray-800 border-gray-700 text-white">
+        <TooltipContent className="bg-popover border-border text-popover-foreground">
           <p>Search for "{text}"</p>
         </TooltipContent>
       </Tooltip>
@@ -77,12 +77,12 @@ const CompanyRow = ({
   const profileCompletenessLabel = getProfileCompletenessLabel(profileCompleteness);
   const profileCompletenessTone =
     profileCompleteness >= 85
-      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
       : profileCompleteness >= 60
-        ? "border-blue-200 bg-blue-50 text-blue-800"
+        ? "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
         : profileCompleteness >= 35
-          ? "border-amber-200 bg-amber-50 text-amber-900"
-          : "border-red-200 bg-red-50 text-red-800";
+          ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+          : "border-red-200 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300";
 
   const { translatedText: translatedName, loading: nameLoading } = useTranslation(
     displayName,
@@ -163,12 +163,12 @@ const CompanyRow = ({
         onClick={onToggle}
         className={cn(
           "cursor-pointer transition-colors",
-          isExpanded ? "bg-[#B1DDE3] border-2 border-[#3A7D8A] rounded-lg" : "hover:bg-gray-50"
+          isExpanded ? "bg-tabarnam-blue dark:bg-secondary border-2 border-[#3A7D8A] dark:border-primary rounded-lg" : "hover:bg-accent"
         )}
       >
         {/* Company column */}
         <td className="p-4 align-top">
-          <p className="font-bold text-lg text-gray-800 truncate">
+          <p className="font-bold text-lg text-foreground truncate">
             <TranslatedText
               originalText={displayName}
               translation={translatedName}
@@ -178,7 +178,7 @@ const CompanyRow = ({
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]", profileCompletenessTone)}>
-              {profileCompletenessLabel} · {profileCompleteness}%
+              {profileCompletenessLabel} Ã‚Â· {profileCompleteness}%
             </span>
           </div>
         </td>
@@ -189,14 +189,14 @@ const CompanyRow = ({
             <img
               src={logoUrl}
               alt={`${displayName || "Company"} logo`}
-              className="w-16 h-16 md:w-20 md:h-20 rounded-md object-contain bg-gray-100"
+              className="w-16 h-16 md:w-20 md:h-20 rounded-md object-contain bg-muted"
               loading="lazy"
               decoding="async"
               onClick={(e) => e.stopPropagation()}
               onError={() => setLogoFailed(true)}
             />
           ) : (
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-md bg-gray-100 flex items-center justify-center text-xs text-gray-400 relative">
+            <div className="w-16 h-16 md:w-20 md:h-20 rounded-md bg-muted flex items-center justify-center text-xs text-muted-foreground relative">
               {missingLogoLabel}
             </div>
           )}
@@ -216,18 +216,18 @@ const CompanyRow = ({
                 {hq1 ? (
                   <div className="text-sm">
                     <div className="flex items-start gap-2">
-                      <MapPin size={16} className="text-gray-500 mt-0.5" />
+                      <MapPin size={16} className="text-muted-foreground mt-0.5" />
                       <div>
-                        <div className="text-gray-800">
+                        <div className="text-foreground">
                           {hq1.city}
                           {hq1.state ? `, ${hq1.state}` : hq1.country ? `, ${normalizeCountryDisplay(hq1.country)}` : ""}
                         </div>
-                        <div className="text-xs text-gray-500 mt-0.5">{renderDistance(hq1, userLocation)}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{renderDistance(hq1, userLocation)}</div>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <span className="text-gray-400 text-sm">N/A</span>
+                  <span className="text-muted-foreground text-sm">N/A</span>
                 )}
               </td>
             );
@@ -237,18 +237,18 @@ const CompanyRow = ({
                 {mfg1 ? (
                   <div className="text-sm">
                     <div className="flex items-start gap-2">
-                      <Factory size={16} className="text-gray-500 mt-0.5" />
+                      <Factory size={16} className="text-muted-foreground mt-0.5" />
                       <div>
-                        <div className="text-gray-800">
+                        <div className="text-foreground">
                           {mfg1.city}
                           {mfg1.state ? `, ${mfg1.state}` : mfg1.country ? `, ${mfg1.country}` : ""}
                         </div>
-                        <div className="text-xs text-gray-500 mt-0.5">{renderDistance(mfg1, userLocation)}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{renderDistance(mfg1, userLocation)}</div>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <span className="text-gray-400 text-sm">N/A</span>
+                  <span className="text-muted-foreground text-sm">N/A</span>
                 )}
               </td>
             );
@@ -285,11 +285,11 @@ const CompanyRow = ({
                     <img
                       src={logoUrl}
                       alt={`${displayName || "Company"} logo`}
-                      className="w-20 h-20 rounded-md object-contain bg-gray-100"
+                      className="w-20 h-20 rounded-md object-contain bg-muted"
                       loading="lazy"
                     />
                   ) : (
-                    <div className="w-20 h-20 rounded-md bg-gray-100 flex items-center justify-center text-xs text-gray-400 relative">
+                    <div className="w-20 h-20 rounded-md bg-muted flex items-center justify-center text-xs text-muted-foreground relative">
                       {missingLogoLabel}
                     </div>
                   )}
@@ -304,7 +304,7 @@ const CompanyRow = ({
                       </div>
                     </div>
                   ) : (
-                    <span className="text-gray-400 text-sm">N/A</span>
+                    <span className="text-muted-foreground text-sm">N/A</span>
                   )}
                 </div>
                 <div className="col-[4] row-[1]">
@@ -317,7 +317,7 @@ const CompanyRow = ({
                       </div>
                     </div>
                   ) : (
-                    <span className="text-gray-400 text-sm">N/A</span>
+                    <span className="text-muted-foreground text-sm">N/A</span>
                   )}
                 </div>
                 <div className="col-[5] row-[1]"></div>
@@ -325,7 +325,7 @@ const CompanyRow = ({
                 {/* Row 2 */}
                 <div className="col-[1] row-[2]">
                   {websiteUrl && (
-                    <div className="flex items-center gap-2 text-sm text-blue-600">
+                    <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
                       <a
                         href={websiteOutboundUrl}
                         target="_blank"
@@ -343,7 +343,7 @@ const CompanyRow = ({
                                 e.stopPropagation();
                                 copyToClipboard(websiteOutboundUrl);
                               }}
-                              className="text-xs text-gray-500 underline"
+                              className="text-xs text-muted-foreground underline"
                             >
                               Copy
                             </button>
@@ -356,10 +356,10 @@ const CompanyRow = ({
                 </div>
                 <div className="col-[2] row-[2]"></div>
                 <div className="col-[3] row-[2]">
-                  {hq1 && <div className="text-xs text-gray-500">{renderDistance(hq1, userLocation)}</div>}
+                  {hq1 && <div className="text-xs text-muted-foreground">{renderDistance(hq1, userLocation)}</div>}
                 </div>
                 <div className="col-[4] row-[2]">
-                  {mfg1 && <div className="text-xs text-gray-500">{renderDistance(mfg1, userLocation)}</div>}
+                  {mfg1 && <div className="text-xs text-muted-foreground">{renderDistance(mfg1, userLocation)}</div>}
                 </div>
                 <div className="col-[5] row-[2] flex justify-end">
                   <CompanyStarsBlock company={{ ...company, logo_url: logoUrl }} />
@@ -376,7 +376,7 @@ const CompanyRow = ({
                               href={amazonOutboundUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-blue-600 hover:underline"
+                              className="text-blue-600 dark:text-blue-400 hover:underline"
                               onClick={(e) => e.stopPropagation()}
                             >
                               {amazonLabel}
@@ -388,7 +388,7 @@ const CompanyRow = ({
                         </Tooltip>
                       </TooltipProvider>
                       <button
-                        className="text-xs text-gray-500 underline"
+                        className="text-xs text-muted-foreground underline"
                         onClick={(e) => {
                           e.stopPropagation();
                           copyToClipboard(amazonOutboundUrl);
@@ -427,7 +427,7 @@ const CompanyRow = ({
                 {/* Row 4 */}
                 <div className="col-[1]/col-[span_2] row-[4]">
                   {(viewTranslated ? translatedTagline : company.tagline) && (
-                    <div className="text-sm text-gray-700">
+                    <div className="text-sm text-foreground">
                       <TranslatedText
                         originalText={company.tagline}
                         translation={translatedTagline}
@@ -436,7 +436,7 @@ const CompanyRow = ({
                     </div>
                   )}
                   {(viewTranslated ? translatedNotes : company.notes) && (
-                    <div className="text-sm text-gray-600 whitespace-pre-wrap mt-1">
+                    <div className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">
                       <TranslatedText
                         originalText={company.notes}
                         translation={translatedNotes}
@@ -446,15 +446,15 @@ const CompanyRow = ({
                   )}
                 </div>
                 <div className="col-[3] row-[4]">
-                  {hq2 && <div className="text-xs text-gray-500">{renderDistance(hq2, userLocation)}</div>}
+                  {hq2 && <div className="text-xs text-muted-foreground">{renderDistance(hq2, userLocation)}</div>}
                   {hqs.length > 2 && (
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button className="text-xs text-blue-600 underline mt-1">More…</button>
+                          <button className="text-xs text-blue-600 dark:text-blue-400 underline mt-1">MoreÃ¢â‚¬Â¦</button>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-sm">
-                          <ul className="text-xs text-gray-800 space-y-1">
+                          <ul className="text-xs text-foreground space-y-1">
                             {hqs.slice(2).map((loc, i) => (
                               <li key={i}>
                                 {loc.full_address ||
@@ -468,15 +468,15 @@ const CompanyRow = ({
                   )}
                 </div>
                 <div className="col-[4] row-[4]">
-                  {mfg2 && <div className="text-xs text-gray-500">{renderDistance(mfg2, userLocation)}</div>}
+                  {mfg2 && <div className="text-xs text-muted-foreground">{renderDistance(mfg2, userLocation)}</div>}
                   {mfgs.length > 2 && (
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button className="text-xs text-blue-600 underline mt-1">More…</button>
+                          <button className="text-xs text-blue-600 dark:text-blue-400 underline mt-1">MoreÃ¢â‚¬Â¦</button>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-sm">
-                          <ul className="text-xs text-gray-800 space-y-1">
+                          <ul className="text-xs text-foreground space-y-1">
                             {mfgs.slice(2).map((loc, i) => (
                               <li key={i}>
                                 {loc.full_address ||

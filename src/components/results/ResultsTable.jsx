@@ -12,7 +12,7 @@ import { getQQScore } from '@/lib/stars/qqRating';
 function SortedPin() {
   return (
     <span className="inline-block ml-2 align-middle" title="sorted by this column" aria-label="sorted by this column">
-      <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'rgb(101,188,200)' }} />
+      <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--tab-blue-stroke)' }} />
     </span>
   );
 }
@@ -21,8 +21,7 @@ function RatingHeaderIcon() {
   return (
     <span
       aria-hidden="true"
-      className="inline-block w-4 h-4 rounded-full"
-      style={{ background: "#B1DDE3", border: "2px solid #649BA0" }}
+      className="inline-block w-4 h-4 rounded-full bg-tabarnam-blue border-2 border-tabarnam-blue-bold"
     />
   );
 }
@@ -106,7 +105,7 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
   if (companies.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+    <div className="bg-card rounded-lg border border-border shadow-sm">
       <div className="md:hidden sticky top-4 z-10 p-2">
         <MultiToggle
           options={[
@@ -122,14 +121,14 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
       <div className="hidden md:block overflow-x-auto">
         <table className="min-w-full table-fixed">
           <thead>
-            <tr className="border-b border-gray-200 bg-gray-50/50 grid grid-cols-[minmax(0,_2fr)_96px_minmax(0,_1fr)_minmax(0,_1fr)_minmax(0,_1fr)] gap-6 px-4">
-              <th className="p-4 text-left text-sm font-semibold text-gray-500 uppercase tracking-wider">Company</th>
-              <th className="p-4 text-left text-sm font-semibold text-gray-500 uppercase tracking-wider">Logo</th>
+            <tr className="border-b border-border bg-muted/50 grid grid-cols-[minmax(0,_2fr)_96px_minmax(0,_1fr)_minmax(0,_1fr)_minmax(0,_1fr)] gap-6 px-4">
+              <th className="p-4 text-left text-sm font-semibold text-muted-foreground uppercase tracking-wider">Company</th>
+              <th className="p-4 text-left text-sm font-semibold text-muted-foreground uppercase tracking-wider">Logo</th>
               {dynamicOrder.map((col) => (
                 <th
                   key={col}
                   onClick={() => handleHeaderClick(col)}
-                  className="p-4 text-left text-sm font-semibold uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors rounded-md text-gray-600"
+                  className="p-4 text-left text-sm font-semibold uppercase tracking-wider cursor-pointer hover:bg-accent transition-colors rounded-md text-muted-foreground"
                 >
                   <div className="flex items-center gap-2">
                     {headerIcon[col]}
@@ -141,7 +140,7 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-gray-200">
+          <tbody className="divide-y divide-border">
             <AnimatePresence>
               {paginatedCompanies.map((company, index) => (
                 <CompanyRow
@@ -163,7 +162,7 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
         </table>
       </div>
 
-      <div className="md:hidden divide-y divide-gray-200">
+      <div className="md:hidden divide-y divide-border">
         <AnimatePresence>
           {paginatedCompanies.map((company, index) => (
             <CompanyRow
@@ -184,8 +183,8 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
       </div>
 
       {totalPages > 1 && (
-        <div className="flex justify-between items-center p-4 border-t border-gray-200">
-          <span className="text-sm text-gray-500">Page {currentPage} of {totalPages}</span>
+        <div className="flex justify-between items-center p-4 border-t border-border">
+          <span className="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1}>Previous</Button>
             <Button variant="outline" size="sm" onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages}>Next</Button>

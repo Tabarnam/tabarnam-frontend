@@ -24,6 +24,8 @@ import Footer from "@/components/Footer";
 import AdminRoute from "@/components/AdminRoute";
 import AuthKeepAlive from "@/components/AuthKeepAlive";
 import BetaBadge from "@/components/BetaBadge";
+import ThemeProvider from "@/components/ThemeProvider";
+import ThemeToggle from "@/components/ThemeToggle";
 
 // Main application component with routing, layout management, and error handling
 // Simple error boundary
@@ -38,13 +40,13 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-          <div className="bg-white rounded-lg shadow-lg p-6 max-w-md">
-            <h1 className="text-2xl font-bold text-red-600 mb-2">Something went wrong</h1>
-            <p className="text-gray-600 mb-4">{this.state.error?.message}</p>
+        <div className="min-h-screen flex items-center justify-center bg-background p-4">
+          <div className="bg-card rounded-lg shadow-lg p-6 max-w-md">
+            <h1 className="text-2xl font-bold text-red-600 dark:text-red-400 mb-2">Something went wrong</h1>
+            <p className="text-muted-foreground mb-4">{this.state.error?.message}</p>
             <button
               onClick={() => window.location.reload()}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              className="bg-primary text-primary-foreground px-4 py-2 rounded hover:bg-primary/90"
             >
               Reload Page
             </button>
@@ -70,6 +72,7 @@ function Layout({ children }) {
       <div className="flex-grow">{children}</div>
       {showLayout && <FeedbackWidget />}
       {showLayout && <Footer />}
+      <ThemeToggle />
     </div>
   );
 }
@@ -93,6 +96,7 @@ export default function App() {
 
   return (
     <HelmetProvider>
+      <ThemeProvider>
       <ErrorBoundary>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthKeepAlive />
@@ -138,6 +142,7 @@ export default function App() {
         </Router>
         <Toaster />
       </ErrorBoundary>
+      </ThemeProvider>
     </HelmetProvider>
   );
 }

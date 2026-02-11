@@ -105,16 +105,16 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
   const titleName = String(displayName || companyName || "").trim();
 
   return (
-    <div className="mt-3 border rounded p-3 bg-gray-50">
+    <div className="mt-3 border border-border rounded p-3 bg-muted/50">
       <div className="font-semibold mb-2">{titleName ? `Features & Reviews for ${titleName}` : "Features & Reviews"}</div>
 
       <div className="mt-4">
         {loading ? (
-          <div className="text-sm text-gray-500">Loading reviews…</div>
+          <div className="text-sm text-muted-foreground">Loading reviews…</div>
         ) : error ? (
           <div className="text-sm text-red-600">{error}</div>
         ) : !list.length ? (
-          <div className="text-sm text-gray-500">No reviews yet.</div>
+          <div className="text-sm text-muted-foreground">No reviews yet.</div>
         ) : (
           <ul className="space-y-3">
             {list.map((r, idx) => {
@@ -130,24 +130,24 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
               };
 
               return (
-                <li key={r.id || `${companyName || companyId || "company"}-${idx}`} className="bg-white border rounded p-3">
+                <li key={r.id || `${companyName || companyId || "company"}-${idx}`} className="bg-card border border-border rounded p-3">
                   <div className="flex items-center justify-between">
                     <div className="font-medium text-amber-600">{sourceName || "Unknown Source"}</div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-muted-foreground">
                       {formatReviewDate(pickReviewDate(r))}
                     </div>
                   </div>
 
                   {author && (
-                    <div className="text-xs text-gray-500 mt-0.5">by {author}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">by {author}</div>
                   )}
 
                   {title && (
-                    <div className="font-semibold text-sm text-gray-900 mt-1">{title}</div>
+                    <div className="font-semibold text-sm text-foreground mt-1">{title}</div>
                   )}
 
                   <div className="mt-2">
-                    <p className="text-sm text-gray-700 mb-2">{text}</p>
+                    <p className="text-sm text-foreground mb-2">{text}</p>
 
                     {r.rating != null && (
                       <div className="flex items-center gap-2 mb-2">
@@ -162,18 +162,18 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
                           href={withAmazonAffiliate(normalizedSourceUrl)}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                          className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
                           title={withAmazonAffiliate(normalizedSourceUrl)}
                         >
                           {truncateUrl(withAmazonAffiliate(normalizedSourceUrl))}
-                          <span className="text-gray-400">↗</span>
+                          <span className="text-muted-foreground">↗</span>
                         </a>
                       </div>
                     )}
                   </div>
 
                   {r.type === "user" && r.source.includes("(") && (
-                    <div className="mt-2 text-xs text-gray-500">User submitted</div>
+                    <div className="mt-2 text-xs text-muted-foreground">User submitted</div>
                   )}
 
                   {r.flagged_bot && (

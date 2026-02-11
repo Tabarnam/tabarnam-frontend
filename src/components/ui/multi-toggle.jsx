@@ -4,14 +4,14 @@ import { cn } from '@/lib/utils';
 
 const MultiToggle = ({ options, selected, onSelect }) => {
   return (
-    <div className="flex items-center bg-gray-200/80 backdrop-blur-sm p-1 rounded-full shadow-md">
+    <div className="flex items-center bg-muted/80 backdrop-blur-sm p-1 rounded-full shadow-md">
       {options.map((option) => (
         <button
           key={option.value}
           onClick={() => onSelect(option.value)}
           className={cn(
-            'relative w-full px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors focus:outline-none',
-            { 'text-gray-900': selected === option.value }
+            'relative w-full px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors focus:outline-none',
+            { 'text-foreground': selected === option.value }
           )}
         >
           <span className="relative z-10 flex items-center justify-center gap-2">

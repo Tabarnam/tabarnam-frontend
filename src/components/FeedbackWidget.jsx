@@ -22,12 +22,12 @@ export default function FeedbackWidget() {
   };
 
   return (
-    <div className="fixed top-3 right-3 z-50 bg-white/90 backdrop-blur border rounded-full px-3 py-1.5 shadow flex items-center gap-2">
-      <span className="text-sm text-gray-700">Reach us:</span>
+    <div className="fixed top-3 right-3 z-50 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 shadow flex items-center gap-2">
+      <span className="text-sm text-foreground">Reach us:</span>
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <a href={`mailto:${EMAIL}`} className="text-sm font-medium text-blue-700 hover:underline cursor-help">
+            <a href={`mailto:${EMAIL}`} className="text-sm font-medium text-primary hover:underline cursor-help">
               {EMAIL}
             </a>
           </TooltipTrigger>
@@ -36,7 +36,7 @@ export default function FeedbackWidget() {
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <button onClick={copy} className="p-1 rounded hover:bg-gray-100" aria-label="Copy email">
+      <button onClick={copy} className="p-1 rounded hover:bg-accent" aria-label="Copy email">
         <Copy size={16} />
       </button>
     </div>

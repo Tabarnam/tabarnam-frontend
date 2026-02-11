@@ -226,19 +226,19 @@ export default function SearchCard({
   return (
     <div
       className={cn(
-        "w-full bg-white border border-gray-200 rounded-2xl p-5 md:p-6 shadow",
+        "w-full bg-card border border-border rounded-2xl p-5 md:p-6 shadow",
         containerClassName || "max-w-5xl"
       )}
     >
       {/* Row 1: Search field and button spanning full width */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mb-3">
         <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
           {q && (
             <button
               type="button"
               onClick={()=>{ setQ(''); inputRef.current?.focus(); }}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
               aria-label="Clear query"
             >
               <X size={16} />
@@ -251,27 +251,27 @@ export default function SearchCard({
             onChange={(e)=>setQ(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Search by product, keyword, company…"
-            className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
+            className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
             autoComplete="off"
           />
           {/* lightweight suggestions */}
           <Popover open={suggestions.length > 0}>
             <PopoverContent
-              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+              className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1"
               align="start"
               onOpenAutoFocus={(e)=>e.preventDefault()}
             >
               {suggestions.map((s, i) => {
                 const badgeColors = {
-                  Company: "bg-blue-100 text-blue-700",
-                  Keyword: "bg-purple-100 text-purple-700",
-                  Industry: "bg-green-100 text-green-700",
+                  Company: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+                  Keyword: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+                  Industry: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
                 };
-                const badgeClass = badgeColors[s.type] || "bg-gray-200 text-gray-700";
+                const badgeClass = badgeColors[s.type] || "bg-muted text-foreground";
                 return (
                   <button
                     key={`${s.value}-${i}`}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex items-center justify-between"
+                    className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent flex items-center justify-between"
                     onMouseDown={(e)=>e.preventDefault()}
                     onClick={()=>{ setQ(s.value); }}
                   >
@@ -303,7 +303,7 @@ export default function SearchCard({
         <Popover open={openCitySuggest && citySuggestions.length > 0}>
           <PopoverTrigger asChild>
             <div className="relative">
-              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
               <Input
                 ref={cityInputRef}
                 value={city}
@@ -320,14 +320,14 @@ export default function SearchCard({
                 }}
                 onKeyDown={onKeyDown}
                 placeholder="City / Postal Code"
-                className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
                 autoComplete="off"
               />
               {city && (
                 <button
                   type="button"
                   onClick={()=>{ setCity(''); cityInputRef.current?.focus(); }}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
                   aria-label="Clear city"
                 >
                   <X size={16} />
@@ -336,7 +336,7 @@ export default function SearchCard({
             </div>
           </PopoverTrigger>
           <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1 max-h-72 overflow-y-auto"
             align="start"
             onOpenAutoFocus={(e)=>e.preventDefault()}
           >
@@ -344,7 +344,7 @@ export default function SearchCard({
               citySuggestions.map((s, i) => (
                 <button
                   key={`${s.value}-${i}`}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                  className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent border-b border-border last:border-b-0"
                   onMouseDown={(e)=>e.preventDefault()}
                   onClick={() => handleCitySelect(s.value)}
                 >
@@ -352,7 +352,7 @@ export default function SearchCard({
                 </button>
               ))
             ) : (
-              <div className="px-4 py-2 text-sm text-gray-500">No cities found</div>
+              <div className="px-4 py-2 text-sm text-muted-foreground">No cities found</div>
             )}
           </PopoverContent>
         </Popover>
@@ -360,7 +360,7 @@ export default function SearchCard({
         <Popover open={openStateSuggest && stateSuggestions.length > 0}>
           <PopoverTrigger asChild>
             <div className="relative">
-              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
               <Input
                 ref={stateInputRef}
                 value={stateCode}
@@ -377,14 +377,14 @@ export default function SearchCard({
                 }}
                 onKeyDown={onKeyDown}
                 placeholder="State / Province"
-                className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
                 autoComplete="off"
               />
               {stateCode && (
                 <button
                   type="button"
                   onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); }}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
                   aria-label="Clear state"
                 >
                   <X size={16} />
@@ -393,7 +393,7 @@ export default function SearchCard({
             </div>
           </PopoverTrigger>
           <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1 max-h-72 overflow-y-auto"
             align="start"
             onOpenAutoFocus={(e)=>e.preventDefault()}
           >
@@ -401,7 +401,7 @@ export default function SearchCard({
               stateSuggestions.map((s, i) => (
                 <button
                   key={`${s.value}-${i}`}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                  className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent border-b border-border last:border-b-0"
                   onMouseDown={(e)=>e.preventDefault()}
                   onClick={() => handleStateSelect(s.value)}
                 >
@@ -409,7 +409,7 @@ export default function SearchCard({
                 </button>
               ))
             ) : (
-              <div className="px-4 py-2 text-sm text-gray-500">No states found</div>
+              <div className="px-4 py-2 text-sm text-muted-foreground">No states found</div>
             )}
           </PopoverContent>
         </Popover>
@@ -417,7 +417,7 @@ export default function SearchCard({
         <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
           <PopoverTrigger asChild>
             <div className="relative">
-              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
               <Input
                 value={countrySearch === '' && country ? selectedCountryName : countrySearch}
                 onChange={(e) => {
@@ -429,7 +429,7 @@ export default function SearchCard({
                 onFocus={() => setOpenCountryDropdown(true)}
                 onKeyDown={onKeyDown}
                 placeholder="Country"
-                className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
                 autoComplete="off"
               />
               {(country || countrySearch) && (
@@ -442,7 +442,7 @@ export default function SearchCard({
                       setCountry('');
                     }
                   }}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
                   aria-label="Clear country"
                 >
                   <X size={16} />
@@ -451,7 +451,7 @@ export default function SearchCard({
             </div>
           </PopoverTrigger>
           <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1 max-h-72 overflow-y-auto"
             align="start"
             onOpenAutoFocus={(e)=>e.preventDefault()}
           >
@@ -459,7 +459,7 @@ export default function SearchCard({
               filteredCountries.slice(0, 50).map((c) => (
                 <button
                   key={c.code}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                  className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent border-b border-border last:border-b-0"
                   onMouseDown={(e)=>e.preventDefault()}
                   onClick={() => {
                     setCountry(c.code);
@@ -472,15 +472,15 @@ export default function SearchCard({
                 </button>
               ))
             ) : (
-              <div className="px-4 py-2 text-sm text-gray-500">No countries found</div>
+              <div className="px-4 py-2 text-sm text-muted-foreground">No countries found</div>
             )}
           </PopoverContent>
         </Popover>
 
         <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="h-11 bg-gray-50 border-gray-300 text-gray-900">
-            <ListFilter className="text-gray-400 mr-2" size={18} />
-            <span className="text-gray-900">Sort Results</span>
+          <SelectTrigger className="h-11 bg-background border-input text-foreground">
+            <ListFilter className="text-muted-foreground mr-2" size={18} />
+            <span className="text-foreground">Sort Results</span>
           </SelectTrigger>
           <SelectContent>
             {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
