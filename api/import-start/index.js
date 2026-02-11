@@ -103,6 +103,9 @@ const {
   computeReviewDedupeKey,
   dedupeCuratedReviews,
   buildReviewCursor,
+  isMeaningfulString: _isMeaningfulString,
+  hasMeaningfulSeedEnrichment: _hasMeaningfulSeedEnrichment,
+  isValidSeedCompany: _isValidSeedCompany,
 } = require("./_importStartCompanyUtils");
 
 // ── Extracted module: request/body parsing, URL utilities, xAI helpers ────────
@@ -185,6 +188,20 @@ const {
   ensureCompanyKeywords: _ensureCompanyKeywordsBase,
 } = require("./_importStartInlineEnrichment");
 
+// ── Extracted module: XAI request pipeline ───────────────────────────────────
+const {
+  DEFAULT_UPSTREAM_TIMEOUT_MS,
+  STAGE_MAX_MS,
+  MIN_STAGE_REMAINING_MS,
+  DEADLINE_SAFETY_BUFFER_MS,
+  UPSTREAM_TIMEOUT_MARGIN_MS,
+  postXaiJsonWithBudget: _postXaiJsonWithBudget,
+  postXaiJsonWithBudgetRetry: _postXaiJsonWithBudgetRetry,
+  ensureStageBudgetOrThrow: _ensureStageBudgetOrThrow,
+  sleep,
+  shouldRetryUpstreamStatus,
+} = require("./_importStartXaiRequest");
+
 // ── Extracted module: save-companies, geocoding, logo fetch ──────────────────
 const {
   saveCompaniesToCosmos,
@@ -234,26 +251,9 @@ try {
 // budgets via the `deadline_ms` query parameter, which overrides this default.
 const DEFAULT_HARD_TIMEOUT_MS = 8_000;
 
-// Generous upstream timeouts to allow deep, accurate XAI searches.
-const DEFAULT_UPSTREAM_TIMEOUT_MS = 60_000;
-
-// Per-stage upstream caps - generous to allow thorough research.
-const STAGE_MAX_MS = {
-  primary: 60_000,
-  keywords: 60_000,
-  reviews: 90_000,
-  location: 60_000,
-  expand: 8_000,
-};
-
-// Minimum remaining budget required to start a new network stage.
-const MIN_STAGE_REMAINING_MS = 4_000;
-
-// Safety buffer we reserve for Cosmos writes + formatting the response.
-const DEADLINE_SAFETY_BUFFER_MS = 1_500;
-
-// Extra buffer before starting any upstream call.
-const UPSTREAM_TIMEOUT_MARGIN_MS = 1_200;
+// Constants imported from _importStartXaiRequest.js:
+// DEFAULT_UPSTREAM_TIMEOUT_MS, STAGE_MAX_MS, MIN_STAGE_REMAINING_MS,
+// DEADLINE_SAFETY_BUFFER_MS, UPSTREAM_TIMEOUT_MARGIN_MS
 
 const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
@@ -1054,80 +1054,10 @@ const importStartHandlerInner = async (req, context) => {
       const providedCompaniesRaw = Array.isArray(bodyObj.companies) ? bodyObj.companies : [];
       const providedCompanies = providedCompaniesRaw.filter((c) => c && typeof c === "object");
 
-      const isMeaningfulString = (raw) => {
-        const s = String(raw ?? "").trim();
-        if (!s) return false;
-        const lower = s.toLowerCase();
-        if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return false;
-        return true;
-      };
-
-      const hasMeaningfulSeedEnrichment = (c) => {
-        if (!c || typeof c !== "object") return false;
-
-        const industries = Array.isArray(c.industries) ? c.industries.filter(Boolean) : [];
-
-        const keywordsRaw = c.keywords ?? c.product_keywords ?? c.keyword_list;
-        const keywords =
-          typeof keywordsRaw === "string"
-            ? keywordsRaw.split(/\s*,\s*/g).filter(Boolean)
-            : Array.isArray(keywordsRaw)
-              ? keywordsRaw.filter(Boolean)
-              : [];
-
-        const manufacturingLocations = Array.isArray(c.manufacturing_locations)
-          ? c.manufacturing_locations
-              .map((loc) => {
-                if (typeof loc === "string") return loc.trim();
-                if (loc && typeof loc === "object") return String(loc.formatted || loc.address || loc.location || "").trim();
-                return "";
-              })
-              .filter(Boolean)
-          : [];
-
-        const curatedReviews = Array.isArray(c.curated_reviews) ? c.curated_reviews.filter((r) => r && typeof r === "object") : [];
-        const reviewCount = Number.isFinite(Number(c.review_count)) ? Number(c.review_count) : curatedReviews.length;
-
-        return (
-          industries.length > 0 ||
-          keywords.length > 0 ||
-          isMeaningfulString(c.headquarters_location) ||
-          manufacturingLocations.length > 0 ||
-          curatedReviews.length > 0 ||
-          reviewCount > 0
-        );
-      };
-
-      const isValidSeedCompany = (c) => {
-        if (!c || typeof c !== "object") return false;
-
-        const companyName = String(c.company_name || c.name || "").trim();
-        const websiteUrl = String(c.website_url || c.url || c.canonical_url || "").trim();
-        if (!companyName || !websiteUrl) return false;
-
-        const id = String(c.id || c.company_id || c.companyId || "").trim();
-
-        // Rule: if we already persisted a company doc (id exists), we can resume enrichment for it.
-        if (id && !id.startsWith("_import_")) return true;
-
-        const source = String(c.source || "").trim();
-
-        // Critical: company_url_shortcut is NEVER a valid resume seed unless it already contains meaningful enrichment
-        // (keywords/industries/HQ/MFG/reviews) or carries an explicit seed_ready marker.
-        if (source === "company_url_shortcut") {
-          if (c.seed_ready === true) return true;
-          return hasMeaningfulSeedEnrichment(c);
-        }
-
-        if (source) return true;
-
-        // Fallback: allow explicit markers that the seed came from primary.
-        if (c.primary_candidate === true) return true;
-        if (c.seed === true) return true;
-        if (String(c.source_stage || "").trim() === "primary") return true;
-
-        return false;
-      };
+      // ── Seed validation (delegated to _importStartCompanyUtils.js) ──
+      const isMeaningfulString = _isMeaningfulString;
+      const hasMeaningfulSeedEnrichment = _hasMeaningfulSeedEnrichment;
+      const isValidSeedCompany = _isValidSeedCompany;
 
       const validSeedCompanies = providedCompanies.filter(isValidSeedCompany);
 
@@ -2082,6 +2012,7 @@ const importStartHandlerInner = async (req, context) => {
 
         const getRemainingMs = () => budget.getRemainingMs();
 
+        // throwAccepted stays in handler — it closes over respondAcceptedBeforeGatewayTimeout
         const throwAccepted = (nextStageBeacon, reason, extra) => {
           const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
           const remainingMs = getRemainingMs();
@@ -2105,190 +2036,12 @@ const importStartHandlerInner = async (req, context) => {
           );
         };
 
-        const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) => {
-          const remainingMs = getRemainingMs();
-
-          if (remainingMs < MIN_STAGE_REMAINING_MS) {
-            // Only primary is allowed to continue async. Downstream stages should defer and let
-            // resume-worker finish.
-            if (stageKey === "primary") {
-              throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey, remainingMs });
-            }
-          }
-
-          return remainingMs;
-        };
-
-        const postXaiJsonWithBudget = async ({ stageKey, stageBeacon, body, stageCapMsOverride }) => {
-          const remainingMs = ensureStageBudgetOrThrow(stageKey, stageBeacon);
-          const stageCapMsBase = Number(STAGE_MAX_MS?.[stageKey]) || DEFAULT_UPSTREAM_TIMEOUT_MS;
-          const stageCapMsOverrideNumber =
-            Number.isFinite(Number(stageCapMsOverride)) && Number(stageCapMsOverride) > 0 ? Number(stageCapMsOverride) : null;
-          const stageCapMs = stageCapMsOverrideNumber ? Math.min(stageCapMsOverrideNumber, stageCapMsBase) : stageCapMsBase;
-
-          // Extended stage timeouts to allow thorough XAI searches (3-5+ minutes per field).
-          const timeoutForThisStage = budget.clampStageTimeoutMs({
-            remainingMs,
-            minMs: 2500,
-            maxMs: stageCapMs,
-            safetyMarginMs: DEADLINE_SAFETY_BUFFER_MS + UPSTREAM_TIMEOUT_MARGIN_MS,
-          });
-
-          // If we can't safely run the upstream call within this request, bail out early.
-          const minRequired = DEADLINE_SAFETY_BUFFER_MS + UPSTREAM_TIMEOUT_MARGIN_MS + 2500;
-          if (remainingMs < minRequired) {
-            if (stageKey === "primary") {
-              throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
-                stage: stageKey,
-                remainingMs,
-                timeoutForThisStage,
-                stageCapMs,
-              });
-            }
-
-            const err = new Error("Insufficient time for upstream fetch");
-            err.code = "INSUFFICIENT_TIME_FOR_FETCH";
-            err.stage = stageKey;
-            err.stage_beacon = stageBeacon;
-            err.remainingMs = remainingMs;
-            err.timeoutForThisStage = timeoutForThisStage;
-            err.stageCapMs = stageCapMs;
-            throw err;
-          }
-
-          const fetchStart = Date.now();
-
-          try {
-            console.log("[import-start] fetch_begin", {
-              stage: stageKey,
-              remainingMs,
-              timeoutForThisStage,
-              request_id: requestId,
-              session_id: sessionId,
-            });
-          } catch {}
-
-          try {
-            // Convert payload to /responses format if using that endpoint
-            let finalBody = typeof body === "string" ? body : "";
-            if (isResponsesEndpoint(xaiUrl) && finalBody) {
-              try {
-                const parsed = JSON.parse(finalBody);
-                const converted = convertToResponsesPayload(parsed);
-                finalBody = JSON.stringify(converted);
-              } catch (parseErr) {
-                // If parsing fails, use original body
-                console.error("[import-start] payload conversion failed:", parseErr?.message);
-              }
-            }
-
-            const res = await postJsonWithTimeout(xaiUrl, {
-              headers: (() => {
-                const headers = {
-                  "Content-Type": "application/json",
-                };
-
-                if (isAzureWebsitesUrl(xaiUrl)) {
-                  headers["x-functions-key"] = xaiKey;
-                } else {
-                  headers["Authorization"] = `Bearer ${xaiKey}`;
-                }
-
-                return headers;
-              })(),
-              body: finalBody,
-              timeoutMs: timeoutForThisStage,
-            });
-
-            const elapsedMs = Date.now() - fetchStart;
-            try {
-              console.log("[import-start] fetch_end", {
-                stage: stageKey,
-                elapsedMs,
-                request_id: requestId,
-                session_id: sessionId,
-                status: res?.status,
-              });
-            } catch {}
-
-            return res;
-          } catch (e) {
-            const name = String(e?.name || "").toLowerCase();
-            const code = String(e?.code || "").toUpperCase();
-            const isAbort = code === "ECONNABORTED" || name.includes("abort");
-
-            if (isAbort) {
-              if (stageKey === "primary") {
-                throwAccepted(stageBeacon, "upstream_timeout_returning_202", {
-                  stage: stageKey,
-                  timeoutForThisStage,
-                  stageCapMs,
-                });
-              }
-
-              const err = new Error("Upstream timeout");
-              err.code = "UPSTREAM_TIMEOUT";
-              err.stage = stageKey;
-              err.stage_beacon = stageBeacon;
-              err.timeoutForThisStage = timeoutForThisStage;
-              err.stageCapMs = stageCapMs;
-              throw err;
-            }
-
-            throw e;
-          }
-        };
-
-        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-        const STAGE_RETRY_BACKOFF_MS = [0, 2000, 5000, 10000];
-
-        const shouldRetryUpstreamStatus = (status) => {
-          const s = Number(status);
-          if (!Number.isFinite(s)) return true;
-          if (s === 408 || s === 421 || s === 429) return true;
-          return s >= 500 && s <= 599;
-        };
-
-        const postXaiJsonWithBudgetRetry = async ({ stageKey, stageBeacon, body, stageCapMsOverride }) => {
-          const attempts = STAGE_RETRY_BACKOFF_MS.length;
-
-          for (let attempt = 0; attempt < attempts; attempt += 1) {
-            const delayMs = STAGE_RETRY_BACKOFF_MS[attempt] || 0;
-            if (delayMs > 0) {
-              const remaining = getRemainingMs();
-              if (remaining < delayMs + DEADLINE_SAFETY_BUFFER_MS) {
-                // Not enough budget to wait and retry.
-                break;
-              }
-              await sleep(delayMs);
-            }
-
-            try {
-              const res = await postXaiJsonWithBudget({ stageKey, stageBeacon, body, stageCapMsOverride });
-
-              if (res && typeof res.status === "number" && shouldRetryUpstreamStatus(res.status) && attempt < attempts - 1) {
-                continue;
-              }
-
-              return res;
-            } catch (e) {
-              if (e instanceof AcceptedResponseError) throw e;
-
-              const code = String(e?.code || "").toUpperCase();
-              const retryable = code === "UPSTREAM_TIMEOUT" || code === "INSUFFICIENT_TIME_FOR_FETCH";
-
-              if (retryable && attempt < attempts - 1) {
-                continue;
-              }
-
-              throw e;
-            }
-          }
-
-          // Fall back to a final attempt (will throw on failure).
-          return await postXaiJsonWithBudget({ stageKey, stageBeacon, body, stageCapMsOverride });
-        };
+        // ── XAI request pipeline (delegated to _importStartXaiRequest.js) ──
+        const _xaiReqCtx = { budget, requestId, sessionId, xaiUrl, xaiKey, throwAccepted };
+        const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) =>
+          _ensureStageBudgetOrThrow(stageKey, nextStageBeacon, _xaiReqCtx);
+        const postXaiJsonWithBudget = (opts) => _postXaiJsonWithBudget(opts, _xaiReqCtx);
+        const postXaiJsonWithBudgetRetry = (opts) => _postXaiJsonWithBudgetRetry(opts, _xaiReqCtx);
 
         // Early check: if import was already stopped, return immediately
         if (!noUpstreamMode) {
