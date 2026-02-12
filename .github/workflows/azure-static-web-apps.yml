@@ -41,6 +41,15 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Test (API contracts)
+        run: npm test
+
+      - name: Test (Frontend)
+        run: npm run test:frontend
+
       - name: Build
         run: npm run build
 

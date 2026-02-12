@@ -27,10 +27,12 @@ jobs:
 
       - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Test (API contracts)
         run: npm test
+
+      - name: Test (Frontend)
+        run: npm run test:frontend
 
       - name: Build
         run: npm run build

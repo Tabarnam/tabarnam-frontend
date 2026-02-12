@@ -13,6 +13,7 @@
     "build": "node scripts/write-build-id.mjs && vite build",
     "preview": "vite preview --host ::1 --port 5173",
     "test": "node scripts/run-tests.mjs",
+    "test:frontend": "vitest run",
     "lint": "eslint src/ --ext .js,.jsx,.ts,.tsx",
     "migrate": "node scripts/run-migrations.mjs",
     "migrate:apply": "node scripts/run-migrations.mjs --apply",
@@ -81,6 +82,9 @@
     "@babel/types": "^7.27.0",
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20.8.3",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
@@ -90,6 +94,7 @@
     "eslint-config-react-app": "^7.0.1",
     "husky": "^9.1.7",
     "iso-3166-2": "^1.0.0",
+    "jsdom": "^28.0.0",
     "lint-staged": "^16.2.7",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.3",
@@ -97,6 +102,7 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.5.4",
     "vite": "^7.1.1",
+    "vitest": "^4.0.18",
     "world-countries": "^5.1.0"
   }
 }

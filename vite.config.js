@@ -488,6 +488,12 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    test: {
+      globals: true,
+      environment: "jsdom",
+      include: ["src/**/*.{test,spec}.{js,jsx,ts,tsx}"],
+      setupFiles: [],
+    },
     build: {
       chunkSizeWarningLimit: 1000,
       sourcemap: true, // help trace prod errors (disabled by default in Vite)
