@@ -592,9 +592,9 @@ function isRealValue(field, value, doc) {
   }
 
   if (f === "headquarters_location" || f === "hq") {
-    if (isTrueish(doc?.hq_unknown)) return false;
-
-
+    // Data-wins-over-flag: check actual values first, then consult _unknown flag
+    // only when there is no real data.  Enrichment may populate the field without
+    // clearing the stale hq_unknown flag (race condition / partial write).
     if (value && typeof value === "object" && !Array.isArray(value)) {
       const formattedRaw = asString(value.formatted || value.full_address || value.address || value.location).trim();
       if (isSentinelString(formattedRaw)) return false;
@@ -607,16 +607,23 @@ function isRealValue(field, value, doc) {
       const country = asMeaningfulString(value.country);
       if (city && (region || country)) return true;
 
+      if (isTrueish(doc?.hq_unknown)) return false;
       return false;
     }
 
     if (isSentinelString(value)) return false;
-    return looksLikeHqLocationString(value);
+    if (looksLikeHqLocationString(value)) return true;
+
+    // No real data — respect the unknown flag
+    if (isTrueish(doc?.hq_unknown)) return false;
+    return false;
   }
 
   if (f === "manufacturing_locations" || f === "mfg") {
+    // Data-wins-over-flag: real location entries trump a stale mfg_unknown flag
+    if (hasNonPlaceholderLocationEntry(value)) return true;
     if (isTrueish(doc?.mfg_unknown)) return false;
-    return hasNonPlaceholderLocationEntry(value);
+    return false;
   }
 
   if (f === "logo") {

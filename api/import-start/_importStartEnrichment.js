@@ -973,7 +973,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       console.log(`[import-start] session=${sessionId} company=${companyId} enriched_keys=${enrichedKeys.length > 0 ? enrichedKeys.join(",") : "NONE"} ok=${enrichResult?.ok}`);
 
       if (enrichedKeys.length > 0) {
-        const updatedCompany = applyEnrichmentToCompany(companyDoc, enrichResult);
+        const updatedCompany = await applyEnrichmentToCompany(companyDoc, enrichResult);
         console.log(`[import-start] session=${sessionId} company=${companyId} applyEnrichment done, missing_after=${(updatedCompany.import_missing_fields || []).join(",") || "none"}`);
 
         // Save updated company to Cosmos

@@ -17,6 +17,7 @@ const {
 
 const { getXAIEndpoint, getXAIKey } = require("./_shared");
 const { sanitizeIndustries, sanitizeKeywords, isRealValue } = require("./_requiredFields");
+const { geocodeLocationArray, pickPrimaryLatLng } = require("./_geocode");
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -256,7 +257,7 @@ async function runDirectEnrichment({
  * @param {Object} enrichmentResult - Result from runDirectEnrichment()
  * @returns {Object} - Updated company document
  */
-function applyEnrichmentToCompany(company, enrichmentResult) {
+async function applyEnrichmentToCompany(company, enrichmentResult) {
   if (!company || !enrichmentResult?.enriched) return company;
 
   const updated = { ...company };
@@ -284,6 +285,24 @@ function applyEnrichmentToCompany(company, enrichmentResult) {
     if (enriched.headquarters_location.location_source_urls?.hq_source_urls) {
       updated.hq_source_urls = enriched.headquarters_location.location_source_urls.hq_source_urls;
     }
+    // Clear stale _unknown flag — enrichment provided real data
+    updated.hq_unknown = false;
+    updated.hq_unknown_reason = null;
+
+    // Geocode HQ location for distance calculations
+    try {
+      const hqString = updated.headquarters_location;
+      if (hqString && typeof hqString === "string") {
+        const geocoded = await geocodeLocationArray([{ address: hqString }], { timeoutMs: 5000, concurrency: 1 });
+        if (geocoded?.[0]?.lat != null && geocoded?.[0]?.lng != null) {
+          const geo = geocoded[0];
+          updated.hq_lat = geo.lat;
+          updated.hq_lng = geo.lng;
+          updated.headquarters_locations = [{ address: hqString, ...geo }];
+          updated.headquarters = updated.headquarters_locations;
+        }
+      }
+    } catch { /* geocoding failure is non-fatal */ }
   }
 
   // Apply manufacturing_locations
@@ -294,6 +313,23 @@ function applyEnrichmentToCompany(company, enrichmentResult) {
     if (enriched.manufacturing_locations.location_source_urls?.mfg_source_urls) {
       updated.mfg_source_urls = enriched.manufacturing_locations.location_source_urls.mfg_source_urls;
     }
+    // Clear stale _unknown flag — enrichment provided real data
+    updated.mfg_unknown = false;
+    updated.mfg_unknown_reason = null;
+
+    // Geocode manufacturing locations for distance calculations
+    try {
+      const mfgArr = updated.manufacturing_locations;
+      if (Array.isArray(mfgArr) && mfgArr.length > 0) {
+        const seeds = mfgArr.map((loc) =>
+          typeof loc === "string" ? { location: loc, address: loc } : loc
+        );
+        const geocoded = await geocodeLocationArray(seeds, { timeoutMs: 5000, concurrency: 4 });
+        if (geocoded && geocoded.length > 0) {
+          updated.manufacturing_geocodes = geocoded;
+        }
+      }
+    } catch { /* geocoding failure is non-fatal */ }
   }
 
   // Apply product_keywords

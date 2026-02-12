@@ -5601,7 +5601,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       });
 
                       if (enrichResult?.enriched && Object.keys(enrichResult.enriched).length > 0) {
-                        const updatedDoc = applyEnrichmentToCompany(doc, enrichResult);
+                        const updatedDoc = await applyEnrichmentToCompany(doc, enrichResult);
                         if (lastResortContainer) {
                           await upsertItemWithPkCandidates(lastResortContainer, updatedDoc).catch(() => null);
                         }
