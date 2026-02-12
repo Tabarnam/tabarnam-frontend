@@ -1161,7 +1161,6 @@ const importStartHandlerInner = async (req, context) => {
       const shouldStopAfterStage = (stageKey) => {
         if (!maxStage) return false;
         if (maxStage === stageKey) return true;
-        if (skipStages.has(stageKey) && maxStage === stageKey) return true;
         return false;
       };
 
@@ -3917,12 +3916,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           // In that case we still want to proceed with a deterministic URL seed so the session can
           // persist and resume-worker has something to enrich.
           if (enriched.length === 0 && queryTypes.includes("company_url")) {
-            try {
-              enriched = [buildCompanyUrlSeedFromQuery(query)];
-              mark("company_url_seed_created");
-            } catch {
-              enriched = [buildCompanyUrlSeedFromQuery(query)];
-            }
+            enriched = [buildCompanyUrlSeedFromQuery(query)];
+            mark("company_url_seed_created");
           }
 
           enrichedForCounts = enriched;
@@ -5153,7 +5148,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 const meetsKeywordQuality = isRealValue(
                 "product_keywords",
                 keywordStats.sanitized.join(", "),
-                { ...doc, keywords: keywordStats.sanitized }
+                { ...base, keywords: keywordStats.sanitized }
               );
 
                 if (meetsKeywordQuality) {
@@ -5293,8 +5288,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                 enriched[i] = base;
               }
-            } catch {
-              // Never block imports on placeholder enforcement.
+            } catch (placeholderErr) {
+              // Never block imports on placeholder enforcement — but log for diagnostics.
+              console.warn(`[import-start] session=${sessionId} placeholder enforcement error for company[${i}]: ${placeholderErr?.message || placeholderErr}`);
             }
 
             mark("cosmos_write_start");

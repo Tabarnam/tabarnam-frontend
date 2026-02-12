@@ -1078,14 +1078,18 @@ async function saveCompaniesToCosmos({
                 })
                 .filter(Boolean);
               doc.missing_fields_updated_at = nowIso;
-            } catch {}
+            } catch (validationErr) {
+              console.warn(`[import-start] session=${sid} company[${companyIndex}] field validation error: ${validationErr?.message || validationErr}`);
+            }
 
             try {
               const completeness = computeProfileCompleteness(doc);
               doc.profile_completeness = completeness.profile_completeness;
               doc.profile_completeness_version = completeness.profile_completeness_version;
               doc.profile_completeness_meta = completeness.profile_completeness_meta;
-            } catch {}
+            } catch (completenessErr) {
+              console.warn(`[import-start] session=${sid} company[${companyIndex}] profile completeness error: ${completenessErr?.message || completenessErr}`);
+            }
 
             if (!doc.company_name && !doc.url) {
               return {
