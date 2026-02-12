@@ -22,6 +22,8 @@ const {
   hasMeaningfulSeedEnrichment,
   isValidSeedCompany,
   computeEnrichmentMissingFields,
+  applyLowQualityPolicy,
+  pushMissingFieldEntry,
 } = require("./_importStartCompanyUtils");
 
 // ── normalizeIndustries ─────────────────────────────────────────────────────
@@ -724,4 +726,270 @@ test("computeEnrichmentMissingFields handles null input", () => {
   const missing = computeEnrichmentMissingFields(null);
   assert.ok(missing.includes("company_name"));
   assert.ok(missing.includes("website_url"));
+});
+
+// ── applyLowQualityPolicy ──────────────────────────────────────────────────
+
+test("applyLowQualityPolicy returns retryable for non-terminatable reason", () => {
+  const doc = {};
+  const result = applyLowQualityPolicy("industries", "missing", { doc, importMissingReason: {} });
+  assert.equal(result.missing_reason, "missing");
+  assert.equal(result.retryable, true);
+  assert.equal(result.attemptCount, 0);
+});
+
+test("applyLowQualityPolicy returns retryable for empty field", () => {
+  const doc = {};
+  const result = applyLowQualityPolicy("", "low_quality", { doc, importMissingReason: {} });
+  assert.equal(result.missing_reason, "low_quality");
+  assert.equal(result.retryable, true);
+});
+
+test("applyLowQualityPolicy increments attempt on new requestId", () => {
+  const doc = {};
+  const result = applyLowQualityPolicy("industries", "low_quality", {
+    doc,
+    importMissingReason: {},
+    requestId: "req-1",
+  });
+  assert.equal(result.missing_reason, "low_quality");
+  assert.equal(result.retryable, true);
+  assert.equal(result.attemptCount, 1);
+  assert.equal(doc.import_low_quality_attempts.industries, 1);
+  assert.equal(doc.import_low_quality_attempts_meta.industries, "req-1");
+  assert.equal(doc.import_request_id, "req-1");
+});
+
+test("applyLowQualityPolicy does not increment on same requestId", () => {
+  const doc = {
+    import_low_quality_attempts: { industries: 1 },
+    import_low_quality_attempts_meta: { industries: "req-1" },
+  };
+  const result = applyLowQualityPolicy("industries", "low_quality", {
+    doc,
+    importMissingReason: {},
+    requestId: "req-1",
+  });
+  assert.equal(result.attemptCount, 1);
+  assert.equal(result.retryable, true);
+});
+
+test("applyLowQualityPolicy terminalizes at maxAttempts", () => {
+  const doc = {
+    import_low_quality_attempts: { industries: 2 },
+    import_low_quality_attempts_meta: { industries: "req-2" },
+  };
+  const result = applyLowQualityPolicy("industries", "low_quality", {
+    doc,
+    importMissingReason: {},
+    requestId: "req-3",
+    maxAttempts: 3,
+  });
+  assert.equal(result.missing_reason, "low_quality_terminal");
+  assert.equal(result.retryable, false);
+  assert.equal(result.attemptCount, 3);
+});
+
+test("applyLowQualityPolicy preserves existing terminal reason", () => {
+  const doc = {};
+  const result = applyLowQualityPolicy("industries", "low_quality", {
+    doc,
+    importMissingReason: { industries: "low_quality_terminal" },
+  });
+  assert.equal(result.missing_reason, "low_quality_terminal");
+  assert.equal(result.retryable, false);
+  assert.equal(result.attemptCount, 3);
+});
+
+test("applyLowQualityPolicy preserves terminal from doc", () => {
+  const doc = { import_missing_reason: { industries: "not_found_terminal" } };
+  const result = applyLowQualityPolicy("industries", "not_found", {
+    doc,
+    importMissingReason: {},
+  });
+  assert.equal(result.missing_reason, "not_found_terminal");
+  assert.equal(result.retryable, false);
+});
+
+test("applyLowQualityPolicy handles not_found reason", () => {
+  const doc = {};
+  const result = applyLowQualityPolicy("headquarters_location", "not_found", {
+    doc,
+    importMissingReason: {},
+    requestId: "req-1",
+  });
+  assert.equal(result.missing_reason, "not_found");
+  assert.equal(result.retryable, true);
+  assert.equal(result.attemptCount, 1);
+});
+
+test("applyLowQualityPolicy terminalizes not_found at max", () => {
+  const doc = {
+    import_low_quality_attempts: { hq: 2 },
+    import_low_quality_attempts_meta: { hq: "req-2" },
+  };
+  const result = applyLowQualityPolicy("hq", "not_found", {
+    doc,
+    importMissingReason: {},
+    requestId: "req-3",
+  });
+  assert.equal(result.missing_reason, "not_found_terminal");
+  assert.equal(result.retryable, false);
+});
+
+test("applyLowQualityPolicy works without requestId", () => {
+  const doc = {};
+  const result = applyLowQualityPolicy("industries", "low_quality", {
+    doc,
+    importMissingReason: {},
+  });
+  assert.equal(result.missing_reason, "low_quality");
+  assert.equal(result.retryable, true);
+  assert.equal(result.attemptCount, 0);
+});
+
+test("applyLowQualityPolicy handles malformed attempts on doc", () => {
+  const doc = { import_low_quality_attempts: "garbage", import_low_quality_attempts_meta: null };
+  const result = applyLowQualityPolicy("industries", "low_quality", {
+    doc,
+    importMissingReason: {},
+    requestId: "req-1",
+  });
+  assert.equal(result.attemptCount, 1);
+  assert.equal(doc.import_low_quality_attempts.industries, 1);
+});
+
+// ── pushMissingFieldEntry ──────────────────────────────────────────────────
+
+test("pushMissingFieldEntry adds field to arrays", () => {
+  const fields = [];
+  const reasons = {};
+  const warnings = [];
+  const entry = pushMissingFieldEntry("industries", "low_quality", {
+    importMissingFields: fields,
+    importMissingReason: reasons,
+    importWarnings: warnings,
+    message: "bad quality",
+  });
+  assert.ok(fields.includes("industries"));
+  assert.equal(reasons.industries, "low_quality");
+  assert.equal(warnings.length, 1);
+  assert.equal(entry.field, "industries");
+  assert.equal(entry.missing_reason, "low_quality");
+  assert.equal(entry.terminal, false);
+  assert.equal(entry.message, "bad quality");
+});
+
+test("pushMissingFieldEntry returns null for empty field", () => {
+  const result = pushMissingFieldEntry("", "missing", {
+    importMissingFields: [],
+    importMissingReason: {},
+    importWarnings: [],
+  });
+  assert.equal(result, null);
+});
+
+test("pushMissingFieldEntry detects terminal reasons", () => {
+  const fields = [];
+  const reasons = {};
+  const warnings = [];
+  const entry = pushMissingFieldEntry("industries", "low_quality_terminal", {
+    importMissingFields: fields,
+    importMissingReason: reasons,
+    importWarnings: warnings,
+  });
+  assert.equal(entry.terminal, true);
+  assert.equal(entry.retryable, true);
+});
+
+test("pushMissingFieldEntry detects not_found_terminal", () => {
+  const entry = pushMissingFieldEntry("hq", "not_found_terminal", {
+    importMissingFields: [],
+    importMissingReason: {},
+    importWarnings: [],
+  });
+  assert.equal(entry.terminal, true);
+});
+
+test("pushMissingFieldEntry detects not_disclosed", () => {
+  const entry = pushMissingFieldEntry("hq", "not_disclosed", {
+    importMissingFields: [],
+    importMissingReason: {},
+    importWarnings: [],
+  });
+  assert.equal(entry.terminal, true);
+});
+
+test("pushMissingFieldEntry replaces existing warning for same field", () => {
+  const warnings = [{ field: "industries", missing_reason: "old" }];
+  pushMissingFieldEntry("industries", "low_quality", {
+    importMissingFields: ["industries"],
+    importMissingReason: {},
+    importWarnings: warnings,
+  });
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].missing_reason, "low_quality");
+});
+
+test("pushMissingFieldEntry does not duplicate field in missing list", () => {
+  const fields = ["industries"];
+  pushMissingFieldEntry("industries", "low_quality", {
+    importMissingFields: fields,
+    importMissingReason: {},
+    importWarnings: [],
+  });
+  assert.equal(fields.length, 1);
+});
+
+test("pushMissingFieldEntry prefers terminal over seed_from_company_url", () => {
+  const reasons = { industries: "seed_from_company_url" };
+  pushMissingFieldEntry("industries", "low_quality_terminal", {
+    importMissingFields: [],
+    importMissingReason: reasons,
+    importWarnings: [],
+  });
+  assert.equal(reasons.industries, "low_quality_terminal");
+});
+
+test("pushMissingFieldEntry does not overwrite terminal with non-terminal", () => {
+  const reasons = { industries: "low_quality_terminal" };
+  pushMissingFieldEntry("industries", "low_quality", {
+    importMissingFields: [],
+    importMissingReason: reasons,
+    importWarnings: [],
+  });
+  assert.equal(reasons.industries, "low_quality_terminal");
+});
+
+test("pushMissingFieldEntry includes optional stage and source_attempted", () => {
+  const entry = pushMissingFieldEntry("industries", "missing", {
+    stage: "extract_industries",
+    source_attempted: "xai",
+    importMissingFields: [],
+    importMissingReason: {},
+    importWarnings: [],
+  });
+  assert.equal(entry.stage, "extract_industries");
+  assert.equal(entry.source_attempted, "xai");
+});
+
+test("pushMissingFieldEntry includes optional root_cause", () => {
+  const entry = pushMissingFieldEntry("industries", "missing", {
+    root_cause: "industries",
+    importMissingFields: [],
+    importMissingReason: {},
+    importWarnings: [],
+  });
+  assert.equal(entry.root_cause, "industries");
+});
+
+test("pushMissingFieldEntry omits stage/source_attempted/root_cause when not given", () => {
+  const entry = pushMissingFieldEntry("industries", "missing", {
+    importMissingFields: [],
+    importMissingReason: {},
+    importWarnings: [],
+  });
+  assert.equal("stage" in entry, false);
+  assert.equal("source_attempted" in entry, false);
+  assert.equal("root_cause" in entry, false);
 });
