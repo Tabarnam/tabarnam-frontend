@@ -1216,4 +1216,35 @@ module.exports = {
   postJsonWithTimeout,
   isProxyExplicitlyDisabled,
   isProxyExplicitlyEnabled,
+  buildSaveReport,
 };
+
+// ── buildSaveReport ─────────────────────────────────────────────────────────
+
+/**
+ * Builds a normalized `save_report` object from a raw saveResult.
+ * Called from 7+ response sites to avoid duplicating the 12-field
+ * array-safety + numeric-coercion block.
+ *
+ * @param {object} saveResult  - Raw result from saveCompaniesToCosmos
+ * @param {object} [overrides] - Optional field overrides (e.g. { saved: 0, save_outcome })
+ * @returns {object}
+ */
+function buildSaveReport(saveResult, overrides) {
+  const r = saveResult && typeof saveResult === "object" ? saveResult : {};
+  return {
+    saved: Number(r.saved || 0) || 0,
+    saved_verified_count: Number(r.saved_verified_count ?? r.saved ?? 0) || 0,
+    saved_write_count: Number(r.saved_write_count || 0) || 0,
+    skipped: Number(r.skipped || 0) || 0,
+    failed: Number(r.failed || 0) || 0,
+    saved_ids: Array.isArray(r.saved_ids) ? r.saved_ids : [],
+    saved_ids_verified: Array.isArray(r.saved_company_ids_verified) ? r.saved_company_ids_verified : [],
+    saved_ids_unverified: Array.isArray(r.saved_company_ids_unverified) ? r.saved_company_ids_unverified : [],
+    saved_ids_write: Array.isArray(r.saved_ids_write) ? r.saved_ids_write : [],
+    skipped_ids: Array.isArray(r.skipped_ids) ? r.skipped_ids : [],
+    skipped_duplicates: Array.isArray(r.skipped_duplicates) ? r.skipped_duplicates : [],
+    failed_items: Array.isArray(r.failed_items) ? r.failed_items : [],
+    ...overrides,
+  };
+}
