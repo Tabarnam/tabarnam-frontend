@@ -10,7 +10,7 @@ const {
 
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
-const { nowIso, computePrimaryProgress } = require("./_importStatusUtils");
+const { nowIso, computePrimaryProgress, inferReconcileStrategy, toSavedCompanies, finalizeReviewsForCompletion } = require("./_importStatusUtils");
 
 // Orchestration mode: When false, status endpoint can trigger resume worker and force-terminalize.
 const STATUS_NO_ORCHESTRATION = false;
@@ -642,6 +642,127 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
   return out.slice(0, n);
 }
 
+// ── finalizeReviewsOnCompletion ──────────────────────────────────────────────
+
+/**
+ * Iterates over saved company docs and finalizes reviews when the response
+ * indicates completion or terminal-only status. Optionally persists changed
+ * docs to Cosmos when `container` is provided.
+ *
+ * @param {object} opts
+ * @param {object}      opts.out               - Response payload (checked for completed/terminal_only)
+ * @param {Array}       opts.docs              - Company docs to finalize
+ * @param {object}      opts.stageBeaconValues - Mutable beacon map
+ * @param {string|null} opts.terminalOnlyReason
+ * @param {object|null} [opts.container]       - Cosmos container (pass null for in-memory only)
+ */
+async function finalizeReviewsOnCompletion({ out, docs, stageBeaconValues, terminalOnlyReason, container }) {
+  if (!(out.completed || out.terminal_only)) return;
+  if (!Array.isArray(docs) || docs.length === 0) return;
+
+  let finalized = 0;
+  const reason = out.terminal_only ? terminalOnlyReason : "complete";
+
+  for (const doc of docs) {
+    const changed = finalizeReviewsForCompletion(doc, { reason });
+    if (!changed) continue;
+    finalized += 1;
+    if (container) {
+      await upsertDoc(container, { ...doc, updated_at: nowIso() }).catch(() => null);
+    }
+  }
+
+  if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
+}
+
+// ── runAuthoritativeReconciliation ───────────────────────────────────────────
+
+/**
+ * Probes Cosmos for authoritative saved companies when the current `saved`
+ * count is zero. If docs are found, persists corrected summaries to both
+ * the completion and session control docs.
+ *
+ * @param {object} opts
+ * @param {object}      opts.container
+ * @param {string}      opts.sessionId
+ * @param {object}      opts.domainMeta  - { sessionCreatedAt, normalizedDomain, createdAfter }
+ * @param {object}      opts.stageBeaconValues
+ * @param {object|null} opts.completionDoc
+ * @param {object|null} opts.sessionDoc
+ * @param {string}      opts.beaconSource - Stage-beacon string to derive the reason from
+ * @returns {Promise<{ reconciled: boolean, reconcile_strategy: string|null, reconciled_saved_ids: string[], authoritativeDocs: Array, saved: number, saved_companies: Array, reason: string|null }>}
+ */
+async function runAuthoritativeReconciliation({
+  container,
+  sessionId,
+  domainMeta,
+  stageBeaconValues,
+  completionDoc,
+  sessionDoc,
+  beaconSource,
+}) {
+  const empty = { reconciled: false, reconcile_strategy: null, reconciled_saved_ids: [], authoritativeDocs: [], saved: 0, saved_companies: [], reason: null };
+
+  stageBeaconValues.status_reconcile_saved_probe = nowIso();
+
+  const authoritativeDocs = await fetchAuthoritativeSavedCompanies(container, {
+    sessionId,
+    sessionCreatedAt: domainMeta.sessionCreatedAt,
+    normalizedDomain: domainMeta.normalizedDomain,
+    createdAfter: domainMeta.createdAfter,
+    limit: 200,
+  }).catch(() => []);
+
+  if (authoritativeDocs.length === 0) {
+    stageBeaconValues.status_reconciled_saved_none = nowIso();
+    return empty;
+  }
+
+  const authoritativeIds = authoritativeDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
+  const reason =
+    String(beaconSource || "").trim() === "primary_early_exit" ? "saved_after_primary_async" : "post_primary_reconciliation";
+
+  const saved = authoritativeDocs.length;
+
+  stageBeaconValues.status_reconciled_saved = nowIso();
+  stageBeaconValues.status_reconciled_saved_count = saved;
+
+  // Persist corrected summaries (best-effort)
+  const now = nowIso();
+
+  if (completionDoc) {
+    await upsertDoc(container, {
+      ...completionDoc,
+      saved,
+      saved_ids: authoritativeIds,
+      reason,
+      reconciled_at: now,
+      updated_at: now,
+    }).catch(() => null);
+  }
+
+  if (sessionDoc) {
+    await upsertDoc(container, {
+      ...sessionDoc,
+      saved,
+      companies_count: saved,
+      reconciliation_reason: reason,
+      reconciled_at: now,
+      updated_at: now,
+    }).catch(() => null);
+  }
+
+  return {
+    reconciled: true,
+    reconcile_strategy: inferReconcileStrategy(authoritativeDocs, sessionId),
+    reconciled_saved_ids: authoritativeIds,
+    authoritativeDocs,
+    saved,
+    saved_companies: toSavedCompanies(authoritativeDocs),
+    reason,
+  };
+}
+
 module.exports = {
   STATUS_NO_ORCHESTRATION,
   getCompaniesPkPath,
@@ -657,4 +778,6 @@ module.exports = {
   markPrimaryJobError,
   savePrimaryJobCompanies,
   fetchAuthoritativeSavedCompanies,
+  finalizeReviewsOnCompletion,
+  runAuthoritativeReconciliation,
 };
