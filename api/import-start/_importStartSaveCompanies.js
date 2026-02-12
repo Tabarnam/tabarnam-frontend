@@ -1248,28 +1248,33 @@ async function saveCompaniesToCosmos({
                   budgetMs: logoBudgetMs,
                 });
 
-                // Update document with logo information (non-blocking on failure)
+                // Update document with logo information (non-blocking on failure).
+                // IMPORTANT: read the current doc first so the upsert doesn't overwrite
+                // fields written by concurrent processes (e.g. enrichment).
                 if (logoImportResult && logoImportResult.logo_url) {
-                  const logoUpdateDoc = {
-                    id: companyId,
-                    normalized_domain: finalNormalizedDomain,
-                    partition_key: finalNormalizedDomain,
-                    logo_url: logoImportResult.logo_url || null,
-                    logo_source_url: logoImportResult.logo_source_url || null,
-                    logo_source_location: logoImportResult.logo_source_location || null,
-                    logo_source_domain: logoImportResult.logo_source_domain || null,
-                    logo_source_type: logoImportResult.logo_source_type || null,
-                    logo_status: logoImportResult.logo_status || "imported",
-                    logo_import_status: logoImportResult.logo_import_status || "imported",
-                    logo_stage_status: logoImportResult.logo_stage_status || "ok",
-                    logo_error: logoImportResult.logo_error || "",
-                    logo_telemetry: logoImportResult.logo_telemetry || null,
-                  };
-
-                  // Attempt update but don't fail if it doesn't work
-                  await upsertItemWithPkCandidates(container, logoUpdateDoc).catch((err) => {
+                  try {
+                    const currentDoc = await readItemWithPkCandidates(container, companyId, {
+                      id: companyId,
+                      normalized_domain: finalNormalizedDomain,
+                      partition_key: finalNormalizedDomain,
+                    });
+                    const mergedDoc = {
+                      ...(currentDoc || { id: companyId, normalized_domain: finalNormalizedDomain, partition_key: finalNormalizedDomain }),
+                      logo_url: logoImportResult.logo_url || null,
+                      logo_source_url: logoImportResult.logo_source_url || null,
+                      logo_source_location: logoImportResult.logo_source_location || null,
+                      logo_source_domain: logoImportResult.logo_source_domain || null,
+                      logo_source_type: logoImportResult.logo_source_type || null,
+                      logo_status: logoImportResult.logo_status || "imported",
+                      logo_import_status: logoImportResult.logo_import_status || "imported",
+                      logo_stage_status: logoImportResult.logo_stage_status || "ok",
+                      logo_error: logoImportResult.logo_error || "",
+                      logo_telemetry: logoImportResult.logo_telemetry || null,
+                    };
+                    await upsertItemWithPkCandidates(container, mergedDoc);
+                  } catch (err) {
                     console.warn(`[import-start] Failed to update logo for company ${companyId}: ${err?.message || String(err)}`);
-                  });
+                  }
                 }
               } catch (err) {
                 // Logo processing error is logged but does not fail the save

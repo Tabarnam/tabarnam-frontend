@@ -4358,11 +4358,11 @@ async function resumeWorkerHandler(req, context) {
   if (sessionDoc && typeof sessionDoc === "object") {
     const invokedAt = String(resumeDoc?.last_invoked_at || "").trim() || updatedAt;
 
-    const companyIdFromResponse = Array.isArray(lastStartJson?.saved_company_ids_verified) && lastStartJson.saved_company_ids_verified[0]
+    const companyIdFromResponse = Array.isArray(lastStartJson?.saved_company_ids_verified) && lastStartJson?.saved_company_ids_verified?.[0]
       ? String(lastStartJson.saved_company_ids_verified[0]).trim()
-      : Array.isArray(lastStartJson?.saved_company_ids) && lastStartJson.saved_company_ids[0]
+      : Array.isArray(lastStartJson?.saved_company_ids) && lastStartJson?.saved_company_ids?.[0]
         ? String(lastStartJson.saved_company_ids[0]).trim()
-        : seedDocs && seedDocs[0] && seedDocs[0].id
+        : seedDocs?.[0]?.id
           ? String(seedDocs[0].id).trim()
           : null;
 

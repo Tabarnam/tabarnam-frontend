@@ -983,6 +983,23 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
             const readResult = await container.item(companyId, companyPk).read();
             if (readResult?.resource) {
               freshCompanyDoc = readResult.resource;
+              // Preserve identity fields from the in-memory doc in case a concurrent
+              // partial upsert (e.g. logo fire-and-forget) clobbered them
+              if (!freshCompanyDoc.company_name && companyDoc.company_name) {
+                freshCompanyDoc.company_name = companyDoc.company_name;
+              }
+              if (!freshCompanyDoc.name && companyDoc.name) {
+                freshCompanyDoc.name = companyDoc.name;
+              }
+              if (!freshCompanyDoc.website_url && companyDoc.website_url) {
+                freshCompanyDoc.website_url = companyDoc.website_url;
+              }
+              if (!freshCompanyDoc.canonical_url && companyDoc.canonical_url) {
+                freshCompanyDoc.canonical_url = companyDoc.canonical_url;
+              }
+              if (!freshCompanyDoc.url && companyDoc.url) {
+                freshCompanyDoc.url = companyDoc.url;
+              }
               console.log(`[import-start] session=${sessionId} company=${companyId} Cosmos re-read OK (logo_url=${freshCompanyDoc.logo_url ? "present" : "absent"})`);
             }
           } catch (readErr) {
@@ -1119,6 +1136,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       : {
           code: "ENRICHMENT_INCOMPLETE",
           message: `${enrichmentResults.filter((r) => !r.ok).length} of ${ids.length} companies failed enrichment`,
+          failed_fields: enrichmentResults.flatMap((r) => r.fields_failed || []),
           at: new Date().toISOString(),
         },
   }).catch(() => null);
