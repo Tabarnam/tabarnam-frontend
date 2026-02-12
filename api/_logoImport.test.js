@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
-const { stripCdnResizeParams, collectInlineSvgCandidates } = require("./_logoImport")._test;
+const { stripCdnResizeParams, collectInlineSvgCandidates, maybeResolveSvgSpriteReference } = require("./_logoImport")._test;
 
 // ── Shopify CDN resize param stripping ───────────────────────────────────────
 
@@ -179,4 +179,42 @@ test("collectInlineSvgCandidates boosts score for logo keyword in SVG", () => {
   assert.equal(candidates.length, 1);
   // Base score 345 + logo signal 80 = 425
   assert.ok(candidates[0].score >= 400, `expected score >= 400, got ${candidates[0].score}`);
+});
+
+// ── SVG sprite detection (maybeResolveSvgSpriteReference) ────────────────────
+
+test("maybeResolveSvgSpriteReference detects <use href> as sprite", async () => {
+  const svg = `<svg viewBox="0 0 738 123"><use href="/svgs/logo.svg#logo-id"></use></svg>`;
+  const result = await maybeResolveSvgSpriteReference(svg, "https://example.com", null);
+  assert.equal(result.wasSprite, true);
+  // Can't resolve without a real server, so it should fail gracefully
+  assert.equal(result.ok, false);
+  assert.ok(result.reason, "should have a failure reason");
+});
+
+test("maybeResolveSvgSpriteReference returns wasSprite:false for self-contained SVG", async () => {
+  const svg = `<svg viewBox="0 0 100 50"><path d="M10 20 L90 20" fill="#000"/></svg>`;
+  const result = await maybeResolveSvgSpriteReference(svg, "https://example.com", null);
+  assert.equal(result.wasSprite, false);
+});
+
+test("maybeResolveSvgSpriteReference detects <use xlink:href> (legacy syntax)", async () => {
+  const svg = `<svg viewBox="0 0 200 60"><use xlink:href="/icons/sprite.svg#brand-logo"></use></svg>`;
+  const result = await maybeResolveSvgSpriteReference(svg, "https://example.com", null);
+  assert.equal(result.wasSprite, true);
+});
+
+test("maybeResolveSvgSpriteReference rejects internal-only fragment ref", async () => {
+  const svg = `<svg viewBox="0 0 100 50"><use href="#local-symbol"></use></svg>`;
+  const result = await maybeResolveSvgSpriteReference(svg, "https://example.com", null);
+  assert.equal(result.wasSprite, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "svg_sprite_internal_ref_only");
+});
+
+test("maybeResolveSvgSpriteReference handles invalid href gracefully", async () => {
+  const svg = `<svg viewBox="0 0 100 50"><use href="://broken"></use></svg>`;
+  const result = await maybeResolveSvgSpriteReference(svg, "https://example.com", null);
+  assert.equal(result.wasSprite, true);
+  assert.equal(result.ok, false);
 });

@@ -701,6 +701,118 @@ function isAllowedLogoContentType(contentType) {
   return false;
 }
 
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Detect and resolve SVG sprite `<use href="...">` references.
+ *
+ * Many modern sites use SVG sprites: the inline `<svg>` is a hollow shell
+ * referencing an external .svg file via `<use href="/path/sprite.svg#id">`.
+ * When stored standalone (e.g. in blob storage), the relative href breaks,
+ * producing a blank image.  This function detects that pattern, fetches the
+ * external SVG, extracts the referenced symbol, and returns a self-contained
+ * SVG buffer with the real vector content inlined.
+ */
+async function maybeResolveSvgSpriteReference(svgText, pageUrl, logger) {
+  // Detect <use href="..." /> or <use xlink:href="..." />
+  const useMatch = svgText.match(/<use\b[^>]*\bhref=["']([^"']+)["'][^>]*>/i)
+    || svgText.match(/<use\b[^>]*\bxlink:href=["']([^"']+)["'][^>]*>/i);
+  if (!useMatch) return { wasSprite: false };
+
+  const hrefRaw = useMatch[1];
+  // Split into URL part + fragment ID
+  const hashIdx = hrefRaw.indexOf("#");
+  const urlPart = hashIdx >= 0 ? hrefRaw.slice(0, hashIdx) : hrefRaw;
+  const fragmentId = hashIdx >= 0 ? hrefRaw.slice(hashIdx + 1) : "";
+
+  if (!urlPart) {
+    // Pure fragment reference (#id) within the same document — can't resolve externally
+    return { wasSprite: true, ok: false, reason: "svg_sprite_internal_ref_only" };
+  }
+
+  // Resolve to absolute URL using the page origin
+  let absoluteUrl;
+  try {
+    absoluteUrl = new URL(urlPart, pageUrl).toString();
+  } catch {
+    return { wasSprite: true, ok: false, reason: "svg_sprite_invalid_href" };
+  }
+
+  // Fetch the external SVG file
+  let externalSvgText;
+  try {
+    const fetchResult = await fetchImageBufferWithRetries(absoluteUrl, {
+      timeoutMs: 3000,
+      maxBytes: 2 * 1024 * 1024,
+      retries: 0,
+    });
+    externalSvgText = fetchResult.buf.toString("utf8");
+  } catch (e) {
+    logger?.warn?.(`[logoImport] SVG sprite fetch failed for ${absoluteUrl}: ${e?.message}`);
+    return { wasSprite: true, ok: false, reason: "svg_sprite_fetch_failed" };
+  }
+
+  // Validate the external SVG
+  if (looksLikeUnsafeSvg(Buffer.from(externalSvgText, "utf8"))) {
+    return { wasSprite: true, ok: false, reason: "svg_sprite_unsafe_external" };
+  }
+
+  // Extract the symbol/element by fragment ID
+  let symbolContent = "";
+  let symbolViewBox = "";
+  if (fragmentId) {
+    // Look for <symbol id="fragmentId"> ... </symbol> or <svg id="fragmentId"> ... </svg>
+    const symbolRe = new RegExp(
+      `<(symbol|svg)\\b[^>]*\\bid=["']${escapeRegExp(fragmentId)}["'][^>]*>([\\s\\S]*?)<\\/\\1>`,
+      "i"
+    );
+    const symbolMatch = externalSvgText.match(symbolRe);
+    if (symbolMatch) {
+      symbolContent = symbolMatch[2];
+      // Extract viewBox from symbol tag if present
+      const vbMatch = symbolMatch[0].match(/viewBox=["']([^"']+)["']/i);
+      if (vbMatch) symbolViewBox = vbMatch[1];
+    }
+  }
+
+  if (!symbolContent) {
+    // No matching symbol found — try using the entire external SVG content
+    // Strip the outer <svg> wrapper to get inner content
+    const innerMatch = externalSvgText.match(/<svg\b[^>]*>([\s\S]*)<\/svg>/i);
+    if (innerMatch) {
+      symbolContent = innerMatch[1];
+    }
+  }
+
+  if (!symbolContent || symbolContent.trim().length < 10) {
+    return { wasSprite: true, ok: false, reason: "svg_sprite_empty_symbol" };
+  }
+
+  // Build resolved SVG: reuse original <svg> attributes, replace <use> with symbol content
+  const svgOpenMatch = svgText.match(/<svg\b[^>]*>/i);
+  const svgOpen = svgOpenMatch
+    ? svgOpenMatch[0]
+    : `<svg viewBox="${symbolViewBox || "0 0 100 100"}" xmlns="http://www.w3.org/2000/svg">`;
+
+  // Ensure xmlns is present for standalone SVG
+  let resolvedOpen = svgOpen;
+  if (!resolvedOpen.includes("xmlns")) {
+    resolvedOpen = resolvedOpen.replace(/<svg\b/, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+
+  // Remove CSS class attributes (Tailwind classes like h-[22px] are meaningless in standalone SVG)
+  resolvedOpen = resolvedOpen.replace(/\s+class="[^"]*"/gi, "");
+
+  const resolvedSvg = `${resolvedOpen}\n${symbolContent}\n</svg>`;
+  const resolvedBuf = Buffer.from(resolvedSvg, "utf8");
+
+  logger?.info?.(`[logoImport] SVG sprite resolved: ${absoluteUrl}#${fragmentId} → ${resolvedBuf.length} bytes`);
+
+  return { wasSprite: true, ok: true, buf: resolvedBuf };
+}
+
 function looksLikeUnsafeSvg(buf) {
   try {
     const head = Buffer.from(buf).subarray(0, 24000).toString("utf8").toLowerCase();
@@ -771,8 +883,20 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
     if (candidate?.is_inline_svg && sourceUrl.startsWith("data:image/svg+xml;base64,")) {
       try {
         const b64 = sourceUrl.slice("data:image/svg+xml;base64,".length);
-        const buf = Buffer.from(b64, "base64");
+        let buf = Buffer.from(b64, "base64");
         if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
+
+        // Detect SVG sprites: <use href="..."> or <use xlink:href="...">
+        // Sprite-only SVGs are hollow shells that reference external .svg files;
+        // they render blank when served standalone from blob storage.
+        const svgText = buf.toString("utf8");
+        const resolved = await maybeResolveSvgSpriteReference(svgText, candidate?.page_url, logger);
+        if (resolved.wasSprite) {
+          if (!resolved.ok) return { ok: false, reason: resolved.reason || "svg_sprite_unresolvable" };
+          buf = resolved.buf;
+          if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
+        }
+
         let { width, height } = parseSvgViewBoxDimensions(buf);
         if (!Number.isFinite(width) || !Number.isFinite(height)) {
           // Inline SVGs in headers are high-confidence — use declared/viewBox dimensions
@@ -2043,6 +2167,7 @@ module.exports = {
     extractFavicon,
     collectLogoCandidatesFromHtml,
     collectInlineSvgCandidates,
+    maybeResolveSvgSpriteReference,
     dedupeAndSortCandidates,
     strongLogoSignal,
   },
