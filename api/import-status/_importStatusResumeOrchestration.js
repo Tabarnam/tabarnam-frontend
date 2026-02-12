@@ -717,9 +717,106 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
   }
 }
 
+// ── runTerminalCycleEnforcement ──────────────────────────────────────────────
+
+/**
+ * Enforces terminal-only completion when the resume cycle cap is reached.
+ *
+ * If `resume_needed` is true and the session is blocked at or past the max
+ * cycle count, this function invokes the resume worker with
+ * `force_terminalize_single: true` and returns `terminalOnlyReason` for the caller.
+ *
+ * Also rolls back a stale `status_resume_terminal_only` marker when retryable
+ * missing fields remain and cycles have not yet been exhausted.
+ *
+ * @param {object} opts
+ * @param {object}      opts.out                    - Mutable response payload
+ * @param {object}      opts.stageBeaconValues      - Mutable stage-beacon map
+ * @param {number}      opts.retryableMissingCount
+ * @param {object|null} opts.resumeMissingAnalysis
+ * @param {string}      opts.sessionId
+ * @param {object}      opts.context                - Azure function context
+ * @returns {{ terminalOnlyReason: string|null }}
+ */
+async function runTerminalCycleEnforcement({
+  out,
+  stageBeaconValues,
+  retryableMissingCount,
+  resumeMissingAnalysis,
+  sessionId,
+  context,
+}) {
+  // Phase 1: detect max-cycles blocked → invoke force-terminalize worker
+  try {
+    const blockedReason = String(
+      stageBeaconValues.status_resume_blocked_reason || out?.resume_error_details?.blocked_reason || ""
+    ).trim();
+
+    const cap = stageBeaconValues.status_infra_retryable_only_timeout
+      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+      : MAX_RESUME_CYCLES_SINGLE;
+
+    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+    const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
+
+    if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+      stageBeaconValues.status_resume_force_terminalize_selected = true;
+      stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
+
+      const forcedAt = nowIso();
+      stageBeaconValues.status_resume_forced_terminalize = forcedAt;
+      stageBeaconValues.status_resume_forced_terminalize_reason = blockedReason || "max_cycles";
+
+      const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
+      const forceRes = await invokeResumeWorkerInProcess({
+        session_id: sessionId,
+        context,
+        workerRequest,
+        force_terminalize_single: true,
+        deadline_ms: INLINE_RESUME_DEADLINE_MS,
+      }).catch((e) => ({
+        ok: false,
+        status: 0,
+        bodyText: "",
+        error: e,
+        gateway_key_attached: Boolean(workerRequest?.gateway_key_attached),
+        request_id: workerRequest?.request_id || null,
+      }));
+
+      stageBeaconValues.status_resume_forced_terminalize_http_status = Number(forceRes?.status || 0) || 0;
+      stageBeaconValues.status_resume_forced_terminalize_ok = Boolean(forceRes?.ok);
+
+      stageBeaconValues.status_resume_terminal_only = forcedAt;
+    }
+  } catch {}
+
+  // Phase 2: validate terminal-only can be applied
+  const cap = stageBeaconValues.status_infra_retryable_only_timeout
+    ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+    : MAX_RESUME_CYCLES_SINGLE;
+
+  const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+  const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
+
+  if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
+    stageBeaconValues.status_resume_terminal_only = null;
+    stageBeaconValues.status_resume_forced_terminalize_reason = null;
+    stageBeaconValues.status_resume_force_terminalize_selected = false;
+    stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
+  }
+
+  const terminalOnlyReason =
+    allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
+      ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
+      : null;
+
+  return { terminalOnlyReason };
+}
+
 module.exports = {
   runBlockedStateAutoRetry,
   runWatchdogStuckDetection,
   runSingleCompanyPolicy,
   runResumeTriggerExecution,
+  runTerminalCycleEnforcement,
 };
