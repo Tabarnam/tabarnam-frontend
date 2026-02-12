@@ -529,6 +529,33 @@ function deriveResumeStageBeacon({ resume_status, forceComplete, resume_needed, 
   return "complete";
 }
 
+/**
+ * Reconcile low-quality company docs to terminal state and stamp beacons.
+ *
+ * @param {Array}  docs              - Company docs to evaluate
+ * @param {object} stageBeaconValues - Mutable beacon map
+ * @returns {number} Count of docs reconciled
+ */
+function reconcileLowQualityDocs(docs, stageBeaconValues) {
+  const lowQualityMaxAttempts = Number.isFinite(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS))
+    ? Math.max(1, Math.trunc(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS)))
+    : 2;
+
+  let count = 0;
+  for (const doc of Array.isArray(docs) ? docs : []) {
+    if (reconcileLowQualityToTerminal(doc, lowQualityMaxAttempts)) {
+      count += 1;
+    }
+  }
+
+  if (count > 0) {
+    stageBeaconValues.status_reconciled_low_quality_terminal = nowIso();
+    stageBeaconValues.status_reconciled_low_quality_terminal_count = count;
+  }
+
+  return count;
+}
+
 function applyTerminalOnlyCompletion(out, reason) {
   const stamp = new Date().toISOString();
 
@@ -753,6 +780,9 @@ module.exports = {
 
   // Resume stage beacon
   deriveResumeStageBeacon,
+
+  // Low-quality reconciliation
+  reconcileLowQualityDocs,
 
   // Document transforms
   forceTerminalizeCompanyDocForSingle,

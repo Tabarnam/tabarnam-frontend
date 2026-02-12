@@ -338,6 +338,94 @@ function buildPrimaryJobNoCosmosResponse({ sessionId, primaryJob, stageBeaconVal
   };
 }
 
+// ── buildReport ─────────────────────────────────────────────────────────────
+
+/**
+ * Builds the `report` sub-object included in every status response.
+ * Shared between the primary-job path and the Cosmos-backed path.
+ *
+ * @param {object} opts
+ * @param {object|null} opts.sessionDoc
+ * @param {object|null} opts.acceptDoc
+ * @param {object|null} opts.completionDoc
+ * @param {object|null} opts.resumeDoc
+ * @param {*}           [opts.completionSaved]          - Primary path: pre-computed saved count
+ * @param {Array|null}  [opts.completionSavedIds]       - Primary path: pre-computed saved IDs
+ * @param {string|null} [opts.completionReason]         - Cosmos path: override reason string
+ * @param {Array|null}  [opts.savedIds]                 - Cosmos path: saved IDs from reconciliation
+ * @param {boolean}     [opts.includeRequest=false]     - Include session.request (primary path only)
+ * @param {boolean}     [opts.includeSkippedDuplicates=false] - Include completion.skipped_duplicates
+ * @returns {object}
+ */
+function buildReport({
+  sessionDoc,
+  acceptDoc,
+  completionDoc,
+  resumeDoc,
+  completionSaved,
+  completionSavedIds,
+  completionReason,
+  savedIds,
+  includeRequest = false,
+  includeSkippedDuplicates = false,
+}) {
+  const sessionSub = sessionDoc
+    ? {
+        created_at: sessionDoc.created_at || null,
+        request_id: sessionDoc.request_id || null,
+        status: sessionDoc.status || null,
+        stage_beacon: sessionDoc.stage_beacon || null,
+        resume_needed: Boolean(sessionDoc.resume_needed),
+        ...(includeRequest
+          ? { request: sessionDoc.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null }
+          : {}),
+      }
+    : null;
+
+  const acceptSub = acceptDoc
+    ? {
+        accepted_at: acceptDoc.accepted_at || acceptDoc.created_at || null,
+        reason: acceptDoc.reason || null,
+        stage_beacon: acceptDoc.stage_beacon || null,
+        remaining_ms: Number.isFinite(Number(acceptDoc.remaining_ms)) ? Number(acceptDoc.remaining_ms) : null,
+      }
+    : null;
+
+  let completionSub = null;
+  if (completionDoc) {
+    completionSub = {
+      completed_at: completionDoc.completed_at || completionDoc.created_at || null,
+      reason: completionReason !== undefined ? (completionReason || null) : (completionDoc.reason || null),
+      saved: completionSaved !== undefined ? completionSaved : (typeof completionDoc.saved === "number" ? completionDoc.saved : null),
+      skipped: typeof completionDoc.skipped === "number" ? completionDoc.skipped : null,
+      failed: typeof completionDoc.failed === "number" ? completionDoc.failed : null,
+      saved_ids: savedIds !== undefined ? savedIds : (completionSavedIds !== undefined ? completionSavedIds : []),
+      skipped_ids: Array.isArray(completionDoc.skipped_ids) ? completionDoc.skipped_ids : [],
+      ...(includeSkippedDuplicates
+        ? { skipped_duplicates: Array.isArray(completionDoc.skipped_duplicates) ? completionDoc.skipped_duplicates : [] }
+        : {}),
+      failed_items: Array.isArray(completionDoc.failed_items) ? completionDoc.failed_items : [],
+    };
+  }
+
+  const resumeSub = resumeDoc
+    ? {
+        status: resumeDoc.status || null,
+        attempt: Number.isFinite(Number(resumeDoc.attempt)) ? Number(resumeDoc.attempt) : 0,
+        lock_expires_at: resumeDoc.lock_expires_at || null,
+        updated_at: resumeDoc.updated_at || null,
+      }
+    : null;
+
+  return {
+    session: sessionSub,
+    accepted: Boolean(acceptDoc),
+    accept: acceptSub,
+    completion: completionSub,
+    resume: resumeSub,
+  };
+}
+
 // ── buildCosmosResponseBase ──────────────────────────────────────────────────
 
 /**
@@ -561,6 +649,7 @@ module.exports = {
   buildResumeWorkerMeta,
   buildMemoryOnlyResponse,
   buildPrimaryJobNoCosmosResponse,
+  buildReport,
   buildCosmosResponseBase,
   applyCompletionOverride,
   deduplicatePersistedIds,

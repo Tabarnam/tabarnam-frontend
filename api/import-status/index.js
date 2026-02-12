@@ -48,6 +48,7 @@ const {
   collectInfraRetryableMissing,
   shouldForceTerminalizeSingle,
   deriveResumeStageBeacon,
+  reconcileLowQualityDocs,
   forceTerminalizeCompanyDocForSingle,
   finalizeReviewsForCompletion,
   reconcileLowQualityToTerminal,
@@ -77,12 +78,15 @@ const {
   markPrimaryJobError,
   savePrimaryJobCompanies,
   fetchAuthoritativeSavedCompanies,
+  finalizeReviewsOnCompletion,
+  runAuthoritativeReconciliation,
 } = require("./_importStatusCosmos");
 const { getCosmosConfig } = require("../_cosmosConfig");
 const {
   buildResumeWorkerMeta,
   buildMemoryOnlyResponse,
   buildPrimaryJobNoCosmosResponse,
+  buildReport,
   buildCosmosResponseBase,
   applyCompletionOverride,
   deduplicatePersistedIds,
@@ -503,58 +507,20 @@ async function handler(req, context) {
 
         // Authoritative reconciliation: async primary runs can persist companies even when the completion/session report is stale.
         if (Number(saved || 0) === 0) {
-          stageBeaconValues.status_reconcile_saved_probe = nowIso();
+          const recon = await runAuthoritativeReconciliation({
+            container, sessionId, domainMeta, stageBeaconValues,
+            completionDoc, sessionDoc,
+            beaconSource: primaryJob?.stage_beacon,
+          });
 
-          const authoritativeDocs = await fetchAuthoritativeSavedCompanies(container, {
-            sessionId,
-            sessionCreatedAt: domainMeta.sessionCreatedAt,
-            normalizedDomain: domainMeta.normalizedDomain,
-            createdAfter: domainMeta.createdAfter,
-            limit: 200,
-          }).catch(() => []);
-
-          if (authoritativeDocs.length > 0) {
-            const authoritativeIds = authoritativeDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
-            const reason =
-              String(primaryJob?.stage_beacon || "").trim() === "primary_early_exit" ? "saved_after_primary_async" : "post_primary_reconciliation";
-
-            reconciled = true;
-            reconcile_strategy = inferReconcileStrategy(authoritativeDocs, sessionId);
-            reconciled_saved_ids = authoritativeIds;
-
-            saved = authoritativeDocs.length;
-            savedCompanyDocs = authoritativeDocs;
-            saved_companies = toSavedCompanies(authoritativeDocs);
-            stageBeaconValues.status_reconciled_saved = nowIso();
-            stageBeaconValues.status_reconciled_saved_count = saved;
-
-            // Persist the corrected summary (best-effort). Never treat primary_early_exit as authoritative for saved=0.
-            const now = nowIso();
-
-            if (completionDoc) {
-              await upsertDoc(container, {
-                ...completionDoc,
-                saved,
-                saved_ids: authoritativeIds,
-                reason,
-                reconciled_at: now,
-                updated_at: now,
-              }).catch(() => null);
-            }
-
-            if (sessionDoc) {
-              await upsertDoc(container, {
-                ...sessionDoc,
-                saved,
-                companies_count: saved,
-                reconciliation_reason: reason,
-                reconciled_at: now,
-                updated_at: now,
-              }).catch(() => null);
-            }
+          if (recon.reconciled) {
+            reconciled = recon.reconciled;
+            reconcile_strategy = recon.reconcile_strategy;
+            reconciled_saved_ids = recon.reconciled_saved_ids;
+            saved = recon.saved;
+            savedCompanyDocs = recon.authoritativeDocs;
+            saved_companies = recon.saved_companies;
           } else {
-            stageBeaconValues.status_reconciled_saved_none = nowIso();
-
             // Post-primary save bridge: primary job completed with companies but nothing
             // was saved to Cosmos (202 accepted flow gap). Save them now.
             const primaryCompanies = Array.isArray(primaryJob?.companies) ? primaryJob.companies : [];
@@ -597,48 +563,11 @@ async function handler(req, context) {
           }
         }
 
-        report = {
-          session: sessionDoc
-            ? {
-                created_at: sessionDoc?.created_at || null,
-                request_id: sessionDoc?.request_id || null,
-                status: sessionDoc?.status || null,
-                stage_beacon: sessionDoc?.stage_beacon || null,
-                resume_needed: Boolean(sessionDoc?.resume_needed),
-                request: sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null,
-              }
-            : null,
-          accepted: Boolean(acceptDoc),
-          accept: acceptDoc
-            ? {
-                accepted_at: acceptDoc?.accepted_at || acceptDoc?.created_at || null,
-                reason: acceptDoc?.reason || null,
-                stage_beacon: acceptDoc?.stage_beacon || null,
-                remaining_ms: Number.isFinite(Number(acceptDoc?.remaining_ms)) ? Number(acceptDoc.remaining_ms) : null,
-              }
-            : null,
-          completion: completionDoc
-            ? {
-                completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
-                reason: completionDoc?.reason || null,
-                saved: completionSaved,
-                skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
-                failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
-                saved_ids: completionSavedIds,
-                skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
-                skipped_duplicates: Array.isArray(completionDoc?.skipped_duplicates) ? completionDoc.skipped_duplicates : [],
-                failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
-              }
-            : null,
-          resume: resumeDoc
-            ? {
-                status: resumeDoc?.status || null,
-                attempt: Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0,
-                lock_expires_at: resumeDoc?.lock_expires_at || null,
-                updated_at: resumeDoc?.updated_at || null,
-              }
-            : null,
-        };
+        report = buildReport({
+          sessionDoc, acceptDoc, completionDoc, resumeDoc,
+          completionSaved, completionSavedIds,
+          includeRequest: true, includeSkippedDuplicates: true,
+        });
       }
     } catch {
       report = null;
@@ -674,21 +603,7 @@ async function handler(req, context) {
           ? primaryJob.companies
           : [];
 
-    const lowQualityMaxAttempts = Number.isFinite(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS))
-      ? Math.max(1, Math.trunc(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS)))
-      : 2;
-
-    let reconciledLowQualityCount = 0;
-    for (const doc of Array.isArray(savedDocsForHealth) ? savedDocsForHealth : []) {
-      if (reconcileLowQualityToTerminal(doc, lowQualityMaxAttempts)) {
-        reconciledLowQualityCount += 1;
-      }
-    }
-
-    if (reconciledLowQualityCount > 0) {
-      stageBeaconValues.status_reconciled_low_quality_terminal = nowIso();
-      stageBeaconValues.status_reconciled_low_quality_terminal_count = reconciledLowQualityCount;
-    }
+    reconcileLowQualityDocs(savedDocsForHealth, stageBeaconValues);
 
     saved_companies = toSavedCompanies(savedDocsForHealth);
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
@@ -1337,15 +1252,7 @@ async function handler(req, context) {
 
     // Reviews terminal contract: never return completed/terminal-only with reviews still pending.
     try {
-      if ((out.completed || out.terminal_only) && Array.isArray(savedDocsForHealth)) {
-        let finalized = 0;
-        for (const doc of savedDocsForHealth) {
-          if (finalizeReviewsForCompletion(doc, { reason: out.terminal_only ? terminalOnlyReason : "complete" })) {
-            finalized += 1;
-          }
-        }
-        if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
-      }
+      await finalizeReviewsOnCompletion({ out, docs: savedDocsForHealth, stageBeaconValues, terminalOnlyReason });
     } catch {}
 
     return jsonWithSessionId(out, 200, req);
@@ -1642,21 +1549,9 @@ async function handler(req, context) {
       }
     }
 
-    const lowQualityMaxAttempts = Number.isFinite(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS))
-      ? Math.max(1, Math.trunc(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS)))
-      : 2;
-
-    let reconciledLowQualityCount = 0;
-    for (const doc of Array.isArray(savedDocs) ? savedDocs : []) {
-      if (reconcileLowQualityToTerminal(doc, lowQualityMaxAttempts)) {
-        reconciledLowQualityCount += 1;
-      }
-    }
+    const reconciledLowQualityCount = reconcileLowQualityDocs(savedDocs, stageBeaconValues);
 
     if (reconciledLowQualityCount > 0) {
-      stageBeaconValues.status_reconciled_low_quality_terminal = nowIso();
-      stageBeaconValues.status_reconciled_low_quality_terminal_count = reconciledLowQualityCount;
-
       const singleCompanyResultLowQuality = isSingleCompanyModeFromSessionWithReason({
         sessionDoc,
         savedCount: saved,
@@ -1692,65 +1587,26 @@ async function handler(req, context) {
 
     // Authoritative reconciliation for control-plane vs data-plane mismatch (retroactive).
     if (Number(saved || 0) === 0) {
-      stageBeaconValues.status_reconcile_saved_probe = nowIso();
+      const beaconForReason =
+        (typeof acceptDoc?.stage_beacon === "string" && acceptDoc.stage_beacon.trim() ? acceptDoc.stage_beacon.trim() : "") ||
+        (typeof sessionDoc?.stage_beacon === "string" && sessionDoc.stage_beacon.trim() ? sessionDoc.stage_beacon.trim() : "") ||
+        (typeof completionDoc?.reason === "string" && completionDoc.reason.trim() ? completionDoc.reason.trim() : "");
 
-      const authoritativeDocs = await fetchAuthoritativeSavedCompanies(container, {
-        sessionId,
-        sessionCreatedAt: domainMeta.sessionCreatedAt,
-        normalizedDomain: domainMeta.normalizedDomain,
-        createdAfter: domainMeta.createdAfter,
-        limit: 200,
-      }).catch(() => []);
+      const recon = await runAuthoritativeReconciliation({
+        container, sessionId, domainMeta, stageBeaconValues,
+        completionDoc, sessionDoc,
+        beaconSource: beaconForReason,
+      });
 
-      if (authoritativeDocs.length > 0) {
-        const authoritativeIds = authoritativeDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
-        const beaconForReason =
-          (typeof acceptDoc?.stage_beacon === "string" && acceptDoc.stage_beacon.trim() ? acceptDoc.stage_beacon.trim() : "") ||
-          (typeof sessionDoc?.stage_beacon === "string" && sessionDoc.stage_beacon.trim() ? sessionDoc.stage_beacon.trim() : "") ||
-          (typeof completionDoc?.reason === "string" && completionDoc.reason.trim() ? completionDoc.reason.trim() : "");
-
-        const reason =
-          beaconForReason === "primary_early_exit" ? "saved_after_primary_async" : "post_primary_reconciliation";
-
-        reconciled = true;
-        reconcile_strategy = inferReconcileStrategy(authoritativeDocs, sessionId);
-        reconciled_saved_ids = authoritativeIds;
-
-        saved = authoritativeDocs.length;
-        savedIds = authoritativeIds;
-        savedDocs = authoritativeDocs;
-        saved_companies = toSavedCompanies(authoritativeDocs);
-        completionReason = reason;
-
-        stageBeaconValues.status_reconciled_saved = nowIso();
-        stageBeaconValues.status_reconciled_saved_count = saved;
-
-        // Persist the corrected summary (best-effort)
-        const now = nowIso();
-
-        if (completionDoc) {
-          await upsertDoc(container, {
-            ...completionDoc,
-            saved,
-            saved_ids: authoritativeIds,
-            reason,
-            reconciled_at: now,
-            updated_at: now,
-          }).catch(() => null);
-        }
-
-        if (sessionDoc) {
-          await upsertDoc(container, {
-            ...sessionDoc,
-            saved,
-            companies_count: saved,
-            reconciliation_reason: reason,
-            reconciled_at: now,
-            updated_at: now,
-          }).catch(() => null);
-        }
-      } else {
-        stageBeaconValues.status_reconciled_saved_none = nowIso();
+      if (recon.reconciled) {
+        reconciled = recon.reconciled;
+        reconcile_strategy = recon.reconcile_strategy;
+        reconciled_saved_ids = recon.reconciled_saved_ids;
+        saved = recon.saved;
+        savedIds = recon.reconciled_saved_ids;
+        savedDocs = recon.authoritativeDocs;
+        saved_companies = recon.saved_companies;
+        completionReason = recon.reason;
       }
     }
 
@@ -1781,46 +1637,10 @@ async function handler(req, context) {
       return hasAny ? diag : null;
     })();
 
-    const report = {
-      session: sessionDoc
-        ? {
-            created_at: sessionDoc?.created_at || null,
-            request_id: sessionDoc?.request_id || null,
-            status: sessionDoc?.status || null,
-            stage_beacon: sessionDoc?.stage_beacon || null,
-            resume_needed: Boolean(sessionDoc?.resume_needed),
-          }
-        : null,
-      accepted: Boolean(acceptDoc),
-      accept: acceptDoc
-        ? {
-            accepted_at: acceptDoc?.accepted_at || acceptDoc?.created_at || null,
-            reason: acceptDoc?.reason || null,
-            stage_beacon: acceptDoc?.stage_beacon || null,
-            remaining_ms: Number.isFinite(Number(acceptDoc?.remaining_ms)) ? Number(acceptDoc.remaining_ms) : null,
-          }
-        : null,
-      completion: completionDoc
-        ? {
-            completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
-            reason: completionReason || null,
-            saved: typeof completionDoc?.saved === "number" ? completionDoc.saved : null,
-            skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
-            failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
-            saved_ids: savedIds,
-            skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
-            failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
-          }
-        : null,
-      resume: resumeDoc
-        ? {
-            status: resumeDoc?.status || null,
-            attempt: Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0,
-            lock_expires_at: resumeDoc?.lock_expires_at || null,
-            updated_at: resumeDoc?.updated_at || null,
-          }
-        : null,
-    };
+    const report = buildReport({
+      sessionDoc, acceptDoc, completionDoc, resumeDoc,
+      completionReason, savedIds,
+    });
 
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
 
@@ -2364,16 +2184,7 @@ async function handler(req, context) {
 
       // Reviews terminal contract: never return completed/terminal-only with reviews still pending.
       try {
-        if ((out.completed || out.terminal_only) && Array.isArray(savedDocs) && savedDocs.length > 0) {
-          let finalized = 0;
-          for (const doc of savedDocs) {
-            const changed = finalizeReviewsForCompletion(doc, { reason: out.terminal_only ? terminalOnlyReason : "complete" });
-            if (!changed) continue;
-            finalized += 1;
-            await upsertDoc(container, { ...doc, updated_at: nowIso() }).catch(() => null);
-          }
-          if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
-        }
+        await finalizeReviewsOnCompletion({ out, docs: savedDocs, stageBeaconValues, terminalOnlyReason, container });
       } catch {}
 
       if (completionOverride) applyCompletionOverride(out);
@@ -2407,16 +2218,7 @@ async function handler(req, context) {
 
     // Reviews terminal contract: never return completed/terminal-only with reviews still pending.
     try {
-      if ((out.completed || out.terminal_only) && Array.isArray(savedDocs) && savedDocs.length > 0) {
-        let finalized = 0;
-        for (const doc of savedDocs) {
-          const changed = finalizeReviewsForCompletion(doc, { reason: out.terminal_only ? terminalOnlyReason : "complete" });
-          if (!changed) continue;
-          finalized += 1;
-          await upsertDoc(container, { ...doc, updated_at: nowIso() }).catch(() => null);
-        }
-        if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
-      }
+      await finalizeReviewsOnCompletion({ out, docs: savedDocs, stageBeaconValues, terminalOnlyReason, container });
     } catch {}
 
     return jsonWithSessionId(out, 200, req);
