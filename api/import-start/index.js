@@ -106,6 +106,7 @@ const {
   isMeaningfulString: _isMeaningfulString,
   hasMeaningfulSeedEnrichment: _hasMeaningfulSeedEnrichment,
   isValidSeedCompany: _isValidSeedCompany,
+  computeEnrichmentMissingFields,
 } = require("./_importStartCompanyUtils");
 
 // ── Extracted module: request/body parsing, URL utilities, xAI helpers ────────
@@ -162,6 +163,7 @@ const {
   postJsonWithTimeout,
   isProxyExplicitlyDisabled,
   isProxyExplicitlyEnabled,
+  buildSaveReport,
 } = require("./_importStartRequestUtils");
 
 // ── Extracted module: Cosmos DB operations ────────────────────────────────────
@@ -3305,21 +3307,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   saved: Number(saveResult.saved || 0),
                   skipped: Number(saveResult.skipped || 0),
                   failed: Number(saveResult.failed || 0),
-                  save_report: {
-                    saved: Number(saveResult.saved || 0),
-                    saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
-                    saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
-                    skipped: Number(saveResult.skipped || 0),
-                    failed: Number(saveResult.failed || 0),
-                    save_outcome,
-                    saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
-                    saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
-                    saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
-                    saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
-                    skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
-                    skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
-                    failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
-                  },
+                  save_report: buildSaveReport(saveResult, { save_outcome }),
                   ...(warningKeys.size ? { warnings: Array.from(warningKeys), warnings_detail, warnings_v2 } : {}),
                   ...(debugOutput ? { debug: debugOutput } : {}),
                 },
@@ -3471,23 +3459,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   saved: 0,
                   skipped: Number(saveResult.skipped || 0),
                   failed: Number(saveResult.failed || 0),
-                  save_report: {
-                    saved: 0,
-                    saved_verified_count: 0,
-                    saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
-                    skipped: Number(saveResult.skipped || 0),
-                    failed: Number(saveResult.failed || 0),
-                    save_outcome: outcome || failureStage,
-                    saved_ids: [],
-                    saved_ids_verified: [],
-                    saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
-                      ? saveResult.saved_company_ids_unverified
-                      : [],
-                    saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
-                    skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
-                    skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
-                    failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
-                  },
+                  save_report: buildSaveReport(saveResult, { save_outcome: outcome || failureStage, saved: 0, saved_verified_count: 0, saved_ids: [], saved_ids_verified: [] }),
                   ...(warningKeys.size ? { warnings: Array.from(warningKeys), warnings_detail, warnings_v2 } : {}),
                   ...(debugOutput ? { debug: debugOutput } : {}),
                 },
@@ -3579,20 +3551,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 saved: Number(saveResult.saved || 0),
                 skipped: Number(saveResult.skipped || 0),
                 failed: Number(saveResult.failed || 0),
-                save_report: {
-                  saved: Number(saveResult.saved || 0),
-                  saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
-                  saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
-                  skipped: Number(saveResult.skipped || 0),
-                  failed: Number(saveResult.failed || 0),
-                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
-                  saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
-                  saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
-                  saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
-                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
-                  skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
-                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
-                },
+                save_report: buildSaveReport(saveResult),
                 ...(warningKeys.size ? { warnings: Array.from(warningKeys), warnings_detail, warnings_v2 } : {}),
                 ...(debugOutput ? { debug: debugOutput } : {}),
               },
@@ -6278,35 +6237,6 @@ Return ONLY the JSON array, no other text.`,
             );
           }
 
-          const computeEnrichmentMissingFields = (company) => {
-            const c = company && typeof company === "object" ? company : {};
-
-            // Verification spec (minimal): only company name + a working website URL.
-            // All other fields are enrichment goals and should not gate persistence/verification.
-            const missing = [];
-
-            const name = String(c.company_name || c.name || "").trim();
-            if (!name) missing.push("company_name");
-
-            const websiteUrlRaw = String(c.website_url || c.url || c.canonical_url || "").trim();
-            const hasWorkingWebsite = (() => {
-              if (!websiteUrlRaw) return false;
-              const lowered = websiteUrlRaw.toLowerCase();
-              if (lowered === "unknown" || lowered === "n/a" || lowered === "na") return false;
-              try {
-                const u = websiteUrlRaw.includes("://") ? new URL(websiteUrlRaw) : new URL(`https://${websiteUrlRaw}`);
-                const host = String(u.hostname || "").toLowerCase();
-                return Boolean(host && host.includes("."));
-              } catch {
-                return false;
-              }
-            })();
-
-            if (!hasWorkingWebsite) missing.push("website_url");
-
-            return missing;
-          };
-
           const enrichmentMissingByCompany = (Array.isArray(enriched) ? enriched : [])
             .map((c) => {
               const missing = computeEnrichmentMissingFields(c);
@@ -6463,20 +6393,7 @@ Return ONLY the JSON array, no other text.`,
                 saved: saveResult.saved,
                 skipped: saveResult.skipped,
                 failed: saveResult.failed,
-                save_report: {
-                  saved: saveResult.saved,
-                  saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
-                  saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
-                  skipped: saveResult.skipped,
-                  failed: saveResult.failed,
-                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
-                  saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
-                  saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
-                  saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
-                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
-                  skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
-                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
-                },
+                save_report: buildSaveReport(saveResult),
               },
               200
             );
@@ -6687,15 +6604,7 @@ Return ONLY the JSON array, no other text.`,
                 saved: saveResult.saved,
                 skipped: saveResult.skipped,
                 failed: saveResult.failed,
-                save_report: {
-                  saved: saveResult.saved,
-                  skipped: saveResult.skipped,
-                  failed: saveResult.failed,
-                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
-                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
-                  skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
-                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
-                },
+                save_report: buildSaveReport(saveResult),
               },
               200
             );
@@ -6842,20 +6751,7 @@ Return ONLY the JSON array, no other text.`,
               saved: saveResult.saved,
               skipped: saveResult.skipped,
               failed: saveResult.failed,
-              save_report: {
-                saved: saveResult.saved,
-                saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
-                saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
-                skipped: saveResult.skipped,
-                failed: saveResult.failed,
-                saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
-                saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
-                saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
-                saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
-                skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
-                skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
-                failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
-              },
+              save_report: buildSaveReport(saveResult),
               ...(warningKeys.size ? { warnings: Array.from(warningKeys), warnings_detail, warnings_v2 } : {}),
               ...(debugOutput ? { debug: debugOutput } : {}),
             },

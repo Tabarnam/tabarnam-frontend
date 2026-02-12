@@ -421,4 +421,41 @@ module.exports = {
   isMeaningfulString,
   hasMeaningfulSeedEnrichment,
   isValidSeedCompany,
+
+  // Enrichment verification
+  computeEnrichmentMissingFields,
 };
+
+/**
+ * Computes which minimal verification fields are missing from a company doc.
+ * Only checks company_name and a working website_url — all other fields are
+ * enrichment goals and do not gate persistence/verification.
+ *
+ * @param {object} company
+ * @returns {string[]} Array of missing field names
+ */
+function computeEnrichmentMissingFields(company) {
+  const c = company && typeof company === "object" ? company : {};
+  const missing = [];
+
+  const name = String(c.company_name || c.name || "").trim();
+  if (!name) missing.push("company_name");
+
+  const websiteUrlRaw = String(c.website_url || c.url || c.canonical_url || "").trim();
+  const hasWorkingWebsite = (() => {
+    if (!websiteUrlRaw) return false;
+    const lowered = websiteUrlRaw.toLowerCase();
+    if (lowered === "unknown" || lowered === "n/a" || lowered === "na") return false;
+    try {
+      const u = websiteUrlRaw.includes("://") ? new URL(websiteUrlRaw) : new URL(`https://${websiteUrlRaw}`);
+      const host = String(u.hostname || "").toLowerCase();
+      return Boolean(host && host.includes("."));
+    } catch {
+      return false;
+    }
+  })();
+
+  if (!hasWorkingWebsite) missing.push("website_url");
+
+  return missing;
+}
