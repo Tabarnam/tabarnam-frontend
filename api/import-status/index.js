@@ -78,6 +78,11 @@ const {
   fetchAuthoritativeSavedCompanies,
 } = require("./_importStatusCosmos");
 const { getCosmosConfig } = require("../_cosmosConfig");
+const {
+  buildResumeWorkerMeta,
+  buildMemoryOnlyResponse,
+  buildPrimaryJobNoCosmosResponse,
+} = require("./_importStatusResponse");
 
 const HANDLER_ID = "import-status";
 
@@ -1908,136 +1913,7 @@ async function handler(req, context) {
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
-        resume_worker: ((typeof sessionDoc !== "undefined" && sessionDoc) || (typeof resumeDoc !== "undefined" && resumeDoc))
-          ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
-              handler_entered_build_id:
-                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
-              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
-              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
-              last_enqueue_ok:
-                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
-              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
-              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
-              last_xai_attempt_at:
-                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
-              last_ok:
-                typeof sessionDoc?.resume_worker_last_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_ok
-                  : typeof resumeDoc?.last_ok === "boolean"
-                    ? resumeDoc.last_ok
-                    : null,
-              last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number"
-                  ? sessionDoc.resume_worker_last_http_status
-                  : typeof resumeDoc?.last_http_status === "number"
-                    ? resumeDoc.last_http_status
-                    : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
-              last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_trigger_ok
-                  : typeof resumeDoc?.last_trigger_ok === "boolean"
-                    ? resumeDoc.last_trigger_ok
-                    : null,
-              last_trigger_http_status:
-                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
-                  ? sessionDoc.resume_worker_last_trigger_http_status
-                  : typeof resumeDoc?.last_trigger_http_status === "number"
-                    ? resumeDoc.last_trigger_http_status
-                    : null,
-              last_gateway_key_attached:
-                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
-                  ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
-                    ? resumeDoc.last_gateway_key_attached
-                    : null,
-              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
-              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
-                ? sessionDoc.resume_worker_last_written_fields
-                : Array.isArray(resumeDoc?.last_written_fields)
-                  ? resumeDoc.last_written_fields
-                  : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
-              last_resume_needed:
-                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
-                  ? sessionDoc.resume_worker_last_resume_needed
-                  : typeof resumeDoc?.last_resume_needed === "boolean"
-                    ? resumeDoc.last_resume_needed
-                    : null,
-              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
-                ? sessionDoc.resume_worker_planned_fields
-                : Array.isArray(resumeDoc?.planned_fields)
-                  ? resumeDoc.planned_fields
-                  : null,
-              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
-              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
-                ? sessionDoc.resume_worker_attempted_fields
-                : Array.isArray(resumeDoc?.attempted_fields)
-                  ? resumeDoc.attempted_fields
-                  : null,
-              attempted_fields_request_id:
-                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
-              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
-              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
-              // Current enrichment status for real-time UI display
-              current_field: sessionDoc?.resume_worker_current_field || null,
-              current_company: sessionDoc?.resume_worker_current_company || null,
-              ...(() => {
-                const missing_fields = [];
-                const session_missing_fields = [];
-                const resume_missing_fields = [];
-
-                const check = (field, sessionHas, resumeHas) => {
-                  if (!sessionHas) session_missing_fields.push(field);
-                  if (!resumeHas) resume_missing_fields.push(field);
-                  if (!sessionHas && !resumeHas) missing_fields.push(field);
-                };
-
-                check(
-                  "attempted_fields",
-                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
-                  Array.isArray(resumeDoc?.attempted_fields)
-                );
-
-                check(
-                  "last_written_fields",
-                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
-                  Array.isArray(resumeDoc?.last_written_fields)
-                );
-
-                check(
-                  "last_xai_attempt_at",
-                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
-                  Boolean(resumeDoc?.last_xai_attempt_at)
-                );
-
-                check(
-                  "next_allowed_run_at",
-                  Boolean(sessionDoc?.resume_next_allowed_run_at),
-                  Boolean(resumeDoc?.next_allowed_run_at)
-                );
-
-                const telemetry_missing = missing_fields.length > 0;
-
-                return {
-                  telemetry_missing,
-                  telemetry_missing_fields: missing_fields,
-                  telemetry_missing_session_fields: session_missing_fields,
-                  telemetry_missing_resume_fields: resume_missing_fields,
-                };
-              })(),
-              // Budget diagnostics for debugging deferred fields
-              _budget_debug: sessionDoc?.resume_worker_budget_debug || resumeDoc?._budget_debug || null,
-            }
-          : null,
+        resume_worker: buildResumeWorkerMeta({ sessionDoc, resumeDoc }),
         enrichment_health_summary,
         primary_job: {
           id: primaryJob?.id || null,
@@ -2182,204 +2058,16 @@ async function handler(req, context) {
 
   if (!endpoint || !key) {
     if (primaryJob) {
-      const jobState = String(primaryJob.job_state || "queued");
-      const status = jobState === "error" ? "error" : jobState === "complete" ? "complete" : jobState === "running" ? "running" : "queued";
-      const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
-
-      return jsonWithSessionId(
-        {
-          ok: true,
-          session_id: sessionId,
-          status,
-          state,
-          stage_beacon:
-            typeof primaryJob.stage_beacon === "string" && primaryJob.stage_beacon.trim()
-              ? primaryJob.stage_beacon.trim()
-              : status === "complete"
-                ? "primary_complete"
-                : status === "error"
-                  ? "primary_search_started"
-                  : status === "running"
-                    ? "primary_search_started"
-                    : "primary_search_started",
-          stage_beacon_values: stageBeaconValues,
-          primary_job_state: jobState,
-          last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
-          lock_until: primaryJob?.lock_expires_at || null,
-          attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
-          last_error: primaryJob?.last_error || null,
-          elapsed_ms: Number.isFinite(Number(primaryJob?.elapsed_ms)) ? Number(primaryJob.elapsed_ms) : null,
-          remaining_budget_ms: Number.isFinite(Number(primaryJob?.remaining_budget_ms)) ? Number(primaryJob.remaining_budget_ms) : null,
-          upstream_calls_made: Number.isFinite(Number(primaryJob?.upstream_calls_made)) ? Number(primaryJob.upstream_calls_made) : 0,
-          companies_candidates_found: Number.isFinite(Number(primaryJob?.companies_candidates_found))
-            ? Number(primaryJob.companies_candidates_found)
-            : Number.isFinite(Number(primaryJob?.companies_count))
-              ? Number(primaryJob.companies_count)
-              : 0,
-          early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
-          companies_count: Number.isFinite(Number(primaryJob.companies_count)) ? Number(primaryJob.companies_count) : 0,
-          items: Array.isArray(primaryJob.companies) ? primaryJob.companies : [],
-          ...EMPTY_RESUME_DIAGNOSTICS,
-          resume_needed: false,
-          resume_error: null,
-          resume_error_details: null,
-          resume: {
-            ...EMPTY_RESUME_DIAGNOSTICS.resume,
-            needed: false,
-          },
-          resume_worker: EMPTY_RESUME_DIAGNOSTICS.resume_worker,
-          primary_job: {
-            id: primaryJob.id || null,
-            job_state: jobState,
-            attempt: Number.isFinite(Number(primaryJob.attempt)) ? Number(primaryJob.attempt) : 0,
-            attempts: Number.isFinite(Number(primaryJob.attempt)) ? Number(primaryJob.attempt) : 0,
-            last_error: primaryJob.last_error || null,
-            elapsed_ms: Number.isFinite(Number(primaryJob?.elapsed_ms)) ? Number(primaryJob.elapsed_ms) : null,
-            remaining_budget_ms: Number.isFinite(Number(primaryJob?.remaining_budget_ms)) ? Number(primaryJob.remaining_budget_ms) : null,
-            upstream_calls_made: Number.isFinite(Number(primaryJob?.upstream_calls_made)) ? Number(primaryJob.upstream_calls_made) : 0,
-            companies_candidates_found: Number.isFinite(Number(primaryJob?.companies_candidates_found))
-              ? Number(primaryJob.companies_candidates_found)
-              : Number.isFinite(Number(primaryJob?.companies_count))
-                ? Number(primaryJob.companies_count)
-                : 0,
-            early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
-            last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
-            lock_expires_at: primaryJob?.lock_expires_at || null,
-            locked_by: primaryJob?.locked_by || null,
-            etag: primaryJob?._etag || primaryJob?.etag || null,
-            storage: primaryJob.storage || null,
-          },
-          inline_budget_ms: Number.isFinite(Number(primaryJob.inline_budget_ms)) ? Number(primaryJob.inline_budget_ms) : 20_000,
-          requested_deadline_ms:
-            primaryJob.requested_deadline_ms === null || primaryJob.requested_deadline_ms === undefined
-              ? null
-              : Number.isFinite(Number(primaryJob.requested_deadline_ms))
-                ? Number(primaryJob.requested_deadline_ms)
-                : null,
-          requested_stage_ms_primary:
-            primaryJob.requested_stage_ms_primary === null || primaryJob.requested_stage_ms_primary === undefined
-              ? null
-              : Number.isFinite(Number(primaryJob.requested_stage_ms_primary))
-                ? Number(primaryJob.requested_stage_ms_primary)
-                : null,
-          note:
-            typeof primaryJob.note === "string" && primaryJob.note.trim()
-              ? primaryJob.note.trim()
-              : "start endpoint is inline capped; long primary runs async",
-        },
-        200,
-        req
-      );
+      return jsonWithSessionId(buildPrimaryJobNoCosmosResponse({ sessionId, primaryJob, stageBeaconValues }), 200, req);
     }
 
     if (mem) {
-      const memCompaniesCount = Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0;
-      const memVerifiedIds = Array.isArray(mem.saved_company_ids_verified) ? mem.saved_company_ids_verified : [];
-      const memVerifiedCount = Number.isFinite(Number(mem.saved_verified_count))
-        ? Number(mem.saved_verified_count)
-        : memVerifiedIds.length;
-
-      const saved_verified_count = memVerifiedCount;
-      const saved_company_ids_verified = memVerifiedIds;
-      const saved_company_ids_unverified = Array.isArray(mem.saved_company_ids_unverified) ? mem.saved_company_ids_unverified : [];
-      const saved_company_urls = Array.isArray(mem.saved_company_urls) ? mem.saved_company_urls : [];
-      const save_outcome = typeof mem.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
-      const resume_needed = typeof mem.resume_needed === "boolean" ? mem.resume_needed : false;
-      const resume_error = typeof mem.resume_error === "string" && mem.resume_error.trim() ? mem.resume_error.trim() : null;
-      const resume_error_details =
-        mem.resume_error_details && typeof mem.resume_error_details === "object" ? mem.resume_error_details : null;
-
-      const saved = Number.isFinite(Number(mem.saved)) ? Number(mem.saved) : saved_verified_count;
-
       return jsonWithSessionId(
-        {
-          ok: true,
-          session_id: sessionId,
-          status: mem.status || "running",
-          state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
-          job_state: null,
-          stage_beacon: mem.stage_beacon || "init",
-          stage_beacon_values: stageBeaconValues,
-          elapsed_ms: null,
-          remaining_budget_ms: null,
-          upstream_calls_made: Math.max(
-            typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
-              ? Number(sessionDoc.resume_worker_upstream_calls_made)
-              : 0,
-            typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
-              ? Number(resumeDoc.upstream_calls_made)
-              : 0
-          ),
-          companies_candidates_found: 0,
-          early_exit_triggered: false,
-          primary_job_state: null,
-          last_heartbeat_at: null,
-          lock_until: null,
-          attempts: 0,
-          last_error: null,
-          companies_count: memCompaniesCount,
-          saved,
-          saved_verified_count,
-          saved_company_ids_verified,
-          saved_company_ids_unverified,
-          saved_company_urls,
-          save_outcome,
-          ...EMPTY_RESUME_DIAGNOSTICS,
-          resume_needed,
-          resume_error:
-            resume_needed && !gatewayKeyConfigured
-              ? buildResumeStallError().code
-              : resume_error,
-          resume_error_details:
-            resume_needed && !gatewayKeyConfigured
-              ? (() => {
-                  const stall = buildResumeStallError();
-                  return {
-                    root_cause: stall.root_cause,
-                    http_status: 401,
-                    message: stall.message,
-                    missing_gateway_key: Boolean(stall.missing_gateway_key),
-                    missing_internal_secret: Boolean(stall.missing_internal_secret),
-                    ...buildResumeAuthDiagnostics(),
-                    updated_at: nowIso(),
-                  };
-                })()
-              : resume_error_details,
-          resume: {
-            ...EMPTY_RESUME_DIAGNOSTICS.resume,
-            needed: resume_needed,
-            status: resume_needed && !gatewayKeyConfigured ? "stalled" : null,
-            trigger_error:
-              resume_needed && !gatewayKeyConfigured
-                ? buildResumeStallError().code
-                : resume_error,
-            trigger_error_details:
-              resume_needed && !gatewayKeyConfigured
-                ? (() => {
-                    const stall = buildResumeStallError();
-                    return {
-                      root_cause: stall.root_cause,
-                      http_status: 401,
-                      message: stall.message,
-                      missing_gateway_key: Boolean(stall.missing_gateway_key),
-                      missing_internal_secret: Boolean(stall.missing_internal_secret),
-                      ...buildResumeAuthDiagnostics(),
-                      updated_at: nowIso(),
-                    };
-                  })()
-                : resume_error_details,
-            internal_auth_configured: Boolean(internalAuthConfigured),
-            ...buildResumeAuthDiagnostics(),
-          },
-          resume_worker: {
-            ...EMPTY_RESUME_DIAGNOSTICS.resume_worker,
-            last_reject_layer: resume_needed && !gatewayKeyConfigured ? "gateway" : null,
-            last_http_status: resume_needed && !gatewayKeyConfigured ? 401 : null,
-          },
-          saved_companies: [],
-        },
-        200,
-        req
+        buildMemoryOnlyResponse({
+          sessionId, mem, stageBeaconValues, gatewayKeyConfigured, internalAuthConfigured,
+          buildResumeStallError, buildResumeAuthDiagnostics, sessionDoc: undefined, resumeDoc: undefined,
+        }),
+        200, req
       );
     }
 
@@ -2389,113 +2077,12 @@ async function handler(req, context) {
   try {
     if (!CosmosClient) {
       if (mem) {
-        const memCompaniesCount = Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0;
-        const memVerifiedIds = Array.isArray(mem.saved_company_ids_verified) ? mem.saved_company_ids_verified : [];
-        const memVerifiedCount = Number.isFinite(Number(mem.saved_verified_count))
-          ? Number(mem.saved_verified_count)
-          : memVerifiedIds.length;
-
-        const saved_verified_count = memVerifiedCount;
-        const saved_company_ids_verified = memVerifiedIds;
-        const saved_company_ids_unverified = Array.isArray(mem.saved_company_ids_unverified) ? mem.saved_company_ids_unverified : [];
-        const saved_company_urls = Array.isArray(mem.saved_company_urls) ? mem.saved_company_urls : [];
-        const save_outcome = typeof mem.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
-        const resume_needed = typeof mem.resume_needed === "boolean" ? mem.resume_needed : false;
-        const resume_error = typeof mem.resume_error === "string" && mem.resume_error.trim() ? mem.resume_error.trim() : null;
-      const resume_error_details =
-        mem.resume_error_details && typeof mem.resume_error_details === "object" ? mem.resume_error_details : null;
-
-        const saved = Number.isFinite(Number(mem.saved)) ? Number(mem.saved) : saved_verified_count;
-
         return jsonWithSessionId(
-          {
-            ok: true,
-            session_id: sessionId,
-            status: mem.status || "running",
-            state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
-            job_state: null,
-            stage_beacon: mem.stage_beacon || "init",
-            stage_beacon_values: stageBeaconValues,
-            elapsed_ms: null,
-            remaining_budget_ms: null,
-            upstream_calls_made: Math.max(
-            typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
-              ? Number(sessionDoc.resume_worker_upstream_calls_made)
-              : 0,
-            typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
-              ? Number(resumeDoc.upstream_calls_made)
-              : 0
-          ),
-            companies_candidates_found: 0,
-            early_exit_triggered: false,
-            primary_job_state: null,
-            last_heartbeat_at: null,
-            lock_until: null,
-            attempts: 0,
-            last_error: null,
-            companies_count: memCompaniesCount,
-            saved,
-            saved_verified_count,
-            saved_company_ids_verified,
-            saved_company_ids_unverified,
-            saved_company_urls,
-            save_outcome,
-          ...EMPTY_RESUME_DIAGNOSTICS,
-          resume_needed,
-          resume_error:
-            resume_needed && !gatewayKeyConfigured
-              ? buildResumeStallError().code
-              : resume_error,
-          resume_error_details:
-            resume_needed && !gatewayKeyConfigured
-              ? (() => {
-                  const stall = buildResumeStallError();
-                  return {
-                    root_cause: stall.root_cause,
-                    http_status: 401,
-                    message: stall.message,
-                    missing_gateway_key: Boolean(stall.missing_gateway_key),
-                    missing_internal_secret: Boolean(stall.missing_internal_secret),
-                    ...buildResumeAuthDiagnostics(),
-                    updated_at: nowIso(),
-                  };
-                })()
-              : resume_error_details,
-          resume: {
-            ...EMPTY_RESUME_DIAGNOSTICS.resume,
-            needed: resume_needed,
-            status: resume_needed && !gatewayKeyConfigured ? "stalled" : null,
-            trigger_error:
-              resume_needed && !gatewayKeyConfigured
-                ? buildResumeStallError().code
-                : resume_error,
-            trigger_error_details:
-              resume_needed && !gatewayKeyConfigured
-                ? (() => {
-                    const stall = buildResumeStallError();
-                    return {
-                      root_cause: stall.root_cause,
-                      http_status: 401,
-                      message: stall.message,
-                      missing_gateway_key: Boolean(stall.missing_gateway_key),
-                      missing_internal_secret: Boolean(stall.missing_internal_secret),
-                      ...buildResumeAuthDiagnostics(),
-                      updated_at: nowIso(),
-                    };
-                  })()
-                : resume_error_details,
-            internal_auth_configured: Boolean(internalAuthConfigured),
-            ...buildResumeAuthDiagnostics(),
-          },
-          resume_worker: {
-            ...EMPTY_RESUME_DIAGNOSTICS.resume_worker,
-            last_reject_layer: resume_needed && !gatewayKeyConfigured ? "gateway" : null,
-            last_http_status: resume_needed && !gatewayKeyConfigured ? 401 : null,
-          },
-          saved_companies: [],
-          },
-          200,
-          req
+          buildMemoryOnlyResponse({
+            sessionId, mem, stageBeaconValues, gatewayKeyConfigured, internalAuthConfigured,
+            buildResumeStallError, buildResumeAuthDiagnostics, sessionDoc: undefined, resumeDoc: undefined,
+          }),
+          200, req
         );
       }
 
