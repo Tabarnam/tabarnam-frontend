@@ -2483,7 +2483,7 @@ export default function CompanyDashboard() {
           const name = getCompanyName(row);
           return (
             <div className="flex flex-wrap items-center gap-2 min-w-0 group/name">
-              <span className={isDeletedCompany(row) ? "text-slate-500 dark:text-muted-foreground line-through" : "text-slate-900 dark:text-foreground"}>{name || "(missing)"}</span>
+              <span className={isDeletedCompany(row) ? "opacity-50 line-through" : ""}>{name || "(missing)"}</span>
               {name && (
                 <button
                   type="button"
@@ -2495,11 +2495,11 @@ export default function CompanyDashboard() {
                   }}
                   title="Copy name"
                 >
-                  <Copy className="h-3 w-3 text-slate-500 dark:text-muted-foreground" />
+                  <Copy className="h-3 w-3 opacity-50" />
                 </button>
               )}
               {isDeletedCompany(row) ? (
-                <span className="rounded-full bg-slate-100 dark:bg-muted border border-slate-200 dark:border-border px-2 py-0.5 text-[11px] text-slate-700 dark:text-muted-foreground">
+                <span className="rounded-full bg-slate-100 dark:bg-muted border border-slate-200 dark:border-border px-2 py-0.5 text-[11px] opacity-70">
                   deleted
                 </span>
               ) : null}
