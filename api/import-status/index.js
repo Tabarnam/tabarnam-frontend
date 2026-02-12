@@ -47,6 +47,7 @@ const {
   isInfraRetryableMissingReason,
   collectInfraRetryableMissing,
   shouldForceTerminalizeSingle,
+  deriveResumeStageBeacon,
   forceTerminalizeCompanyDocForSingle,
   finalizeReviewsForCompletion,
   reconcileLowQualityToTerminal,
@@ -88,6 +89,7 @@ const {
   runWatchdogStuckDetection,
   runSingleCompanyPolicy,
   runResumeTriggerExecution,
+  runTerminalCycleEnforcement,
 } = require("./_importStatusResumeOrchestration");
 
 const HANDLER_ID = "import-status";
@@ -1115,18 +1117,7 @@ async function handler(req, context) {
       resume_status = "blocked";
     }
 
-    const resumeStatusForBeacon = String(resume_status || "").trim();
-
-    const resumeStageBeacon = (() => {
-      if (!forceComplete && !resume_needed) return null;
-      if (resumeStatusForBeacon === "blocked") return "enrichment_resume_blocked";
-      if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
-      if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
-      if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
-      if (resumeStatusForBeacon === "error") return "enrichment_resume_error";
-      if (retryableMissingCount > 0) return "enrichment_incomplete_retryable";
-      return "complete";
-    })();
+    const resumeStageBeacon = deriveResumeStageBeacon({ resume_status, forceComplete, resume_needed, retryableMissingCount });
 
     const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || forceComplete);
 
@@ -1334,73 +1325,9 @@ async function handler(req, context) {
         report,
       };
 
-    // Fallback: if we ever observe a max-cycles blocked state, converge to terminal-only completion.
-    // (This ensures we never return resume_needed=true + resume.status=blocked indefinitely.)
-    try {
-      const blockedReason = String(
-        stageBeaconValues.status_resume_blocked_reason || out?.resume_error_details?.blocked_reason || ""
-      ).trim();
-
-      const cap = stageBeaconValues.status_infra_retryable_only_timeout
-        ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
-        : MAX_RESUME_CYCLES_SINGLE;
-
-      const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
-      const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
-
-      if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
-        stageBeaconValues.status_resume_force_terminalize_selected = true;
-        stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
-
-        const forcedAt = nowIso();
-        stageBeaconValues.status_resume_forced_terminalize = forcedAt;
-        stageBeaconValues.status_resume_forced_terminalize_reason = blockedReason || "max_cycles";
-
-        const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
-        const forceRes = await invokeResumeWorkerInProcess({
-          session_id: sessionId,
-          context,
-          workerRequest,
-          force_terminalize_single: true,
-          deadline_ms: INLINE_RESUME_DEADLINE_MS,
-        }).catch((e) => ({
-          ok: false,
-          status: 0,
-          bodyText: "",
-          error: e,
-          gateway_key_attached: Boolean(workerRequest?.gateway_key_attached),
-          request_id: workerRequest?.request_id || null,
-        }));
-
-        stageBeaconValues.status_resume_forced_terminalize_http_status = Number(forceRes?.status || 0) || 0;
-        stageBeaconValues.status_resume_forced_terminalize_ok = Boolean(forceRes?.ok);
-
-        stageBeaconValues.status_resume_terminal_only = forcedAt;
-      }
-    } catch {}
-
-    const cap = stageBeaconValues.status_infra_retryable_only_timeout
-      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
-      : MAX_RESUME_CYCLES_SINGLE;
-
-    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
-
-    // Never apply terminal-only completion while retryable missing remains AND cycles remain.
-    // This prevents a stale persisted status_resume_terminal_only from incorrectly stopping resumable runs.
-    const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
-
-    if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
-      stageBeaconValues.status_resume_terminal_only = null;
-      stageBeaconValues.status_resume_forced_terminalize_reason = null;
-      stageBeaconValues.status_resume_force_terminalize_selected = false;
-      stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
-    }
-
-    const terminalOnlyReason =
-      allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
-        ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
-        : null;
-
+    const { terminalOnlyReason } = await runTerminalCycleEnforcement({
+      out, stageBeaconValues, retryableMissingCount, resumeMissingAnalysis, sessionId, context,
+    });
     if (!STATUS_NO_ORCHESTRATION && terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
       // "complete" status can mean the *primary* job is finished, while enrichment may still be incomplete.
@@ -2203,18 +2130,7 @@ async function handler(req, context) {
       resume_status = "blocked";
     }
 
-    const resumeStatusForBeacon = String(resume_status || "").trim();
-
-    const resumeStageBeacon = (() => {
-      if (!forceComplete && !resume_needed) return null;
-      if (resumeStatusForBeacon === "blocked") return "enrichment_resume_blocked";
-      if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
-      if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
-      if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
-      if (resumeStatusForBeacon === "error") return "enrichment_resume_error";
-      if (retryableMissingCount > 0) return "enrichment_incomplete_retryable";
-      return "complete";
-    })();
+    const resumeStageBeacon = deriveResumeStageBeacon({ resume_status, forceComplete, resume_needed, retryableMissingCount });
 
     if (!forceComplete) {
       stage_beacon = resumeStageBeacon || stage_beacon;
@@ -2369,134 +2285,7 @@ async function handler(req, context) {
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
-        resume_worker: ((typeof sessionDoc !== "undefined" && sessionDoc) || (typeof resumeDoc !== "undefined" && resumeDoc))
-          ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
-              handler_entered_build_id:
-                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
-              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
-              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
-              last_enqueue_ok:
-                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
-              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
-              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
-              last_xai_attempt_at:
-                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
-              last_ok:
-                typeof sessionDoc?.resume_worker_last_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_ok
-                  : typeof resumeDoc?.last_ok === "boolean"
-                    ? resumeDoc.last_ok
-                    : null,
-              last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number"
-                  ? sessionDoc.resume_worker_last_http_status
-                  : typeof resumeDoc?.last_http_status === "number"
-                    ? resumeDoc.last_http_status
-                    : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
-              last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_trigger_ok
-                  : typeof resumeDoc?.last_trigger_ok === "boolean"
-                    ? resumeDoc.last_trigger_ok
-                    : null,
-              last_trigger_http_status:
-                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
-                  ? sessionDoc.resume_worker_last_trigger_http_status
-                  : typeof resumeDoc?.last_trigger_http_status === "number"
-                    ? resumeDoc.last_trigger_http_status
-                    : null,
-              last_gateway_key_attached:
-                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
-                  ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
-                    ? resumeDoc.last_gateway_key_attached
-                    : null,
-              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
-              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
-                ? sessionDoc.resume_worker_last_written_fields
-                : Array.isArray(resumeDoc?.last_written_fields)
-                  ? resumeDoc.last_written_fields
-                  : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
-              last_resume_needed:
-                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
-                  ? sessionDoc.resume_worker_last_resume_needed
-                  : typeof resumeDoc?.last_resume_needed === "boolean"
-                    ? resumeDoc.last_resume_needed
-                    : null,
-              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
-                ? sessionDoc.resume_worker_planned_fields
-                : Array.isArray(resumeDoc?.planned_fields)
-                  ? resumeDoc.planned_fields
-                  : null,
-              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
-              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
-                ? sessionDoc.resume_worker_attempted_fields
-                : Array.isArray(resumeDoc?.attempted_fields)
-                  ? resumeDoc.attempted_fields
-                  : null,
-              attempted_fields_request_id:
-                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
-              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
-              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
-              // Current enrichment status for real-time UI display
-              current_field: sessionDoc?.resume_worker_current_field || null,
-              current_company: sessionDoc?.resume_worker_current_company || null,
-              ...(() => {
-                const missing_fields = [];
-                const session_missing_fields = [];
-                const resume_missing_fields = [];
-
-                const check = (field, sessionHas, resumeHas) => {
-                  if (!sessionHas) session_missing_fields.push(field);
-                  if (!resumeHas) resume_missing_fields.push(field);
-                  if (!sessionHas && !resumeHas) missing_fields.push(field);
-                };
-
-                check(
-                  "attempted_fields",
-                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
-                  Array.isArray(resumeDoc?.attempted_fields)
-                );
-
-                check(
-                  "last_written_fields",
-                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
-                  Array.isArray(resumeDoc?.last_written_fields)
-                );
-
-                check(
-                  "last_xai_attempt_at",
-                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
-                  Boolean(resumeDoc?.last_xai_attempt_at)
-                );
-
-                check(
-                  "next_allowed_run_at",
-                  Boolean(sessionDoc?.resume_next_allowed_run_at),
-                  Boolean(resumeDoc?.next_allowed_run_at)
-                );
-
-                const telemetry_missing = missing_fields.length > 0;
-
-                return {
-                  telemetry_missing,
-                  telemetry_missing_fields: missing_fields,
-                  telemetry_missing_session_fields: session_missing_fields,
-                  telemetry_missing_resume_fields: resume_missing_fields,
-                };
-              })(),
-            }
-          : null,
+        resume_worker: buildResumeWorkerMeta({ sessionDoc, resumeDoc }),
         enrichment_health_summary,
           lastCreatedAt,
           timedOut,
@@ -2625,134 +2414,7 @@ async function handler(req, context) {
             trigger_error: null,
             missing_by_company: [],
           },
-        resume_worker: ((typeof sessionDoc !== "undefined" && sessionDoc) || (typeof resumeDoc !== "undefined" && resumeDoc))
-          ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
-              handler_entered_build_id:
-                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
-              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
-              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
-              last_enqueue_ok:
-                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
-              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
-              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
-              last_xai_attempt_at:
-                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
-              last_ok:
-                typeof sessionDoc?.resume_worker_last_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_ok
-                  : typeof resumeDoc?.last_ok === "boolean"
-                    ? resumeDoc.last_ok
-                    : null,
-              last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number"
-                  ? sessionDoc.resume_worker_last_http_status
-                  : typeof resumeDoc?.last_http_status === "number"
-                    ? resumeDoc.last_http_status
-                    : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
-              last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_trigger_ok
-                  : typeof resumeDoc?.last_trigger_ok === "boolean"
-                    ? resumeDoc.last_trigger_ok
-                    : null,
-              last_trigger_http_status:
-                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
-                  ? sessionDoc.resume_worker_last_trigger_http_status
-                  : typeof resumeDoc?.last_trigger_http_status === "number"
-                    ? resumeDoc.last_trigger_http_status
-                    : null,
-              last_gateway_key_attached:
-                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
-                  ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
-                    ? resumeDoc.last_gateway_key_attached
-                    : null,
-              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
-              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
-                ? sessionDoc.resume_worker_last_written_fields
-                : Array.isArray(resumeDoc?.last_written_fields)
-                  ? resumeDoc.last_written_fields
-                  : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
-              last_resume_needed:
-                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
-                  ? sessionDoc.resume_worker_last_resume_needed
-                  : typeof resumeDoc?.last_resume_needed === "boolean"
-                    ? resumeDoc.last_resume_needed
-                    : null,
-              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
-                ? sessionDoc.resume_worker_planned_fields
-                : Array.isArray(resumeDoc?.planned_fields)
-                  ? resumeDoc.planned_fields
-                  : null,
-              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
-              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
-                ? sessionDoc.resume_worker_attempted_fields
-                : Array.isArray(resumeDoc?.attempted_fields)
-                  ? resumeDoc.attempted_fields
-                  : null,
-              attempted_fields_request_id:
-                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
-              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
-              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
-              // Current enrichment status for real-time UI display
-              current_field: sessionDoc?.resume_worker_current_field || null,
-              current_company: sessionDoc?.resume_worker_current_company || null,
-              ...(() => {
-                const missing_fields = [];
-                const session_missing_fields = [];
-                const resume_missing_fields = [];
-
-                const check = (field, sessionHas, resumeHas) => {
-                  if (!sessionHas) session_missing_fields.push(field);
-                  if (!resumeHas) resume_missing_fields.push(field);
-                  if (!sessionHas && !resumeHas) missing_fields.push(field);
-                };
-
-                check(
-                  "attempted_fields",
-                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
-                  Array.isArray(resumeDoc?.attempted_fields)
-                );
-
-                check(
-                  "last_written_fields",
-                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
-                  Array.isArray(resumeDoc?.last_written_fields)
-                );
-
-                check(
-                  "last_xai_attempt_at",
-                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
-                  Boolean(resumeDoc?.last_xai_attempt_at)
-                );
-
-                check(
-                  "next_allowed_run_at",
-                  Boolean(sessionDoc?.resume_next_allowed_run_at),
-                  Boolean(resumeDoc?.next_allowed_run_at)
-                );
-
-                const telemetry_missing = missing_fields.length > 0;
-
-                return {
-                  telemetry_missing,
-                  telemetry_missing_fields: missing_fields,
-                  telemetry_missing_session_fields: session_missing_fields,
-                  telemetry_missing_resume_fields: resume_missing_fields,
-                };
-              })(),
-            }
-          : null,
+        resume_worker: buildResumeWorkerMeta({ sessionDoc, resumeDoc }),
         enrichment_health_summary,
           lastCreatedAt,
           timedOut,
@@ -2862,204 +2524,15 @@ async function handler(req, context) {
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
-        resume_worker: ((typeof sessionDoc !== "undefined" && sessionDoc) || (typeof resumeDoc !== "undefined" && resumeDoc))
-          ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
-              handler_entered_build_id:
-                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
-              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
-              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
-              last_enqueue_ok:
-                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
-              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
-              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
-              last_xai_attempt_at:
-                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
-              last_ok:
-                typeof sessionDoc?.resume_worker_last_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_ok
-                  : typeof resumeDoc?.last_ok === "boolean"
-                    ? resumeDoc.last_ok
-                    : null,
-              last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number"
-                  ? sessionDoc.resume_worker_last_http_status
-                  : typeof resumeDoc?.last_http_status === "number"
-                    ? resumeDoc.last_http_status
-                    : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
-              last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_trigger_ok
-                  : typeof resumeDoc?.last_trigger_ok === "boolean"
-                    ? resumeDoc.last_trigger_ok
-                    : null,
-              last_trigger_http_status:
-                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
-                  ? sessionDoc.resume_worker_last_trigger_http_status
-                  : typeof resumeDoc?.last_trigger_http_status === "number"
-                    ? resumeDoc.last_trigger_http_status
-                    : null,
-              last_gateway_key_attached:
-                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
-                  ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
-                    ? resumeDoc.last_gateway_key_attached
-                    : null,
-              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
-              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
-                ? sessionDoc.resume_worker_last_written_fields
-                : Array.isArray(resumeDoc?.last_written_fields)
-                  ? resumeDoc.last_written_fields
-                  : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
-              last_resume_needed:
-                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
-                  ? sessionDoc.resume_worker_last_resume_needed
-                  : typeof resumeDoc?.last_resume_needed === "boolean"
-                    ? resumeDoc.last_resume_needed
-                    : null,
-              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
-                ? sessionDoc.resume_worker_planned_fields
-                : Array.isArray(resumeDoc?.planned_fields)
-                  ? resumeDoc.planned_fields
-                  : null,
-              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
-              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
-                ? sessionDoc.resume_worker_attempted_fields
-                : Array.isArray(resumeDoc?.attempted_fields)
-                  ? resumeDoc.attempted_fields
-                  : null,
-              attempted_fields_request_id:
-                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
-              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
-              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
-              // Current enrichment status for real-time UI display
-              current_field: sessionDoc?.resume_worker_current_field || null,
-              current_company: sessionDoc?.resume_worker_current_company || null,
-              ...(() => {
-                const missing_fields = [];
-                const session_missing_fields = [];
-                const resume_missing_fields = [];
-
-                const check = (field, sessionHas, resumeHas) => {
-                  if (!sessionHas) session_missing_fields.push(field);
-                  if (!resumeHas) resume_missing_fields.push(field);
-                  if (!sessionHas && !resumeHas) missing_fields.push(field);
-                };
-
-                check(
-                  "attempted_fields",
-                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
-                  Array.isArray(resumeDoc?.attempted_fields)
-                );
-
-                check(
-                  "last_written_fields",
-                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
-                  Array.isArray(resumeDoc?.last_written_fields)
-                );
-
-                check(
-                  "last_xai_attempt_at",
-                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
-                  Boolean(resumeDoc?.last_xai_attempt_at)
-                );
-
-                check(
-                  "next_allowed_run_at",
-                  Boolean(sessionDoc?.resume_next_allowed_run_at),
-                  Boolean(resumeDoc?.next_allowed_run_at)
-                );
-
-                const telemetry_missing = missing_fields.length > 0;
-
-                return {
-                  telemetry_missing,
-                  telemetry_missing_fields: missing_fields,
-                  telemetry_missing_session_fields: session_missing_fields,
-                  telemetry_missing_resume_fields: resume_missing_fields,
-                };
-              })(),
-            }
-          : null,
+        resume_worker: buildResumeWorkerMeta({ sessionDoc, resumeDoc }),
         enrichment_health_summary,
           lastCreatedAt,
           report,
         };
 
-      // Fallback: if we ever observe a max-cycles blocked state, converge to terminal-only completion.
-    // (This ensures we never return resume_needed=true + resume.status=blocked indefinitely.)
-    try {
-      const blockedReason = String(
-        stageBeaconValues.status_resume_blocked_reason || out?.resume_error_details?.blocked_reason || ""
-      ).trim();
-
-      const cap = stageBeaconValues.status_infra_retryable_only_timeout
-        ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
-        : MAX_RESUME_CYCLES_SINGLE;
-
-      const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
-      const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
-
-      if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
-        stageBeaconValues.status_resume_force_terminalize_selected = true;
-        stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
-
-        const forcedAt = nowIso();
-        stageBeaconValues.status_resume_forced_terminalize = forcedAt;
-        stageBeaconValues.status_resume_forced_terminalize_reason = blockedReason || "max_cycles";
-
-        const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
-        const forceRes = await invokeResumeWorkerInProcess({
-          session_id: sessionId,
-          context,
-          workerRequest,
-          force_terminalize_single: true,
-          deadline_ms: INLINE_RESUME_DEADLINE_MS,
-        }).catch((e) => ({
-          ok: false,
-          status: 0,
-          bodyText: "",
-          error: e,
-          gateway_key_attached: Boolean(workerRequest?.gateway_key_attached),
-          request_id: workerRequest?.request_id || null,
-        }));
-
-        stageBeaconValues.status_resume_forced_terminalize_http_status = Number(forceRes?.status || 0) || 0;
-        stageBeaconValues.status_resume_forced_terminalize_ok = Boolean(forceRes?.ok);
-
-        stageBeaconValues.status_resume_terminal_only = forcedAt;
-      }
-    } catch {}
-
-    const cap = stageBeaconValues.status_infra_retryable_only_timeout
-      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
-      : MAX_RESUME_CYCLES_SINGLE;
-
-    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
-
-    const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
-
-    if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
-      stageBeaconValues.status_resume_terminal_only = null;
-      stageBeaconValues.status_resume_forced_terminalize_reason = null;
-      stageBeaconValues.status_resume_force_terminalize_selected = false;
-      stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
-    }
-
-    const terminalOnlyReason =
-      allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
-        ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
-        : null;
-
+    const { terminalOnlyReason } = await runTerminalCycleEnforcement({
+      out, stageBeaconValues, retryableMissingCount, resumeMissingAnalysis, sessionId, context,
+    });
     if (!STATUS_NO_ORCHESTRATION && terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
         out.completed = true;
@@ -3186,204 +2659,15 @@ async function handler(req, context) {
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
-        resume_worker: ((typeof sessionDoc !== "undefined" && sessionDoc) || (typeof resumeDoc !== "undefined" && resumeDoc))
-          ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
-              handler_entered_build_id:
-                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
-              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
-              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
-              last_enqueue_ok:
-                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
-              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
-              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
-              last_xai_attempt_at:
-                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
-              last_ok:
-                typeof sessionDoc?.resume_worker_last_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_ok
-                  : typeof resumeDoc?.last_ok === "boolean"
-                    ? resumeDoc.last_ok
-                    : null,
-              last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number"
-                  ? sessionDoc.resume_worker_last_http_status
-                  : typeof resumeDoc?.last_http_status === "number"
-                    ? resumeDoc.last_http_status
-                    : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
-              last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
-                  ? sessionDoc.resume_worker_last_trigger_ok
-                  : typeof resumeDoc?.last_trigger_ok === "boolean"
-                    ? resumeDoc.last_trigger_ok
-                    : null,
-              last_trigger_http_status:
-                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
-                  ? sessionDoc.resume_worker_last_trigger_http_status
-                  : typeof resumeDoc?.last_trigger_http_status === "number"
-                    ? resumeDoc.last_trigger_http_status
-                    : null,
-              last_gateway_key_attached:
-                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
-                  ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
-                    ? resumeDoc.last_gateway_key_attached
-                    : null,
-              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
-              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
-                ? sessionDoc.resume_worker_last_written_fields
-                : Array.isArray(resumeDoc?.last_written_fields)
-                  ? resumeDoc.last_written_fields
-                  : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
-              last_resume_needed:
-                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
-                  ? sessionDoc.resume_worker_last_resume_needed
-                  : typeof resumeDoc?.last_resume_needed === "boolean"
-                    ? resumeDoc.last_resume_needed
-                    : null,
-              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
-                ? sessionDoc.resume_worker_planned_fields
-                : Array.isArray(resumeDoc?.planned_fields)
-                  ? resumeDoc.planned_fields
-                  : null,
-              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
-              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
-                ? sessionDoc.resume_worker_attempted_fields
-                : Array.isArray(resumeDoc?.attempted_fields)
-                  ? resumeDoc.attempted_fields
-                  : null,
-              attempted_fields_request_id:
-                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
-              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
-              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
-              // Current enrichment status for real-time UI display
-              current_field: sessionDoc?.resume_worker_current_field || null,
-              current_company: sessionDoc?.resume_worker_current_company || null,
-              ...(() => {
-                const missing_fields = [];
-                const session_missing_fields = [];
-                const resume_missing_fields = [];
-
-                const check = (field, sessionHas, resumeHas) => {
-                  if (!sessionHas) session_missing_fields.push(field);
-                  if (!resumeHas) resume_missing_fields.push(field);
-                  if (!sessionHas && !resumeHas) missing_fields.push(field);
-                };
-
-                check(
-                  "attempted_fields",
-                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
-                  Array.isArray(resumeDoc?.attempted_fields)
-                );
-
-                check(
-                  "last_written_fields",
-                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
-                  Array.isArray(resumeDoc?.last_written_fields)
-                );
-
-                check(
-                  "last_xai_attempt_at",
-                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
-                  Boolean(resumeDoc?.last_xai_attempt_at)
-                );
-
-                check(
-                  "next_allowed_run_at",
-                  Boolean(sessionDoc?.resume_next_allowed_run_at),
-                  Boolean(resumeDoc?.next_allowed_run_at)
-                );
-
-                const telemetry_missing = missing_fields.length > 0;
-
-                return {
-                  telemetry_missing,
-                  telemetry_missing_fields: missing_fields,
-                  telemetry_missing_session_fields: session_missing_fields,
-                  telemetry_missing_resume_fields: resume_missing_fields,
-                };
-              })(),
-            }
-          : null,
+        resume_worker: buildResumeWorkerMeta({ sessionDoc, resumeDoc }),
         enrichment_health_summary,
         lastCreatedAt,
         report,
       };
 
-    // Fallback: if we ever observe a max-cycles blocked state, converge to terminal-only completion.
-    // (This ensures we never return resume_needed=true + resume.status=blocked indefinitely.)
-    try {
-      const blockedReason = String(
-        stageBeaconValues.status_resume_blocked_reason || out?.resume_error_details?.blocked_reason || ""
-      ).trim();
-
-      const cap = stageBeaconValues.status_infra_retryable_only_timeout
-        ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
-        : MAX_RESUME_CYCLES_SINGLE;
-
-      const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
-      const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
-
-      if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
-        stageBeaconValues.status_resume_force_terminalize_selected = true;
-        stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
-
-        const forcedAt = nowIso();
-        stageBeaconValues.status_resume_forced_terminalize = forcedAt;
-        stageBeaconValues.status_resume_forced_terminalize_reason = blockedReason || "max_cycles";
-
-        const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
-        const forceRes = await invokeResumeWorkerInProcess({
-          session_id: sessionId,
-          context,
-          workerRequest,
-          force_terminalize_single: true,
-          deadline_ms: INLINE_RESUME_DEADLINE_MS,
-        }).catch((e) => ({
-          ok: false,
-          status: 0,
-          bodyText: "",
-          error: e,
-          gateway_key_attached: Boolean(workerRequest?.gateway_key_attached),
-          request_id: workerRequest?.request_id || null,
-        }));
-
-        stageBeaconValues.status_resume_forced_terminalize_http_status = Number(forceRes?.status || 0) || 0;
-        stageBeaconValues.status_resume_forced_terminalize_ok = Boolean(forceRes?.ok);
-
-        stageBeaconValues.status_resume_terminal_only = forcedAt;
-      }
-    } catch {}
-
-    const cap = stageBeaconValues.status_infra_retryable_only_timeout
-      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
-      : MAX_RESUME_CYCLES_SINGLE;
-
-    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
-
-    const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
-
-    if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
-      stageBeaconValues.status_resume_terminal_only = null;
-      stageBeaconValues.status_resume_forced_terminalize_reason = null;
-      stageBeaconValues.status_resume_force_terminalize_selected = false;
-      stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
-    }
-
-    const terminalOnlyReason =
-      allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
-        ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
-        : null;
-
+    const { terminalOnlyReason } = await runTerminalCycleEnforcement({
+      out, stageBeaconValues, retryableMissingCount, resumeMissingAnalysis, sessionId, context,
+    });
     if (!STATUS_NO_ORCHESTRATION && terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
       out.completed = false;

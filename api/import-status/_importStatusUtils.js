@@ -507,6 +507,28 @@ function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
   return changed;
 }
 
+/**
+ * Derives the resume-specific stage beacon value from resume state.
+ *
+ * @param {object} opts
+ * @param {string}  opts.resume_status
+ * @param {boolean} opts.forceComplete
+ * @param {boolean} opts.resume_needed
+ * @param {number}  opts.retryableMissingCount
+ * @returns {string|null}
+ */
+function deriveResumeStageBeacon({ resume_status, forceComplete, resume_needed, retryableMissingCount }) {
+  const s = String(resume_status || "").trim();
+  if (!forceComplete && !resume_needed) return null;
+  if (s === "blocked") return "enrichment_resume_blocked";
+  if (s === "queued") return "enrichment_resume_queued";
+  if (s === "running") return "enrichment_resume_running";
+  if (s === "stalled") return "enrichment_resume_stalled";
+  if (s === "error") return "enrichment_resume_error";
+  if (retryableMissingCount > 0) return "enrichment_incomplete_retryable";
+  return "complete";
+}
+
 function applyTerminalOnlyCompletion(out, reason) {
   const stamp = new Date().toISOString();
 
@@ -728,6 +750,9 @@ module.exports = {
   isInfraRetryableMissingReason,
   collectInfraRetryableMissing,
   shouldForceTerminalizeSingle,
+
+  // Resume stage beacon
+  deriveResumeStageBeacon,
 
   // Document transforms
   forceTerminalizeCompanyDocForSingle,
