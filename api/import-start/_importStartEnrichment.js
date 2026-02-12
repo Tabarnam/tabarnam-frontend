@@ -973,7 +973,24 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       console.log(`[import-start] session=${sessionId} company=${companyId} enriched_keys=${enrichedKeys.length > 0 ? enrichedKeys.join(",") : "NONE"} ok=${enrichResult?.ok}`);
 
       if (enrichedKeys.length > 0) {
-        const updatedCompany = await applyEnrichmentToCompany(companyDoc, enrichResult);
+        // Re-read the company doc from Cosmos to pick up any fields written
+        // concurrently (e.g. logo_url from the fire-and-forget logo import).
+        // This prevents the full enrichment upsert from overwriting partial updates.
+        let freshCompanyDoc = companyDoc;
+        if (container) {
+          try {
+            const companyPk = companyDoc.normalized_domain || companyDoc.partition_key || "";
+            const readResult = await container.item(companyId, companyPk).read();
+            if (readResult?.resource) {
+              freshCompanyDoc = readResult.resource;
+              console.log(`[import-start] session=${sessionId} company=${companyId} Cosmos re-read OK (logo_url=${freshCompanyDoc.logo_url ? "present" : "absent"})`);
+            }
+          } catch (readErr) {
+            // Non-fatal: fall back to in-memory doc if re-read fails
+            console.warn(`[import-start] session=${sessionId} company=${companyId} Cosmos re-read before enrichment failed: ${readErr?.message}`);
+          }
+        }
+        const updatedCompany = await applyEnrichmentToCompany(freshCompanyDoc, enrichResult);
         console.log(`[import-start] session=${sessionId} company=${companyId} applyEnrichment done, missing_after=${(updatedCompany.import_missing_fields || []).join(",") || "none"}`);
 
         // Save updated company to Cosmos

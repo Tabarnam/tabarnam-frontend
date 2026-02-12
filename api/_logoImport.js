@@ -766,7 +766,27 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
     return { ok: false, reason: "budget_exhausted" };
   }
 
-  if (sourceUrl.startsWith("data:")) return { ok: false, reason: "data_url" };
+  if (sourceUrl.startsWith("data:")) {
+    // Allow inline SVG data URIs from the logo candidate pipeline
+    if (candidate?.is_inline_svg && sourceUrl.startsWith("data:image/svg+xml;base64,")) {
+      try {
+        const b64 = sourceUrl.slice("data:image/svg+xml;base64,".length);
+        const buf = Buffer.from(b64, "base64");
+        if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
+        let { width, height } = parseSvgViewBoxDimensions(buf);
+        if (!Number.isFinite(width) || !Number.isFinite(height)) {
+          // Inline SVGs in headers are high-confidence — use declared/viewBox dimensions
+          width = candidate?.width || 200;
+          height = candidate?.height || 80;
+        }
+        if (width < 24 || height < 24) return { ok: false, reason: `too_small_dimensions_${width}x${height}` };
+        return { ok: true, buf, contentType: "image/svg+xml", finalUrl: candidate?.page_url || "", isSvg: true, width, height };
+      } catch (e) {
+        return { ok: false, reason: `inline_svg_error_${e?.message || "unknown"}` };
+      }
+    }
+    return { ok: false, reason: "data_url" };
+  }
 
   const allowedHostRoot = String(candidate?.allowed_host_root || "").trim().toLowerCase();
   if (allowedHostRoot && !isAllowedCandidateUrl(sourceUrl, allowedHostRoot)) {
@@ -1102,6 +1122,73 @@ function collectHeaderNavImgCandidates(html, baseUrl, { companyNameTokens, allow
 }
 
 /**
+ * Extract inline <svg> elements from <header>/<nav> blocks as logo candidates.
+ * Many modern brands (especially Shopify stores) embed their logo as an inline SVG
+ * rather than an <img> tag. This function discovers those by parsing the SVG content,
+ * filtering out tiny decorative icons, and returning data-URI candidates.
+ */
+function collectInlineSvgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot } = {}) {
+  const blocks = [...extractTagInnerBlocks(html, "header"), ...extractTagInnerBlocks(html, "nav")];
+  const out = [];
+
+  for (const block of blocks) {
+    const svgRe = /<svg\b[^>]*>[\s\S]*?<\/svg>/gi;
+    let m;
+    while ((m = svgRe.exec(block)) !== null) {
+      const svgTag = m[0];
+      // Skip tiny decorative SVGs (chevrons, arrows, hamburger icons)
+      const widthMatch = svgTag.match(/\bwidth=["']?([0-9.]+)/i);
+      const heightMatch = svgTag.match(/\bheight=["']?([0-9.]+)/i);
+      const w = widthMatch ? parseFloat(widthMatch[1]) : null;
+      const h = heightMatch ? parseFloat(heightMatch[1]) : null;
+
+      // Skip if dimensions indicate a tiny icon (both under 24px)
+      if (w != null && h != null && w < 24 && h < 24) continue;
+
+      // Also check viewBox for dimensions if explicit w/h missing
+      const viewBoxMatch = svgTag.match(/viewBox=["']([^"']+)["']/i);
+      let vbW = null, vbH = null;
+      if (viewBoxMatch) {
+        const parts = viewBoxMatch[1].trim().split(/[\s,]+/).map(Number);
+        if (parts.length === 4) { vbW = parts[2]; vbH = parts[3]; }
+      }
+      const effectiveW = w || vbW;
+      const effectiveH = h || vbH;
+      if (effectiveW != null && effectiveH != null && effectiveW < 24 && effectiveH < 24) continue;
+
+      // Build a data URI from the SVG content
+      const svgBuf = Buffer.from(svgTag, "utf8");
+      const dataUri = `data:image/svg+xml;base64,${svgBuf.toString("base64")}`;
+
+      // Score: inline SVGs in the header with logo-like dimensions are high-confidence
+      const hay = svgTag.toLowerCase();
+      let score = 300 + 45; // header base + SVG ext bonus
+      const hasLogoSignal = hasAnyToken(hay, ["logo", "wordmark", "logotype", "brand"]);
+      if (hasLogoSignal) score += 80;
+      // Wide-and-short aspect ratio typical of wordmarks
+      if (effectiveW && effectiveH && effectiveW / effectiveH > 2) score += 40;
+
+      out.push(
+        addLocationMeta(
+          {
+            url: dataUri,
+            source: "header",
+            page_url: baseUrl,
+            score,
+            strong_signal: true,
+            is_inline_svg: true,
+            width: effectiveW ? Math.round(effectiveW) : null,
+            height: effectiveH ? Math.round(effectiveH) : null,
+          },
+          { location: "header", source: "header", allowedHostRoot }
+        )
+      );
+    }
+  }
+  return out;
+}
+
+/**
  * Detect logo images wrapped in homepage links (<a href="/"><img ...></a>).
  * This is one of the most common patterns for company logos — the logo is an
  * anchor linking back to the homepage. Boost these candidates significantly.
@@ -1272,7 +1359,10 @@ function filterOnSiteCandidates(candidates, allowedHostRoot) {
   if (!root) return [];
   const out = [];
   for (const c of (Array.isArray(candidates) ? candidates : [])) {
-    if (isAllowedOnSiteUrl(c?.url, root)) {
+    // Inline SVGs are extracted from the page itself — no host check needed
+    if (c?.is_inline_svg) {
+      out.push(c);
+    } else if (isAllowedOnSiteUrl(c?.url, root)) {
       out.push(c);
     } else if (c?.strong_signal && isAllowedCandidateUrl(c?.url, root)) {
       // CDN-hosted logos with strong signal allowed; slight penalty to prefer on-site equivalents
@@ -1355,12 +1445,13 @@ function collectLogoCandidatesFromHtml(html, baseUrl, options = {}) {
     );
   }
 
+  const inlineSvgCandidates = collectInlineSvgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot });
   const headerCandidates = collectHeaderNavImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot });
   const homepageLinkCandidates = collectHomepageLinkImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot });
   const iconCandidates = collectIconLinkCandidates(html, baseUrl, { allowedHostRoot });
   const footerCandidates = collectFooterImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot });
 
-  const all = [...metaCandidates, ...headerCandidates, ...homepageLinkCandidates, ...iconCandidates, ...footerCandidates];
+  const all = [...metaCandidates, ...inlineSvgCandidates, ...headerCandidates, ...homepageLinkCandidates, ...iconCandidates, ...footerCandidates];
   const onSite = filterOnSiteCandidates(all, allowedHostRoot);
   return dedupeAndSortCandidates(onSite);
 }
@@ -1951,6 +2042,7 @@ module.exports = {
     extractLikelyLogoImg,
     extractFavicon,
     collectLogoCandidatesFromHtml,
+    collectInlineSvgCandidates,
     dedupeAndSortCandidates,
     strongLogoSignal,
   },

@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
-const { stripCdnResizeParams } = require("./_logoImport")._test;
+const { stripCdnResizeParams, collectInlineSvgCandidates } = require("./_logoImport")._test;
 
 // ── Shopify CDN resize param stripping ───────────────────────────────────────
 
@@ -84,4 +84,99 @@ test("stripCdnResizeParams handles invalid URL gracefully", () => {
 test("stripCdnResizeParams handles empty string", () => {
   const result = stripCdnResizeParams("");
   assert.equal(result, "");
+});
+
+// ── Inline SVG extraction ────────────────────────────────────────────────────
+
+test("collectInlineSvgCandidates extracts SVG from header block", () => {
+  const html = `
+    <header>
+      <svg width="128" height="35" viewBox="0 0 128 35" fill="none">
+        <path d="M10 20 L30 20" fill="#141414"/>
+      </svg>
+      <img src="/product.png" alt="Product">
+    </header>
+  `;
+  const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].is_inline_svg, true);
+  assert.equal(candidates[0].source, "header");
+  assert.equal(candidates[0].strong_signal, true);
+  assert.ok(candidates[0].url.startsWith("data:image/svg+xml;base64,"));
+  assert.equal(candidates[0].width, 128);
+  assert.equal(candidates[0].height, 35);
+});
+
+test("collectInlineSvgCandidates skips tiny decorative SVGs (< 24x24)", () => {
+  const html = `
+    <header>
+      <svg width="16" height="16" viewBox="0 0 16 16"><path d="M0 0"/></svg>
+      <svg width="12" height="12"><circle r="6"/></svg>
+    </header>
+  `;
+  const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
+  assert.equal(candidates.length, 0);
+});
+
+test("collectInlineSvgCandidates scores wordmark-shaped SVGs higher", () => {
+  const html = `
+    <header>
+      <svg width="200" height="50" viewBox="0 0 200 50"><path d="M0 0"/></svg>
+      <svg width="100" height="100" viewBox="0 0 100 100"><path d="M0 0"/></svg>
+    </header>
+  `;
+  const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
+  assert.equal(candidates.length, 2);
+  // Wordmark (200x50, aspect ratio 4:1) should score higher than square (100x100)
+  const wordmark = candidates.find((c) => c.width === 200);
+  const square = candidates.find((c) => c.width === 100);
+  assert.ok(wordmark);
+  assert.ok(square);
+  assert.ok(wordmark.score > square.score, `wordmark score ${wordmark.score} should be > square score ${square.score}`);
+});
+
+test("collectInlineSvgCandidates returns empty for blocks with no SVGs", () => {
+  const html = `
+    <header>
+      <img src="/logo.png" alt="Logo">
+      <a href="/">Home</a>
+    </header>
+  `;
+  const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
+  assert.equal(candidates.length, 0);
+});
+
+test("collectInlineSvgCandidates extracts from nav blocks too", () => {
+  const html = `
+    <nav>
+      <svg width="120" height="40" viewBox="0 0 120 40"><path d="M0 0"/></svg>
+    </nav>
+  `;
+  const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].width, 120);
+});
+
+test("collectInlineSvgCandidates uses viewBox when explicit dimensions missing", () => {
+  const html = `
+    <header>
+      <svg viewBox="0 0 180 60"><path d="M0 0"/></svg>
+    </header>
+  `;
+  const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].width, 180);
+  assert.equal(candidates[0].height, 60);
+});
+
+test("collectInlineSvgCandidates boosts score for logo keyword in SVG", () => {
+  const html = `
+    <header>
+      <svg width="128" height="35" class="logo-icon"><path d="M0 0"/></svg>
+    </header>
+  `;
+  const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
+  assert.equal(candidates.length, 1);
+  // Base score 345 + logo signal 80 = 425
+  assert.ok(candidates[0].score >= 400, `expected score >= 400, got ${candidates[0].score}`);
 });
