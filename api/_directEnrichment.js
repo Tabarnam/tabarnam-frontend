@@ -177,6 +177,7 @@ async function runDirectEnrichment({
       budgetMs: budgetMs - 5000, // reserve 5s for final bookkeeping
       xaiUrl: resolvedXaiUrl,
       xaiKey: resolvedXaiKey,
+      fieldsToEnrich,
     });
 
     result.enrichment_method = ecf.method || "unified";

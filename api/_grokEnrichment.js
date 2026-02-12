@@ -2507,9 +2507,21 @@ async function enrichCompanyFields({
   budgetMs = 240000,
   xaiUrl,
   xaiKey,
+  fieldsToEnrich,
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
+
+  // Map long MANDATORY_ENRICH_FIELDS names → short findMissingFields names
+  const FIELD_SHORT_TO_LONG = {
+    tagline: "tagline", headquarters: "headquarters_location",
+    manufacturing: "manufacturing_locations", industries: "industries",
+    keywords: "product_keywords", reviews: "reviews",
+  };
+  const filterMissingByTarget = (missingShortNames) =>
+    Array.isArray(fieldsToEnrich)
+      ? missingShortNames.filter((short) => fieldsToEnrich.includes(FIELD_SHORT_TO_LONG[short] || short))
+      : missingShortNames;
 
   const domain = normalizeDomain(normalizedDomain || websiteUrl);
 
@@ -2534,12 +2546,13 @@ async function enrichCompanyFields({
 
     // Phase 3: Fill gaps with individual calls
     const missing = findMissingFields(verified);
+    const filteredMissing = filterMissingByTarget(missing);
     let fallback_statuses = {};
 
-    if (missing.length > 0 && getRemainingMs() > 30000) {
-      console.log(`[enrichCompanyFields] Phase 3: filling missing fields [${missing.join(", ")}], remaining=${getRemainingMs()}ms`);
+    if (filteredMissing.length > 0 && getRemainingMs() > 30000) {
+      console.log(`[enrichCompanyFields] Phase 3: filling missing fields [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms`);
       const { filled, field_statuses: fStatuses } = await fillMissingFieldsIndividually(
-        missing,
+        filteredMissing,
         { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
       );
       Object.assign(verified, filled);
@@ -2577,8 +2590,9 @@ async function enrichCompanyFields({
   const allFields = [
     "tagline", "headquarters", "manufacturing", "industries", "keywords", "reviews",
   ];
+  const targetFallback = filterMissingByTarget(allFields);
   const { filled, field_statuses } = await fillMissingFieldsIndividually(
-    allFields,
+    targetFallback,
     args
   );
 

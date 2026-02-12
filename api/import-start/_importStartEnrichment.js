@@ -960,92 +960,115 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         continue;
       }
 
-      // Run direct enrichment (no queue)
-      const enrichResult = await runDirectEnrichment({
-        company: companyDoc,
-        sessionId,
-        budgetMs: 360000, // 6 minutes per company
-        fieldsToEnrich: [...MANDATORY_ENRICH_FIELDS],
-      });
+      // ── Helper: re-read from Cosmos, preserve identity fields, apply enrichment, upsert ──
+      const applyAndUpsertEnrichment = async (enrichResult, passLabel) => {
+        const enrichedKeys = enrichResult?.enriched ? Object.keys(enrichResult.enriched) : [];
+        console.log(`[import-start] session=${sessionId} company=${companyId} ${passLabel} enriched_keys=${enrichedKeys.length > 0 ? enrichedKeys.join(",") : "NONE"} ok=${enrichResult?.ok}`);
 
-      // Apply enrichment results back to company doc
-      const enrichedKeys = enrichResult?.enriched ? Object.keys(enrichResult.enriched) : [];
-      console.log(`[import-start] session=${sessionId} company=${companyId} enriched_keys=${enrichedKeys.length > 0 ? enrichedKeys.join(",") : "NONE"} ok=${enrichResult?.ok}`);
+        if (enrichedKeys.length === 0) {
+          console.warn(`[import-start] session=${sessionId} company=${companyId} ${passLabel} returned ZERO enriched keys — skipping write`);
+          return;
+        }
 
-      if (enrichedKeys.length > 0) {
         // Re-read the company doc from Cosmos to pick up any fields written
-        // concurrently (e.g. logo_url from the fire-and-forget logo import).
-        // This prevents the full enrichment upsert from overwriting partial updates.
-        let freshCompanyDoc = companyDoc;
+        // concurrently (e.g. logo_url, or PASS1 results when running PASS2).
+        let freshDoc = companyDoc;
         if (container) {
           try {
             const companyPk = companyDoc.normalized_domain || companyDoc.partition_key || "";
             const readResult = await container.item(companyId, companyPk).read();
             if (readResult?.resource) {
-              freshCompanyDoc = readResult.resource;
+              freshDoc = readResult.resource;
               // Preserve identity fields from the in-memory doc in case a concurrent
               // partial upsert (e.g. logo fire-and-forget) clobbered them
-              if (!freshCompanyDoc.company_name && companyDoc.company_name) {
-                freshCompanyDoc.company_name = companyDoc.company_name;
-              }
-              if (!freshCompanyDoc.name && companyDoc.name) {
-                freshCompanyDoc.name = companyDoc.name;
-              }
-              if (!freshCompanyDoc.website_url && companyDoc.website_url) {
-                freshCompanyDoc.website_url = companyDoc.website_url;
-              }
-              if (!freshCompanyDoc.canonical_url && companyDoc.canonical_url) {
-                freshCompanyDoc.canonical_url = companyDoc.canonical_url;
-              }
-              if (!freshCompanyDoc.url && companyDoc.url) {
-                freshCompanyDoc.url = companyDoc.url;
-              }
-              console.log(`[import-start] session=${sessionId} company=${companyId} Cosmos re-read OK (logo_url=${freshCompanyDoc.logo_url ? "present" : "absent"})`);
+              if (!freshDoc.company_name && companyDoc.company_name) freshDoc.company_name = companyDoc.company_name;
+              if (!freshDoc.name && companyDoc.name) freshDoc.name = companyDoc.name;
+              if (!freshDoc.website_url && companyDoc.website_url) freshDoc.website_url = companyDoc.website_url;
+              if (!freshDoc.canonical_url && companyDoc.canonical_url) freshDoc.canonical_url = companyDoc.canonical_url;
+              if (!freshDoc.url && companyDoc.url) freshDoc.url = companyDoc.url;
+              console.log(`[import-start] session=${sessionId} company=${companyId} ${passLabel} Cosmos re-read OK (logo_url=${freshDoc.logo_url ? "present" : "absent"})`);
             }
           } catch (readErr) {
-            // Non-fatal: fall back to in-memory doc if re-read fails
-            console.warn(`[import-start] session=${sessionId} company=${companyId} Cosmos re-read before enrichment failed: ${readErr?.message}`);
+            console.warn(`[import-start] session=${sessionId} company=${companyId} ${passLabel} Cosmos re-read failed: ${readErr?.message}`);
           }
         }
-        const updatedCompany = await applyEnrichmentToCompany(freshCompanyDoc, enrichResult);
-        console.log(`[import-start] session=${sessionId} company=${companyId} applyEnrichment done, missing_after=${(updatedCompany.import_missing_fields || []).join(",") || "none"}`);
 
-        // Save updated company to Cosmos
+        const updatedCompany = await applyEnrichmentToCompany(freshDoc, enrichResult);
+        console.log(`[import-start] session=${sessionId} company=${companyId} ${passLabel} applyEnrichment done, missing_after=${(updatedCompany.import_missing_fields || []).join(",") || "none"}`);
+
         if (container) {
           const companyUpsertResult = await upsertItemWithPkCandidates(container, updatedCompany);
           if (companyUpsertResult?.ok) {
-            console.log(`[import-start] session=${sessionId} company=${companyId} company doc upsert OK`);
+            console.log(`[import-start] session=${sessionId} company=${companyId} ${passLabel} upsert OK`);
           } else {
-            console.error(`[import-start] session=${sessionId} company=${companyId} company doc upsert FAILED: ${companyUpsertResult?.error || "unknown"}`);
-            // Direct fallback: try with explicit partition key
+            console.error(`[import-start] session=${sessionId} company=${companyId} ${passLabel} upsert FAILED: ${companyUpsertResult?.error || "unknown"}`);
             try {
               const pk = updatedCompany.normalized_domain || updatedCompany.partition_key || "";
               await container.items.upsert(updatedCompany, { partitionKey: pk });
-              console.log(`[import-start] session=${sessionId} company=${companyId} company doc direct upsert OK (pk=${pk})`);
+              console.log(`[import-start] session=${sessionId} company=${companyId} ${passLabel} direct upsert OK (pk=${pk})`);
             } catch (directErr) {
-              console.error(`[import-start] session=${sessionId} company=${companyId} company doc direct upsert ALSO FAILED: ${directErr?.message}`);
+              console.error(`[import-start] session=${sessionId} company=${companyId} ${passLabel} direct upsert ALSO FAILED: ${directErr?.message}`);
             }
           }
         }
-      } else {
-        console.warn(`[import-start] session=${sessionId} company=${companyId} enrichment returned ZERO enriched keys \u2014 skipping company doc write`);
-      }
+      };
 
+      // ═══════════════════════════════════════════════════════════════
+      // Two-pass enrichment: save core fields first so they survive
+      // Azure Function process kill during the long-running reviews phase.
+      // ═══════════════════════════════════════════════════════════════
+      const PASS1_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords"];
+      const PASS2_FIELDS = ["reviews"];
+      const PASS1_BUDGET_MS = 120000; // 2 minutes for core fields
+      const TOTAL_BUDGET_MS = 360000; // 6 minutes total
+
+      // ── PASS 1: Core fields (non-reviews) ──
+      const pass1Start = Date.now();
+      const enrichResult1 = await runDirectEnrichment({
+        company: companyDoc,
+        sessionId,
+        budgetMs: PASS1_BUDGET_MS,
+        fieldsToEnrich: [...PASS1_FIELDS],
+      });
+      await applyAndUpsertEnrichment(enrichResult1, "PASS1");
+
+      // ── PASS 2: Reviews (longer running, may get killed by Azure) ──
+      const pass1Elapsed = Date.now() - pass1Start;
+      const pass2BudgetMs = Math.max(TOTAL_BUDGET_MS - pass1Elapsed, 60000);
+
+      const enrichResult2 = await runDirectEnrichment({
+        company: companyDoc,
+        sessionId,
+        budgetMs: pass2BudgetMs,
+        fieldsToEnrich: [...PASS2_FIELDS],
+      });
+      await applyAndUpsertEnrichment(enrichResult2, "PASS2");
+
+      // Merge results from both passes
       enrichmentResults.push({
         company_id: companyId,
-        ok: enrichResult?.ok ?? false,
-        fields_completed: enrichResult?.fields_completed || [],
-        fields_failed: enrichResult?.fields_failed || [],
-        elapsed_ms: enrichResult?.elapsed_ms || 0,
+        ok: (enrichResult1?.ok ?? false) || (enrichResult2?.ok ?? false),
+        fields_completed: [
+          ...(enrichResult1?.fields_completed || []),
+          ...(enrichResult2?.fields_completed || []),
+        ],
+        fields_failed: [
+          ...(enrichResult1?.fields_failed || []),
+          ...(enrichResult2?.fields_failed || []),
+        ],
+        elapsed_ms: (enrichResult1?.elapsed_ms || 0) + (enrichResult2?.elapsed_ms || 0),
       });
 
       logInfo(context, {
         event: "direct_enrichment_complete",
         session_id: sessionId,
         company_id: companyId,
-        ok: enrichResult?.ok ?? false,
-        fields_completed: enrichResult?.fields_completed || [],
-        elapsed_ms: enrichResult?.elapsed_ms || 0,
+        ok: (enrichResult1?.ok ?? false) || (enrichResult2?.ok ?? false),
+        fields_completed: [
+          ...(enrichResult1?.fields_completed || []),
+          ...(enrichResult2?.fields_completed || []),
+        ],
+        elapsed_ms: (enrichResult1?.elapsed_ms || 0) + (enrichResult2?.elapsed_ms || 0),
       });
     } catch (err) {
       enrichmentResults.push({
