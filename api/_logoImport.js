@@ -274,15 +274,36 @@ function getFileExt(url) {
 }
 
 /**
- * Strip CDN format-override params (e.g. imgix fm=webp) from SVG URLs
- * so the CDN delivers the original SVG instead of a rasterized version.
+ * Strip CDN resize/format params so the CDN delivers the original full-resolution image.
+ *
+ * Handles two cases:
+ * 1. Known CDN hosts (Shopify, etc.) — strip width/height/crop/fit params that force thumbnails
+ *    e.g. `?crop=center&height=32&width=32` on cdn.shopify.com URLs
+ * 2. SVG format override — strip `fm=` param (e.g. imgix fm=webp) on any host
  */
-function stripCdnFormatOverride(url) {
-  const ext = getFileExt(url);
-  if (ext !== "svg") return url;
+const CDN_RESIZE_PARAMS = ["width", "height", "crop", "w", "h", "fit"];
+const CDN_RESIZE_HOSTS = [".shopify.com", ".shopifycdn.net"];
+
+function stripCdnResizeParams(url) {
   try {
     const u = new URL(url);
-    if (u.searchParams.has("fm")) {
+    const host = u.hostname.toLowerCase();
+    const isCdnResizeHost = CDN_RESIZE_HOSTS.some(
+      (p) => host === p.slice(1) || host.endsWith(p)
+    );
+    if (isCdnResizeHost) {
+      let changed = false;
+      for (const p of CDN_RESIZE_PARAMS) {
+        if (u.searchParams.has(p)) {
+          u.searchParams.delete(p);
+          changed = true;
+        }
+      }
+      if (changed) return u.toString();
+    }
+    // Original SVG fm= stripping for any host
+    const ext = getFileExt(url);
+    if (ext === "svg" && u.searchParams.has("fm")) {
       u.searchParams.delete("fm");
       return u.toString();
     }
@@ -737,7 +758,7 @@ async function headProbeImage(url, { timeoutMs = 6000 } = {}) {
 }
 
 async function fetchAndEvaluateCandidate(candidate, logger = console, options = {}) {
-  const sourceUrl = stripCdnFormatOverride(String(candidate?.url || "").trim());
+  const sourceUrl = stripCdnResizeParams(String(candidate?.url || "").trim());
   if (!sourceUrl) return { ok: false, reason: "missing_url" };
 
   const budget = options?.budget;
@@ -1922,7 +1943,7 @@ module.exports = {
     absolutizeUrl,
     decodeHtmlEntities,
     parseSrcsetBestUrl,
-    stripCdnFormatOverride,
+    stripCdnResizeParams,
     isKnownCdnHost,
     isAllowedCandidateUrl,
     extractMetaImage,

@@ -339,11 +339,12 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     updated.product_keywords_searched_at = enriched.product_keywords.searched_at;
   }
 
-  // Apply reviews
+  // Apply reviews — write to curated_reviews (the persisted schema field)
   if (enriched.reviews?.reviews || enriched.reviews?.review_candidates) {
     const reviews = enriched.reviews.reviews || enriched.reviews.review_candidates || [];
-    updated.reviews = reviews;
-    updated.reviews_status = enriched.reviews.reviews_status || "ok";
+    updated.curated_reviews = reviews;
+    updated.review_count = reviews.length;
+    updated.reviews_stage_status = enriched.reviews.reviews_status || "ok";
     updated.reviews_searched_at = enriched.reviews.searched_at;
   }
 
