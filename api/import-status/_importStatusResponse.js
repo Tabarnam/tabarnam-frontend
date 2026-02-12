@@ -3,7 +3,7 @@
  * No Cosmos DB, no external I/O — only deterministic object construction.
  */
 
-const { EMPTY_RESUME_DIAGNOSTICS, nowIso } = require("./_importStatusUtils");
+const { EMPTY_RESUME_DIAGNOSTICS, nowIso, MAX_RESUME_CYCLES_SINGLE } = require("./_importStatusUtils");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -338,8 +338,230 @@ function buildPrimaryJobNoCosmosResponse({ sessionId, primaryJob, stageBeaconVal
   };
 }
 
+// ── buildCosmosResponseBase ──────────────────────────────────────────────────
+
+/**
+ * Builds the common response fields shared by the three Cosmos-backed status
+ * paths (error / complete / running). Callers spread variant-specific overrides
+ * on top of the returned object.
+ *
+ * @param {object} opts
+ * @param {string}      opts.sessionId
+ * @param {string}      opts.status            - "error" | "complete" | "running"
+ * @param {string}      opts.state             - "failed" | "complete" | "running"
+ * @param {string}      opts.stage_beacon
+ * @param {object}      opts.stageBeaconValues
+ * @param {object|null} opts.cosmosTarget
+ * @param {object|null} opts.sessionDoc
+ * @param {object|null} opts.resumeDoc
+ * @param {number}      opts.saved
+ * @param {number}      opts.saved_verified_count
+ * @param {Array}       opts.saved_company_ids_verified
+ * @param {Array}       opts.saved_company_ids_unverified
+ * @param {Array}       opts.saved_company_urls
+ * @param {string|null} opts.save_outcome
+ * @param {string|null} opts.resume_error
+ * @param {object|null} opts.resume_error_details
+ * @param {boolean}     opts.reconciled
+ * @param {string|null} opts.reconcile_strategy
+ * @param {Array|null}  opts.reconciled_saved_ids
+ * @param {Array}       opts.saved_companies
+ * @param {string|null} opts.effective_resume_status
+ * @param {string|null} opts.progress_notice
+ * @param {boolean}     opts.resume_needed
+ * @param {string|null} opts.resume_status
+ * @param {object|null} opts.report
+ * @param {boolean}     opts.resume_doc_created
+ * @param {boolean}     opts.resume_triggered
+ * @param {string|null} opts.resume_trigger_error
+ * @param {object|null} opts.resume_trigger_error_details
+ * @param {boolean}     opts.resume_gateway_key_attached
+ * @param {string|null} opts.resume_trigger_request_id
+ * @param {boolean}     opts.internalAuthConfigured
+ * @param {Function}    opts.buildResumeAuthDiagnostics
+ * @param {Array|null}  opts.missing_by_company
+ * @param {object|null} opts.enrichment_health_summary
+ * @param {Array}       opts.items
+ * @param {string|null} opts.lastCreatedAt
+ * @returns {object}
+ */
+function buildCosmosResponseBase({
+  sessionId,
+  status,
+  state,
+  stage_beacon,
+  stageBeaconValues,
+  cosmosTarget,
+  sessionDoc,
+  resumeDoc,
+  saved,
+  saved_verified_count,
+  saved_company_ids_verified,
+  saved_company_ids_unverified,
+  saved_company_urls,
+  save_outcome,
+  resume_error,
+  resume_error_details,
+  reconciled,
+  reconcile_strategy,
+  reconciled_saved_ids,
+  saved_companies,
+  effective_resume_status,
+  progress_notice,
+  resume_needed,
+  resume_status,
+  report,
+  resume_doc_created,
+  resume_triggered,
+  resume_trigger_error,
+  resume_trigger_error_details,
+  resume_gateway_key_attached,
+  resume_trigger_request_id,
+  internalAuthConfigured,
+  buildResumeAuthDiagnostics,
+  missing_by_company,
+  enrichment_health_summary,
+  items,
+  lastCreatedAt,
+}) {
+  const sd = sessionDoc || null;
+  const rd = resumeDoc || null;
+  const hasSd = typeof sessionDoc !== "undefined" && sd && typeof sd === "object";
+
+  return {
+    ok: true,
+    session_id: sessionId,
+    status,
+    state,
+    job_state: null,
+    stage_beacon,
+    stage_beacon_values: stageBeaconValues,
+    ...(cosmosTarget ? cosmosTarget : {}),
+    primary_job_state: null,
+    elapsed_ms: null,
+    remaining_budget_ms: null,
+    upstream_calls_made: Math.max(
+      hasSd && Number.isFinite(Number(sd.resume_worker_upstream_calls_made))
+        ? Number(sd.resume_worker_upstream_calls_made)
+        : 0,
+      rd && Number.isFinite(Number(rd.upstream_calls_made))
+        ? Number(rd.upstream_calls_made)
+        : 0
+    ),
+    companies_candidates_found: 0,
+    early_exit_triggered: false,
+    last_heartbeat_at: null,
+    lock_until: null,
+    attempts: 0,
+    last_error: null,
+    companies_count: saved,
+    items,
+    saved,
+    saved_verified_count,
+    saved_company_ids_verified,
+    saved_company_ids_unverified,
+    saved_company_urls,
+    save_outcome,
+    resume_error,
+    resume_error_details,
+    enrichment_last_write_error: hasSd ? sd.enrichment_last_write_error || null : null,
+    reconciled,
+    reconcile_strategy,
+    reconciled_saved_ids,
+    saved_companies,
+    effective_resume_status,
+    ...(progress_notice ? { progress_notice } : {}),
+    resume_needed,
+    resume_cycle_count: hasSd ? Number(sd.resume_cycle_count || 0) || 0 : 0,
+    resume_last_triggered_at: hasSd
+      ? sd.resume_last_triggered_at || sd.resume_worker_last_triggered_at || null
+      : null,
+    max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+    resume: {
+      needed: resume_needed,
+      status: resume_status || null,
+      doc_created: Boolean(report?.resume) || resume_doc_created,
+      triggered: resume_triggered,
+      trigger_error: resume_trigger_error,
+      trigger_error_details: resume_trigger_error_details,
+      gateway_key_attached: Boolean(resume_gateway_key_attached),
+      trigger_request_id: resume_trigger_request_id || null,
+      internal_auth_configured: Boolean(internalAuthConfigured),
+      cycle_count:
+        typeof rd?.cycle_count === "number" && Number.isFinite(Number(rd.cycle_count))
+          ? Number(rd.cycle_count)
+          : hasSd
+            ? Number(sd.resume_cycle_count || 0) || 0
+            : null,
+      max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+      max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+      last_triggered_at: hasSd
+        ? sd.resume_last_triggered_at || sd.resume_worker_last_triggered_at || null
+        : null,
+      next_allowed_run_at:
+        (typeof rd?.next_allowed_run_at === "string" && rd.next_allowed_run_at.trim())
+          ? rd.next_allowed_run_at.trim()
+          : (typeof sd?.resume_next_allowed_run_at === "string" && sd.resume_next_allowed_run_at.trim())
+            ? sd.resume_next_allowed_run_at.trim()
+            : null,
+      ...buildResumeAuthDiagnostics(),
+      missing_by_company,
+    },
+    resume_worker: buildResumeWorkerMeta({ sessionDoc, resumeDoc }),
+    enrichment_health_summary,
+    lastCreatedAt,
+    report,
+  };
+}
+
+// ── applyCompletionOverride ─────────────────────────────────────────────────
+
+/**
+ * Mutates the response object to force completion when a completion-doc
+ * override is active (e.g. `completionDoc.completed_at` is set).
+ *
+ * @param {object} out - Mutable response payload
+ */
+function applyCompletionOverride(out) {
+  out.completed = true;
+  out.terminal_only = true;
+  out.status = "complete";
+  out.state = "complete";
+  out.resume_needed = false;
+  out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
+  out.resume.needed = false;
+  out.resume.status = "done";
+  out.effective_resume_status = "done";
+}
+
+// ── deduplicatePersistedIds ─────────────────────────────────────────────────
+
+/**
+ * Case-insensitive deduplication of company IDs, preserving the original casing
+ * of the last occurrence.
+ *
+ * @param {Array} verifiedIds
+ * @param {Array} unverifiedIds
+ * @returns {string[]}
+ */
+function deduplicatePersistedIds(verifiedIds, unverifiedIds) {
+  return Array.from(
+    new Map(
+      [...verifiedIds, ...unverifiedIds]
+        .filter(Boolean)
+        .map(String)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => [s.toLowerCase(), s])
+    ).values()
+  );
+}
+
 module.exports = {
   buildResumeWorkerMeta,
   buildMemoryOnlyResponse,
   buildPrimaryJobNoCosmosResponse,
+  buildCosmosResponseBase,
+  applyCompletionOverride,
+  deduplicatePersistedIds,
 };

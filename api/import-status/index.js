@@ -83,6 +83,9 @@ const {
   buildResumeWorkerMeta,
   buildMemoryOnlyResponse,
   buildPrimaryJobNoCosmosResponse,
+  buildCosmosResponseBase,
+  applyCompletionOverride,
+  deduplicatePersistedIds,
 } = require("./_importStatusResponse");
 const {
   runBlockedStateAutoRetry,
@@ -720,17 +723,7 @@ async function handler(req, context) {
       ? session.saved_company_ids_unverified
       : [];
 
-    // Use case-insensitive id keys to avoid duplicates by casing, while preserving original id values.
-    const persistedIds = Array.from(
-      new Map(
-        [...savedCompanyIdsVerified, ...savedCompanyIdsUnverified]
-          .filter(Boolean)
-          .map(String)
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .map((s) => [s.toLowerCase(), s])
-      ).values()
-    );
+    const persistedIds = deduplicatePersistedIds(savedCompanyIdsVerified, savedCompanyIdsUnverified);
 
     const persistedCount = Math.max(
       persistedIds.length,
@@ -1618,17 +1611,7 @@ async function handler(req, context) {
       ? session.saved_company_ids_unverified
       : [];
 
-    // Use case-insensitive id keys to avoid duplicates by casing, while preserving original id values.
-    const persistedIds = Array.from(
-      new Map(
-        [...savedCompanyIdsVerified, ...savedCompanyIdsUnverified]
-          .filter(Boolean)
-          .map(String)
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .map((s) => [s.toLowerCase(), s])
-      ).values()
-    );
+    const persistedIds = deduplicatePersistedIds(savedCompanyIdsVerified, savedCompanyIdsUnverified);
 
     const persistedCount = Math.max(
       persistedIds.length,
@@ -2198,99 +2181,22 @@ async function handler(req, context) {
       const errorOut = errorPayload || (stopped ? { code: "IMPORT_STOPPED", message: "Import was stopped" } : null);
 
       const out = {
-          ok: true,
-          session_id: sessionId,
-          status: "error",
-          state: "failed",
-          job_state: null,
-          stage_beacon,
-          stage_beacon_values: stageBeaconValues,
-          ...(cosmosTarget ? cosmosTarget : {}),
-          primary_job_state: null,
-          elapsed_ms: null,
-          remaining_budget_ms: null,
-          upstream_calls_made: Math.max(
-            typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
-              ? Number(sessionDoc.resume_worker_upstream_calls_made)
-              : 0,
-            typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
-              ? Number(resumeDoc.upstream_calls_made)
-              : 0
-          ),
-          companies_candidates_found: 0,
-          early_exit_triggered: false,
-          last_heartbeat_at: null,
-          lock_until: null,
-          attempts: 0,
+          ...buildCosmosResponseBase({
+            sessionId, status: "error", state: "failed", stage_beacon, stageBeaconValues, cosmosTarget,
+            sessionDoc, resumeDoc, saved, saved_verified_count, saved_company_ids_verified,
+            saved_company_ids_unverified, saved_company_urls, save_outcome,
+            resume_error: resume_error || sessionDoc_resume_error,
+            resume_error_details: resume_error_details || sessionDoc_resume_error_details,
+            reconciled, reconcile_strategy, reconciled_saved_ids, saved_companies,
+            effective_resume_status, progress_notice, resume_needed, resume_status, report,
+            resume_doc_created, resume_triggered, resume_trigger_error, resume_trigger_error_details,
+            resume_gateway_key_attached, resume_trigger_request_id, internalAuthConfigured,
+            buildResumeAuthDiagnostics, missing_by_company, enrichment_health_summary, items, lastCreatedAt,
+          }),
           last_error: errorOut,
-          companies_count: saved,
           error: errorOut,
-          items,
-          saved,
-          saved_verified_count,
-          saved_company_ids_verified,
-          saved_company_ids_unverified,
-          saved_company_urls,
-          save_outcome,
-          resume_error: resume_error || sessionDoc_resume_error,
-          resume_error_details: resume_error_details || sessionDoc_resume_error_details,
-        resume_error_details: resume_error_details || sessionDoc_resume_error_details,
-        enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
-          ? sessionDoc?.enrichment_last_write_error || null
-          : null,
-        reconciled,
-          reconcile_strategy,
-          reconciled_saved_ids,
-        saved_companies,
-        effective_resume_status,
-        ...(progress_notice ? { progress_notice } : {}),
-        resume_needed,
-        resume_cycle_count:
-          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-            : 0,
-        resume_last_triggered_at:
-          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
-            : null,
-        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
-        resume: {
-          needed: resume_needed,
-          status: resume_status || null,
-            doc_created: Boolean(report?.resume) || resume_doc_created,
-            triggered: resume_triggered,
-            trigger_error: resume_trigger_error,
-          trigger_error_details: resume_trigger_error_details,
-          gateway_key_attached: Boolean(resume_gateway_key_attached),
-          trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: Boolean(internalAuthConfigured),
-          cycle_count:
-            typeof resumeDoc?.cycle_count === "number" && Number.isFinite(Number(resumeDoc.cycle_count))
-              ? Number(resumeDoc.cycle_count)
-              : (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-                ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-                : null,
-          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
-          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
-          last_triggered_at:
-            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
-              : null,
-          next_allowed_run_at:
-            (typeof resumeDoc?.next_allowed_run_at === "string" && resumeDoc.next_allowed_run_at.trim())
-              ? resumeDoc.next_allowed_run_at.trim()
-              : (typeof sessionDoc?.resume_next_allowed_run_at === "string" && sessionDoc.resume_next_allowed_run_at.trim())
-                ? sessionDoc.resume_next_allowed_run_at.trim()
-                : null,
-          ...buildResumeAuthDiagnostics(),
-          missing_by_company,
-        },
-        resume_worker: buildResumeWorkerMeta({ sessionDoc, resumeDoc }),
-        enrichment_health_summary,
-          lastCreatedAt,
           timedOut,
           stopped,
-          report,
         };
 
       if (!STATUS_NO_ORCHESTRATION && stageBeaconValues?.status_resume_force_terminalize_selected === true) {
@@ -2302,17 +2208,7 @@ async function handler(req, context) {
         applyTerminalOnlyCompletion(out, forcedReason);
       }
 
-      if (completionOverride) {
-        out.completed = true;
-        out.terminal_only = true;
-        out.status = "complete";
-        out.state = "complete";
-        out.resume_needed = false;
-        out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
-        out.resume.needed = false;
-        out.resume.status = "done";
-        out.effective_resume_status = "done";
-      }
+      if (completionOverride) applyCompletionOverride(out);
 
       return jsonWithSessionId(out, 200, req);
     }
@@ -2428,107 +2324,29 @@ async function handler(req, context) {
 
     if (effectiveCompleted) {
       const out = {
-          ok: true,
-          session_id: sessionId,
-          status: "complete",
-          state: "complete",
-          job_state: null,
-          stage_beacon,
-          stage_beacon_values: stageBeaconValues,
-          ...(cosmosTarget ? cosmosTarget : {}),
-          primary_job_state: null,
-          elapsed_ms: null,
-          remaining_budget_ms: null,
-          upstream_calls_made: Math.max(
-            typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
-              ? Number(sessionDoc.resume_worker_upstream_calls_made)
-              : 0,
-            typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
-              ? Number(resumeDoc.upstream_calls_made)
-              : 0
-          ),
-          companies_candidates_found: 0,
-          early_exit_triggered: false,
-          last_heartbeat_at: null,
-          lock_until: null,
-          attempts: 0,
-          last_error: null,
-          companies_count: saved,
-          result: {
-            saved,
-            skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
-            failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
-            completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
-            reason: completionReason || null,
-            saved_ids: savedIds,
-            skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
-            failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
-          },
-          items,
-          saved,
-          saved_verified_count,
-          saved_company_ids_verified,
-          saved_company_ids_unverified,
-          saved_company_urls,
-          save_outcome,
+        ...buildCosmosResponseBase({
+          sessionId, status: "complete", state: "complete", stage_beacon, stageBeaconValues, cosmosTarget,
+          sessionDoc, resumeDoc, saved, saved_verified_count, saved_company_ids_verified,
+          saved_company_ids_unverified, saved_company_urls, save_outcome,
           resume_error: resume_error || sessionDoc_resume_error,
           resume_error_details: resume_error_details || sessionDoc_resume_error_details,
-        resume_error_details: resume_error_details || sessionDoc_resume_error_details,
-        enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
-          ? sessionDoc?.enrichment_last_write_error || null
-          : null,
-        reconciled,
-          reconcile_strategy,
-          reconciled_saved_ids,
-        saved_companies,
-        effective_resume_status,
-        ...(progress_notice ? { progress_notice } : {}),
-        resume_needed,
-        resume_cycle_count:
-          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-            : 0,
-        resume_last_triggered_at:
-          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
-            : null,
-        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
-        resume: {
-          needed: resume_needed,
-          status: resume_status || null,
-            doc_created: Boolean(report?.resume) || resume_doc_created,
-            triggered: resume_triggered,
-            trigger_error: resume_trigger_error,
-          trigger_error_details: resume_trigger_error_details,
-          gateway_key_attached: Boolean(resume_gateway_key_attached),
-          trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: Boolean(internalAuthConfigured),
-          cycle_count:
-            typeof resumeDoc?.cycle_count === "number" && Number.isFinite(Number(resumeDoc.cycle_count))
-              ? Number(resumeDoc.cycle_count)
-              : (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-                ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-                : null,
-          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
-          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
-          last_triggered_at:
-            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
-              : null,
-          next_allowed_run_at:
-            (typeof resumeDoc?.next_allowed_run_at === "string" && resumeDoc.next_allowed_run_at.trim())
-              ? resumeDoc.next_allowed_run_at.trim()
-              : (typeof sessionDoc?.resume_next_allowed_run_at === "string" && sessionDoc.resume_next_allowed_run_at.trim())
-                ? sessionDoc.resume_next_allowed_run_at.trim()
-                : null,
-          ...buildResumeAuthDiagnostics(),
-          missing_by_company,
+          reconciled, reconcile_strategy, reconciled_saved_ids, saved_companies,
+          effective_resume_status, progress_notice, resume_needed, resume_status, report,
+          resume_doc_created, resume_triggered, resume_trigger_error, resume_trigger_error_details,
+          resume_gateway_key_attached, resume_trigger_request_id, internalAuthConfigured,
+          buildResumeAuthDiagnostics, missing_by_company, enrichment_health_summary, items, lastCreatedAt,
+        }),
+        result: {
+          saved,
+          skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
+          failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
+          completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
+          reason: completionReason || null,
+          saved_ids: savedIds,
+          skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
+          failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
         },
-        resume_worker: buildResumeWorkerMeta({ sessionDoc, resumeDoc }),
-        enrichment_health_summary,
-          lastCreatedAt,
-          report,
-        };
+      };
 
     const { terminalOnlyReason } = await runTerminalCycleEnforcement({
       out, stageBeaconValues, retryableMissingCount, resumeMissingAnalysis, sessionId, context,
@@ -2558,111 +2376,24 @@ async function handler(req, context) {
         }
       } catch {}
 
-      if (completionOverride) {
-        out.completed = true;
-        out.terminal_only = true;
-        out.status = "complete";
-        out.state = "complete";
-        out.resume_needed = false;
-        out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
-        out.resume.needed = false;
-        out.resume.status = "done";
-        out.effective_resume_status = "done";
-      }
+      if (completionOverride) applyCompletionOverride(out);
 
       return jsonWithSessionId(out, 200, req);
     }
 
     const out = {
-        ok: true,
-        session_id: sessionId,
-        status: "running",
-        state: "running",
-        job_state: null,
-        stage_beacon,
-        stage_beacon_values: stageBeaconValues,
-        ...(cosmosTarget ? cosmosTarget : {}),
-        primary_job_state: null,
-        elapsed_ms: null,
-        remaining_budget_ms: null,
-        upstream_calls_made: Math.max(
-          typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
-            ? Number(sessionDoc.resume_worker_upstream_calls_made)
-            : 0,
-          typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
-            ? Number(resumeDoc.upstream_calls_made)
-            : 0
-        ),
-        companies_candidates_found: 0,
-        early_exit_triggered: false,
-        last_heartbeat_at: null,
-        lock_until: null,
-        attempts: 0,
-        last_error: null,
-        companies_count: saved,
-        items,
-        saved,
-        saved_verified_count,
-        saved_company_ids_verified,
-        saved_company_ids_unverified,
-        saved_company_urls,
-        save_outcome,
-        resume_error: resume_error || sessionDoc_resume_error,
-        resume_error_details: resume_error_details || sessionDoc_resume_error_details,
-        enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
-          ? sessionDoc?.enrichment_last_write_error || null
-          : null,
-        reconciled,
-        reconcile_strategy,
-        reconciled_saved_ids,
-        saved_companies,
-        effective_resume_status,
-        ...(progress_notice ? { progress_notice } : {}),
-        resume_needed,
-        resume_cycle_count:
-          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-            : 0,
-        resume_last_triggered_at:
-          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
-            : null,
-        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
-        resume: {
-          needed: resume_needed,
-          status: resume_status || null,
-          doc_created: Boolean(report?.resume) || resume_doc_created,
-          triggered: resume_triggered,
-          trigger_error: resume_trigger_error,
-          trigger_error_details: resume_trigger_error_details,
-          gateway_key_attached: Boolean(resume_gateway_key_attached),
-          trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: Boolean(internalAuthConfigured),
-          cycle_count:
-            typeof resumeDoc?.cycle_count === "number" && Number.isFinite(Number(resumeDoc.cycle_count))
-              ? Number(resumeDoc.cycle_count)
-              : (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-                ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-                : null,
-          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
-          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
-          last_triggered_at:
-            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
-              : null,
-          next_allowed_run_at:
-            (typeof resumeDoc?.next_allowed_run_at === "string" && resumeDoc.next_allowed_run_at.trim())
-              ? resumeDoc.next_allowed_run_at.trim()
-              : (typeof sessionDoc?.resume_next_allowed_run_at === "string" && sessionDoc.resume_next_allowed_run_at.trim())
-                ? sessionDoc.resume_next_allowed_run_at.trim()
-                : null,
-          ...buildResumeAuthDiagnostics(),
-          missing_by_company,
-        },
-        resume_worker: buildResumeWorkerMeta({ sessionDoc, resumeDoc }),
-        enrichment_health_summary,
-        lastCreatedAt,
-        report,
+        ...buildCosmosResponseBase({
+          sessionId, status: "running", state: "running", stage_beacon, stageBeaconValues, cosmosTarget,
+          sessionDoc, resumeDoc, saved, saved_verified_count, saved_company_ids_verified,
+          saved_company_ids_unverified, saved_company_urls, save_outcome,
+          resume_error: resume_error || sessionDoc_resume_error,
+          resume_error_details: resume_error_details || sessionDoc_resume_error_details,
+          reconciled, reconcile_strategy, reconciled_saved_ids, saved_companies,
+          effective_resume_status, progress_notice, resume_needed, resume_status, report,
+          resume_doc_created, resume_triggered, resume_trigger_error, resume_trigger_error_details,
+          resume_gateway_key_attached, resume_trigger_request_id, internalAuthConfigured,
+          buildResumeAuthDiagnostics, missing_by_company, enrichment_health_summary, items, lastCreatedAt,
+        }),
       };
 
     const { terminalOnlyReason } = await runTerminalCycleEnforcement({
