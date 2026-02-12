@@ -1660,6 +1660,12 @@ async function handler(req, context) {
     let resume_error = null;
     let resume_error_details = null;
 
+    // Mutable saved-id tracking — declared here (before the resume orchestration block)
+    // so they can be read/written inside resumeCtx without hitting a TDZ.
+    // Final values are computed after the resume block (around line ~1951).
+    let saved_verified_count = null;
+    let saved_company_ids_verified = [];
+
     // If the session is actively processing (not yet complete/errored), don't let
     // resume_needed=false prematurely signal completion.  The session may still be
     // saving companies and the saved count may be 0 simply because the first status
@@ -1941,14 +1947,14 @@ async function handler(req, context) {
 
     const effectiveCompleted = forceComplete || (completed && !resume_needed);
 
-    const saved_verified_count =
+    saved_verified_count =
       sessionDoc && typeof sessionDoc.saved_verified_count === "number" && Number.isFinite(sessionDoc.saved_verified_count)
         ? sessionDoc.saved_verified_count
         : Number.isFinite(Number(savedVerifiedCount))
           ? Number(savedVerifiedCount)
           : Number(saved || 0) || 0;
 
-    const saved_company_ids_verified = Array.isArray(sessionDoc?.saved_company_ids_verified)
+    saved_company_ids_verified = Array.isArray(sessionDoc?.saved_company_ids_verified)
       ? sessionDoc.saved_company_ids_verified
       : Array.isArray(savedIds)
         ? savedIds
