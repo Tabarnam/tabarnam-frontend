@@ -679,34 +679,35 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // Enhanced prompt for reviews - 5 reviews (3 YouTube + 2 blog/magazine)
-  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find third-party reviews.
+  // Review prompt: XAI investigates and returns 5 qualified, verified reviews.
+  // Prioritize blog/magazine (3) over YouTube (2) — YouTube IDs are frequently hallucinated.
+  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find 5 unique, legitimate third-party reviews with verified, working URLs.
 
-Task: Find 5 unique, legitimate third-party reviews with working URLs. Use 3 YouTube reviews focused on the company or its products. The fourth and fifth should be from a magazine or blog. Confirm all URLs are functional. Do not hallucinate or embellish. Do not include the same author more than once. Accuracy is paramount.
+INVESTIGATION REQUIREMENTS:
+- Visit each URL you plan to return and confirm the page loads with real content about "${name}"
+- Do NOT return any URL you have not personally verified loads correctly
+- Do NOT fabricate or guess YouTube video IDs — only return YouTube URLs for videos you can confirm exist
+- If you cannot find enough verified YouTube reviews, return more blog/magazine reviews instead
+- Accuracy is paramount. It is better to return 3 verified reviews than 5 with unverified URLs.
 
-CRITICAL REQUIREMENTS:
-- Each review MUST actually be about "${name}" or its specific products - verify the page content mentions this company
-- Every URL MUST be functional and load correctly - test each one
-- Do NOT return 404 pages, redirects, or paywalled content
-- Do NOT hallucinate or invent URLs - accuracy is paramount
+TARGET MIX:
+- 3 reviews from magazines, blogs, or review sites (e.g. Runner's World, Healthline, fitness blogs, industry publications)
+- 2 YouTube video reviews about "${name}" or its products
+- If you cannot verify 2 YouTube videos exist, replace them with additional blog/magazine reviews
 
-For YouTube videos:
-- The video MUST exist and be publicly accessible
-- The video title and content MUST mention "${name}" or its products
-- Do NOT return music videos, unrelated content, or deleted videos
-- Provide the full watch URL (not playlist or channel URLs)
-
-For blogs/magazines:
-- The article MUST specifically review or feature "${name}"
-- Verify the page loads and contains actual content about this company
+QUALITY STANDARDS:
+- Each review MUST be specifically about "${name}" or its products
+- Every URL MUST be functional — no 404 pages, no deleted content, no paywalls
+- Do not include the same author more than once
 - Prefer established publications over obscure blogs
+- For YouTube: the video MUST exist, be publicly accessible, and mention "${name}" in its title or description
+- For blogs: the article MUST contain actual review content about this company
 
-Provide 30-40 candidates to ensure sufficient verified results after filtering.
 Exclude sources from these domains: ${excludeDomains.join(", ")}
 
 For each review, include:
 - source_name: Exact channel name (YouTube) or publication name (blog)
-- source_url: Direct URL to the video/article (NOT search results)
+- source_url: Direct URL to the video/article (NOT search results, NOT the site's homepage)
 - category: "youtube" or "blog"
 - title: Exact title of the video/article (do NOT paraphrase)
 - excerpt: Direct quote from the review (1-2 sentences, no ellipses)
@@ -715,17 +716,10 @@ Output STRICT JSON only:
 {
   "reviews_url_candidates": [
     {
-      "source_url": "https://www.youtube.com/watch?v=...",
-      "source_name": "Channel Name",
-      "category": "youtube",
-      "title": "Exact Video Title",
-      "excerpt": "Direct quote from the review..."
-    },
-    {
       "source_url": "https://...",
-      "source_name": "Publication Name",
+      "source_name": "Publication or Channel Name",
       "category": "blog",
-      "title": "Exact Article Title",
+      "title": "Exact Title",
       "excerpt": "Direct quote from the review..."
     }
   ]
@@ -869,7 +863,7 @@ Output STRICT JSON only:
 
   for (const c of deduped) {
     if (Date.now() - started > budgetMs - 1500) break;
-    // Need 5 total reviews (3 YouTube + 2 blog target)
+    // Need 5 total reviews (3 blog/magazine + 2 YouTube target)
     const totalVerified = verified_youtube.length + verified_blog.length;
     if (totalVerified >= 5) break;
 
@@ -900,6 +894,24 @@ Output STRICT JSON only:
       if (!ytCheck.ok) {
         console.log(`[grokEnrichment] reviews: YouTube video unavailable: ${c.source_url} (${ytCheck.reason})`);
         verified = { ok: false, reason: ytCheck.reason || "youtube_unavailable" };
+      }
+    }
+
+    // Blog-specific: Check for soft-404 content (page says it doesn't exist despite HTTP 200)
+    if (verified.ok && c.category === "blog") {
+      const htmlFor404 = typeof verified.html_preview === "string" ? verified.html_preview : "";
+      if (htmlFor404) {
+        const SOFT_404_PATTERNS = [
+          /sorry.*page.*(?:not|does not|doesn't)\s*exist/i,
+          /page.*(?:not found|could not be found|no longer available)/i,
+          /(?:404|not found).*(?:page|article|post)/i,
+          /this\s+(?:page|article|post|blog)\s+(?:has been|was)\s+(?:removed|deleted|moved)/i,
+          /content.*(?:no longer|not)\s+available/i,
+        ];
+        if (SOFT_404_PATTERNS.some((p) => p.test(htmlFor404))) {
+          console.log(`[grokEnrichment] reviews: Blog soft-404 detected: ${c.source_url}`);
+          verified = { ok: false, reason: "soft_404" };
+        }
       }
     }
 
@@ -983,7 +995,7 @@ Output STRICT JSON only:
     console.log(`[grokEnrichment] reviews: skipped ${dropped} unverified blog(s) with dead URLs`);
   }
 
-  // Best 5 reviews (prefer YouTube, then blogs — target 3 YouTube + 2 blog)
+  // Best 5 reviews (prefer blogs, then YouTube — target 3 blog + 2 YouTube)
   const curated_reviews = [...verified_youtube, ...verified_blog].slice(0, 5);
   const youtubeCount = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length;
   const blogCount = curated_reviews.length - youtubeCount;
@@ -995,10 +1007,9 @@ Output STRICT JSON only:
     if (curated_reviews.length < 5) reasonParts.push("insufficient_verified_reviews");
     if (youtubeCount === 0 && blogCount === 0) reasonParts.push("no_verified_reviews");
 
-    // Mark as exhausted after good-faith attempt: tried 5+ URLs, or have 1+ verified and tried 3+ URLs
-    // This prevents infinite retries when XAI returns mostly invalid YouTube videos
-    const isExhausted = attempted_urls.length >= 5 ||
-      (curated_reviews.length > 0 && attempted_urls.length >= 3);
+    // Mark as exhausted only after trying ALL deduped candidates.
+    // XAI now returns pre-investigated results, so we should try every one before giving up.
+    const isExhausted = attempted_urls.length >= deduped.length;
 
     const value = {
       curated_reviews,
@@ -2046,7 +2057,7 @@ INDUSTRIES: Return as a JSON array of industry strings.
 
 KEYWORDS: Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.
 
-REVIEWS: Find 5 unique, legitimate third-party reviews with working URLs. Use 3 YouTube reviews focused on the company or its products. The fourth and fifth should be from a magazine or blog. Confirm all URLs are functional. Fields for the review should include "source_name", "author", "source_url" (the actual URL of the review, not the root URL), "title", "date", "excerpt" (an excerpt or summary of the review). Do not hallucinate or embellish review titles or anything else. Accuracy is paramount. Do not include the same author more than once.
+REVIEWS: Find 5 unique, legitimate third-party reviews with verified, working URLs. Visit each URL to confirm it loads with real content about this company. Return 3 from magazines/blogs/review sites and 2 from YouTube. If you cannot verify 2 YouTube videos exist, replace them with additional blog/magazine reviews. Do not fabricate YouTube video IDs. Fields: "source_name", "author", "source_url" (the actual URL of the review, not the homepage), "title", "date", "excerpt". Accuracy is paramount. Do not include the same author more than once.
 
 Return STRICT JSON only:
 {

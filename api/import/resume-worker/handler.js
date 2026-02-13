@@ -638,7 +638,30 @@ function reconcileGrokTerminalState(doc) {
   const reviewsStage = normalizeKey(doc.reviews_stage_status || doc.review_cursor?.reviews_stage_status);
   const cursorExhausted = Boolean(doc.review_cursor && typeof doc.review_cursor === "object" && doc.review_cursor.exhausted === true);
 
-  if (reviewsStage === "exhausted" || cursorExhausted) {
+  // If exhausted with 0 verified reviews and under max attempts, RESET exhaustion so reviews stay retryable.
+  // XAI may return different candidate URLs on next attempt.
+  if (cursorExhausted) {
+    const verifiedReviewCount = Array.isArray(doc.curated_reviews)
+      ? doc.curated_reviews.filter((r) => r && typeof r === "object").length
+      : 0;
+    if (verifiedReviewCount === 0) {
+      const attempts = attemptsFor(doc, "reviews");
+      if (attempts < MAX_ATTEMPTS_REVIEWS) {
+        const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+        cursor.exhausted = false;
+        delete cursor.exhausted_at;
+        cursor.reviews_stage_status = "incomplete";
+        doc.review_cursor = cursor;
+        doc.import_missing_reason.reviews = "incomplete";
+        changed = true;
+        // Skip terminal logic below — reviews stay retryable for next cycle
+      }
+    }
+  }
+
+  // Only proceed with terminal logic if cursor is still exhausted (not reset above)
+  const cursorStillExhausted = Boolean(doc.review_cursor && typeof doc.review_cursor === "object" && doc.review_cursor.exhausted === true);
+  if (reviewsStage === "exhausted" || cursorStillExhausted) {
     // Terminal completion marker for reviews is cursor.exhausted.
     // We keep the *user-facing* stage as "incomplete" (never "pending"/"exhausted").
     const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
@@ -2420,9 +2443,12 @@ async function resumeWorkerHandler(req, context) {
               fieldProgress.status = "ok";
               savedFieldsThisRun.push("reviews");
             } else {
-              // Mark as terminal if: max attempts reached OR diagnostics says exhausted (good-faith attempt made)
+              // Mark as terminal if: max attempts reached, OR diagnostics says exhausted WITH verified reviews.
+              // With 0 verified, XAI may return different candidates on next attempt — keep retryable.
               const diagnosticsExhausted = Boolean(r?.diagnostics?.exhausted);
-              const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS || diagnosticsExhausted;
+              const verifiedCount = curated.filter((rv) => rv && typeof rv === "object").length;
+              const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS ||
+                (diagnosticsExhausted && verifiedCount > 0);
               if (curated.length > 0) {
                 doc.curated_reviews = curated.slice(0, 10);
                 doc.review_count = curated.length;
@@ -2449,8 +2475,9 @@ async function resumeWorkerHandler(req, context) {
                   }
                 : null;
 
-              // Set exhausted flag on review_cursor when diagnostics indicates exhausted
-              if (diagnosticsExhausted) {
+              // Only set cursor.exhausted when we have SOME verified reviews or reached max attempts.
+              // With 0 verified, keep retryable so resume worker can try again with fresh XAI call.
+              if (diagnosticsExhausted && (verifiedCount > 0 || attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS)) {
                 doc.review_cursor.exhausted = true;
                 doc.review_cursor.exhausted_at = nowIso();
               }
