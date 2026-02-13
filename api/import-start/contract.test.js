@@ -1114,13 +1114,13 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
         mfg_unknown: true,
         mfg_unknown_reason: "not_disclosed",
 
-        curated_reviews: [],
-        review_count: 0,
+        curated_reviews: [{ source: "youtube", url: "https://youtube.com/watch?v=abc", title: "Review" }],
+        review_count: 1,
         reviews_stage_status: "exhausted",
         review_cursor: {
           source: "xai_reviews",
           last_offset: 0,
-          total_fetched: 0,
+          total_fetched: 1,
           exhausted: true,
           reviews_stage_status: "exhausted",
           exhausted_at: new Date().toISOString(),
