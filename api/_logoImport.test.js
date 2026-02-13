@@ -177,8 +177,8 @@ test("collectInlineSvgCandidates boosts score for logo keyword in SVG", () => {
   `;
   const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
   assert.equal(candidates.length, 1);
-  // Base score 345 + logo signal 80 = 425
-  assert.ok(candidates[0].score >= 400, `expected score >= 400, got ${candidates[0].score}`);
+  // Base score 225 (180 + 45) + logo signal 80 = 305
+  assert.ok(candidates[0].score >= 280, `expected score >= 280, got ${candidates[0].score}`);
 });
 
 // ── SVG sprite detection (maybeResolveSvgSpriteReference) ────────────────────
