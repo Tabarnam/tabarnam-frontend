@@ -125,7 +125,7 @@ function makeFetchResponse({ status = 200, headers = {}, body = "" } = {}) {
   };
 }
 
-test("grokEnrichment.fetchCuratedReviews returns 3 verified reviews (2 YouTube + 1 blog) with no hallucinated metadata", async () => {
+test("grokEnrichment.fetchCuratedReviews returns verified reviews (2 YouTube + 2 blog) with no hallucinated metadata", async () => {
   const originalFetch = globalThis.fetch;
 
   const youtube1 = "https://www.youtube.com/watch?v=abc123XYZ99";
@@ -230,22 +230,22 @@ test("grokEnrichment.fetchCuratedReviews returns 3 verified reviews (2 YouTube +
       model: "grok-4-latest",
     });
 
-    assert.equal(out.reviews_stage_status, "ok");
-    // Changed from 4 to 3 reviews (2 YouTube + 1 blog)
-    assert.equal(out.curated_reviews.length, 3);
+    // With 5-review target, 4 verifiable candidates (2 YT + 2 blogs, soft-404 rejected) → incomplete
+    assert.equal(out.reviews_stage_status, "incomplete");
+    assert.equal(out.curated_reviews.length, 4);
 
     const youtubeCount = out.curated_reviews.filter((r) => String(r?.source_url || "").includes("youtube.com")).length;
     assert.equal(youtubeCount, 2);
 
-    // Should have exactly 1 blog review now
+    // Should have exactly 2 blog reviews (blog1 + blog2; soft404 rejected)
     const blogCount = out.curated_reviews.filter((r) => !String(r?.source_url || "").includes("youtube.com")).length;
-    assert.equal(blogCount, 1);
+    assert.equal(blogCount, 2);
   });
 
   globalThis.fetch = originalFetch;
 });
 
-test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs when fewer than 3 valid reviews exist", async () => {
+test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs when fewer than 5 valid reviews exist", async () => {
   const originalFetch = globalThis.fetch;
 
   const youtube1 = "https://www.youtube.com/watch?v=abc123";

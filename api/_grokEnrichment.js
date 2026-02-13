@@ -160,9 +160,9 @@ function resolveXaiStageTimeoutMaxMs(fallback = 300_000) {
 // Previous values were too aggressive and caused upstream_timeout errors.
 // With non-blocking import-one (no 4-min SWA gateway timeout), we can allow longer searches.
 const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
-  reviews: { min: 120_000, max: 180_000 },     // 2-3 minutes for reviews (URL verification is slow)
-  keywords: { min: 60_000, max: 120_000 },     // 1-2 minutes for keywords
-  location: { min: 60_000, max: 120_000 },     // 1-2 minutes for location searches (HQ, mfg)
+  reviews: { min: 150_000, max: 240_000 },     // 2.5-4 minutes for reviews (candidate generation + URL verification)
+  keywords: { min: 90_000, max: 150_000 },     // 1.5-2.5 minutes for exhaustive keyword search
+  location: { min: 90_000, max: 150_000 },     // 1.5-2.5 minutes for thorough location research
   light: { min: 30_000, max: 60_000 },         // 30s-1 min for simpler fields (tagline, industries)
 });
 
@@ -679,21 +679,16 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // Enhanced prompt for reviews - stronger verification and more candidates
+  // Enhanced prompt for reviews - 5 reviews (3 YouTube + 2 blog/magazine)
   const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find third-party reviews.
 
-Task: Find at least 3 unique third-party reviews about this company or its products.
+Task: Find 5 unique, legitimate third-party reviews with working URLs. Use 3 YouTube reviews focused on the company or its products. The fourth and fifth should be from a magazine or blog. Confirm all URLs are functional. Do not hallucinate or embellish. Do not include the same author more than once. Accuracy is paramount.
 
 CRITICAL REQUIREMENTS:
-- Each review MUST actually be about "${name}" - verify the page content mentions this company
+- Each review MUST actually be about "${name}" or its specific products - verify the page content mentions this company
 - Every URL MUST be functional and load correctly - test each one
 - Do NOT return 404 pages, redirects, or paywalled content
 - Do NOT hallucinate or invent URLs - accuracy is paramount
-
-Review Sources (any mix acceptable):
-- YouTube videos featuring this company or its products
-- Magazine articles or blog posts reviewing this company
-- News coverage or interviews about this company
 
 For YouTube videos:
 - The video MUST exist and be publicly accessible
@@ -706,7 +701,7 @@ For blogs/magazines:
 - Verify the page loads and contains actual content about this company
 - Prefer established publications over obscure blogs
 
-Provide 20-30 candidates to ensure sufficient verified results.
+Provide 30-40 candidates to ensure sufficient verified results after filtering.
 Exclude sources from these domains: ${excludeDomains.join(", ")}
 
 For each review, include:
@@ -874,9 +869,9 @@ Output STRICT JSON only:
 
   for (const c of deduped) {
     if (Date.now() - started > budgetMs - 1500) break;
-    // Need 3 total reviews (any combination of YouTube + blog)
+    // Need 5 total reviews (3 YouTube + 2 blog target)
     const totalVerified = verified_youtube.length + verified_blog.length;
-    if (totalVerified >= 3) break;
+    if (totalVerified >= 5) break;
 
     const host = normalizeHostForDedupe(urlHost(c.source_url));
     if (
@@ -967,8 +962,8 @@ Output STRICT JSON only:
     (f) => !isDeadUrlReason(f.verification_reason)
   );
   const totalVerifiedSoFar = verified_youtube.length + verified_blog.length;
-  if (totalVerifiedSoFar < 3 && usableFallbacks.length > 0) {
-    const needed = 3 - totalVerifiedSoFar;
+  if (totalVerifiedSoFar < 5 && usableFallbacks.length > 0) {
+    const needed = 5 - totalVerifiedSoFar;
     for (let i = 0; i < Math.min(needed, usableFallbacks.length); i++) {
       const fallback = usableFallbacks[i];
       console.log(`[grokEnrichment] reviews: using unverified fallback blog: ${fallback.source_url} (reason: ${fallback.verification_reason})`);
@@ -988,16 +983,16 @@ Output STRICT JSON only:
     console.log(`[grokEnrichment] reviews: skipped ${dropped} unverified blog(s) with dead URLs`);
   }
 
-  // Best 3 reviews (prefer YouTube, then blogs)
-  const curated_reviews = [...verified_youtube, ...verified_blog].slice(0, 3);
+  // Best 5 reviews (prefer YouTube, then blogs — target 3 YouTube + 2 blog)
+  const curated_reviews = [...verified_youtube, ...verified_blog].slice(0, 5);
   const youtubeCount = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length;
   const blogCount = curated_reviews.length - youtubeCount;
 
-  const ok = curated_reviews.length >= 3;
+  const ok = curated_reviews.length >= 5;
 
   if (!ok) {
     const reasonParts = [];
-    if (curated_reviews.length < 3) reasonParts.push("insufficient_verified_reviews");
+    if (curated_reviews.length < 5) reasonParts.push("insufficient_verified_reviews");
     if (youtubeCount === 0 && blogCount === 0) reasonParts.push("no_verified_reviews");
 
     // Mark as exhausted after good-faith attempt: tried 5+ URLs, or have 1+ verified and tried 3+ URLs
@@ -1066,14 +1061,15 @@ async function fetchHeadquartersLocation({ companyName, normalizedDomain, budget
 Task: Determine the company's HEADQUARTERS location.
 
 Rules:
+- Conduct thorough research. Cross-reference multiple sources.
 - Use web search (do not rely only on the company website).
+- Check LinkedIn, SEC filings, Crunchbase, official press releases, business registrations, state corporation records.
 - Do deep dives for HQ location if necessary.
-- Having the actual city within the United States is crucial. Be accurate.
+- Having the actual city is crucial — do not return just the state or country if city-level data exists.
 - Use initials for state or province (e.g., "Austin, TX" not "Austin, Texas").
 - Format: "City, ST" for US/Canada, "City, Country" for international.
 - If only country is known, return "Country".
 - No explanatory info – just the location.
-- Prefer authoritative sources like LinkedIn, official filings, reputable business directories.
 - No guessing or hallucinating. Only report verified information.
 - Output STRICT JSON only.
 
@@ -1231,11 +1227,13 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
 
   const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
 
-Task: Determine the company's MANUFACTURING locations.
+Task: Identify ALL known MANUFACTURING locations for this company worldwide.
 
 Rules:
-- Use web search (do not rely only on the company website).
-- Do deep dives for manufacturing locations if necessary.
+- Conduct thorough research to identify ALL known manufacturing locations worldwide.
+- Include every city and country found. Deep-dive on any US sites to confirm actual cities.
+- Check press releases, job postings, facility announcements, regulatory filings, news articles, LinkedIn.
+- List them exhaustively without missing any.
 - Having the actual cities within the United States is crucial. Be accurate.
 - Use initials for state or province (e.g., "Los Angeles, CA" not "Los Angeles, California").
 - Format: "City, ST" for US/Canada, "City, Country" for international.
@@ -1653,17 +1651,20 @@ async function fetchProductKeywords({
 
   const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) provide the product keywords.
 
-Task: Provide an EXHAUSTIVE, COMPLETE, and ALL-INCLUSIVE list of the PRODUCTS (SKUs/product names/product lines) this company sells.
+Task: Provide an EXHAUSTIVE, COMPLETE, and ALL-INCLUSIVE list of ALL PRODUCTS this company sells.
 
 Hard rules:
-- Use web search (not just the company website).
-- Keywords should be exhaustive, complete and all-inclusive – ALL the products that the company produces.
-- Return ONLY products/product lines. Do NOT include navigation/UX taxonomy such as: Shop All, Collections, New, Best Sellers, Sale, Account, Cart, Store Locator, FAQ, Shipping, Returns, Contact, About, Blog.
-- Do NOT include generic category labels unless they are actual product lines.
-- The list should be materially more complete than the top nav.
-- If you are uncertain about completeness, expand the search and keep going until you can either:
-  (a) justify completeness, OR
-  (b) explicitly mark it incomplete with a reason.
+- Browse the company website AND use web search. Check product pages, collections, "Shop" sections, "All Products" pages.
+- List every individual product, product line, flavor, variety, and SKU you can find.
+- For companies with product variants (flavors, sizes, formulations), list EACH variant separately.
+- Keywords should be exhaustive – if a customer could search for it and find this company's product, include it.
+- Return ONLY actual products/product lines. Do NOT include:
+  Navigation labels: Shop All, Collections, New, Best Sellers, Sale, Limited Edition, All
+  Site features: Account, Cart, Store Locator, FAQ, Shipping, Returns, Contact, About, Blog
+  Generic category labels unless they ARE an actual product line name
+  Bundle/pack descriptors unless they are a named product (e.g. "Starter Kit" is OK if it's a real product name)
+- The list must be materially more complete than what appears in the site's top navigation.
+- If you are uncertain about completeness, expand your search. Check category pages, seasonal items, discontinued-but-listed products.
 - Do NOT return a short/partial list without marking it incomplete.
 - No guessing or hallucinating. Only report verified product information.
 - Output STRICT JSON only.
@@ -1709,7 +1710,7 @@ Return:
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 1200,  // Increased to accommodate exhaustive product lists
+    maxTokens: 2400,  // Large budget for exhaustive product catalogs with variants
     model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
@@ -2044,7 +2045,7 @@ INDUSTRIES: Return as a JSON array of industry strings.
 
 KEYWORDS: Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.
 
-REVIEWS: Ensure that the reviews are legitimate with working URLs. We need three unique reviews with links. Use 2 youtube reviews that focus on the company or a company product. The other review should be magazines or blog. Confirm that the url is functional. Fields for the review should include "source_name", "author", "source_url" (the actual URL of the review, not the root URL), "title", "date", "excerpt" (an excerpt or summary of the review). Do not hallucinate or embellish review titles or anything else. Accuracy is paramount. Do not include the same author more than once.
+REVIEWS: Find 5 unique, legitimate third-party reviews with working URLs. Use 3 YouTube reviews focused on the company or its products. The fourth and fifth should be from a magazine or blog. Confirm all URLs are functional. Fields for the review should include "source_name", "author", "source_url" (the actual URL of the review, not the root URL), "title", "date", "excerpt" (an excerpt or summary of the review). Do not hallucinate or embellish review titles or anything else. Accuracy is paramount. Do not include the same author more than once.
 
 Return STRICT JSON only:
 {
@@ -2544,13 +2545,26 @@ async function enrichCompanyFields({
       { companyName, budgetMs: Math.min(getRemainingMs() - 15000, 120000) }
     );
 
-    // Phase 3: Fill gaps with individual calls
+    // Phase 3: Dedicated deepening for keywords, reviews, HQ, and mfg.
+    // Phase 1 unified prompt produces shallow keywords (nav labels) and unreliable reviews.
+    // Dedicated fetchers have stronger prompts, more tokens, and longer timeouts.
+    // Discard Phase 1 results for these fields so dedicated calls always run.
+    verified.product_keywords = [];
+    verified.reviews = [];
+    verified.headquarters_location = "";
+    verified.manufacturing_locations = [];
+
     const missing = findMissingFields(verified);
+    // Force dedicated calls even if findMissingFields doesn't list them
+    const ALWAYS_DEEPEN = ["keywords", "reviews", "headquarters", "manufacturing"];
+    for (const field of ALWAYS_DEEPEN) {
+      if (!missing.includes(field)) missing.push(field);
+    }
     const filteredMissing = filterMissingByTarget(missing);
     let fallback_statuses = {};
 
     if (filteredMissing.length > 0 && getRemainingMs() > 30000) {
-      console.log(`[enrichCompanyFields] Phase 3: filling missing fields [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms`);
+      console.log(`[enrichCompanyFields] Phase 3: dedicated deepening [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms`);
       const { filled, field_statuses: fStatuses } = await fillMissingFieldsIndividually(
         filteredMissing,
         { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
@@ -2565,7 +2579,8 @@ async function enrichCompanyFields({
       if (typeof v === "string") field_statuses[k] = v;
     }
     for (const [k, v] of Object.entries(fallback_statuses)) {
-      if (field_statuses[k] !== "ok") field_statuses[k] = v;
+      // Dedicated deepening results always override Phase 1 statuses
+      field_statuses[k] = v;
     }
 
     const totalElapsed = Date.now() - started;

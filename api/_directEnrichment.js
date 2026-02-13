@@ -446,10 +446,14 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
   }
 
   updated.import_missing_fields = refreshedMissing;
-  updated.import_missing_reason = {
-    ...(updated.import_missing_reason || {}),
-    ...refreshedReasons,
-  };
+  // Replace (not merge) — drop stale reasons for fields that are now populated.
+  updated.import_missing_reason = refreshedReasons;
+  // Drop stale import_warnings for fields resolved by enrichment.
+  if (Array.isArray(updated.import_warnings)) {
+    updated.import_warnings = updated.import_warnings.filter(
+      (w) => w && typeof w === "object" && refreshedMissing.includes(w.field)
+    );
+  }
   // Back-compat field used by some tooling / UI.
   updated.missing_fields = refreshedMissing.map((f) => {
     if (f === "headquarters_location") return "hq";

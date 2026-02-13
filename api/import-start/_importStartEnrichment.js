@@ -1019,8 +1019,8 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       // ═══════════════════════════════════════════════════════════════
       const PASS1_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords"];
       const PASS2_FIELDS = ["reviews"];
-      const PASS1_BUDGET_MS = 120000; // 2 minutes for core fields
-      const TOTAL_BUDGET_MS = 360000; // 6 minutes total
+      const PASS1_BUDGET_MS = 180000; // 3 minutes for core fields (unified + dedicated HQ/mfg/keyword deepening)
+      const TOTAL_BUDGET_MS = 480000; // 8 minutes total
 
       // ── PASS 1: Core fields (non-reviews) ──
       const pass1Start = Date.now();
@@ -1034,7 +1034,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
 
       // ── PASS 2: Reviews (longer running, may get killed by Azure) ──
       const pass1Elapsed = Date.now() - pass1Start;
-      const pass2BudgetMs = Math.max(TOTAL_BUDGET_MS - pass1Elapsed, 60000);
+      const pass2BudgetMs = Math.max(TOTAL_BUDGET_MS - pass1Elapsed, 240000); // guarantee 4 min for reviews
 
       const enrichResult2 = await runDirectEnrichment({
         company: companyDoc,
