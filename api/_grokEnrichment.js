@@ -657,6 +657,7 @@ async function fetchCuratedReviews({
   xaiUrl,
   xaiKey,
   model = "grok-4-latest",
+  attempted_urls = [],
 } = {}) {
   const started = Date.now();
 
@@ -679,21 +680,26 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // Review prompt: XAI investigates and returns 5 qualified, verified reviews.
-  // Prioritize blog/magazine (3) over YouTube (2) — YouTube IDs are frequently hallucinated.
+  // Review prompt: XAI investigates using web_search + browse_page tools, returns 5 verified reviews.
+  // Prioritize YouTube (3) over blog/magazine (2) per user guidance.
+  const attemptedExclusion = Array.isArray(attempted_urls) && attempted_urls.length > 0
+    ? `\nPREVIOUSLY TRIED URLs (all failed verification — do NOT return any of these):\n${attempted_urls.map((u) => `- ${u}`).join("\n")}\nFind DIFFERENT sources instead.\n`
+    : "";
+
   const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find 5 unique, legitimate third-party reviews with verified, working URLs.
 
 INVESTIGATION REQUIREMENTS:
-- Visit each URL you plan to return and confirm the page loads with real content about "${name}"
-- Do NOT return any URL you have not personally verified loads correctly
-- Do NOT fabricate or guess YouTube video IDs — only return YouTube URLs for videos you can confirm exist
+- Use web_search to discover candidate review URLs for "${name}" and its products
+- Use browse_page on EVERY URL you plan to return to confirm the page loads with real content about "${name}"
+- Do NOT return any URL you have not verified with browse_page
+- Do NOT fabricate or guess YouTube video IDs — only return YouTube URLs for videos you can confirm exist via browse_page
 - If you cannot find enough verified YouTube reviews, return more blog/magazine reviews instead
 - Accuracy is paramount. It is better to return 3 verified reviews than 5 with unverified URLs.
-
+${attemptedExclusion}
 TARGET MIX:
-- 3 reviews from magazines, blogs, or review sites (e.g. Runner's World, Healthline, fitness blogs, industry publications)
-- 2 YouTube video reviews about "${name}" or its products
-- If you cannot verify 2 YouTube videos exist, replace them with additional blog/magazine reviews
+- 3 YouTube video reviews focused on the company or its products
+- 2 reviews from magazines, blogs, or review sites (e.g. Runner's World, Healthline, fitness blogs, industry publications)
+- If you cannot verify 3 YouTube videos exist, replace them with additional blog/magazine reviews
 
 QUALITY STANDARDS:
 - Each review MUST be specifically about "${name}" or its products
@@ -705,25 +711,14 @@ QUALITY STANDARDS:
 
 Exclude sources from these domains: ${excludeDomains.join(", ")}
 
-For each review, include:
-- source_name: Exact channel name (YouTube) or publication name (blog)
-- source_url: Direct URL to the video/article (NOT search results, NOT the site's homepage)
-- category: "youtube" or "blog"
-- title: Exact title of the video/article (do NOT paraphrase)
-- excerpt: Direct quote from the review (1-2 sentences, no ellipses)
+Output each review in the exact plain-text format below. Separate each review with one blank line. Do NOT use any markdown formatting (no bold, no headers, no asterisks, no bullet points).
 
-Output STRICT JSON only:
-{
-  "reviews_url_candidates": [
-    {
-      "source_url": "https://...",
-      "source_name": "Publication or Channel Name",
-      "category": "blog",
-      "title": "Exact Title",
-      "excerpt": "Direct quote from the review..."
-    }
-  ]
-}`.trim();
+Source: [Name of publication, channel, or website]
+Author: [Author or channel name]
+URL: [Direct URL to the review/article/video, not the site root]
+Title: [Exact title as published]
+Date: [Publication date, any format]
+Text: [1-3 sentence excerpt or summary of the review]`.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.reviews;
 
@@ -785,24 +780,51 @@ Output STRICT JSON only:
     };
   }
 
-  const parsed = parseJsonFromXaiResponse(r.resp);
+  // Parse response — try plain-text format first (Source:/Author:/URL:), fall back to JSON.
+  const rawText = asString(extractTextFromXaiResponse(r.resp));
+  let rawCandidates = null;
 
-  const rawCandidates =
-    parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? Array.isArray(parsed.reviews_url_candidates)
-        ? parsed.reviews_url_candidates
-        : Array.isArray(parsed.review_candidates)
-          ? parsed.review_candidates
-          : null
-      : null;
+  // Plain-text parser: split on "Source:" blocks
+  if (rawText && /\bSource:\s*.+/i.test(rawText)) {
+    const blocks = rawText.split(/(?:^|\n)(?=Source:\s)/i).filter((b) => b.trim());
+    const ptCandidates = [];
+    for (const block of blocks) {
+      const getField = (label) => {
+        const m = block.match(new RegExp(`^${label}:\\s*(.+)`, "im"));
+        return m ? m[1].trim() : "";
+      };
+      const url = getField("URL");
+      if (!url) continue;
+      ptCandidates.push({
+        source_url: url,
+        source_name: getField("Source") || null,
+        title: getField("Title") || null,
+        excerpt: getField("Text") || null,
+        category: isYouTubeUrl(url) ? "youtube" : "blog",
+      });
+    }
+    if (ptCandidates.length > 0) rawCandidates = ptCandidates;
+  }
+
+  // Fall back to JSON parsing if plain-text didn't yield results
+  if (!rawCandidates) {
+    const parsed = parseJsonFromXaiResponse(r.resp);
+    rawCandidates =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? Array.isArray(parsed.reviews_url_candidates)
+          ? parsed.reviews_url_candidates
+          : Array.isArray(parsed.review_candidates)
+            ? parsed.review_candidates
+            : null
+        : null;
+  }
 
   if (!rawCandidates) {
-    const rawText = asString(extractTextFromXaiResponse(r.resp));
     return {
       curated_reviews: [],
-      reviews_stage_status: "invalid_json",
+      reviews_stage_status: "invalid_response",
       diagnostics: {
-        reason: "missing_reviews_url_candidates",
+        reason: "no_parseable_reviews",
         raw_preview: rawText ? rawText.slice(0, 1200) : null,
       },
       search_telemetry: searchBuild.telemetry,
@@ -849,7 +871,7 @@ Output STRICT JSON only:
     deduped.push({ ...c, source_url: u });
   }
 
-  const attempted_urls = [];
+  const this_attempt_urls = [];
   const verified_youtube = [];
   const verified_blog = [];
   const usedBlogHosts = new Set();
@@ -863,7 +885,7 @@ Output STRICT JSON only:
 
   for (const c of deduped) {
     if (Date.now() - started > budgetMs - 1500) break;
-    // Need 5 total reviews (3 blog/magazine + 2 YouTube target)
+    // Need 5 total reviews (3 YouTube + 2 blog/magazine target)
     const totalVerified = verified_youtube.length + verified_blog.length;
     if (totalVerified >= 5) break;
 
@@ -878,7 +900,7 @@ Output STRICT JSON only:
       continue;
     }
 
-    attempted_urls.push(c.source_url);
+    this_attempt_urls.push(c.source_url);
     const perUrlTimeoutMs = c.category === "youtube" ? youtubeTimeoutMs : blogTimeoutMs;
     let verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
 
@@ -995,7 +1017,7 @@ Output STRICT JSON only:
     console.log(`[grokEnrichment] reviews: skipped ${dropped} unverified blog(s) with dead URLs`);
   }
 
-  // Best 5 reviews (prefer blogs, then YouTube — target 3 blog + 2 YouTube)
+  // Best 5 reviews (prefer YouTube, then blogs — target 3 YouTube + 2 blog)
   const curated_reviews = [...verified_youtube, ...verified_blog].slice(0, 5);
   const youtubeCount = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length;
   const blogCount = curated_reviews.length - youtubeCount;
@@ -1009,13 +1031,13 @@ Output STRICT JSON only:
 
     // Mark as exhausted only after trying ALL deduped candidates.
     // XAI now returns pre-investigated results, so we should try every one before giving up.
-    const isExhausted = attempted_urls.length >= deduped.length;
+    const isExhausted = this_attempt_urls.length >= deduped.length;
 
     const value = {
       curated_reviews,
       reviews_stage_status: "incomplete",
       incomplete_reason: reasonParts.join(",") || "insufficient_verified_reviews",
-      attempted_urls,
+      attempted_urls: this_attempt_urls,
       diagnostics: {
         candidate_count: candidates.length,
         verified_count: curated_reviews.length,
@@ -1040,7 +1062,7 @@ Output STRICT JSON only:
       youtube_verified: youtubeCount,
       blog_verified: blogCount,
     },
-    attempted_urls,
+    attempted_urls: this_attempt_urls,
     search_telemetry: searchBuild.telemetry,
     excluded_hosts: searchBuild.excluded_hosts,
   };
@@ -2057,7 +2079,7 @@ INDUSTRIES: Return as a JSON array of industry strings.
 
 KEYWORDS: Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.
 
-REVIEWS: Find 5 unique, legitimate third-party reviews with verified, working URLs. Visit each URL to confirm it loads with real content about this company. Return 3 from magazines/blogs/review sites and 2 from YouTube. If you cannot verify 2 YouTube videos exist, replace them with additional blog/magazine reviews. Do not fabricate YouTube video IDs. Fields: "source_name", "author", "source_url" (the actual URL of the review, not the homepage), "title", "date", "excerpt". Accuracy is paramount. Do not include the same author more than once.
+REVIEWS: Find 5 unique, legitimate third-party reviews with verified, working URLs. Use web_search to discover candidates and browse_page to verify each URL loads with real content about this company. Return 3 YouTube video reviews and 2 from magazines/blogs/review sites. If you cannot verify 3 YouTube videos exist, replace them with additional blog/magazine reviews. Do not fabricate YouTube video IDs — only return YouTube URLs verified via browse_page. Fields: "source_name", "author", "source_url" (the actual URL of the review, not the homepage), "title", "date", "excerpt". Accuracy is paramount. Do not include the same author more than once.
 
 Return STRICT JSON only:
 {

@@ -7,6 +7,7 @@
 
 const { buildInternalFetchRequest } = require("../_internalJobAuth");
 const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
+const { enqueueResumeRun } = require("../_enrichmentQueue");
 const {
   nowIso,
   normalizeKey,
@@ -204,6 +205,33 @@ async function runWatchdogStuckDetection(ctx, opts) {
           resume_worker_watchdog_last_finished_at: watchdog_last_finished_at,
           updated_at: nowIso(),
         }).catch(() => null);
+      }
+
+      // Belt-and-suspenders: re-enqueue a queue message so the Azure queue trigger
+      // can pick it up even if admin stops polling (which kills inline invocations).
+      // The resume worker's cycle_count idempotency prevents duplicate work if both
+      // the inline invocation AND the queue trigger fire.
+      try {
+        const cycleCount = Number(sessionDocForWatchdog?.resume_cycle_count || 0) || 0;
+        const companyIds = Array.isArray(sessionDocForWatchdog?.saved_company_ids_verified)
+          ? sessionDocForWatchdog.saved_company_ids_verified
+          : [];
+        const enqRes = await enqueueResumeRun({
+          session_id: ctx.sessionId,
+          company_ids: companyIds,
+          reason: "watchdog_stuck_queued_reenqueue",
+          requested_by: "import_status_watchdog",
+          cycle_count: cycleCount,
+          run_after_ms: 5_000, // short delay — the original queue message already failed
+        });
+        ctx.stageBeaconValues.status_watchdog_reenqueue_ok = Boolean(enqRes?.ok);
+        ctx.stageBeaconValues.status_watchdog_reenqueue_message_id = enqRes?.message_id || null;
+        if (!enqRes?.ok) {
+          ctx.stageBeaconValues.status_watchdog_reenqueue_error = enqRes?.error || "unknown";
+        }
+      } catch (enqErr) {
+        ctx.stageBeaconValues.status_watchdog_reenqueue_ok = false;
+        ctx.stageBeaconValues.status_watchdog_reenqueue_error = enqErr?.message || "exception";
       }
     }
   } catch {}

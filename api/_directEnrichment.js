@@ -345,6 +345,11 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     updated.product_keywords = enriched.product_keywords.product_keywords;
     updated.product_keywords_status = enriched.product_keywords.product_keywords_status || "ok";
     updated.product_keywords_searched_at = enriched.product_keywords.searched_at;
+    // Sync to keywords array — admin edit page reads keywords first (via buildCompanyDraft),
+    // and an empty [] from seed time is truthy so it never falls through to product_keywords.
+    if (Array.isArray(enriched.product_keywords.product_keywords) && enriched.product_keywords.product_keywords.length > 0) {
+      updated.keywords = enriched.product_keywords.product_keywords;
+    }
   }
 
   // Apply reviews — write to curated_reviews (the persisted schema field)

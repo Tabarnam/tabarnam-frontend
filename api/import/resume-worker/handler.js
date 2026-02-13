@@ -2086,8 +2086,12 @@ async function resumeWorkerHandler(req, context) {
             console.log(`[resume-worker] logo result: status=${r?.logo_status}, url=${r?.logo_url || "(none)"}`);
           }
           if (field === "reviews") {
-            console.log(`[resume-worker] reviews budget: freshSeedBudgetMs=${freshSeedBudgetMs}, grokArgsForField.budgetMs=${grokArgsForField?.budgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}`);
-            r = await fetchCuratedReviews(grokArgsForField);
+            // Pass previously-failed URLs so XAI doesn't return the same fabricated URLs
+            const priorAttemptedUrls = Array.isArray(doc?.review_cursor?.attempted_urls)
+              ? doc.review_cursor.attempted_urls
+              : [];
+            console.log(`[resume-worker] reviews budget: freshSeedBudgetMs=${freshSeedBudgetMs}, grokArgsForField.budgetMs=${grokArgsForField?.budgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, priorAttemptedUrls=${priorAttemptedUrls.length}`);
+            r = await fetchCuratedReviews({ ...grokArgsForField, attempted_urls: priorAttemptedUrls });
             console.log(`[resume-worker] reviews result: status=${r?.reviews_stage_status}, diagnostics=${JSON.stringify(r?.diagnostics || {})}`);
           }
         } catch (e) {
@@ -2438,7 +2442,10 @@ async function resumeWorkerHandler(req, context) {
               doc.review_cursor.last_success_at = nowIso();
               doc.review_cursor.last_error = null;
               doc.review_cursor.incomplete_reason = null;
-              doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
+              // Merge new attempted URLs with prior ones for cross-attempt tracking
+              const newAttempted = Array.isArray(r?.attempted_urls) ? r.attempted_urls : [];
+              const priorUrls = Array.isArray(doc.review_cursor.attempted_urls) ? doc.review_cursor.attempted_urls : [];
+              doc.review_cursor.attempted_urls = [...new Set([...priorUrls, ...newAttempted])];
               markFieldSuccess(doc, "reviews");
               fieldProgress.status = "ok";
               savedFieldsThisRun.push("reviews");
@@ -2464,7 +2471,10 @@ async function resumeWorkerHandler(req, context) {
               doc.review_cursor.reviews_stage_status = "incomplete";
               doc.import_missing_reason.reviews = terminal ? "exhausted" : upstreamFailure ? status : "incomplete";
               doc.review_cursor.incomplete_reason = incompleteReason;
-              doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
+              // Merge new attempted URLs with prior ones for cross-attempt tracking
+              const newAttempted2 = Array.isArray(r?.attempted_urls) ? r.attempted_urls : [];
+              const priorUrls2 = Array.isArray(doc.review_cursor.attempted_urls) ? doc.review_cursor.attempted_urls : [];
+              doc.review_cursor.attempted_urls = [...new Set([...priorUrls2, ...newAttempted2])];
               doc.review_cursor.last_error = upstreamFailure
                 ? {
                     code: status,
@@ -3537,7 +3547,11 @@ async function resumeWorkerHandler(req, context) {
       let r;
       try {
         noteUpstreamCall();
-        r = await fetchCuratedReviews(grokArgs);
+        // Pass previously-failed URLs so XAI doesn't return the same fabricated URLs
+        const priorAttemptedUrls2 = Array.isArray(doc?.review_cursor?.attempted_urls)
+          ? doc.review_cursor.attempted_urls
+          : [];
+        r = await fetchCuratedReviews({ ...grokArgs, attempted_urls: priorAttemptedUrls2 });
       } catch (e) {
         const entry = recordWorkerError("reviews", "grok_reviews", e);
         const failure = isTimeoutLikeMessage(entry.message) ? "upstream_timeout" : "upstream_unreachable";
@@ -3569,7 +3583,10 @@ async function resumeWorkerHandler(req, context) {
         doc.review_cursor.last_success_at = nowIso();
         doc.review_cursor.last_error = null;
         doc.review_cursor.incomplete_reason = null;
-        doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
+        // Merge new attempted URLs with prior ones for cross-attempt tracking
+        const newAttempted3 = Array.isArray(r?.attempted_urls) ? r.attempted_urls : [];
+        const priorUrls3 = Array.isArray(doc.review_cursor.attempted_urls) ? doc.review_cursor.attempted_urls : [];
+        doc.review_cursor.attempted_urls = [...new Set([...priorUrls3, ...newAttempted3])];
 
         markFieldSuccess(doc, "reviews");
         changed = true;
@@ -3596,7 +3613,10 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason.reviews = terminal ? "exhausted" : upstreamFailure ? status : "incomplete";
 
         doc.review_cursor.incomplete_reason = incompleteReason;
-        doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
+        // Merge new attempted URLs with prior ones for cross-attempt tracking
+        const newAttempted4 = Array.isArray(r?.attempted_urls) ? r.attempted_urls : [];
+        const priorUrls4 = Array.isArray(doc.review_cursor.attempted_urls) ? doc.review_cursor.attempted_urls : [];
+        doc.review_cursor.attempted_urls = [...new Set([...priorUrls4, ...newAttempted4])];
 
         if (inferredStatus === "upstream_unreachable" || inferredStatus === "upstream_timeout") {
           const entry = recordWorkerError("reviews", "grok_reviews", r?.diagnostics || r, {
