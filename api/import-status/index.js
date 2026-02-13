@@ -789,6 +789,45 @@ async function handler(req, context) {
           } catch {}
         }
 
+        // Staleness repair: if the resume doc has been "in_progress" for >5 min with no
+        // heartbeat update, the fire-and-forget enrichment promise was likely killed by
+        // Azure worker recycling. Convert to "queued" so the resume trigger can fire.
+        if (!STATUS_NO_ORCHESTRATION && resume_needed && resumeStatus === "in_progress") {
+          const resumeUpdatedTs = Date.parse(String(resumeDoc?.updated_at || "")) || 0;
+          const enrichStartedTs = Date.parse(String(resumeDoc?.enrichment_started_at || "")) || 0;
+          const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs);
+          const staleThresholdMs = 300_000; // 5 minutes
+
+          if (mostRecentTs && Date.now() - mostRecentTs > staleThresholdMs) {
+            const reopenedAt = nowIso();
+            stageBeaconValues.status_resume_stale_in_progress_recovered = reopenedAt;
+            resumeStatus = "queued";
+            lockUntil = 0;
+
+            try {
+              await upsertDoc(container, {
+                ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+                id: resumeDocId,
+                session_id: sessionId,
+                normalized_domain: "import",
+                partition_key: "import",
+                type: "import_control",
+                status: "queued",
+                resume_error: null,
+                resume_error_details: null,
+                lock_expires_at: null,
+                stale_in_progress_recovered_at: reopenedAt,
+                stale_in_progress_original_updated_at: resumeDoc?.updated_at || null,
+                stale_in_progress_age_ms: Date.now() - mostRecentTs,
+                updated_at: reopenedAt,
+                missing_by_company,
+              }).catch(() => null);
+            } catch {}
+
+            console.log(`[import-status] session=${sessionId} stale in_progress resume doc recovered to queued (age=${Date.now() - mostRecentTs}ms)`);
+          }
+        }
+
         // Blocked should win over queued even if only the session control doc was persisted.
         const sessionBeaconRaw =
           typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc.stage_beacon === "string"
@@ -1806,6 +1845,45 @@ async function handler(req, context) {
               sessionDoc.resume_needed = true;
               await upsertDoc(container, { ...sessionDoc }).catch(() => null);
             }
+          }
+        }
+
+        // Staleness repair: if the resume doc has been "in_progress" for >5 min with no
+        // heartbeat update, the fire-and-forget enrichment promise was likely killed by
+        // Azure worker recycling. Convert to "queued" so the resume trigger can fire.
+        if (!STATUS_NO_ORCHESTRATION && resume_needed && resumeStatus === "in_progress") {
+          const resumeUpdatedTs = Date.parse(String(currentResume?.updated_at || "")) || 0;
+          const enrichStartedTs = Date.parse(String(currentResume?.enrichment_started_at || "")) || 0;
+          const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs);
+          const staleThresholdMs = 300_000; // 5 minutes
+
+          if (mostRecentTs && Date.now() - mostRecentTs > staleThresholdMs) {
+            const reopenedAt = nowIso();
+            stageBeaconValues.status_resume_stale_in_progress_recovered = reopenedAt;
+            resumeStatus = "queued";
+            lockUntil = 0;
+
+            try {
+              await upsertDoc(container, {
+                ...(currentResume && typeof currentResume === "object" ? currentResume : {}),
+                id: resumeDocId,
+                session_id: sessionId,
+                normalized_domain: "import",
+                partition_key: "import",
+                type: "import_control",
+                status: "queued",
+                resume_error: null,
+                resume_error_details: null,
+                lock_expires_at: null,
+                stale_in_progress_recovered_at: reopenedAt,
+                stale_in_progress_original_updated_at: currentResume?.updated_at || null,
+                stale_in_progress_age_ms: Date.now() - mostRecentTs,
+                updated_at: reopenedAt,
+                missing_by_company,
+              }).catch(() => null);
+            } catch {}
+
+            console.log(`[import-status] session=${sessionId} stale in_progress resume doc recovered to queued (age=${Date.now() - mostRecentTs}ms)`);
           }
         }
 

@@ -1037,6 +1037,31 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       });
       await applyAndUpsertEnrichment(enrichResult1a, "PASS1a");
 
+      // ── Checkpoint: persist partial state so resume worker can recover if Azure kills us ──
+      try {
+        await upsertCosmosImportSessionDoc({ sessionId, requestId, patch: {
+          stage_beacon: "enrichment_partial",
+          enrichment_mode: "direct_http",
+          resume_needed: true,
+          resume_updated_at: new Date().toISOString(),
+          enrichment_last_pass: "PASS1a",
+          saved: ids.length, saved_count: ids.length, saved_verified_count: ids.length,
+          saved_company_ids_verified: [...ids], saved_company_ids: [...ids], saved_ids: [...ids],
+          updated_at: new Date().toISOString(),
+        }});
+        upsertImportSession({ session_id: sessionId, request_id: requestId,
+          status: "running", stage_beacon: "enrichment_partial",
+          saved: ids.length, saved_count: ids.length, saved_verified_count: ids.length,
+          saved_company_ids_verified: [...ids], resume_needed: true,
+        });
+        await upsertResumeDoc({ session_id: sessionId, status: "in_progress",
+          updated_at: new Date().toISOString(),
+        }).catch(() => null);
+        console.log(`[import-start] session=${sessionId} PASS1a checkpoint saved`);
+      } catch (ckErr) {
+        console.warn(`[import-start] session=${sessionId} PASS1a checkpoint failed: ${ckErr?.message || ckErr}`);
+      }
+
       // ── PASS1b: Dedicated HQ + mfg + keywords (skip redundant unified) ──
       const pass1aElapsed = Date.now() - pass1aStart;
       const pass1bBudgetMs = Math.min(150000, Math.max(60000, TOTAL_BUDGET_MS - pass1aElapsed - 240000));
@@ -1048,6 +1073,31 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         dedicatedOnly: true,
       });
       await applyAndUpsertEnrichment(enrichResult1b, "PASS1b");
+
+      // ── Checkpoint: persist partial state so resume worker can recover if Azure kills us ──
+      try {
+        await upsertCosmosImportSessionDoc({ sessionId, requestId, patch: {
+          stage_beacon: "enrichment_partial",
+          enrichment_mode: "direct_http",
+          resume_needed: true,
+          resume_updated_at: new Date().toISOString(),
+          enrichment_last_pass: "PASS1b",
+          saved: ids.length, saved_count: ids.length, saved_verified_count: ids.length,
+          saved_company_ids_verified: [...ids], saved_company_ids: [...ids], saved_ids: [...ids],
+          updated_at: new Date().toISOString(),
+        }});
+        upsertImportSession({ session_id: sessionId, request_id: requestId,
+          status: "running", stage_beacon: "enrichment_partial",
+          saved: ids.length, saved_count: ids.length, saved_verified_count: ids.length,
+          saved_company_ids_verified: [...ids], resume_needed: true,
+        });
+        await upsertResumeDoc({ session_id: sessionId, status: "in_progress",
+          updated_at: new Date().toISOString(),
+        }).catch(() => null);
+        console.log(`[import-start] session=${sessionId} PASS1b checkpoint saved`);
+      } catch (ckErr) {
+        console.warn(`[import-start] session=${sessionId} PASS1b checkpoint failed: ${ckErr?.message || ckErr}`);
+      }
 
       // ── PASS2: Reviews ──
       const totalElapsed = Date.now() - pass1aStart;
