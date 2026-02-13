@@ -1014,24 +1014,19 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       };
 
       // ═══════════════════════════════════════════════════════════════
-      // Three-save incremental enrichment: each phase saves to Cosmos
-      // independently so partial results survive Azure Function kill.
-      //   PASS1a — Unified prompt + verify (shallow core fields)
-      //   PASS1b — Dedicated HQ + mfg + keywords (deeper results)
-      //   PASS2  — Reviews (longest, may be retried by resume worker)
+      // Single-pass enrichment + resume worker for reviews.
+      // Fire-and-forget runs PASS1a only (unified + verify, ~37s) and
+      // saves a checkpoint. Reviews are always deferred to the resume
+      // worker which has a full 300s budget and survives worker recycling.
       // ═══════════════════════════════════════════════════════════════
       const ALL_CORE_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords"];
-      const DEEPEN_FIELDS = ["headquarters_location", "manufacturing_locations", "product_keywords"];
-      const REVIEW_FIELDS = ["reviews"];
-      const PASS1A_BUDGET_MS = 150000;  // 2.5 min: unified + verify (no Phase 3 deepening)
-      const TOTAL_BUDGET_MS = 480000;   // 8 min total
+      const ENRICHMENT_BUDGET_MS = 150000;  // 2.5 min: unified + verify (no Phase 3 deepening)
 
       // ── PASS1a: Unified + verify (NO Phase 3 deepening) ──
-      const pass1aStart = Date.now();
       const enrichResult1a = await runDirectEnrichment({
         company: companyDoc,
         sessionId,
-        budgetMs: PASS1A_BUDGET_MS,
+        budgetMs: ENRICHMENT_BUDGET_MS,
         fieldsToEnrich: [...ALL_CORE_FIELDS],
         skipDedicatedDeepening: true,
       });
@@ -1062,82 +1057,23 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         console.warn(`[import-start] session=${sessionId} PASS1a checkpoint failed: ${ckErr?.message || ckErr}`);
       }
 
-      // ── PASS1b: Dedicated HQ + mfg + keywords (skip redundant unified) ──
-      const pass1aElapsed = Date.now() - pass1aStart;
-      const pass1bBudgetMs = Math.min(150000, Math.max(60000, TOTAL_BUDGET_MS - pass1aElapsed - 240000));
-      const enrichResult1b = await runDirectEnrichment({
-        company: companyDoc,
-        sessionId,
-        budgetMs: pass1bBudgetMs,
-        fieldsToEnrich: [...DEEPEN_FIELDS],
-        dedicatedOnly: true,
-      });
-      await applyAndUpsertEnrichment(enrichResult1b, "PASS1b");
-
-      // ── Checkpoint: persist partial state so resume worker can recover if Azure kills us ──
-      try {
-        await upsertCosmosImportSessionDoc({ sessionId, requestId, patch: {
-          stage_beacon: "enrichment_partial",
-          enrichment_mode: "direct_http",
-          resume_needed: true,
-          resume_updated_at: new Date().toISOString(),
-          enrichment_last_pass: "PASS1b",
-          saved: ids.length, saved_count: ids.length, saved_verified_count: ids.length,
-          saved_company_ids_verified: [...ids], saved_company_ids: [...ids], saved_ids: [...ids],
-          updated_at: new Date().toISOString(),
-        }});
-        upsertImportSession({ session_id: sessionId, request_id: requestId,
-          status: "running", stage_beacon: "enrichment_partial",
-          saved: ids.length, saved_count: ids.length, saved_verified_count: ids.length,
-          saved_company_ids_verified: [...ids], resume_needed: true,
-        });
-        await upsertResumeDoc({ session_id: sessionId, status: "in_progress",
-          updated_at: new Date().toISOString(),
-        }).catch(() => null);
-        console.log(`[import-start] session=${sessionId} PASS1b checkpoint saved`);
-      } catch (ckErr) {
-        console.warn(`[import-start] session=${sessionId} PASS1b checkpoint failed: ${ckErr?.message || ckErr}`);
-      }
-
-      // ── PASS2: Reviews ──
-      const totalElapsed = Date.now() - pass1aStart;
-      const pass2BudgetMs = Math.max(TOTAL_BUDGET_MS - totalElapsed, 240000); // guarantee 4 min for reviews
-      const enrichResult2 = await runDirectEnrichment({
-        company: companyDoc,
-        sessionId,
-        budgetMs: pass2BudgetMs,
-        fieldsToEnrich: [...REVIEW_FIELDS],
-      });
-      await applyAndUpsertEnrichment(enrichResult2, "PASS2");
-
-      // Merge results from all three saves
+      // Reviews are deferred to resume worker (300s budget, survives worker recycling).
+      // PASS1a core fields are saved; checkpoint above ensures resume triggers.
       enrichmentResults.push({
         company_id: companyId,
-        ok: (enrichResult1a?.ok ?? false) && (enrichResult1b?.ok ?? false) && (enrichResult2?.ok ?? false),
-        fields_completed: [
-          ...(enrichResult1a?.fields_completed || []),
-          ...(enrichResult1b?.fields_completed || []),
-          ...(enrichResult2?.fields_completed || []),
-        ],
-        fields_failed: [
-          ...(enrichResult1a?.fields_failed || []),
-          ...(enrichResult1b?.fields_failed || []),
-          ...(enrichResult2?.fields_failed || []),
-        ],
-        elapsed_ms: (enrichResult1a?.elapsed_ms || 0) + (enrichResult1b?.elapsed_ms || 0) + (enrichResult2?.elapsed_ms || 0),
+        ok: enrichResult1a?.ok ?? false,
+        fields_completed: enrichResult1a?.fields_completed || [],
+        fields_failed: enrichResult1a?.fields_failed || [],
+        elapsed_ms: enrichResult1a?.elapsed_ms || 0,
       });
 
       logInfo(context, {
         event: "direct_enrichment_complete",
         session_id: sessionId,
         company_id: companyId,
-        ok: (enrichResult1a?.ok ?? false) && (enrichResult1b?.ok ?? false) && (enrichResult2?.ok ?? false),
-        fields_completed: [
-          ...(enrichResult1a?.fields_completed || []),
-          ...(enrichResult1b?.fields_completed || []),
-          ...(enrichResult2?.fields_completed || []),
-        ],
-        elapsed_ms: (enrichResult1a?.elapsed_ms || 0) + (enrichResult1b?.elapsed_ms || 0) + (enrichResult2?.elapsed_ms || 0),
+        ok: enrichResult1a?.ok ?? false,
+        fields_completed: enrichResult1a?.fields_completed || [],
+        elapsed_ms: enrichResult1a?.elapsed_ms || 0,
       });
     } catch (err) {
       enrichmentResults.push({
@@ -1148,19 +1084,17 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     }
   }
 
-  const allOk = enrichmentResults.every((r) => r.ok);
   const anyOk = enrichmentResults.some((r) => r.ok);
 
-  // Update session doc with enrichment telemetry + completion status.
-  // CRITICAL: This must set `status: "complete"` when all fields succeeded,
-  // otherwise the session doc stays at "running" forever and the UI shows
-  // "company doc missing" even though the company data IS persisted.
+  // Update session doc: always "running" + "enrichment_partial" because
+  // reviews are deferred to the resume worker. The resume worker will
+  // set "complete" after reviews are fetched.
   const postEnrichSessionPatch = {
-    status: allOk ? "complete" : "running",
-    stage_beacon: allOk ? "enrichment_complete" : "enrichment_partial",
+    status: "running",
+    stage_beacon: "enrichment_partial",
     enrichment_completed_at: new Date().toISOString(),
     enrichment_mode: "direct_http",
-    resume_needed: !allOk,
+    resume_needed: true,
     resume_updated_at: new Date().toISOString(),
     direct_enrichment_results: enrichmentResults.slice(0, 10),
     saved: ids.length,
@@ -1203,27 +1137,27 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     upsertImportSession({
       session_id: sessionId,
       request_id: requestId,
-      status: allOk ? "complete" : "running",
-      stage_beacon: allOk ? "enrichment_complete" : "enrichment_partial",
+      status: "running",
+      stage_beacon: "enrichment_partial",
       saved: ids.length,
       saved_count: ids.length,
       saved_verified_count: ids.length,
       saved_company_ids_verified: [...ids],
-      resume_needed: !allOk,
+      resume_needed: true,
     });
-    console.log(`[import-start] session=${sessionId} in-memory session store updated: beacon=${allOk ? "enrichment_complete" : "enrichment_partial"} resume_needed=${!allOk}`);
+    console.log(`[import-start] session=${sessionId} in-memory session store updated: beacon=enrichment_partial resume_needed=true`);
   } catch (memErr) {
     console.warn(`[import-start] session=${sessionId} in-memory session store update failed: ${memErr?.message || memErr}`);
   }
 
-  // Update resume doc status
+  // Update resume doc — core fields saved, reviews deferred to resume worker.
   await upsertResumeDoc({
     session_id: sessionId,
-    status: allOk ? "completed" : anyOk ? "partial" : "stalled",
+    status: anyOk ? "queued" : "stalled",
     updated_at: new Date().toISOString(),
     enrichment_completed_at: new Date().toISOString(),
     invocation_mode: "direct_http",
-    resume_error: allOk
+    resume_error: anyOk
       ? null
       : {
           code: "ENRICHMENT_INCOMPLETE",
@@ -1237,39 +1171,34 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     event: "direct_enrichment_batch_complete",
     session_id: sessionId,
     company_count: ids.length,
-    all_ok: allOk,
     any_ok: anyOk,
     invocation_mode: "direct_http",
   });
 
-  // If some companies had field failures, queue resume-worker for retry.
-  // Previously this path was unreachable because invoked=true prevented the
-  // fallback at the call-site from firing.
-  if (!allOk) {
-    const failedCompanyIds = enrichmentResults
-      .filter((r) => !r.ok || (Array.isArray(r.fields_failed) && r.fields_failed.length > 0))
-      .map((r) => r.company_id)
-      .filter(Boolean);
+  // If core-field enrichment failed for any companies, queue immediate retry.
+  const failedCompanyIds = enrichmentResults
+    .filter((r) => !r.ok || (Array.isArray(r.fields_failed) && r.fields_failed.length > 0))
+    .map((r) => r.company_id)
+    .filter(Boolean);
 
-    if (failedCompanyIds.length > 0) {
-      try {
-        await enqueueResumeRun({
-          session_id: sessionId,
-          company_ids: failedCompanyIds,
-          reason: "partial_enrichment_retry",
-          requested_by: "direct_enrichment",
-          run_after_ms: 30000, // 30-second delay for transient failures
-        });
-        logInfo(context, {
-          event: "partial_enrichment_retry_queued",
-          session_id: sessionId,
-          failed_company_ids: failedCompanyIds,
-          delay_ms: 30000,
-        });
-      } catch (qErr) {
-        // Queue failure is non-fatal; the resume-worker may still pick it up via polling.
-        console.warn(`[maybeQueueAndInvokeMandatoryEnrichment] partial retry queue failed: ${qErr?.message || qErr}`);
-      }
+  if (failedCompanyIds.length > 0) {
+    try {
+      await enqueueResumeRun({
+        session_id: sessionId,
+        company_ids: failedCompanyIds,
+        reason: "partial_enrichment_retry",
+        requested_by: "direct_enrichment",
+        run_after_ms: 30000, // 30-second delay for transient failures
+      });
+      logInfo(context, {
+        event: "partial_enrichment_retry_queued",
+        session_id: sessionId,
+        failed_company_ids: failedCompanyIds,
+        delay_ms: 30000,
+      });
+    } catch (qErr) {
+      // Queue failure is non-fatal; the resume-worker may still pick it up via polling.
+      console.warn(`[maybeQueueAndInvokeMandatoryEnrichment] partial retry queue failed: ${qErr?.message || qErr}`);
     }
   }
 
@@ -1279,7 +1208,6 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     invoked: true,
     invocation_mode: "direct_http",
     enrichment_results: enrichmentResults,
-    all_ok: allOk,
     any_ok: anyOk,
   };
 }

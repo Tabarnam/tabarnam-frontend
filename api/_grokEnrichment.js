@@ -2514,7 +2514,6 @@ async function enrichCompanyFields({
   xaiKey,
   fieldsToEnrich,
   skipDedicatedDeepening = false,
-  dedicatedOnly = false,
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -2531,28 +2530,6 @@ async function enrichCompanyFields({
       : missingShortNames;
 
   const domain = normalizeDomain(normalizedDomain || websiteUrl);
-
-  // dedicatedOnly: skip Phase 1+2, go straight to dedicated per-field calls.
-  // Used by PASS1b to avoid redundant unified prompt after PASS1a already ran it.
-  if (dedicatedOnly) {
-    const LONG_TO_SHORT = {
-      headquarters_location: "headquarters", manufacturing_locations: "manufacturing",
-      product_keywords: "keywords", reviews: "reviews", tagline: "tagline", industries: "industries",
-    };
-    const shortFields = (fieldsToEnrich || []).map(f => LONG_TO_SHORT[f] || f);
-    console.log(`[enrichCompanyFields] dedicatedOnly: [${shortFields.join(", ")}], budget=${budgetMs}ms`);
-    const { filled, field_statuses } = await fillMissingFieldsIndividually(
-      shortFields,
-      { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
-    );
-    return {
-      ok: true,
-      method: "dedicated_only",
-      proposed: filled,
-      field_statuses,
-      elapsed_ms: Date.now() - started,
-    };
-  }
 
   // Phase 1: Unified prompt
   console.log(`[enrichCompanyFields] Phase 1: unified prompt for "${companyName}" (${domain}), budget=${budgetMs}ms`);

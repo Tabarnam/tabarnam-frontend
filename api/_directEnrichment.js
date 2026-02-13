@@ -136,7 +136,6 @@ async function runDirectEnrichment({
   fieldsToEnrich,
   existingAttempts = {},
   skipDedicatedDeepening = false,
-  dedicatedOnly = false,
 } = {}) {
   const startedAt = Date.now();
   const resolvedXaiUrl = asString(xaiUrl).trim() || getXAIEndpoint();
@@ -186,7 +185,6 @@ async function runDirectEnrichment({
       xaiKey: resolvedXaiKey,
       fieldsToEnrich,
       skipDedicatedDeepening,
-      dedicatedOnly,
     });
 
     result.enrichment_method = ecf.method || "unified";
