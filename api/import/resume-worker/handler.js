@@ -2531,6 +2531,29 @@ async function resumeWorkerHandler(req, context) {
       docsById.set(companyId, doc);
     }
 
+    // Defensive: enqueue retry EARLY, before post-enrichment doc writes that Azure may kill.
+    // If any field is retryable, queue a retry immediately. The regular self-enqueue at the
+    // end of post-enrichment will also fire (with proper backoff), but if Azure kills the
+    // worker between here and there, this early enqueue ensures reviews get retried.
+    try {
+      const hasRetryable = attemptedFieldsThisRun.length > 0 &&
+        Object.values(progressRoot?.enrichment_progress || {}).some((byField) =>
+          byField && typeof byField === "object" &&
+          Object.values(byField).some((p) => p?.status === "retryable")
+        );
+      if (hasRetryable && cycleCount + 1 < MAX_RESUME_CYCLES) {
+        console.log(`[resume-worker] early_defensive_enqueue: retryable fields detected, queueing retry before doc writes`);
+        await enqueueResumeRun({
+          session_id: sessionId,
+          reason: "early_defensive_retry",
+          requested_by: "resume_worker",
+          enqueue_at: nowIso(),
+          cycle_count: cycleCount + 1,
+          run_after_ms: 30_000,
+        }).catch(() => null);
+      }
+    } catch {}
+
     const updatedAt = nowIso();
 
     // Compute remaining required fields using the authoritative contract.
@@ -2664,7 +2687,7 @@ async function resumeWorkerHandler(req, context) {
       lastBackoffMs = backoff.backoff_ms;
       nextAllowedRunAt = new Date(Date.now() + backoff.backoff_ms).toISOString();
 
-      // Check stop doc again before self-scheduling.
+      // Self-schedule retry BEFORE any doc writes — Azure may kill the worker at any time.
       const stopped = await isSessionStopped(container, sessionId);
       if (!stopped) {
         enqueueRes = await enqueueResumeRun({
@@ -2675,6 +2698,9 @@ async function resumeWorkerHandler(req, context) {
           cycle_count: nextCycleCount,
           run_after_ms: backoff.backoff_ms,
         }).catch((e) => ({ ok: false, error: e?.message || String(e || "enqueue_failed") }));
+        console.log(`[resume-worker] auto_retry_enqueue: ok=${Boolean(enqueueRes?.ok)}, backoff_ms=${backoff.backoff_ms}, cycle=${nextCycleCount}, message_id=${enqueueRes?.message_id || "(none)"}, error=${enqueueRes?.error || "(none)"}`);
+      } else {
+        console.log(`[resume-worker] auto_retry_enqueue: skipped (session stopped)`);
       }
 
       if (enqueueRes?.ok) {
