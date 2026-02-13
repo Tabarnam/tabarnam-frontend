@@ -85,6 +85,11 @@ function isFieldComplete(fieldKey, value, status) {
   if (status === "ok" || status === "not_found" || status === "not_disclosed") {
     return true;
   }
+  // "incomplete" means the field has partial data but didn't meet its target
+  // (e.g. 2 of 5 reviews found). Treat as NOT complete so resume worker retries.
+  if (status === "incomplete") {
+    return false;
+  }
 
   switch (fieldKey) {
     case "tagline":

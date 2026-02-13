@@ -2484,7 +2484,10 @@ async function fillMissingFieldsIndividually(missingFields, {
       case "reviews":
         if (Array.isArray(val.curated_reviews) && val.curated_reviews.length > 0) {
           filled.reviews = val.curated_reviews;
-          field_statuses.reviews = "ok";
+          // Mark "ok" only when 5-review target met; "incomplete" saves partial
+          // results while signaling resume worker that more reviews are needed.
+          const reviewTarget = 5;
+          field_statuses.reviews = val.curated_reviews.length >= reviewTarget ? "ok" : "incomplete";
         } else {
           field_statuses.reviews = val.reviews_stage_status || "empty";
         }
@@ -2548,6 +2551,9 @@ async function enrichCompanyFields({
     // Phase 3: Dedicated deepening for keywords, reviews, HQ, and mfg.
     // Phase 1 unified prompt produces shallow keywords (nav labels) and unreliable reviews.
     // Dedicated fetchers have stronger prompts, more tokens, and longer timeouts.
+    // Save Phase 2 verified reviews as fallback before zeroing — if Phase 3
+    // dedicated call returns 0 (XAI hallucinated URLs), we still keep these.
+    const phase2VerifiedReviews = Array.isArray(verified.reviews) ? [...verified.reviews] : [];
     // Discard Phase 1 results for these fields so dedicated calls always run.
     verified.product_keywords = [];
     verified.reviews = [];
@@ -2571,6 +2577,16 @@ async function enrichCompanyFields({
       );
       Object.assign(verified, filled);
       fallback_statuses = fStatuses;
+    }
+
+    // If Phase 3 dedicated reviews returned nothing, fall back to Phase 2 verified reviews.
+    // Phase 2 verifies Phase 1 unified-prompt review URLs; Phase 3 makes a fresh XAI call
+    // that may hallucinate different URLs. When Phase 3 finds 0, the Phase 2 results are
+    // still valid and should be preserved rather than discarding everything.
+    if ((!Array.isArray(verified.reviews) || verified.reviews.length === 0) && phase2VerifiedReviews.length > 0) {
+      verified.reviews = phase2VerifiedReviews;
+      fallback_statuses.reviews = phase2VerifiedReviews.length >= 5 ? "ok" : "incomplete";
+      console.log(`[enrichCompanyFields] Phase 3 reviews empty — using ${phase2VerifiedReviews.length} Phase 2 verified review(s) as fallback`);
     }
 
     // Merge field statuses (only string values — skip detail objects like reviews_verification_detail)

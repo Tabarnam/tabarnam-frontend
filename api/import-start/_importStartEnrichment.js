@@ -1047,7 +1047,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       // Merge results from both passes
       enrichmentResults.push({
         company_id: companyId,
-        ok: (enrichResult1?.ok ?? false) || (enrichResult2?.ok ?? false),
+        ok: (enrichResult1?.ok ?? false) && (enrichResult2?.ok ?? false),
         fields_completed: [
           ...(enrichResult1?.fields_completed || []),
           ...(enrichResult2?.fields_completed || []),
@@ -1063,7 +1063,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         event: "direct_enrichment_complete",
         session_id: sessionId,
         company_id: companyId,
-        ok: (enrichResult1?.ok ?? false) || (enrichResult2?.ok ?? false),
+        ok: (enrichResult1?.ok ?? false) && (enrichResult2?.ok ?? false),
         fields_completed: [
           ...(enrichResult1?.fields_completed || []),
           ...(enrichResult2?.fields_completed || []),
