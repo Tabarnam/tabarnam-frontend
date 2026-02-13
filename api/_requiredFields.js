@@ -749,8 +749,15 @@ function deriveMissingReason(doc, field) {
 
   if (f === "reviews") {
     const stage = normalizeKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
-    if (stage === "exhausted") return "exhausted";
-    if (Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true)) return "exhausted";
+    const cursorExhausted = Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true);
+    if (stage === "exhausted" || cursorExhausted) {
+      // If exhausted with 0 verified reviews, keep retryable — XAI may find different URLs next time
+      const verifiedCount = Array.isArray(d.curated_reviews)
+        ? d.curated_reviews.filter(r => r && typeof r === "object").length
+        : 0;
+      if (verifiedCount === 0) return "exhausted_retryable";
+      return "exhausted";
+    }
   }
 
   const reasons =

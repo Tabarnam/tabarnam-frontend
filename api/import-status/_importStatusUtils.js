@@ -690,6 +690,18 @@ function toSavedCompanies(docs) {
             ? doc.import_missing_reason
             : null,
         import_warnings: Array.isArray(doc?.import_warnings) ? doc.import_warnings.slice(0, 25) : [],
+        // Actual field values for admin import display
+        keywords: Array.isArray(doc?.keywords) ? doc.keywords : [],
+        product_keywords: doc?.product_keywords ?? "",
+        industries: Array.isArray(doc?.industries) ? doc.industries : [],
+        tagline: typeof doc?.tagline === "string" ? doc.tagline : "",
+        headquarters_location: doc?.headquarters_location ?? "",
+        manufacturing_locations: Array.isArray(doc?.manufacturing_locations) ? doc.manufacturing_locations : [],
+        logo_url: typeof doc?.logo_url === "string" ? doc.logo_url.trim() : "",
+        curated_reviews: Array.isArray(doc?.curated_reviews) ? doc.curated_reviews : [],
+        review_count: typeof doc?.review_count === "number" ? doc.review_count : 0,
+        reviews_stage_status: typeof doc?.reviews_stage_status === "string" ? doc.reviews_stage_status : null,
+        review_cursor: doc?.review_cursor && typeof doc.review_cursor === "object" ? doc.review_cursor : null,
       };
     })
     .filter(Boolean);

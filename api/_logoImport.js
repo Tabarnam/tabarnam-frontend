@@ -335,8 +335,7 @@ function strongLogoSignal({ url, id = "", cls = "", alt = "" } = {}) {
   const hay = `${id} ${cls} ${alt} ${url}`;
   if (hasAnyToken(hay, ["logo", "wordmark", "logotype"])) return true;
   const ext = getFileExt(url);
-  if (ext === "svg") return true;
-  if (ext === "png" && hasAnyToken(hay, ["brand", "mark"])) return true;
+  if ((ext === "svg" || ext === "png") && hasAnyToken(hay, ["brand", "mark"])) return true;
   return false;
 }
 
@@ -350,6 +349,9 @@ function scoreCandidate({ url, source, id = "", cls = "", alt = "", idx = 0, wid
 
   if (hasAnyToken(hay, LOGO_POSITIVE_TOKENS)) score += 90;
   if (hasAnyToken(hay, ["header", "navbar", "nav"])) score += 10;
+  // Bonus when the filename itself contains logo-related terms
+  const filename = (url.split("/").pop() || "").split("?")[0].toLowerCase();
+  if (hasAnyToken(filename, ["logo", "brand", "wordmark"])) score += 40;
 
   if (hasAnyToken(hay, LOGO_NEGATIVE_TOKENS)) score -= 140;
 
@@ -1286,9 +1288,11 @@ function collectInlineSvgCandidates(html, baseUrl, { companyNameTokens, allowedH
 
       // Score: inline SVGs in the header with logo-like dimensions are high-confidence
       const hay = svgTag.toLowerCase();
-      let score = 300 + 45; // header base + SVG ext bonus
+      let score = 180 + 45; // header base + SVG ext bonus
       const hasLogoSignal = hasAnyToken(hay, ["logo", "wordmark", "logotype", "brand"]);
       if (hasLogoSignal) score += 80;
+      // Penalize hollow SVG sprite references (e.g. <use href="#icon-cart">)
+      if (/<use\b[^>]*\bhref=["']|<use\b[^>]*\bxlink:href=["']/i.test(svgTag)) score -= 120;
       // Wide-and-short aspect ratio typical of wordmarks
       if (effectiveW && effectiveH && effectiveW / effectiveH > 2) score += 40;
 
