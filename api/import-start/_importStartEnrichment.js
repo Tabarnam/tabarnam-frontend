@@ -1014,61 +1014,80 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       };
 
       // ═══════════════════════════════════════════════════════════════
-      // Two-pass enrichment: save core fields first so they survive
-      // Azure Function process kill during the long-running reviews phase.
+      // Three-save incremental enrichment: each phase saves to Cosmos
+      // independently so partial results survive Azure Function kill.
+      //   PASS1a — Unified prompt + verify (shallow core fields)
+      //   PASS1b — Dedicated HQ + mfg + keywords (deeper results)
+      //   PASS2  — Reviews (longest, may be retried by resume worker)
       // ═══════════════════════════════════════════════════════════════
-      const PASS1_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords"];
-      const PASS2_FIELDS = ["reviews"];
-      const PASS1_BUDGET_MS = 180000; // 3 minutes for core fields (unified + dedicated HQ/mfg/keyword deepening)
-      const TOTAL_BUDGET_MS = 480000; // 8 minutes total
+      const ALL_CORE_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords"];
+      const DEEPEN_FIELDS = ["headquarters_location", "manufacturing_locations", "product_keywords"];
+      const REVIEW_FIELDS = ["reviews"];
+      const PASS1A_BUDGET_MS = 150000;  // 2.5 min: unified + verify (no Phase 3 deepening)
+      const TOTAL_BUDGET_MS = 480000;   // 8 min total
 
-      // ── PASS 1: Core fields (non-reviews) ──
-      const pass1Start = Date.now();
-      const enrichResult1 = await runDirectEnrichment({
+      // ── PASS1a: Unified + verify (NO Phase 3 deepening) ──
+      const pass1aStart = Date.now();
+      const enrichResult1a = await runDirectEnrichment({
         company: companyDoc,
         sessionId,
-        budgetMs: PASS1_BUDGET_MS,
-        fieldsToEnrich: [...PASS1_FIELDS],
+        budgetMs: PASS1A_BUDGET_MS,
+        fieldsToEnrich: [...ALL_CORE_FIELDS],
+        skipDedicatedDeepening: true,
       });
-      await applyAndUpsertEnrichment(enrichResult1, "PASS1");
+      await applyAndUpsertEnrichment(enrichResult1a, "PASS1a");
 
-      // ── PASS 2: Reviews (longer running, may get killed by Azure) ──
-      const pass1Elapsed = Date.now() - pass1Start;
-      const pass2BudgetMs = Math.max(TOTAL_BUDGET_MS - pass1Elapsed, 240000); // guarantee 4 min for reviews
+      // ── PASS1b: Dedicated HQ + mfg + keywords (skip redundant unified) ──
+      const pass1aElapsed = Date.now() - pass1aStart;
+      const pass1bBudgetMs = Math.min(150000, Math.max(60000, TOTAL_BUDGET_MS - pass1aElapsed - 240000));
+      const enrichResult1b = await runDirectEnrichment({
+        company: companyDoc,
+        sessionId,
+        budgetMs: pass1bBudgetMs,
+        fieldsToEnrich: [...DEEPEN_FIELDS],
+        dedicatedOnly: true,
+      });
+      await applyAndUpsertEnrichment(enrichResult1b, "PASS1b");
 
+      // ── PASS2: Reviews ──
+      const totalElapsed = Date.now() - pass1aStart;
+      const pass2BudgetMs = Math.max(TOTAL_BUDGET_MS - totalElapsed, 240000); // guarantee 4 min for reviews
       const enrichResult2 = await runDirectEnrichment({
         company: companyDoc,
         sessionId,
         budgetMs: pass2BudgetMs,
-        fieldsToEnrich: [...PASS2_FIELDS],
+        fieldsToEnrich: [...REVIEW_FIELDS],
       });
       await applyAndUpsertEnrichment(enrichResult2, "PASS2");
 
-      // Merge results from both passes
+      // Merge results from all three saves
       enrichmentResults.push({
         company_id: companyId,
-        ok: (enrichResult1?.ok ?? false) && (enrichResult2?.ok ?? false),
+        ok: (enrichResult1a?.ok ?? false) && (enrichResult1b?.ok ?? false) && (enrichResult2?.ok ?? false),
         fields_completed: [
-          ...(enrichResult1?.fields_completed || []),
+          ...(enrichResult1a?.fields_completed || []),
+          ...(enrichResult1b?.fields_completed || []),
           ...(enrichResult2?.fields_completed || []),
         ],
         fields_failed: [
-          ...(enrichResult1?.fields_failed || []),
+          ...(enrichResult1a?.fields_failed || []),
+          ...(enrichResult1b?.fields_failed || []),
           ...(enrichResult2?.fields_failed || []),
         ],
-        elapsed_ms: (enrichResult1?.elapsed_ms || 0) + (enrichResult2?.elapsed_ms || 0),
+        elapsed_ms: (enrichResult1a?.elapsed_ms || 0) + (enrichResult1b?.elapsed_ms || 0) + (enrichResult2?.elapsed_ms || 0),
       });
 
       logInfo(context, {
         event: "direct_enrichment_complete",
         session_id: sessionId,
         company_id: companyId,
-        ok: (enrichResult1?.ok ?? false) && (enrichResult2?.ok ?? false),
+        ok: (enrichResult1a?.ok ?? false) && (enrichResult1b?.ok ?? false) && (enrichResult2?.ok ?? false),
         fields_completed: [
-          ...(enrichResult1?.fields_completed || []),
+          ...(enrichResult1a?.fields_completed || []),
+          ...(enrichResult1b?.fields_completed || []),
           ...(enrichResult2?.fields_completed || []),
         ],
-        elapsed_ms: (enrichResult1?.elapsed_ms || 0) + (enrichResult2?.elapsed_ms || 0),
+        elapsed_ms: (enrichResult1a?.elapsed_ms || 0) + (enrichResult1b?.elapsed_ms || 0) + (enrichResult2?.elapsed_ms || 0),
       });
     } catch (err) {
       enrichmentResults.push({

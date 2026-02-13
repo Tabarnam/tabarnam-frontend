@@ -19,7 +19,7 @@ const {
 } = require("./_importStatusUtils");
 const { readControlDoc, upsertDoc, STATUS_NO_ORCHESTRATION } = require("./_importStatusCosmos");
 
-const INLINE_RESUME_DEADLINE_MS = 15_000;
+const INLINE_RESUME_DEADLINE_MS = 300_000; // 5 min — enough for 1 fresh reviews XAI call
 
 // ── runBlockedStateAutoRetry ─────────────────────────────────────────────────
 

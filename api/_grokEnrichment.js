@@ -842,7 +842,7 @@ Output STRICT JSON only:
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
-    if (cacheKey) writeStageCache(cacheKey, value);
+    // Don't cache 0-candidate results — resume worker should retry with fresh XAI call
     return value;
   }
 
@@ -1015,7 +1015,8 @@ Output STRICT JSON only:
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
-    if (cacheKey) writeStageCache(cacheKey, value);
+    // Only cache if we have at least 1 verified review — don't cache total failures
+    if (cacheKey && curated_reviews.length > 0) writeStageCache(cacheKey, value);
     return value;
   }
 
@@ -2512,6 +2513,8 @@ async function enrichCompanyFields({
   xaiUrl,
   xaiKey,
   fieldsToEnrich,
+  skipDedicatedDeepening = false,
+  dedicatedOnly = false,
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -2528,6 +2531,28 @@ async function enrichCompanyFields({
       : missingShortNames;
 
   const domain = normalizeDomain(normalizedDomain || websiteUrl);
+
+  // dedicatedOnly: skip Phase 1+2, go straight to dedicated per-field calls.
+  // Used by PASS1b to avoid redundant unified prompt after PASS1a already ran it.
+  if (dedicatedOnly) {
+    const LONG_TO_SHORT = {
+      headquarters_location: "headquarters", manufacturing_locations: "manufacturing",
+      product_keywords: "keywords", reviews: "reviews", tagline: "tagline", industries: "industries",
+    };
+    const shortFields = (fieldsToEnrich || []).map(f => LONG_TO_SHORT[f] || f);
+    console.log(`[enrichCompanyFields] dedicatedOnly: [${shortFields.join(", ")}], budget=${budgetMs}ms`);
+    const { filled, field_statuses } = await fillMissingFieldsIndividually(
+      shortFields,
+      { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
+    );
+    return {
+      ok: true,
+      method: "dedicated_only",
+      proposed: filled,
+      field_statuses,
+      elapsed_ms: Date.now() - started,
+    };
+  }
 
   // Phase 1: Unified prompt
   console.log(`[enrichCompanyFields] Phase 1: unified prompt for "${companyName}" (${domain}), budget=${budgetMs}ms`);
@@ -2549,44 +2574,52 @@ async function enrichCompanyFields({
     );
 
     // Phase 3: Dedicated deepening for keywords, reviews, HQ, and mfg.
-    // Phase 1 unified prompt produces shallow keywords (nav labels) and unreliable reviews.
-    // Dedicated fetchers have stronger prompts, more tokens, and longer timeouts.
-    // Save Phase 2 verified reviews as fallback before zeroing — if Phase 3
-    // dedicated call returns 0 (XAI hallucinated URLs), we still keep these.
-    const phase2VerifiedReviews = Array.isArray(verified.reviews) ? [...verified.reviews] : [];
-    // Discard Phase 1 results for these fields so dedicated calls always run.
-    verified.product_keywords = [];
-    verified.reviews = [];
-    verified.headquarters_location = "";
-    verified.manufacturing_locations = [];
-
-    const missing = findMissingFields(verified);
-    // Force dedicated calls even if findMissingFields doesn't list them
-    const ALWAYS_DEEPEN = ["keywords", "reviews", "headquarters", "manufacturing"];
-    for (const field of ALWAYS_DEEPEN) {
-      if (!missing.includes(field)) missing.push(field);
-    }
-    const filteredMissing = filterMissingByTarget(missing);
+    // skipDedicatedDeepening: when true, return Phase 1+2 results as-is (used by
+    // PASS1a for a fast Cosmos save before Azure kills the process).
     let fallback_statuses = {};
+    let missing = [];
 
-    if (filteredMissing.length > 0 && getRemainingMs() > 30000) {
-      console.log(`[enrichCompanyFields] Phase 3: dedicated deepening [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms`);
-      const { filled, field_statuses: fStatuses } = await fillMissingFieldsIndividually(
-        filteredMissing,
-        { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
-      );
-      Object.assign(verified, filled);
-      fallback_statuses = fStatuses;
-    }
+    if (!skipDedicatedDeepening) {
+      // Phase 1 unified prompt produces shallow keywords (nav labels) and unreliable reviews.
+      // Dedicated fetchers have stronger prompts, more tokens, and longer timeouts.
+      // Save Phase 2 verified reviews as fallback before zeroing — if Phase 3
+      // dedicated call returns 0 (XAI hallucinated URLs), we still keep these.
+      const phase2VerifiedReviews = Array.isArray(verified.reviews) ? [...verified.reviews] : [];
+      // Discard Phase 1 results for these fields so dedicated calls always run.
+      verified.product_keywords = [];
+      verified.reviews = [];
+      verified.headquarters_location = "";
+      verified.manufacturing_locations = [];
 
-    // If Phase 3 dedicated reviews returned nothing, fall back to Phase 2 verified reviews.
-    // Phase 2 verifies Phase 1 unified-prompt review URLs; Phase 3 makes a fresh XAI call
-    // that may hallucinate different URLs. When Phase 3 finds 0, the Phase 2 results are
-    // still valid and should be preserved rather than discarding everything.
-    if ((!Array.isArray(verified.reviews) || verified.reviews.length === 0) && phase2VerifiedReviews.length > 0) {
-      verified.reviews = phase2VerifiedReviews;
-      fallback_statuses.reviews = phase2VerifiedReviews.length >= 5 ? "ok" : "incomplete";
-      console.log(`[enrichCompanyFields] Phase 3 reviews empty — using ${phase2VerifiedReviews.length} Phase 2 verified review(s) as fallback`);
+      const missing = findMissingFields(verified);
+      // Force dedicated calls even if findMissingFields doesn't list them
+      const ALWAYS_DEEPEN = ["keywords", "reviews", "headquarters", "manufacturing"];
+      for (const field of ALWAYS_DEEPEN) {
+        if (!missing.includes(field)) missing.push(field);
+      }
+      const filteredMissing = filterMissingByTarget(missing);
+
+      if (filteredMissing.length > 0 && getRemainingMs() > 30000) {
+        console.log(`[enrichCompanyFields] Phase 3: dedicated deepening [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms`);
+        const { filled, field_statuses: fStatuses } = await fillMissingFieldsIndividually(
+          filteredMissing,
+          { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
+        );
+        Object.assign(verified, filled);
+        fallback_statuses = fStatuses;
+      }
+
+      // If Phase 3 dedicated reviews returned nothing, fall back to Phase 2 verified reviews.
+      // Phase 2 verifies Phase 1 unified-prompt review URLs; Phase 3 makes a fresh XAI call
+      // that may hallucinate different URLs. When Phase 3 finds 0, the Phase 2 results are
+      // still valid and should be preserved rather than discarding everything.
+      if ((!Array.isArray(verified.reviews) || verified.reviews.length === 0) && phase2VerifiedReviews.length > 0) {
+        verified.reviews = phase2VerifiedReviews;
+        fallback_statuses.reviews = phase2VerifiedReviews.length >= 5 ? "ok" : "incomplete";
+        console.log(`[enrichCompanyFields] Phase 3 reviews empty — using ${phase2VerifiedReviews.length} Phase 2 verified review(s) as fallback`);
+      }
+    } else {
+      console.log(`[enrichCompanyFields] skipDedicatedDeepening=true — returning Phase 1+2 results, remaining=${getRemainingMs()}ms`);
     }
 
     // Merge field statuses (only string values — skip detail objects like reviews_verification_detail)
