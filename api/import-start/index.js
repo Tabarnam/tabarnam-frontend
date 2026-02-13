@@ -107,6 +107,8 @@ const {
   hasMeaningfulSeedEnrichment: _hasMeaningfulSeedEnrichment,
   isValidSeedCompany: _isValidSeedCompany,
   computeEnrichmentMissingFields,
+  applyLowQualityPolicy: applyLowQualityPolicyCore,
+  pushMissingFieldEntry,
 } = require("./_importStartCompanyUtils");
 
 // ── Extracted module: request/body parsing, URL utilities, xAI helpers ────────
@@ -5002,95 +5004,37 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                 const LOW_QUALITY_MAX_ATTEMPTS = 3;
 
-                const applyLowQualityPolicy = (field, reason) => {
-                  const f = String(field || "").trim();
-                  const r = String(reason || "").trim();
-                  if (!f) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
-
-                  const supportsTerminalization = r === "low_quality" || r === "not_found";
-                  if (!supportsTerminalization) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
-
-                  const terminalReason = r === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
-
-                  const prev = String(import_missing_reason[f] || base?.import_missing_reason?.[f] || "").trim();
-                  if (prev === "low_quality_terminal" || prev === "not_found_terminal") {
-                    return { missing_reason: prev, retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
-                  }
-
-                  const attemptsObj =
-                    base.import_low_quality_attempts &&
-                    typeof base.import_low_quality_attempts === "object" &&
-                    !Array.isArray(base.import_low_quality_attempts)
-                      ? { ...base.import_low_quality_attempts }
-                      : {};
-
-                  const metaObj =
-                    base.import_low_quality_attempts_meta &&
-                    typeof base.import_low_quality_attempts_meta === "object" &&
-                    !Array.isArray(base.import_low_quality_attempts_meta)
-                      ? { ...base.import_low_quality_attempts_meta }
-                      : {};
-
-                  const currentRequestId = String(requestId || "").trim();
-                  if (currentRequestId) base.import_request_id = currentRequestId;
-                  const lastRequestId = String(metaObj[f] || "").trim();
-
-                  if (currentRequestId && lastRequestId !== currentRequestId) {
-                    attemptsObj[f] = (Number(attemptsObj[f]) || 0) + 1;
-                    metaObj[f] = currentRequestId;
-                  }
-
-                  base.import_low_quality_attempts = attemptsObj;
-                  base.import_low_quality_attempts_meta = metaObj;
-
-                  const attemptCount = Number(attemptsObj[f]) || 0;
-
-                  if (attemptCount >= LOW_QUALITY_MAX_ATTEMPTS) {
-                    return { missing_reason: terminalReason, retryable: false, attemptCount };
-                  }
-
-                  return { missing_reason: r, retryable: true, attemptCount };
-                };
+                const applyLowQualityPolicy = (field, reason) =>
+                  applyLowQualityPolicyCore(field, reason, {
+                    doc: base,
+                    importMissingReason: import_missing_reason,
+                    requestId,
+                    maxAttempts: LOW_QUALITY_MAX_ATTEMPTS,
+                  });
 
                 const ensureMissing = (field, reason, message, retryable = true) => {
-                  const missing_reason = String(reason || "missing");
-                  const terminal =
-                    missing_reason === "not_disclosed" ||
-                    missing_reason === "low_quality_terminal" ||
-                    missing_reason === "not_found_terminal";
-
-                  if (!import_missing_fields.includes(field)) import_missing_fields.push(field);
-
-                  // Prefer final, terminal decisions over earlier seed placeholders.
-                  const prevReason = String(import_missing_reason[field] || "").trim();
-                  if (!prevReason || terminal || prevReason === "seed_from_company_url") {
-                    import_missing_reason[field] = missing_reason;
-                  }
-
-                  const entry = {
-                    field,
+                  const entry = pushMissingFieldEntry(field, reason, {
                     root_cause: field,
-                    missing_reason,
-                    retryable: Boolean(retryable),
-                    terminal,
-                    message: String(message || "missing"),
-                  };
-
-                  const existingIndex = import_warnings.findIndex((w) => w && typeof w === "object" && w.field === field);
-                  if (existingIndex >= 0) import_warnings[existingIndex] = entry;
-                  else import_warnings.push(entry);
-
-                  // Session-level warning (visible in import completion doc)
-                  addWarning(`import_missing_${field}_${i}`, {
-                    stage: "enrich",
-                    root_cause: `missing_${field}`,
-                    missing_reason,
-                    retryable: Boolean(retryable),
-                    terminal,
-                    message: String(message || "missing"),
-                    company_name: company_name || undefined,
-                    website_url: website_url || undefined,
+                    message,
+                    retryable,
+                    importMissingFields: import_missing_fields,
+                    importMissingReason: import_missing_reason,
+                    importWarnings: import_warnings,
                   });
+
+                  if (entry) {
+                    // Session-level warning (visible in import completion doc)
+                    addWarning(`import_missing_${field}_${i}`, {
+                      stage: "enrich",
+                      root_cause: `missing_${field}`,
+                      missing_reason: entry.missing_reason,
+                      retryable: entry.retryable,
+                      terminal: entry.terminal,
+                      message: entry.message,
+                      company_name: company_name || undefined,
+                      website_url: website_url || undefined,
+                    });
+                  }
                 };
 
                 // company_name

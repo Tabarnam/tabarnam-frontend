@@ -424,6 +424,10 @@ module.exports = {
 
   // Enrichment verification
   computeEnrichmentMissingFields,
+
+  // Import quality policy
+  applyLowQualityPolicy,
+  pushMissingFieldEntry,
 };
 
 /**
@@ -458,4 +462,141 @@ function computeEnrichmentMissingFields(company) {
   if (!hasWorkingWebsite) missing.push("website_url");
 
   return missing;
+}
+
+// ── Import Quality Policy ─────────────────────────────────────────────────────
+
+const DEFAULT_LOW_QUALITY_MAX_ATTEMPTS = 3;
+
+/**
+ * Evaluate low-quality / not-found retry policy for a single field.
+ *
+ * Tracks per-field attempt counts on the doc and returns whether the field
+ * should be terminalized (retryable: false) or remain retryable.
+ *
+ * Mutates: doc.import_low_quality_attempts, doc.import_low_quality_attempts_meta,
+ *          doc.import_request_id (when requestId is provided).
+ *
+ * @param {string} field
+ * @param {string} reason
+ * @param {{ doc: object, importMissingReason: object, requestId?: string, maxAttempts?: number }} opts
+ * @returns {{ missing_reason: string, retryable: boolean, attemptCount: number }}
+ */
+function applyLowQualityPolicy(field, reason, { doc, importMissingReason, requestId, maxAttempts } = {}) {
+  const MAX = typeof maxAttempts === "number" && maxAttempts > 0 ? maxAttempts : DEFAULT_LOW_QUALITY_MAX_ATTEMPTS;
+  const f = String(field || "").trim();
+  const r = String(reason || "").trim();
+  if (!f) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+
+  const supportsTerminalization = r === "low_quality" || r === "not_found";
+  if (!supportsTerminalization) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+
+  const terminalReason = r === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+
+  const missingReasonMap = importMissingReason && typeof importMissingReason === "object" ? importMissingReason : {};
+  const prev = String(missingReasonMap[f] || doc?.import_missing_reason?.[f] || "").trim();
+  if (prev === "low_quality_terminal" || prev === "not_found_terminal") {
+    return { missing_reason: prev, retryable: false, attemptCount: MAX };
+  }
+
+  const attemptsObj =
+    doc.import_low_quality_attempts &&
+    typeof doc.import_low_quality_attempts === "object" &&
+    !Array.isArray(doc.import_low_quality_attempts)
+      ? { ...doc.import_low_quality_attempts }
+      : {};
+
+  const metaObj =
+    doc.import_low_quality_attempts_meta &&
+    typeof doc.import_low_quality_attempts_meta === "object" &&
+    !Array.isArray(doc.import_low_quality_attempts_meta)
+      ? { ...doc.import_low_quality_attempts_meta }
+      : {};
+
+  const currentRequestId = String(requestId || "").trim();
+  if (currentRequestId) doc.import_request_id = currentRequestId;
+  const lastRequestId = String(metaObj[f] || "").trim();
+
+  if (currentRequestId && lastRequestId !== currentRequestId) {
+    attemptsObj[f] = (Number(attemptsObj[f]) || 0) + 1;
+    metaObj[f] = currentRequestId;
+  }
+
+  doc.import_low_quality_attempts = attemptsObj;
+  doc.import_low_quality_attempts_meta = metaObj;
+
+  const attemptCount = Number(attemptsObj[f]) || 0;
+
+  if (attemptCount >= MAX) {
+    return { missing_reason: terminalReason, retryable: false, attemptCount };
+  }
+
+  return { missing_reason: r, retryable: true, attemptCount };
+}
+
+/**
+ * Record a missing-field entry in the per-company import diagnostics arrays.
+ *
+ * Shared core logic for both index.js and _importStartSaveCompanies.js
+ * ensureMissing wrappers. Callers add their own side-effects (e.g. addWarning).
+ *
+ * Mutates: importMissingFields (push), importMissingReason (set), importWarnings (push/replace).
+ *
+ * @param {string} field
+ * @param {string} reason
+ * @param {{ stage?: string, message?: string, retryable?: boolean, source_attempted?: string, root_cause?: string, importMissingFields: string[], importMissingReason: object, importWarnings: object[] }} opts
+ * @returns {{ field: string, missing_reason: string, retryable: boolean, terminal: boolean, message: string, [key: string]: any }} The entry object
+ */
+function pushMissingFieldEntry(field, reason, opts = {}) {
+  const {
+    stage,
+    message,
+    retryable = true,
+    source_attempted,
+    root_cause,
+    importMissingFields,
+    importMissingReason,
+    importWarnings,
+  } = opts;
+
+  const f = String(field || "").trim();
+  if (!f) return null;
+
+  const missing_reason = String(reason || "missing");
+  const terminal =
+    missing_reason === "not_disclosed" ||
+    missing_reason === "low_quality_terminal" ||
+    missing_reason === "not_found_terminal";
+
+  if (Array.isArray(importMissingFields) && !importMissingFields.includes(f)) {
+    importMissingFields.push(f);
+  }
+
+  // Prefer final, terminal decisions over earlier seed placeholders.
+  if (importMissingReason && typeof importMissingReason === "object") {
+    const prevReason = String(importMissingReason[f] || "").trim();
+    if (!prevReason || terminal || prevReason === "seed_from_company_url") {
+      importMissingReason[f] = missing_reason;
+    }
+  }
+
+  const entry = {
+    field: f,
+    missing_reason,
+    retryable: Boolean(retryable),
+    terminal,
+    message: String(message || "missing"),
+  };
+
+  if (root_cause !== undefined) entry.root_cause = root_cause;
+  if (stage !== undefined) entry.stage = String(stage || "unknown");
+  if (source_attempted !== undefined) entry.source_attempted = String(source_attempted || "");
+
+  if (Array.isArray(importWarnings)) {
+    const existingIndex = importWarnings.findIndex((w) => w && typeof w === "object" && w.field === f);
+    if (existingIndex >= 0) importWarnings[existingIndex] = entry;
+    else importWarnings.push(entry);
+  }
+
+  return entry;
 }

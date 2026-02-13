@@ -39,6 +39,8 @@ const {
   buildReviewCursor,
   buildImportLocations,
   toFiniteNumber,
+  applyLowQualityPolicy: applyLowQualityPolicyCore,
+  pushMissingFieldEntry,
 } = require("./_importStartCompanyUtils");
 
 const {
@@ -815,91 +817,24 @@ async function saveCompaniesToCosmos({
 
               const LOW_QUALITY_MAX_ATTEMPTS = 3;
 
-              const applyLowQualityPolicy = (field, reason) => {
-                const f = String(field || "").trim();
-                const r = String(reason || "").trim();
-                if (!f) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+              const applyLowQualityPolicy = (field, reason) =>
+                applyLowQualityPolicyCore(field, reason, {
+                  doc,
+                  importMissingReason: import_missing_reason,
+                  requestId: importRequestId || doc.import_request_id || "",
+                  maxAttempts: LOW_QUALITY_MAX_ATTEMPTS,
+                });
 
-                // We cap repeated attempts for both low_quality and not_found so resume-worker can
-                // terminalize these fields and let the session complete.
-                const supportsTerminalization = r === "low_quality" || r === "not_found";
-                if (!supportsTerminalization) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
-
-                const terminalReason = r === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
-
-                // If we previously terminalized this field, keep it terminal.
-                const prev = String(import_missing_reason[f] || doc?.import_missing_reason?.[f] || "").trim();
-                if (prev === "low_quality_terminal" || prev === "not_found_terminal") {
-                  return { missing_reason: prev, retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
-                }
-
-                const attemptsObj =
-                  doc.import_low_quality_attempts &&
-                  typeof doc.import_low_quality_attempts === "object" &&
-                  !Array.isArray(doc.import_low_quality_attempts)
-                    ? { ...doc.import_low_quality_attempts }
-                    : {};
-
-                const metaObj =
-                  doc.import_low_quality_attempts_meta &&
-                  typeof doc.import_low_quality_attempts_meta === "object" &&
-                  !Array.isArray(doc.import_low_quality_attempts_meta)
-                    ? { ...doc.import_low_quality_attempts_meta }
-                    : {};
-
-                const currentRequestId = String(importRequestId || doc.import_request_id || "").trim();
-                const lastRequestId = String(metaObj[f] || "").trim();
-
-                if (currentRequestId && lastRequestId !== currentRequestId) {
-                  attemptsObj[f] = (Number(attemptsObj[f]) || 0) + 1;
-                  metaObj[f] = currentRequestId;
-                }
-
-                doc.import_low_quality_attempts = attemptsObj;
-                doc.import_low_quality_attempts_meta = metaObj;
-
-                const attemptCount = Number(attemptsObj[f]) || 0;
-
-                if (attemptCount >= LOW_QUALITY_MAX_ATTEMPTS) {
-                  return { missing_reason: terminalReason, retryable: false, attemptCount };
-                }
-
-                return { missing_reason: r, retryable: true, attemptCount };
-              };
-
-              const ensureMissing = (field, reason, stage, message, retryable = true, source_attempted = "xai") => {
-                const f = String(field || "").trim();
-                if (!f) return;
-
-                const missing_reason = String(reason || "missing");
-                const terminal =
-                  missing_reason === "not_disclosed" ||
-                  missing_reason === "low_quality_terminal" ||
-                  missing_reason === "not_found_terminal";
-
-                if (!import_missing_fields.includes(f)) import_missing_fields.push(f);
-
-                // Prefer final, terminal decisions over earlier seed placeholders.
-                // This prevents "seed_from_company_url" from surviving after extractors run.
-                const prevReason = String(import_missing_reason[f] || "").trim();
-                if (!prevReason || terminal || prevReason === "seed_from_company_url") {
-                  import_missing_reason[f] = missing_reason;
-                }
-
-                const entry = {
-                  field: f,
-                  missing_reason,
-                  stage: String(stage || "unknown"),
-                  source_attempted: String(source_attempted || ""),
-                  retryable: Boolean(retryable),
-                  terminal,
-                  message: String(message || "missing"),
-                };
-
-                const existingIndex = import_warnings.findIndex((w) => w && typeof w === "object" && w.field === f);
-                if (existingIndex >= 0) import_warnings[existingIndex] = entry;
-                else import_warnings.push(entry);
-              };
+              const ensureMissing = (field, reason, stage, message, retryable = true, source_attempted = "xai") =>
+                pushMissingFieldEntry(field, reason, {
+                  stage,
+                  message,
+                  retryable,
+                  source_attempted,
+                  importMissingFields: import_missing_fields,
+                  importMissingReason: import_missing_reason,
+                  importWarnings: import_warnings,
+                });
 
               // company_name (required)
               if (!String(doc.company_name || "").trim()) {
