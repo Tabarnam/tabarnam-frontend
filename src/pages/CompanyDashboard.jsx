@@ -98,6 +98,7 @@ import {
 
 import ReviewsImportPanel from "./company-dashboard/ReviewsImportPanel";
 import ImportedReviewsPanel from "./company-dashboard/ImportedReviewsPanel";
+import WebReviewFetcher from "./company-dashboard/WebReviewFetcher";
 import CuratedReviewsEditor from "./company-dashboard/CuratedReviewsEditor";
 import RatingEditor from "./company-dashboard/RatingEditor";
 import CompanyNotesEditor from "./company-dashboard/CompanyNotesEditor";
@@ -3953,6 +3954,12 @@ export default function CompanyDashboard() {
                           </div>
 
                           <RatingEditor draft={editorDraft} onChange={(next) => setEditorDraft(next)} StarNotesEditor={StarNotesEditor} />
+
+                          <WebReviewFetcher
+                            company={editorDraft}
+                            disabled={editorSaving}
+                            onApply={applySelectedProposedReviews}
+                          />
 
                           <ReviewsImportPanel
                             ref={reviewsImportRef}

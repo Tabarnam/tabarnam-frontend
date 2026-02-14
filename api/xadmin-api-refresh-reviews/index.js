@@ -492,12 +492,25 @@ function extractJsonObjectFromText(text) {
   return null;
 }
 
-function buildReviewsUpstreamPayload({ company, offset, limit, model } = {}) {
-  const companyName = asString(company?.company_name || company?.name).trim();
-  const websiteUrl = asString(company?.website_url || company?.url).trim();
+function buildReviewsUpstreamPayload({ company, offset, limit, model, keywords, sources, companyNameOverride, websiteUrlOverride } = {}) {
+  const companyName = asString(companyNameOverride || company?.company_name || company?.name).trim();
+  const websiteUrl = asString(websiteUrlOverride || company?.website_url || company?.url).trim();
 
   const cappedLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)));
   const safeOffset = Math.max(0, Math.trunc(Number(offset) || 0));
+
+  let sourcePreference = "";
+  if (sources && typeof sources === "object") {
+    const prefs = [];
+    if (sources.youtube) prefs.push("YouTube video reviews");
+    if (sources.blogs) prefs.push("blogs");
+    if (sources.news) prefs.push("news sites or magazines");
+    if (prefs.length > 0) {
+      sourcePreference = `Prefer ${prefs.join(", ")}. `;
+    }
+  }
+
+  const keywordHint = keywords ? `Focus on reviews mentioning these keywords: ${keywords}. ` : "";
 
   const messages = [
     {
@@ -507,7 +520,7 @@ function buildReviewsUpstreamPayload({ company, offset, limit, model } = {}) {
     },
     {
       role: "user",
-      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \\\"reviews\\\": [ ... ],\n  \\\"next_offset\\\": number,\n  \\\"exhausted\\\": boolean\n}\n\nRules:\n- Return at most ${cappedLimit} review objects in \\\"reviews\\\".\n- Use \\\"offset\\\"=${safeOffset} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST be independent (do NOT use the company website domain).\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
+      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \"reviews\": [ ... ],\n  \"next_offset\": number,\n  \"exhausted\": boolean\n}\n\nRules:\n- Return at most ${cappedLimit} review objects in \"reviews\".\n- Use \"offset\"=${safeOffset} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST be independent (do NOT use the company website domain).\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- ${sourcePreference}${keywordHint}Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
     },
   ];
 
@@ -544,7 +557,7 @@ function buildReviewsUpstreamPayload({ company, offset, limit, model } = {}) {
   return { payload, searchBuild };
 }
 
-async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, model, xai_base_url, xai_key, axiosPost } = {}) {
+async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, model, xai_base_url, xai_key, axiosPost, keywords, sources, companyNameOverride, websiteUrlOverride } = {}) {
   const cfg = extractXaiConfig({ model, xai_base_url, xai_key });
 
   const post = typeof axiosPost === "function" ? axiosPost : axios?.post?.bind?.(axios);
@@ -561,8 +574,8 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, mo
     throw err;
   }
 
-  const companyName = asString(company?.company_name || company?.name).trim();
-  const websiteUrl = asString(company?.website_url || company?.url).trim();
+  const companyName = asString(companyNameOverride || company?.company_name || company?.name).trim();
+  const websiteUrl = asString(websiteUrlOverride || company?.website_url || company?.url).trim();
 
   if (!companyName) {
     const err = new Error("Missing company name");
@@ -587,6 +600,19 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, mo
     throw err;
   }
 
+  let sourcePreference = "";
+  if (sources && typeof sources === "object") {
+    const prefs = [];
+    if (sources.youtube) prefs.push("YouTube video reviews");
+    if (sources.blogs) prefs.push("blogs");
+    if (sources.news) prefs.push("news sites or magazines");
+    if (prefs.length > 0) {
+      sourcePreference = `Prefer ${prefs.join(", ")}. `;
+    }
+  }
+
+  const keywordHint = keywords ? `Focus on reviews mentioning these keywords: ${keywords}. ` : "";
+
   const messages = [
     {
       role: "system",
@@ -595,7 +621,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, mo
     },
     {
       role: "user",
-      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \"reviews\": [ ... ],\n  \"next_offset\": number,\n  \"exhausted\": boolean\n}\n\nRules:\n- Return at most ${Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)))} review objects in \"reviews\".\n- Use \"offset\"=${Math.max(0, Math.trunc(Number(offset) || 0))} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST be independent (do NOT use the company website domain).\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
+      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \"reviews\": [ ... ],\n  \"next_offset\": number,\n  \"exhausted\": boolean\n}\n\nRules:\n- Return at most ${Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)))} review objects in \"reviews\".\n- Use \"offset\"=${Math.max(0, Math.trunc(Number(offset) || 0))} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST be independent (do NOT use the company website domain).\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- ${sourcePreference}${keywordHint}Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
     },
   ];
 
@@ -1116,6 +1142,10 @@ async function handler(req, context, opts) {
           xai_base_url: options.xai_base_url || options.xaiUrl,
           xai_key: options.xai_key || options.xaiKey,
           axiosPost: options.axiosPost,
+          keywords: asString(body?.keywords).trim(),
+          sources: body?.sources,
+          companyNameOverride: asString(body?.company_name).trim(),
+          websiteUrlOverride: asString(body?.website_url).trim(),
         });
 
         const attemptUpstreamStatus = normalizeHttpStatus(upstream?._meta?.upstream_status);
