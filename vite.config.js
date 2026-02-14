@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import { resolve } from "path";
 import fs from "fs";
 import path from "path";
+import { devApiMiddlewarePlugin } from "./scripts/api-dev-server.js";
 
 function isNonEmptyString(v) {
   return typeof v === "string" && v.trim().length > 0;
@@ -450,7 +451,7 @@ export default defineConfig(({ mode }) => {
   const proxyHeaders = isNonEmptyString(FUNCTIONS_KEY) ? { "x-functions-key": FUNCTIONS_KEY } : undefined;
 
   return {
-    plugins: [react(), devGoogleMiddleware, copyStaticWebAppConfig, emitBuildIdFile, generateSoundManifest, generateSoundManifestDev],
+    plugins: [react(), devApiMiddlewarePlugin, devGoogleMiddleware, copyStaticWebAppConfig, emitBuildIdFile, generateSoundManifest, generateSoundManifestDev],
     resolve: {
       alias: {
         "@": resolve(__dirname, "src"),
