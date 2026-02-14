@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Copy,
   ChevronDown,
+  X,
 } from "lucide-react";
 
 import { calculateInitialRating, normalizeRating } from "@/lib/stars/calculateRating";
@@ -2862,12 +2863,24 @@ export default function CompanyDashboard() {
 
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search companies (server-side)…"
-                  className="w-[320px]"
-                />
+                <div className="relative">
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search companies (server-side)…"
+                    className="w-[320px] pr-9"
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-muted-foreground dark:hover:text-foreground transition-colors cursor-pointer"
+                      aria-label="Clear search"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
