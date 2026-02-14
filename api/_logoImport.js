@@ -252,6 +252,16 @@ const LOGO_NEGATIVE_TOKENS = [
   "story",
   "cover",
   "background",
+  // UI icons commonly found as inline SVGs in headers — never company logos
+  "cart",
+  "basket",
+  "bag",
+  "search",
+  "menu",
+  "hamburger",
+  "close",
+  "arrow",
+  "chevron",
 ];
 
 function normalizeForTokens(value) {
@@ -999,7 +1009,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
           return { ok: false, reason: "unknown_svg_dimensions" };
         }
       }
-      if (width < 64 || height < 64) {
+      if (Math.max(width, height) < 64 || (width * height) < 2048) {
         return { ok: false, reason: `too_small_dimensions_${width}x${height}` };
       }
       if (!isReasonableLogoAspectRatio({ width, height }) && !candidate?.strong_signal) {
@@ -1015,7 +1025,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
 
     const { width, height } = await getImageMetadata(buf, false);
 
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 64 || height < 64) {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || Math.max(width, height) < 64 || (width * height) < 2048) {
       return { ok: false, reason: `too_small_dimensions_${width || "?"}x${height || "?"}` };
     }
 
