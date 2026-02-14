@@ -1,40 +1,27 @@
 /**
  * _reviewScrape.js — Extract review/article metadata from a URL using XAI/Grok.
  *
- * Uses the same shared utilities as xaiLiveSearch (resolveXaiEndpointForModel,
- * getXAIKey, etc.) but builds the request directly to control temperature.
- * temperature: 0 ensures deterministic output — same URL always yields same result.
+ * Uses xaiLiveSearch (the proven production module) with grok-4-latest
+ * and search enabled. Grok browses the page via its built-in web_search
+ * tool and extracts structured metadata as JSON.
  */
 
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
-const { extractTextFromXaiResponse, parseJsonFromResponse } = require("./_xaiResponseFormat");
+const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
+const { parseJsonFromResponse } = require("./_xaiResponseFormat");
 
-const MODEL = "grok-3-fast";
+const PROMPT_TEMPLATE = (url) =>
+  `What is the title, author, publication date, source/publication name, and opening text of this page: ${url}
 
-const PROMPT_TEMPLATE = (url) => `You are a metadata extraction assistant. Browse the following URL and extract review/article metadata.
-
-URL: ${url}
-
-Return valid JSON only. No markdown, no prose, no backticks.
-
-Return EXACTLY this JSON structure:
-{
-  "title": "...",
-  "excerpt": "...",
-  "author": "...",
-  "date": "YYYY-MM-DD",
-  "source_name": "...",
-  "rating": null
-}
+Return valid JSON only, no other text:
+{"title":"...","excerpt":"...","author":"...","date":"YYYY-MM-DD","source_name":"...","rating":null}
 
 Rules:
-- title: The article/video/review title exactly as it appears. Never include the site name suffix (e.g. "- YouTube").
-- excerpt: The first 1-3 sentences of the article/review as they appear on the page (max 500 chars). Do not summarize or paraphrase — copy the opening text verbatim.
-- author: The author or channel name. Empty string if unknown.
-- date: Publication date in YYYY-MM-DD format. Empty string if unknown.
-- source_name: The publication/site/channel name (e.g. "YouTube", "Forbes", "TechCrunch").
-- rating: Numeric rating if the review includes one (e.g. 4.5), otherwise null.
-- If a field cannot be determined, use empty string (or null for rating).`;
+- title: exact page title without site suffix (e.g. no "- YouTube")
+- excerpt: first 1-3 sentences from the page verbatim (max 500 chars)
+- author: author or channel name, empty string if unknown
+- date: publication date as YYYY-MM-DD, empty string if unknown
+- source_name: site or publication name (e.g. "YouTube", "Forbes")
+- rating: numeric rating if present, otherwise null`;
 
 function emptyResult(url, error) {
   return {
@@ -51,70 +38,27 @@ function emptyResult(url, error) {
   };
 }
 
-function isAzureWebsitesUrl(rawUrl) {
-  try {
-    const u = new URL(String(rawUrl || ""));
-    return /\.azurewebsites\.net$/i.test(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
 async function scrapeReviewFromUrl(url) {
   const targetUrl = String(url || "").trim();
   if (!targetUrl) {
     return emptyResult("", "Missing url");
   }
 
-  // Resolve endpoint using the same utilities as xaiLiveSearch
-  const resolvedBase = String(getXAIEndpoint() || "").trim();
-  const key = String(getXAIKey() || "").trim();
-  const apiUrl = resolveXaiEndpointForModel(resolvedBase, MODEL);
-
-  if (!apiUrl || !key) {
-    return emptyResult(targetUrl, "Missing XAI API configuration");
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
-
   try {
-    // Build auth headers (same pattern as xaiLiveSearch)
-    const headers = { "Content-Type": "application/json" };
-    if (isAzureWebsitesUrl(apiUrl)) {
-      headers["x-functions-key"] = key;
-    } else {
-      headers["Authorization"] = `Bearer ${key}`;
-    }
-
-    // Build payload with temperature: 0 for deterministic output
-    const payload = {
-      model: MODEL,
-      temperature: 0,
-      input: [{ role: "user", content: PROMPT_TEMPLATE(targetUrl) }],
-      search: { mode: "auto" },
-    };
-
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal,
+    const result = await xaiLiveSearch({
+      prompt: PROMPT_TEMPLATE(targetUrl),
+      model: "grok-4-latest",
+      timeoutMs: 30000,
+      maxTokens: 900,
+      search_parameters: { mode: "on" },
     });
 
-    if (!res.ok) {
-      return emptyResult(targetUrl, `XAI API error (HTTP ${res.status})`);
+    if (!result.ok) {
+      const errMsg = result.error || "XAI request failed";
+      return emptyResult(targetUrl, errMsg);
     }
 
-    const rawText = await res.text();
-    let json;
-    try {
-      json = JSON.parse(rawText);
-    } catch {
-      json = { raw: rawText };
-    }
-
-    const text = extractTextFromXaiResponse(json);
+    const text = extractTextFromXaiResponse(result.resp);
     const parsed = parseJsonFromResponse(text);
 
     if (!parsed || typeof parsed !== "object") {
@@ -145,8 +89,6 @@ async function scrapeReviewFromUrl(url) {
     };
   } catch (e) {
     return emptyResult(targetUrl, e?.message || String(e));
-  } finally {
-    clearTimeout(timer);
   }
 }
 
