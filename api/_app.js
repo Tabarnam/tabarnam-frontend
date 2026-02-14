@@ -89,6 +89,7 @@ function listHttpRegistrations() {
     name: String(r?.name || ""),
     route: String(r?.route || ""),
     methods: Array.isArray(r?.methods) ? [...r.methods] : undefined,
+    handler: r?.handler,
   }));
 }
 
