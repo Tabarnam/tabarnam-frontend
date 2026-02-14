@@ -221,6 +221,12 @@ async function runDirectEnrichment({
         fieldResult.location_source_urls = { mfg_source_urls: proposed.mfg_source_urls };
       }
 
+      // Attach attempted review URLs so applyEnrichmentToCompany can persist
+      // them to review_cursor — prevents resume worker from re-trying dead URLs.
+      if (fieldKey === "reviews" && Array.isArray(ecf.reviews_attempted_urls) && ecf.reviews_attempted_urls.length > 0) {
+        fieldResult.attempted_urls = ecf.reviews_attempted_urls;
+      }
+
       result.enriched[fieldKey] = fieldResult;
       result.attempts[fieldKey] = (existingAttempts[fieldKey] || 0) + 1;
 
@@ -359,6 +365,33 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     updated.review_count = reviews.length;
     updated.reviews_stage_status = enriched.reviews.reviews_status || "ok";
     updated.reviews_searched_at = enriched.reviews.searched_at;
+  }
+
+  // Initialize review_cursor with attempted URLs from this enrichment pass.
+  // The resume worker reads doc.review_cursor.attempted_urls to exclude
+  // previously-tried (and failed) URLs from subsequent XAI calls.  Without
+  // this, resume cycle 0 starts with priorAttemptedUrls=0 and wastes a full
+  // cycle re-discovering the same dead URLs that PASS1a already tried.
+  const attemptedUrls = Array.isArray(enriched.reviews?.attempted_urls)
+    ? enriched.reviews.attempted_urls
+    : [];
+  const reviewStatus = updated.reviews_stage_status || enriched.reviews?.reviews_status;
+  if (attemptedUrls.length > 0 || reviewStatus === "empty" || reviewStatus === "incomplete") {
+    updated.review_cursor = {
+      ...(updated.review_cursor || {}),
+      exhausted: false,
+      last_error: null,
+      reviews_stage_status: reviewStatus || "incomplete",
+      incomplete_reason: (updated.review_count || 0) === 0
+        ? "no_verified_reviews"
+        : "insufficient_verified_reviews",
+      attempted_urls: [
+        ...new Set([
+          ...(Array.isArray(updated.review_cursor?.attempted_urls) ? updated.review_cursor.attempted_urls : []),
+          ...attemptedUrls,
+        ]),
+      ],
+    };
   }
 
   // Track enrichment metadata

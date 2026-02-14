@@ -2361,6 +2361,14 @@ async function verifyEnrichmentFields(parsed, { companyName, budgetMs = 60000 } 
       kept: combined.length,
     };
     console.log(`[verifyEnrichmentFields] Reviews: ${parsed.reviews.length} submitted → ${verifiedReviews.length} verified + ${softUnverified.length} soft-unverified + ${droppedDead.length} dropped (dead URLs) → ${combined.length} kept`);
+
+    // Track ALL attempted review URLs (verified + unverified) so downstream
+    // callers can persist them to review_cursor.attempted_urls and prevent
+    // the resume worker from re-trying the same URLs.
+    verification_status.reviews_attempted_urls = [
+      ...verifiedReviews.map((r) => r.source_url),
+      ...unverifiedReviews.map((r) => r.source_url),
+    ].filter(Boolean);
   }
 
   // --- Verify/normalize locations (lightweight) ---
@@ -2653,6 +2661,7 @@ async function enrichCompanyFields({
       field_statuses,
       missing_after_unified: missing,
       elapsed_ms: totalElapsed,
+      reviews_attempted_urls: verification_status.reviews_attempted_urls || [],
     };
   }
 
