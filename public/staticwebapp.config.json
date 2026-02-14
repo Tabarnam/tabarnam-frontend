@@ -17,16 +17,16 @@
     "exclude": [
       "/api/*",
       "/assets/*",
-      "/*.js",
-      "/*.css",
-      "/*.map",
-      "/*.png",
-      "/*.jpg",
-      "/*.svg",
-      "/*.ico",
-      "/*.webp",
-      "/*.woff",
-      "/*.woff2",
+      "**/*.js",
+      "**/*.css",
+      "**/*.map",
+      "**/*.png",
+      "**/*.jpg",
+      "**/*.svg",
+      "**/*.ico",
+      "**/*.webp",
+      "**/*.woff",
+      "**/*.woff2",
       "/__build_id.txt",
       "/sounds/*"
     ]
@@ -35,7 +35,8 @@
     {
       "route": "/api/*",
       "allowedRoles": ["authenticated", "anonymous"],
-      "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+      "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+      "rewrite": "/api/{*path}"
     },
     {
       "route": "/xapi",
