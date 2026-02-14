@@ -642,6 +642,13 @@ function isRealValue(field, value, doc) {
 
     const reviewCount = Number.isFinite(Number(doc?.review_count)) ? Number(doc.review_count) : 0;
 
+    // If reviews_stage_status is "incomplete", the resume-worker has signaled that more
+    // reviews are needed (e.g. verified count < REVIEWS_MIN_VIABLE).  Keep the field
+    // unsatisfied so import-status won't finalize before a queued retry cycle can run.
+    const stageStatus = (doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status || "")
+      .toString().toLowerCase().trim();
+    if (stageStatus === "incomplete") return false;
+
     // Data completeness (separate from retry/terminal state): we only treat reviews as present
     // when we actually have review data.
     return curated.length > 0 || reviewCount > 0;
@@ -690,7 +697,9 @@ function computeEnrichmentHealth(company) {
 
   const reviews_terminal = reviewsStageNormalized === "exhausted";
   const has_reviews_data = curated.length > 0 || reviewCount > 0;
-  const reviewsSatisfied = has_reviews_data;
+  // Reviews are only satisfied when we have data AND the stage is not "incomplete".
+  // "incomplete" means the resume-worker signaled more reviews are needed (below minimum).
+  const reviewsSatisfied = has_reviews_data && reviewsStageNormalized !== "incomplete";
 
   return {
     has_industries: isRealValue("industries", c.industries, c),

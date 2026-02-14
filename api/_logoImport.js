@@ -276,7 +276,7 @@ function normalizeForTokens(value) {
 function hasAnyToken(hay, tokens) {
   const h = normalizeForTokens(hay);
   if (!h) return false;
-  return tokens.some((t) => h.includes(t));
+  return tokens.some((t) => h.includes(normalizeForTokens(t)));
 }
 
 function getFileExt(url) {
@@ -907,6 +907,14 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
         const resolved = await maybeResolveSvgSpriteReference(svgText, candidate?.page_url, logger);
         if (resolved.wasSprite) {
           if (!resolved.ok) return { ok: false, reason: resolved.reason || "svg_sprite_unresolvable" };
+          // Reject sprites whose reference URL contains negative tokens (e.g. "ui-icons.svg#accounts-icon").
+          // The normal LOGO_NEGATIVE_TOKENS check (line 942) is skipped for inline SVGs (strong_signal=true)
+          // and the data: URI source URL doesn't contain readable tokens.
+          const spriteRef = (svgText.match(/<use\b[^>]*\bhref=["']([^"']+)["']/i) || [])[1] || "";
+          if (spriteRef && hasAnyToken(spriteRef, LOGO_NEGATIVE_TOKENS)
+              && !hasAnyToken(spriteRef, LOGO_POSITIVE_TOKENS)) {
+            return { ok: false, reason: "svg_sprite_negative_tokens" };
+          }
           buf = resolved.buf;
           if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
         }
@@ -914,7 +922,11 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
         // Reject SVGs that are clearly UI icons (class="icon icon-*", role="presentation").
         // Shopify themes embed user/cart/search icons as inline SVGs in <header>;
         // these should never be accepted as company logos.
-        const svgLower = (resolved.wasSprite ? buf : Buffer.from(svgText, "utf8")).toString("utf8").toLowerCase();
+        // Check both original SVG text AND resolved sprite content — sprite resolution
+        // strips class attributes (line 820), so we must also inspect the original wrapper.
+        const origLower = svgText.toLowerCase();
+        const resolvedLower = resolved.wasSprite ? buf.toString("utf8").toLowerCase() : origLower;
+        const svgLower = origLower + " " + resolvedLower;
         const isIconSvg = /\bclass="[^"]*\bicon\b[^"]*"/.test(svgLower)
           && !hasAnyToken(svgLower, ["logo", "wordmark", "logotype", "brand"]);
         if (isIconSvg) return { ok: false, reason: "svg_icon_class" };
