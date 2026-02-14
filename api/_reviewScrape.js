@@ -2,8 +2,8 @@
  * _reviewScrape.js — Extract review metadata from a single article URL.
  *
  * Strategies (by priority):
- *   1. JSON-LD structured data (Article, Review, BlogPosting, NewsArticle)
- *   2. Open Graph / meta tags
+ *   1. JSON-LD structured data (Article, Review, BlogPosting, VideoObject, etc.)
+ *   2. Open Graph / meta tags (og:*, twitter:*, article:*, itemprop)
  *   3. HTML elements (<title>, <h1>, <time>, byline patterns)
  *   4. Domain fallback for source_name
  */
@@ -14,7 +14,7 @@ const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-  "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 ];
 
 function sleep(ms) {
@@ -70,7 +70,7 @@ function extractFirstMatch(html, re) {
 }
 
 /**
- * Extract text content from a <meta> tag by property or name.
+ * Extract text content from a <meta> tag by property, name, or itemprop.
  * Unlike _logoImport's extractMetaProperty, this returns raw text (not absolutized URLs).
  */
 function extractMetaContent(html, key) {
@@ -82,6 +82,8 @@ function extractMetaContent(html, key) {
     new RegExp(`<meta\\b[^>]*content=["']([^"']+)["'][^>]*property=["']${property}["'][^>]*>`, "i"),
     new RegExp(`<meta\\b[^>]*name=["']${property}["'][^>]*content=["']([^"']+)["'][^>]*>`, "i"),
     new RegExp(`<meta\\b[^>]*content=["']([^"']+)["'][^>]*name=["']${property}["'][^>]*>`, "i"),
+    new RegExp(`<meta\\b[^>]*itemprop=["']${property}["'][^>]*content=["']([^"']+)["'][^>]*>`, "i"),
+    new RegExp(`<meta\\b[^>]*content=["']([^"']+)["'][^>]*itemprop=["']${property}["'][^>]*>`, "i"),
   ];
 
   for (const re of patterns) {
@@ -136,6 +138,27 @@ function truncateExcerpt(text, maxLen = 500) {
   return s.slice(0, maxLen).replace(/\s+\S*$/, "") + "…";
 }
 
+/**
+ * Strip common site-name suffixes from <title> tags.
+ * e.g. "My Video Title - YouTube" → "My Video Title"
+ */
+function cleanTitle(raw, siteName) {
+  let s = String(raw || "").trim();
+  if (!s) return "";
+
+  // Strip well-known suffixes
+  s = s.replace(/\s*[-|–—]\s*(YouTube|Vimeo|Medium|Forbes|TechCrunch|Wired|The Verge|Reddit|Twitter|X)$/i, "");
+
+  // Generic: strip trailing " - <site_name>" or " | <site_name>" using the extracted site name
+  if (siteName) {
+    const escaped = siteName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`\\s*[-|–—]\\s*${escaped}\\s*$`, "i");
+    s = s.replace(re, "");
+  }
+
+  return s.trim();
+}
+
 // ─── HTML Fetch ───────────────────────────────────────────────────────────────
 
 async function fetchHtml(url, timeoutMs = 12000) {
@@ -165,7 +188,13 @@ async function fetchHtml(url, timeoutMs = 12000) {
           "User-Agent": userAgent,
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.9",
+          "Accept-Encoding": "gzip, deflate, br",
           "Cache-Control": "no-cache",
+          "Sec-Fetch-Dest": "document",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Site": "none",
+          "Sec-Fetch-User": "?1",
+          "Upgrade-Insecure-Requests": "1",
         },
       });
       const html = await res.text();
@@ -187,10 +216,13 @@ async function fetchHtml(url, timeoutMs = 12000) {
 
 // ─── JSON-LD Extraction ──────────────────────────────────────────────────────
 
-const ARTICLE_TYPES = new Set([
+const JSONLD_TYPES = new Set([
   "article", "newsarticle", "blogposting", "review",
   "webpage", "techarticle", "scholarlyarticle", "report",
   "socialmediaposting", "creativework",
+  "videoobject", "audioobject", "mediaobject",
+  "podcastepisode", "musicrecording",
+  "product", "softwareapplication",
 ]);
 
 function extractFromJsonLd(html) {
@@ -213,7 +245,7 @@ function extractFromJsonLd(html) {
 
     for (const obj of walkJson(parsed)) {
       const type = String(obj["@type"] || "").toLowerCase();
-      if (!ARTICLE_TYPES.has(type)) continue;
+      if (!JSONLD_TYPES.has(type)) continue;
 
       if (!result.title) {
         result.title = String(obj.headline || obj.name || "").trim();
@@ -232,7 +264,7 @@ function extractFromJsonLd(html) {
         }
       }
       if (!result.date) {
-        result.date = String(obj.datePublished || obj.dateCreated || obj.dateModified || "").trim();
+        result.date = String(obj.datePublished || obj.dateCreated || obj.uploadDate || obj.dateModified || "").trim();
       }
       if (!result.source_name) {
         const pub = obj.publisher;
@@ -261,10 +293,18 @@ function extractFromJsonLd(html) {
 
 function extractFromMeta(html) {
   return {
-    title: extractMetaContent(html, "og:title"),
-    excerpt: extractMetaContent(html, "og:description") || extractMetaContent(html, "description"),
-    author: extractMetaContent(html, "article:author") || extractMetaContent(html, "author"),
-    date: extractMetaContent(html, "article:published_time") || extractMetaContent(html, "article:modified_time"),
+    title: extractMetaContent(html, "og:title") || extractMetaContent(html, "twitter:title"),
+    excerpt:
+      extractMetaContent(html, "og:description") ||
+      extractMetaContent(html, "description") ||
+      extractMetaContent(html, "twitter:description"),
+    author:
+      extractMetaContent(html, "article:author") ||
+      extractMetaContent(html, "author"),
+    date:
+      extractMetaContent(html, "article:published_time") ||
+      extractMetaContent(html, "article:modified_time") ||
+      extractMetaContent(html, "date"),
     source_name: extractMetaContent(html, "og:site_name"),
   };
 }
@@ -281,10 +321,12 @@ function extractFromHtmlElements(html) {
     extractFirstMatch(html, /<time[^>]*>([\s\S]*?)<\/time>/i);
 
   // Byline patterns: class*="byline" or class*="author" on inline elements
+  // Also check itemprop="name" on link/meta (used by YouTube for channel name)
   const author =
     stripHtmlTags(extractFirstMatch(html, /<[^>]*class="[^"]*\bbyline\b[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/i)) ||
     stripHtmlTags(extractFirstMatch(html, /<[^>]*class="[^"]*\bauthor\b[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/i)) ||
-    stripHtmlTags(extractFirstMatch(html, /<[^>]*rel=["']author["'][^>]*>([\s\S]*?)<\/[^>]+>/i));
+    stripHtmlTags(extractFirstMatch(html, /<[^>]*rel=["']author["'][^>]*>([\s\S]*?)<\/[^>]+>/i)) ||
+    extractFirstMatch(html, /<link[^>]*itemprop=["']name["'][^>]*content=["']([^"']+)["'][^>]*>/i);
 
   return { title, date: dateMatch, author };
 }
@@ -322,12 +364,14 @@ async function scrapeReviewFromUrl(url) {
   const elements = extractFromHtmlElements(html);
 
   // Merge with priority: JSON-LD > meta > HTML elements > fallback
-  const title = jsonLd.title || meta.title || elements.title || "";
+  // Resolve source_name first so cleanTitle can use it
+  const source_name = jsonLd.source_name || meta.source_name || extractSiteName(finalUrl) || "";
+  const rawTitle = jsonLd.title || meta.title || elements.title || "";
+  const title = cleanTitle(rawTitle, source_name);
   const excerpt = truncateExcerpt(jsonLd.excerpt || meta.excerpt || "");
   const author = jsonLd.author || meta.author || elements.author || "";
   const rawDate = jsonLd.date || meta.date || elements.date || "";
   const date = normalizeDate(rawDate);
-  const source_name = jsonLd.source_name || meta.source_name || extractSiteName(finalUrl) || "";
   const rating = jsonLd.rating;
 
   // Build strategy string showing which sources contributed
@@ -367,5 +411,6 @@ module.exports = {
     stripHtmlTags,
     decodeHtmlEntities,
     truncateExcerpt,
+    cleanTitle,
   },
 };
