@@ -380,6 +380,82 @@ function scoreCandidate({ url, source, id = "", cls = "", alt = "", idx = 0, wid
   return score;
 }
 
+function collectCandidatesBySelector(html, baseUrl, selector, { allowedHostRoot }) {
+  const out = [];
+  const lowerSelector = selector.toLowerCase();
+
+  // Try to find image tags that match the selector in ID, class, or src
+  const imgRe = /<img\b[^>]*>/gi;
+  let m;
+  while ((m = imgRe.exec(html)) !== null) {
+    const tag = m[0];
+    const attrs = parseImgAttributes(tag);
+    const src = attrs.src || attrs["data-src"] || attrs["data-lazy-src"] || "";
+    const abs = absolutizeUrl(src, baseUrl);
+    if (!abs) continue;
+
+    const id = String(attrs.id || "").toLowerCase();
+    const cls = String(attrs.class || "").toLowerCase();
+
+    // Check if selector matches ID or class (simple check)
+    const matchesSelector =
+      id === lowerSelector ||
+      id === selector ||
+      cls.includes(lowerSelector) ||
+      tag.toLowerCase().includes(lowerSelector);
+
+    if (matchesSelector) {
+      out.push(
+        addLocationMeta(
+          {
+            url: abs,
+            source: "selector",
+            page_url: baseUrl,
+            score: 500, // High score for manual selector
+            strong_signal: true,
+          },
+          { location: "selector", source: "selector", allowedHostRoot }
+        )
+      );
+    }
+  }
+
+  // Also check for background images if selector looks like a class or ID
+  if (selector.startsWith(".") || selector.startsWith("#")) {
+    const cleanSelector = selector.substring(1).toLowerCase();
+    const divRe = /<(div|span|section|header|a)\b[^>]*style=[^>]*background-image:[^>]*>/gi;
+    while ((m = divRe.exec(html)) !== null) {
+      const tag = m[0];
+      const attrs = parseImgAttributes(tag); // parseImgAttributes works for any tag basically
+      const id = String(attrs.id || "").toLowerCase();
+      const cls = String(attrs.class || "").toLowerCase();
+
+      if (id === cleanSelector || cls.includes(cleanSelector)) {
+        const bgMatch = tag.match(/background-image:\s*url\(['"]?([^'")]*)['"]?\)/i);
+        if (bgMatch && bgMatch[1]) {
+          const abs = absolutizeUrl(bgMatch[1], baseUrl);
+          if (abs) {
+            out.push(
+              addLocationMeta(
+                {
+                  url: abs,
+                  source: "selector_bg",
+                  page_url: baseUrl,
+                  score: 450,
+                  strong_signal: true,
+                },
+                { location: "selector", source: "selector", allowedHostRoot }
+              )
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return out;
+}
+
 function collectImgCandidates(html, baseUrl) {
   const imgRe = /<img\b[^>]*>/gi;
   let m;
@@ -1542,12 +1618,21 @@ function filterOnSiteCandidates(candidates, allowedHostRoot) {
 
 function collectLogoCandidatesFromHtml(html, baseUrl, options = {}) {
   const companyNameTokens = buildCompanyNameTokens(options?.companyName || "");
+  const selector = String(options?.selector || "").trim();
 
   const allowedFromOptions = String(options?.allowedHostRoot || options?.allowed_host_root || "").trim();
   const allowedFromBase = deriveAllowedHostRootFromUrl(baseUrl);
   const allowedHostRoot = reconcileAllowedHostRoot(allowedFromOptions, allowedFromBase);
 
   const metaCandidates = [];
+
+  // If selector is provided, look for it first
+  if (selector) {
+    const selectorCandidates = collectCandidatesBySelector(html, baseUrl, selector, { allowedHostRoot });
+    if (selectorCandidates.length > 0) {
+      metaCandidates.push(...selectorCandidates);
+    }
+  }
 
   const schemaLogo = extractSchemaOrgLogo(html, baseUrl);
   if (schemaLogo) {
@@ -1624,7 +1709,7 @@ function collectLogoCandidatesFromHtml(html, baseUrl, options = {}) {
   return dedupeAndSortCandidates(onSite);
 }
 
-async function discoverLogoCandidates({ domain, websiteUrl, companyName }, logger = console, options = {}) {
+async function discoverLogoCandidates({ domain, websiteUrl, companyName, selector }, logger = console, options = {}) {
   const d = normalizeDomain(domain);
   const homes = buildHomeUrlCandidates(d, websiteUrl);
 
@@ -1653,6 +1738,7 @@ async function discoverLogoCandidates({ domain, websiteUrl, companyName }, logge
       const candidates = collectLogoCandidatesFromHtml(text, baseUrl, {
         companyName,
         allowedHostRoot,
+        selector,
       });
 
       if (candidates.length > 0) {
@@ -1669,11 +1755,11 @@ async function discoverLogoCandidates({ domain, websiteUrl, companyName }, logge
   return { ok: false, candidates: [], page_url: "", allowed_host_root: d || "", error: lastError || "missing domain" };
 }
 
-async function discoverLogoSourceUrl({ domain, websiteUrl, companyName }, logger = console, options = {}) {
+async function discoverLogoSourceUrl({ domain, websiteUrl, companyName, selector }, logger = console, options = {}) {
   const d = normalizeDomain(domain);
   const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 12_000, maxMs: 20_000 });
 
-  const discovered = await discoverLogoCandidates({ domain: d, websiteUrl, companyName }, logger, { budget });
+  const discovered = await discoverLogoCandidates({ domain: d, websiteUrl, companyName, selector }, logger, { budget });
   const candidates = dedupeAndSortCandidates(discovered?.candidates || []);
   candidates.sort(sortCandidatesStrict);
 

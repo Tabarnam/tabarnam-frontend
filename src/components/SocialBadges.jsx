@@ -78,6 +78,7 @@ function BrandButton({ brandKey, href, brandColors, variant }) {
       rel="noopener noreferrer"
       className={base}
       style={style}
+      onClick={(e) => e.stopPropagation()}
     >
       {/* lucide icons use strokes; TikTokIcon is filled but honors currentColor */}
       <Icon size={14} strokeWidth={2} style={iconStyle} />

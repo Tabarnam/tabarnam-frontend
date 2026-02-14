@@ -37,13 +37,14 @@ async function logoScrapeHandler(req, context) {
   const bodyObj = await req.json().catch(() => ({}));
   const domain = String(bodyObj.domain || "").trim();
   const websiteUrl = String(bodyObj.website_url || bodyObj.url || "").trim();
+  const selector = String(bodyObj.selector || "").trim();
 
   if (!domain && !websiteUrl) {
     return json({ ok: false, error: "Missing domain" }, 400);
   }
 
   try {
-    const out = await discoverLogoSourceUrl({ domain, websiteUrl }, context);
+    const out = await discoverLogoSourceUrl({ domain, websiteUrl, selector }, context);
     return json(
       {
         ok: Boolean(out?.ok),

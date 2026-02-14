@@ -161,9 +161,10 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
                         <a
                           href={withAmazonAffiliate(normalizedSourceUrl)}
                           target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 py-1 px-2 -mx-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
                           title={withAmazonAffiliate(normalizedSourceUrl)}
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {truncateUrl(withAmazonAffiliate(normalizedSourceUrl))}
                           <span className="text-muted-foreground">↗</span>
