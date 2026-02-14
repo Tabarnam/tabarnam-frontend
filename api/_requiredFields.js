@@ -751,11 +751,13 @@ function deriveMissingReason(doc, field) {
     const stage = normalizeKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
     const cursorExhausted = Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true);
     if (stage === "exhausted" || cursorExhausted) {
-      // If exhausted with 0 verified reviews, keep retryable — XAI may find different URLs next time
+      // Below the minimum viable count (2), keep retryable — a fresh XAI call may
+      // discover different URLs.  A single verified review is below the quality bar.
+      const REVIEWS_MIN_VIABLE = 2;
       const verifiedCount = Array.isArray(d.curated_reviews)
         ? d.curated_reviews.filter(r => r && typeof r === "object").length
         : 0;
-      if (verifiedCount === 0) return "exhausted_retryable";
+      if (verifiedCount < REVIEWS_MIN_VIABLE) return "exhausted_retryable";
       return "exhausted";
     }
   }

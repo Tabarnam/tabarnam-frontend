@@ -2450,12 +2450,14 @@ async function resumeWorkerHandler(req, context) {
               fieldProgress.status = "ok";
               savedFieldsThisRun.push("reviews");
             } else {
-              // Mark as terminal if: max attempts reached, OR diagnostics says exhausted WITH verified reviews.
-              // With 0 verified, XAI may return different candidates on next attempt — keep retryable.
+              // Mark as terminal if: max attempts reached, OR diagnostics says exhausted with
+              // at least REVIEWS_MIN_VIABLE verified reviews.  A single verified review is
+              // below the quality bar — keep retryable so a fresh XAI call can find more.
+              const REVIEWS_MIN_VIABLE = 2;
               const diagnosticsExhausted = Boolean(r?.diagnostics?.exhausted);
               const verifiedCount = curated.filter((rv) => rv && typeof rv === "object").length;
               const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS ||
-                (diagnosticsExhausted && verifiedCount > 0);
+                (diagnosticsExhausted && verifiedCount >= REVIEWS_MIN_VIABLE);
               if (curated.length > 0) {
                 doc.curated_reviews = curated.slice(0, 10);
                 doc.review_count = curated.length;
@@ -2485,9 +2487,9 @@ async function resumeWorkerHandler(req, context) {
                   }
                 : null;
 
-              // Only set cursor.exhausted when we have SOME verified reviews or reached max attempts.
-              // With 0 verified, keep retryable so resume worker can try again with fresh XAI call.
-              if (diagnosticsExhausted && (verifiedCount > 0 || attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS)) {
+              // Only set cursor.exhausted when we have enough verified reviews or reached max attempts.
+              // Below REVIEWS_MIN_VIABLE, keep retryable so resume worker can try a fresh XAI call.
+              if (diagnosticsExhausted && (verifiedCount >= REVIEWS_MIN_VIABLE || attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS)) {
                 doc.review_cursor.exhausted = true;
                 doc.review_cursor.exhausted_at = nowIso();
               }
@@ -2574,7 +2576,15 @@ async function resumeWorkerHandler(req, context) {
 
         const missing = ENRICH_FIELDS.filter((f) => {
           if (f === "reviews") {
-            if (isRealValue("reviews", d.curated_reviews, d)) return false;
+            // Reviews need at least REVIEWS_MIN_VIABLE verified entries to be
+            // considered "present enough" to stop retrying.  A single review
+            // with status=incomplete should keep retrying.
+            const REVIEWS_MIN_VIABLE_NEXT = 2;
+            const curatedCount = Array.isArray(d.curated_reviews)
+              ? d.curated_reviews.filter(r => r && typeof r === "object").length : 0;
+            const stageStatus = d.reviews_stage_status || d.review_cursor?.reviews_stage_status;
+            if (curatedCount >= REVIEWS_MIN_VIABLE_NEXT && stageStatus !== "incomplete") return false;
+            if (isRealValue("reviews", d.curated_reviews, d) && stageStatus !== "incomplete") return false;
           } else {
             if (isRealValue(f, d?.[f], d)) return false;
           }

@@ -262,6 +262,8 @@ const LOGO_NEGATIVE_TOKENS = [
   "close",
   "arrow",
   "chevron",
+  "user",
+  "account",
 ];
 
 function normalizeForTokens(value) {
@@ -909,6 +911,14 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
           if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
         }
 
+        // Reject SVGs that are clearly UI icons (class="icon icon-*", role="presentation").
+        // Shopify themes embed user/cart/search icons as inline SVGs in <header>;
+        // these should never be accepted as company logos.
+        const svgLower = (resolved.wasSprite ? buf : Buffer.from(svgText, "utf8")).toString("utf8").toLowerCase();
+        const isIconSvg = /\bclass="[^"]*\bicon\b[^"]*"/.test(svgLower)
+          && !hasAnyToken(svgLower, ["logo", "wordmark", "logotype", "brand"]);
+        if (isIconSvg) return { ok: false, reason: "svg_icon_class" };
+
         let { width, height } = parseSvgViewBoxDimensions(buf);
         if (!Number.isFinite(width) || !Number.isFinite(height)) {
           // Inline SVGs in headers are high-confidence — use declared/viewBox dimensions
@@ -1303,6 +1313,14 @@ function collectInlineSvgCandidates(html, baseUrl, { companyNameTokens, allowedH
       if (hasLogoSignal) score += 80;
       // Penalize hollow SVG sprite references (e.g. <use href="#icon-cart">)
       if (/<use\b[^>]*\bhref=["']|<use\b[^>]*\bxlink:href=["']/i.test(svgTag)) score -= 120;
+      // Penalize SVGs with icon-like class/role attributes — never company logos.
+      // Shopify themes embed user/cart/search icons as inline SVGs in <header>;
+      // without this penalty they score 225 (header base + SVG bonus) and beat
+      // the minimum acceptance threshold.
+      const hasIconSignal = hasAnyToken(hay, ["icon-user", "icon-cart", "icon-bag", "icon-search", "icon-menu", "icon-account", "icon-close", "icon-arrow"])
+        || /\brole=["']presentation["']/.test(hay)
+        || /\baria-hidden=["']true["']/.test(hay);
+      if (hasIconSignal && !hasLogoSignal) score -= 200;
       // Wide-and-short aspect ratio typical of wordmarks
       if (effectiveW && effectiveH && effectiveW / effectiveH > 2) score += 40;
 
