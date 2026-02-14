@@ -20,7 +20,7 @@ const PROMPT_TEMPLATE = (url) =>
 - Title: Exact title as published (article headline or video title).
 - Date: Publication or upload date in any format (from metadata or text).
 - Text: A 1-3 sentence excerpt or summary of the review content (directly from body/description; focus on key opinions; no additions).
-If invalid, irrelevant, or not a review, return 'Invalid URL'. Output only the extracted fields in plain text, one per line, no markdown.`;
+If invalid, irrelevant, or not a review, return 'Invalid URL'. Output only the extracted fields in plain text using "Field: Value" format (e.g., "Source: YouTube"), one per line, no markdown.`;
 
 function emptyResult(url, error) {
   return {
@@ -47,22 +47,34 @@ function isAzureWebsitesUrl(rawUrl) {
 
 /**
  * Parse Grok's plain-text response into structured fields.
- * Expected format:
- *   Source: YouTube
- *   Author: Channel Name
- *   URL: https://...
- *   Title: Video Title
- *   Date: 2024-01-15
- *   Text: First sentence of the review...
+ * Handles two formats Grok may return:
+ *   Format A (colon): "Source: YouTube"
+ *   Format B (newline): "Source\nYouTube"
  */
 function parseFieldsFromText(text) {
   const lines = String(text || "").split("\n");
   const fields = {};
+  const fieldNames = ["source", "author", "url", "title", "date", "text"];
 
-  for (const line of lines) {
-    const match = line.match(/^(Source|Author|URL|Title|Date|Text)\s*:\s*(.+)/i);
-    if (match) {
-      fields[match[1].toLowerCase()] = match[2].trim();
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    // Format A: "Source: YouTube" (colon-separated on same line)
+    const colonMatch = line.match(/^(Source|Author|URL|Title|Date|Text)\s*:\s*(.+)/i);
+    if (colonMatch) {
+      fields[colonMatch[1].toLowerCase()] = colonMatch[2].trim();
+      continue;
+    }
+
+    // Format B: "Source\nYouTube" (field name alone, value on next line)
+    const lower = line.toLowerCase();
+    if (fieldNames.includes(lower) && i + 1 < lines.length) {
+      const nextLine = lines[i + 1].trim();
+      if (nextLine && !fieldNames.includes(nextLine.toLowerCase())) {
+        fields[lower] = nextLine;
+        i++; // skip the consumed value line
+      }
     }
   }
 
