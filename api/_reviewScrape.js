@@ -5,12 +5,19 @@
  * due to bot detection, JS rendering, and Azure Functions compression issues),
  * we send the URL to Grok which browses the page natively and extracts
  * structured metadata.
+ *
+ * Uses xaiLiveSearch (the proven production module with proper URL resolution,
+ * auth handling, and timeout safety) rather than the lower-level xaiResponses.
  */
 
-const { xaiResponses } = require("./_xai");
-const { parseJsonFromResponse, extractTextFromXaiResponse } = require("./_xaiResponseFormat");
+const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
+const { parseJsonFromResponse } = require("./_xaiResponseFormat");
 
-const SYSTEM_PROMPT = `You are a metadata extraction assistant. Given a URL, browse the page and extract review/article metadata. Return valid JSON only. No markdown, no prose, no backticks.
+const PROMPT_TEMPLATE = (url) => `You are a metadata extraction assistant. Browse the following URL and extract review/article metadata.
+
+URL: ${url}
+
+Return valid JSON only. No markdown, no prose, no backticks.
 
 Return EXACTLY this JSON structure:
 {
@@ -23,15 +30,15 @@ Return EXACTLY this JSON structure:
 }
 
 Rules:
-- title: The article/video/review title. Never include the site name suffix.
-- excerpt: A 1-3 sentence summary or key quote from the review (max 500 chars).
+- title: The article/video/review title. Never include the site name suffix (e.g. "- YouTube").
+- excerpt: A 1-3 sentence summary or key quote from the content (max 500 chars).
 - author: The author or channel name. Empty string if unknown.
 - date: Publication date in YYYY-MM-DD format. Empty string if unknown.
 - source_name: The publication/site/channel name (e.g. "YouTube", "Forbes", "TechCrunch").
 - rating: Numeric rating if the review includes one (e.g. 4.5), otherwise null.
 - If a field cannot be determined, use empty string (or null for rating).`;
 
-function emptyResult(url, error, strategy) {
+function emptyResult(url, error) {
   return {
     ok: false,
     error: error || "",
@@ -42,37 +49,34 @@ function emptyResult(url, error, strategy) {
     source_name: "",
     source_url: String(url || ""),
     rating: null,
-    strategy: strategy || "",
+    strategy: "",
   };
 }
 
 async function scrapeReviewFromUrl(url) {
   const targetUrl = String(url || "").trim();
   if (!targetUrl) {
-    return emptyResult("", "Missing url", "");
+    return emptyResult("", "Missing url");
   }
 
   try {
-    const payload = {
+    const result = await xaiLiveSearch({
+      prompt: PROMPT_TEMPLATE(targetUrl),
       model: "grok-3-fast",
-      input: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: `Extract review/article metadata from this URL: ${targetUrl}` },
-      ],
-      search: { mode: "auto" },
-    };
+      timeoutMs: 30000,
+      maxTokens: 900,
+    });
 
-    const { ok, status, json } = await xaiResponses(payload, { timeoutMs: 30000 });
-
-    if (!ok) {
-      return emptyResult(targetUrl, `XAI API error (HTTP ${status})`, "");
+    if (!result.ok) {
+      const errMsg = result.error || "XAI request failed";
+      return emptyResult(targetUrl, errMsg);
     }
 
-    const text = extractTextFromXaiResponse(json);
+    const text = extractTextFromXaiResponse(result.resp);
     const parsed = parseJsonFromResponse(text);
 
     if (!parsed || typeof parsed !== "object") {
-      return emptyResult(targetUrl, "Failed to parse extraction response", "");
+      return emptyResult(targetUrl, "Failed to parse extraction response");
     }
 
     const title = String(parsed.title || "").trim();
@@ -98,7 +102,7 @@ async function scrapeReviewFromUrl(url) {
       error: hasContent ? "" : "Could not extract meaningful content",
     };
   } catch (e) {
-    return emptyResult(targetUrl, e?.message || String(e), "");
+    return emptyResult(targetUrl, e?.message || String(e));
   }
 }
 
