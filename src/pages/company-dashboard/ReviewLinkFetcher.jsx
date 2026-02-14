@@ -97,20 +97,20 @@ export default function ReviewLinkFetcher({ onAddReview, disabled }) {
   }, []);
 
   return (
-    <div className="border border-slate-200 dark:border-border rounded-lg bg-white dark:bg-card overflow-hidden mb-4">
+    <div className="border border-blue-200 dark:border-blue-800 rounded-lg bg-blue-50 dark:bg-blue-950/40 overflow-hidden mb-4">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-muted/50 transition-colors"
+        className="w-full flex items-center justify-between p-4 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
           {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           <span className="font-semibold text-sm">Fetch Review From Link</span>
         </div>
       </button>
 
       {isOpen && (
-        <div className="p-4 border-t border-slate-200 dark:border-border space-y-4">
+        <div className="p-4 border-t border-blue-200 dark:border-blue-800 space-y-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">
               Review article URL (required)
