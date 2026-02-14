@@ -193,7 +193,7 @@ test("grokEnrichment.fetchCuratedReviews returns verified reviews (2 YouTube + 2
   const xaiStub = async ({ prompt }) => {
     // Return a mixed candidate list including a soft-404 that should be rejected.
     // Check for review-related keywords in the prompt (plain-text or JSON output format)
-    if (!String(prompt || "").includes("third-party reviews") && !String(prompt || "").includes("reviews_url_candidates")) {
+    if (!String(prompt || "").includes("third-party reviews") && !String(prompt || "").includes("reviews_url_candidates") && !String(prompt || "").includes("reviews of")) {
       return { ok: false, error: "unexpected_prompt" };
     }
 
@@ -230,8 +230,8 @@ test("grokEnrichment.fetchCuratedReviews returns verified reviews (2 YouTube + 2
       model: "grok-4-latest",
     });
 
-    // With 5-review target, 4 verifiable candidates (2 YT + 2 blogs, soft-404 rejected) → incomplete
-    assert.equal(out.reviews_stage_status, "incomplete");
+    // With 3-review threshold, 4 verifiable candidates (2 YT + 2 blogs, soft-404 rejected) → ok
+    assert.equal(out.reviews_stage_status, "ok");
     assert.equal(out.curated_reviews.length, 4);
 
     const youtubeCount = out.curated_reviews.filter((r) => String(r?.source_url || "").includes("youtube.com")).length;
@@ -265,7 +265,7 @@ test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs 
 
   const xaiStub = async ({ prompt }) => {
     // Check for review-related keywords in the prompt (plain-text or JSON output format)
-    if (!String(prompt || "").includes("third-party reviews") && !String(prompt || "").includes("reviews_url_candidates")) {
+    if (!String(prompt || "").includes("third-party reviews") && !String(prompt || "").includes("reviews_url_candidates") && !String(prompt || "").includes("reviews of")) {
       return { ok: false, error: "unexpected_prompt" };
     }
 

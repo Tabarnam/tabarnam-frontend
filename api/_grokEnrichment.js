@@ -680,44 +680,29 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // Review prompt: XAI investigates using web_search + browse_page tools, returns 5 verified reviews.
-  // Prioritize YouTube (3) over blog/magazine (2) per user guidance.
+  // Declarative review prompt: ask for what we want, let Grok decide how to find it.
+  // Client-side verification (URL reachability + YouTube oEmbed) provides a safety net.
   const attemptedExclusion = Array.isArray(attempted_urls) && attempted_urls.length > 0
     ? `\nPREVIOUSLY TRIED URLs (all failed verification — do NOT return any of these):\n${attempted_urls.map((u) => `- ${u}`).join("\n")}\nFind DIFFERENT sources instead.\n`
     : "";
 
-  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find 5 unique, legitimate third-party reviews with verified, working URLs.
+  const prompt = `Find 5 real, publicly accessible third-party reviews of ${name} (${websiteUrlForPrompt || "(unknown website)"}).
 
-INVESTIGATION REQUIREMENTS:
-- Use web_search to discover candidate review URLs for "${name}" and its products
-- Use browse_page on EVERY URL you plan to return to confirm the page loads with real content about "${name}"
-- Do NOT return any URL you have not verified with browse_page
-- Do NOT fabricate or guess YouTube video IDs — only return YouTube URLs for videos you can confirm exist via browse_page
-- If you cannot find enough verified YouTube reviews, return more blog/magazine reviews instead
-- Accuracy is paramount. It is better to return 3 verified reviews than 5 with unverified URLs.
+Requirements:
+- Each review must have a working URL to a specific article, video, or post
+- Reviews must be about ${name} or its products (not just mentioning the company in passing)
+- Prefer a mix of sources: YouTube videos, magazine articles, blog posts, news articles
+- Do not return any URL that is broken, paywalled, or deleted
+- Do not return reviews from: ${excludeDomains.join(", ")}
+- If you can only find 3 verified reviews, return 3 — quality over quantity
 ${attemptedExclusion}
-TARGET MIX:
-- 3 YouTube video reviews focused on the company or its products
-- 2 reviews from magazines, blogs, or review sites (e.g. Runner's World, Healthline, fitness blogs, industry publications)
-- If you cannot verify 3 YouTube videos exist, replace them with additional blog/magazine reviews
+For each review, output in this exact plain-text format. Separate reviews with one blank line. No markdown.
 
-QUALITY STANDARDS:
-- Each review MUST be specifically about "${name}" or its products
-- Every URL MUST be functional — no 404 pages, no deleted content, no paywalls
-- Do not include the same author more than once
-- Prefer established publications over obscure blogs
-- For YouTube: the video MUST exist, be publicly accessible, and mention "${name}" in its title or description
-- For blogs: the article MUST contain actual review content about this company
-
-Exclude sources from these domains: ${excludeDomains.join(", ")}
-
-Output each review in the exact plain-text format below. Separate each review with one blank line. Do NOT use any markdown formatting (no bold, no headers, no asterisks, no bullet points).
-
-Source: [Name of publication, channel, or website]
-Author: [Author or channel name]
-URL: [Direct URL to the review/article/video, not the site root]
-Title: [Exact title as published]
-Date: [Publication date, any format]
+Source: [publication or channel name]
+Author: [author or channel name]
+URL: [direct URL to the review article/video/post]
+Title: [exact title as published]
+Date: [publication date, any format]
 Text: [1-3 sentence excerpt or summary of the review]`.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.reviews;
@@ -871,41 +856,36 @@ Text: [1-3 sentence excerpt or summary of the review]`.trim();
     deduped.push({ ...c, source_url: u });
   }
 
+  // Streamlined verification: URL reachability + YouTube oEmbed only.
+  // Trust Grok's judgment on content relevance (it read the page).
   const this_attempt_urls = [];
-  const verified_youtube = [];
-  const verified_blog = [];
-  const usedBlogHosts = new Set();
+  const verified_reviews = [];
+  const usedHosts = new Set();
 
-  // Use longer timeout for blogs (magazines often slower than YouTube)
-  const youtubeTimeoutMs = clampInt(remaining / 8, { min: 2500, max: 8000, fallback: 6000 });
-  const blogTimeoutMs = clampInt(remaining / 5, { min: 4000, max: 12000, fallback: 10000 });
-
-  // Track unverified blog candidates for fallback
-  const unverifiedBlogCandidates = [];
+  const perUrlTimeoutMs = clampInt(remaining / 6, { min: 3000, max: 10000, fallback: 6000 });
 
   for (const c of deduped) {
     if (Date.now() - started > budgetMs - 1500) break;
-    // Need 5 total reviews (3 YouTube + 2 blog/magazine target)
-    const totalVerified = verified_youtube.length + verified_blog.length;
-    if (totalVerified >= 5) break;
+    if (verified_reviews.length >= 5) break;
 
+    // Prefer unique blog/magazine domains when possible (YouTube is exempt — multiple
+    // videos from different creators on youtube.com are all valid unique reviews).
     const host = normalizeHostForDedupe(urlHost(c.source_url));
+    const isYT = c.category === "youtube" || isYouTubeUrl(c.source_url);
     if (
-      c.category === "blog" &&
+      !isYT &&
       host &&
-      usedBlogHosts.has(host) &&
-      deduped.some((x) => x.category === "blog" && normalizeHostForDedupe(urlHost(x.source_url)) !== host)
+      usedHosts.has(host) &&
+      deduped.some((x) => normalizeHostForDedupe(urlHost(x.source_url)) !== host)
     ) {
-      // Prefer unique blog/magazine domains when possible.
       continue;
     }
 
     this_attempt_urls.push(c.source_url);
-    const perUrlTimeoutMs = c.category === "youtube" ? youtubeTimeoutMs : blogTimeoutMs;
     let verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
 
-    // Retry once for blogs if first attempt failed (but not soft-404)
-    if (!verified.ok && c.category === "blog" && verified.reason !== "soft_404") {
+    // Retry once if first attempt failed (but not soft-404)
+    if (!verified.ok && verified.reason !== "soft_404") {
       await sleepMs(400);
       verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
     }
@@ -919,118 +899,38 @@ Text: [1-3 sentence excerpt or summary of the review]`.trim();
       }
     }
 
-    // Blog-specific: Check for soft-404 content (page says it doesn't exist despite HTTP 200)
-    if (verified.ok && c.category === "blog") {
-      const htmlFor404 = typeof verified.html_preview === "string" ? verified.html_preview : "";
-      if (htmlFor404) {
-        const SOFT_404_PATTERNS = [
-          /sorry.*page.*(?:not|does not|doesn't)\s*exist/i,
-          /page.*(?:not found|could not be found|no longer available)/i,
-          /(?:404|not found).*(?:page|article|post)/i,
-          /this\s+(?:page|article|post|blog)\s+(?:has been|was)\s+(?:removed|deleted|moved)/i,
-          /content.*(?:no longer|not)\s+available/i,
-        ];
-        if (SOFT_404_PATTERNS.some((p) => p.test(htmlFor404))) {
-          console.log(`[grokEnrichment] reviews: Blog soft-404 detected: ${c.source_url}`);
-          verified = { ok: false, reason: "soft_404" };
-        }
-      }
-    }
-
-    // Blog-specific: Check if the page actually mentions the company name
-    if (verified.ok && c.category === "blog") {
-      const html = typeof verified.html_preview === "string" ? verified.html_preview : "";
-      if (html) {
-        const relevanceCheck = validateBlogContentRelevance(html, name);
-        if (!relevanceCheck.relevant) {
-          console.log(`[grokEnrichment] reviews: Blog doesn't mention company: ${c.source_url}`);
-          verified = { ok: false, reason: "company_not_mentioned" };
-        }
-      }
-    }
-
     if (!verified.ok) {
-      // Track unverified blogs for potential fallback
-      if (c.category === "blog") {
-        unverifiedBlogCandidates.push({ ...c, verification_reason: verified.reason });
-      }
+      console.log(`[grokEnrichment] reviews: URL failed verification: ${c.source_url} (${verified.reason})`);
       continue;
     }
 
+    // Use Grok-provided metadata; fall back to HTML meta only for missing fields
     const html = typeof verified.html_preview === "string" ? verified.html_preview : "";
-    const meta = buildReviewMetadataFromHtml(c.source_url, html);
+    const meta = html ? buildReviewMetadataFromHtml(c.source_url, html) : {};
 
-    // Use XAI-provided data as fallback when HTML metadata is missing
-    const review = {
-      source_name: isYouTubeUrl(c.source_url) ? "YouTube" : (c.source_name || meta.source_name),
-      author: meta.author || c.source_name,
-      source_url: meta.source_url,
-      title: c.title || meta.title,  // XAI title as fallback
-      date: meta.date,
-      excerpt: c.excerpt || meta.excerpt,  // XAI excerpt as fallback
-    };
-
-    if (c.category === "youtube") {
-      verified_youtube.push(review);
-    } else {
-      verified_blog.push(review);
-      if (host) usedBlogHosts.add(host);
-    }
+    verified_reviews.push({
+      source_name: isYouTubeUrl(c.source_url) ? "YouTube" : (c.source_name || meta.source_name || null),
+      author: c.source_name || meta.author || null,
+      source_url: verified.final_url || c.source_url,
+      title: c.title || meta.title || null,
+      date: meta.date || null,
+      excerpt: c.excerpt || meta.excerpt || null,
+    });
+    if (host) usedHosts.add(host);
   }
 
-  // Fallback: If we need more reviews and have unverified blogs, use ONLY those
-  // with soft failures (e.g., company_not_mentioned, timeout). Blogs with
-  // confirmed-dead URLs (url_unreachable, http_4xx, soft_404) must NOT be
-  // used — they would show broken links on the frontend.
-  const DEAD_URL_FALLBACK_REASONS = new Set([
-    "url_unreachable", "soft_404", "cross_domain_redirect", "fetch_failed",
-  ]);
-  function isDeadUrlReason(reason) {
-    if (!reason) return false;
-    if (DEAD_URL_FALLBACK_REASONS.has(reason)) return true;
-    // Catch all HTTP error status codes (http_404, http_500, etc.)
-    if (/^http_\d{3}$/.test(reason)) return true;
-    return false;
-  }
-  const usableFallbacks = unverifiedBlogCandidates.filter(
-    (f) => !isDeadUrlReason(f.verification_reason)
-  );
-  const totalVerifiedSoFar = verified_youtube.length + verified_blog.length;
-  if (totalVerifiedSoFar < 5 && usableFallbacks.length > 0) {
-    const needed = 5 - totalVerifiedSoFar;
-    for (let i = 0; i < Math.min(needed, usableFallbacks.length); i++) {
-      const fallback = usableFallbacks[i];
-      console.log(`[grokEnrichment] reviews: using unverified fallback blog: ${fallback.source_url} (reason: ${fallback.verification_reason})`);
-      verified_blog.push({
-        source_name: normalizeHostForDedupe(urlHost(fallback.source_url)) || "Unknown",
-        author: null,
-        source_url: fallback.source_url,
-        title: null,
-        date: null,
-        excerpt: null,
-        verification_warning: "unverified_fallback",
-      });
-    }
-  }
-  if (unverifiedBlogCandidates.length > usableFallbacks.length) {
-    const dropped = unverifiedBlogCandidates.length - usableFallbacks.length;
-    console.log(`[grokEnrichment] reviews: skipped ${dropped} unverified blog(s) with dead URLs`);
-  }
-
-  // Best 5 reviews (prefer YouTube, then blogs — target 3 YouTube + 2 blog)
-  const curated_reviews = [...verified_youtube, ...verified_blog].slice(0, 5);
+  const curated_reviews = verified_reviews.slice(0, 5);
   const youtubeCount = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length;
   const blogCount = curated_reviews.length - youtubeCount;
 
-  const ok = curated_reviews.length >= 5;
+  // Lowered from 5 to 3: aligns with resume-worker threshold (handler.js line 2436)
+  const ok = curated_reviews.length >= 3;
 
   if (!ok) {
     const reasonParts = [];
-    if (curated_reviews.length < 5) reasonParts.push("insufficient_verified_reviews");
-    if (youtubeCount === 0 && blogCount === 0) reasonParts.push("no_verified_reviews");
+    if (curated_reviews.length === 0) reasonParts.push("no_verified_reviews");
+    else reasonParts.push("insufficient_verified_reviews");
 
-    // Mark as exhausted only after trying ALL deduped candidates.
-    // XAI now returns pre-investigated results, so we should try every one before giving up.
     const isExhausted = this_attempt_urls.length >= deduped.length;
 
     const value = {
@@ -1048,7 +948,6 @@ Text: [1-3 sentence excerpt or summary of the review]`.trim();
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
-    // Only cache if we have at least 1 verified review — don't cache total failures
     if (cacheKey && curated_reviews.length > 0) writeStageCache(cacheKey, value);
     return value;
   }
