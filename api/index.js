@@ -235,6 +235,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: review-scrape");
+  require("./review-scrape/index.js");
+} catch (e) {
+  console.error("[api] Failed to load review-scrape:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: cosmos-smoke");
   require("./cosmos-smoke/index.js");
 } catch (e) {

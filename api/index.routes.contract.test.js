@@ -44,6 +44,7 @@ test("api/index.js registers all core business routes (full mode)", () => {
     "import-status",
     "import-one",
     "logo-scrape",
+    "review-scrape",
     "keywords-list",
   ];
 

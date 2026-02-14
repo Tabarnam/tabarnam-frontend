@@ -100,6 +100,7 @@ import ReviewsImportPanel from "./company-dashboard/ReviewsImportPanel";
 import ImportedReviewsPanel from "./company-dashboard/ImportedReviewsPanel";
 import WebReviewFetcher from "./company-dashboard/WebReviewFetcher";
 import CuratedReviewsEditor from "./company-dashboard/CuratedReviewsEditor";
+import ReviewLinkFetcher from "./company-dashboard/ReviewLinkFetcher";
 import RatingEditor from "./company-dashboard/RatingEditor";
 import CompanyNotesEditor from "./company-dashboard/CompanyNotesEditor";
 import StructuredLocationListEditor from "./company-dashboard/StructuredLocationListEditor";
@@ -3879,6 +3880,16 @@ export default function CompanyDashboard() {
                             value={editorDraft.keywords}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), keywords: next }))}
                             placeholder="Add a keyword…"
+                          />
+
+                          <ReviewLinkFetcher
+                            onAddReview={(review) => {
+                              setEditorDraft((d) => ({
+                                ...(d || {}),
+                                curated_reviews: [review, ...(Array.isArray(d?.curated_reviews) ? d.curated_reviews : [])],
+                              }));
+                            }}
+                            disabled={editorSaving}
                           />
 
                           <CuratedReviewsEditor
