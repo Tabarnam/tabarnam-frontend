@@ -82,17 +82,26 @@ function parseFieldsFromText(text) {
 function extractTextFromToolsResponse(data) {
   if (!data || typeof data !== "object") return "";
 
-  // 1. Try top-level output_text convenience field (simplest path)
+  // 1. Try top-level output_text convenience field (may exist in some xAI versions)
   if (typeof data.output_text === "string" && data.output_text.trim()) {
     return data.output_text;
   }
 
-  // 2. Iterate output array BACKWARDS to find the last message with output_text content
+  // 2. Iterate output array BACKWARDS looking for text content
+  //    xAI returns TWO possible structures:
+  //    A: { type: "message", content: [{ type: "output_text", text: "..." }] }
+  //    B: { type: "output_text", text: "...", annotations: [...] }  (direct, no wrapper)
   if (Array.isArray(data.output)) {
     for (let i = data.output.length - 1; i >= 0; i--) {
       const item = data.output[i];
-      if (!item || !item.content) continue;
+      if (!item) continue;
 
+      // Structure B: output_text block directly in output array (no message wrapper)
+      if (item.type === "output_text" && typeof item.text === "string" && item.text.trim()) {
+        return item.text;
+      }
+
+      // Structure A: message wrapper with content array
       if (Array.isArray(item.content)) {
         const textItem = item.content.find((c) => c?.type === "output_text");
         if (textItem?.text && typeof textItem.text === "string" && textItem.text.trim()) {
@@ -100,7 +109,7 @@ function extractTextFromToolsResponse(data) {
         }
       }
 
-      // content is a string (unlikely but defensive)
+      // Defensive: content is a string
       if (typeof item.content === "string" && item.content.trim()) {
         return item.content;
       }
@@ -163,11 +172,13 @@ async function scrapeReviewFromUrl(url) {
     }
 
     // Log raw response structure for debugging tools-based responses
-    const outputTypes = Array.isArray(json.output)
+    const outputInfo = Array.isArray(json.output)
       ? json.output.map((o, i) => `[${i}]=${o?.type || "unknown"}`).join(", ")
       : "no-output-array";
+    const lastItem = Array.isArray(json.output) ? json.output[json.output.length - 1] : null;
+    const lastItemKeys = lastItem ? Object.keys(lastItem).join(",") : "none";
     console.log(
-      `[reviewScrape] Response structure: output=[${outputTypes}], has_output_text=${typeof json.output_text === "string"}`
+      `[reviewScrape] Response: output=[${outputInfo}], lastItemKeys=[${lastItemKeys}], has_output_text=${typeof json.output_text === "string"}`
     );
 
     // Use local extractor that handles tools-based multi-item output arrays
