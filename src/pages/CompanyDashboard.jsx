@@ -13,6 +13,8 @@ import {
   AlertCircle,
   Copy,
   ChevronDown,
+  ChevronRight,
+  Loader2,
   X,
 } from "lucide-react";
 
@@ -507,6 +509,13 @@ export default function CompanyDashboard() {
   const [logoUploadError, setLogoUploadError] = useState(null);
   const [logoDeleting, setLogoDeleting] = useState(false);
   const [logoPreviewFailed, setLogoPreviewFailed] = useState(false);
+
+  const [logoFetchOpen, setLogoFetchOpen] = useState(false);
+  const [logoFetchWebsiteUrl, setLogoFetchWebsiteUrl] = useState("");
+  const [logoFetchSelector, setLogoFetchSelector] = useState("");
+  const [logoFetchLoading, setLogoFetchLoading] = useState(false);
+  const [logoFetchResult, setLogoFetchResult] = useState(null);
+  const [logoFetchError, setLogoFetchError] = useState(null);
 
   const [notesToReviewsMode, setNotesToReviewsMode] = useState("append");
   const [notesToReviewsDryRun, setNotesToReviewsDryRun] = useState(false);
@@ -2348,6 +2357,53 @@ export default function CompanyDashboard() {
     }
   }, [editorDraft, editorOriginalId, updateCompanyInState]);
 
+  const handleFetchLogo = useCallback(async () => {
+    const url = logoFetchWebsiteUrl.trim();
+    if (!url) {
+      toast.error("Website URL is required");
+      return;
+    }
+
+    setLogoFetchLoading(true);
+    setLogoFetchError(null);
+    setLogoFetchResult(null);
+
+    try {
+      const r = await apiFetch("/logo-scrape", {
+        method: "POST",
+        body: {
+          website_url: url,
+          selector: logoFetchSelector.trim() || null,
+        },
+      });
+
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        throw new Error(data.error || "Logo not found on site");
+      }
+
+      setLogoFetchResult(data);
+      toast.success("Logo found!");
+    } catch (e) {
+      const msg = e?.message || "Failed to fetch logo";
+      setLogoFetchError(msg);
+      toast.error(msg);
+    } finally {
+      setLogoFetchLoading(false);
+    }
+  }, [logoFetchWebsiteUrl, logoFetchSelector]);
+
+  const applyFetchedLogo = useCallback(() => {
+    if (!logoFetchResult?.logo_source_url) return;
+
+    setEditorDraft((d) => ({
+      ...(d || {}),
+      logo_url: logoFetchResult.logo_source_url,
+    }));
+    toast.success("Logo URL updated (save to persist)");
+    setLogoFetchResult(null);
+  }, [logoFetchResult]);
+
   const deleteCompany = useCallback(async (companyId) => {
     const safeId = asString(companyId).trim();
     if (!safeId) {
@@ -3663,6 +3719,113 @@ export default function CompanyDashboard() {
                               >
                                 {logoDeleting ? "Deleting…" : "Delete from storage"}
                               </Button>
+                            </div>
+
+                            <div className="mt-4 space-y-3">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                onClick={() => {
+                                  setLogoFetchOpen(!logoFetchOpen);
+                                  if (!logoFetchOpen && !logoFetchWebsiteUrl) {
+                                    setLogoFetchWebsiteUrl(asString(editorDraft?.website_url).trim());
+                                  }
+                                }}
+                              >
+                                <ChevronRight className={`h-4 w-4 mr-1 transition-transform ${logoFetchOpen ? "rotate-90" : ""}`} />
+                                {logoFetchOpen ? "Hide Logo Fetch Tool" : "Fetch Logo From Website"}
+                              </Button>
+
+                              {logoFetchOpen && (
+                                <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted/50 p-4 space-y-4">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                      <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Website URL (required)</label>
+                                      <Input
+                                        value={logoFetchWebsiteUrl}
+                                        onChange={(e) => setLogoFetchWebsiteUrl(e.target.value)}
+                                        placeholder="https://example.com"
+                                        className="h-9 text-sm"
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-xs font-medium text-slate-700 dark:text-muted-foreground">Logo selector (optional)</label>
+                                      <Input
+                                        value={logoFetchSelector}
+                                        onChange={(e) => setLogoFetchSelector(e.target.value)}
+                                        placeholder=".logo-class or #logo-id"
+                                        className="h-9 text-sm"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={handleFetchLogo}
+                                      disabled={logoFetchLoading || !logoFetchWebsiteUrl.trim()}
+                                    >
+                                      {logoFetchLoading ? (
+                                        <>
+                                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                          Fetching…
+                                        </>
+                                      ) : (
+                                        "Fetch Logo"
+                                      )}
+                                    </Button>
+                                    {logoFetchError && <div className="text-xs text-red-600">{logoFetchError}</div>}
+                                  </div>
+
+                                  {logoFetchResult && (
+                                    <div className="mt-4 p-3 rounded border border-slate-200 dark:border-border bg-white dark:bg-card space-y-3">
+                                      <div className="text-xs font-semibold text-slate-900 dark:text-foreground">Fetch Result Preview</div>
+                                      <div className="flex items-center gap-4">
+                                        <div className="h-16 w-16 rounded border border-slate-200 dark:border-border bg-white p-1 flex items-center justify-center">
+                                          <img
+                                            src={logoFetchResult.logo_source_url}
+                                            alt="Fetched logo preview"
+                                            className="max-h-full max-w-full object-contain"
+                                          />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="text-[11px] text-slate-500 dark:text-muted-foreground">Discovered URL:</div>
+                                          <div className="text-xs text-slate-800 dark:text-foreground break-all line-clamp-2" title={logoFetchResult.logo_source_url}>
+                                            {logoFetchResult.logo_source_url}
+                                          </div>
+                                          <div className="mt-1 text-[10px] text-slate-400 dark:text-muted-foreground uppercase">
+                                            Strategy: {logoFetchResult.strategy || "unknown"}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 pt-1">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                          onClick={applyFetchedLogo}
+                                        >
+                                          Apply This Logo
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => setLogoFetchResult(null)}
+                                        >
+                                          Discard
+                                        </Button>
+                                      </div>
+                                      <div className="text-[10px] text-amber-600 dark:text-amber-500 italic">
+                                        * Note: This only updates the logo_url field. You must Save the company to persist changes.
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
 
                             {logoFile ? (

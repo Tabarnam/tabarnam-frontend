@@ -32,7 +32,7 @@ function TextWithLinks({ text, className = "" }) {
               href={part}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-600 dark:text-blue-400 hover:underline break-all"
+              className="text-blue-600 dark:text-blue-400 hover:underline break-all inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
               onClick={(e) => e.stopPropagation()}
             >
               {part}
@@ -443,15 +443,15 @@ export default function ExpandableCompanyRow({
                       <div className="line-clamp-1">{r.text || "—"}</div>
                       {r.sourceUrl ? (
                         <a
-                          href={withAmazonAffiliate(r.sourceUrl)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 dark:text-blue-400 hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                          title={withAmazonAffiliate(r.sourceUrl)}
-                        >
-                          Source: {r.sourceName}
-                        </a>
+                  href={withAmazonAffiliate(r.sourceUrl)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 dark:text-blue-400 hover:underline inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                  onClick={(e) => e.stopPropagation()}
+                  title={withAmazonAffiliate(r.sourceUrl)}
+                >
+                  Source: {r.sourceName}
+                </a>
                       ) : (
                         <div className="text-muted-foreground">Source: {r.sourceName}</div>
                       )}
@@ -487,12 +487,17 @@ export default function ExpandableCompanyRow({
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
-  const handleRowClick = () => {
+  const handleRowClick = (e) => {
+    if (e.target.closest("a, button, [role='button'], input, textarea, select")) {
+      return;
+    }
     setIsExpanded(!isExpanded);
   };
 
   const handleExpandedClick = (e) => {
-    if (e.target.closest("a, button")) return;
+    if (e.target.closest("a, button, [role='button'], input, textarea, select")) {
+      return;
+    }
     setIsExpanded(false);
   };
 
@@ -530,8 +535,8 @@ export default function ExpandableCompanyRow({
                     <a
                       href={withAmazonAffiliate(link.url)}
                       target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 dark:text-blue-400 hover:underline inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
@@ -543,9 +548,11 @@ export default function ExpandableCompanyRow({
                     <a
                       href={withAmazonAffiliate(amazonLink)}
                       target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline"
-                      onClick={(e) => e.stopPropagation()}
+                      rel="noopener noreferrer"
+                      className="text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
                     >
                       Amazon
                     </a>
@@ -704,8 +711,8 @@ export default function ExpandableCompanyRow({
                 <a
                   href={withAmazonAffiliate(link.url)}
                   target="_blank"
-                  rel="noreferrer"
-                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 dark:text-blue-400 hover:underline inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
@@ -718,8 +725,8 @@ export default function ExpandableCompanyRow({
                 <a
                   href={withAmazonAffiliate(amazonLink)}
                   target="_blank"
-                  rel="noreferrer"
-                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
                   onClick={(e) => e.stopPropagation()}
                 >
                   Amazon
