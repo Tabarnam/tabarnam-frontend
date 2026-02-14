@@ -254,8 +254,19 @@ async function diagHandler(req) {
     };
   }
 
-  const buildInfo = getBuildInfo();
-  const handler_versions = getHandlerVersions(buildInfo);
+  let buildInfo = {};
+  try {
+    buildInfo = getBuildInfo();
+  } catch (e) {
+    buildInfo = { error: e?.message || "failed to get build info" };
+  }
+
+  let handler_versions = {};
+  try {
+    handler_versions = getHandlerVersions(buildInfo);
+  } catch (e) {
+    handler_versions = { error: e?.message || "failed to get handler versions" };
+  }
 
   let routes = [];
   try {
@@ -265,10 +276,18 @@ async function diagHandler(req) {
     routes = [];
   }
 
+  const cosmosConfig = {
+    has_endpoint: !!(process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || process.env.COSMOS_ENDPOINT),
+    has_key: !!(process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || process.env.COSMOS_KEY),
+    database: process.env.COSMOS_DB_DATABASE || "tabarnam-db",
+    container: process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies",
+  };
+
   return json({
     ok: true,
     now: new Date().toISOString(),
     env: pickEnv(process.env),
+    cosmos: cosmosConfig,
     routes,
     handler_version: handler_versions.import_start,
     handler_versions,
