@@ -645,9 +645,12 @@ function isRealValue(field, value, doc) {
     // If reviews_stage_status is "incomplete", the resume-worker has signaled that more
     // reviews are needed (e.g. verified count < REVIEWS_MIN_VIABLE).  Keep the field
     // unsatisfied so import-status won't finalize before a queued retry cycle can run.
+    // Data-wins-over-flag: if curated reviews exist (admin-added or pipeline-found),
+    // they satisfy the field regardless of the "incomplete" pipeline signal.
+    // "incomplete" only blocks when there are truly no curated reviews yet.
     const stageStatus = (doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status || "")
       .toString().toLowerCase().trim();
-    if (stageStatus === "incomplete") return false;
+    if (stageStatus === "incomplete" && curated.length === 0) return false;
 
     // Data completeness (separate from retry/terminal state): we only treat reviews as present
     // when we actually have review data.
@@ -697,9 +700,10 @@ function computeEnrichmentHealth(company) {
 
   const reviews_terminal = reviewsStageNormalized === "exhausted";
   const has_reviews_data = curated.length > 0 || reviewCount > 0;
-  // Reviews are only satisfied when we have data AND the stage is not "incomplete".
-  // "incomplete" means the resume-worker signaled more reviews are needed (below minimum).
-  const reviewsSatisfied = has_reviews_data && reviewsStageNormalized !== "incomplete";
+  // Data-wins-over-flag: "incomplete" only blocks satisfaction when there are no
+  // curated reviews. If reviews exist (admin-added or pipeline-found), the data
+  // requirement is met regardless of the pipeline stage signal.
+  const reviewsSatisfied = has_reviews_data && !(reviewsStageNormalized === "incomplete" && curated.length === 0);
 
   return {
     has_industries: isRealValue("industries", c.industries, c),
