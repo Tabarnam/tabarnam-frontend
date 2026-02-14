@@ -1,17 +1,15 @@
 /**
  * _reviewScrape.js — Extract review/article metadata from a URL using XAI/Grok.
  *
- * Instead of fetching HTML and parsing meta tags (which fails on many sites
- * due to bot detection, JS rendering, and Azure Functions compression issues),
- * we send the URL to Grok which browses the page natively and extracts
- * structured metadata.
- *
- * Uses xaiLiveSearch (the proven production module with proper URL resolution,
- * auth handling, and timeout safety) rather than the lower-level xaiResponses.
+ * Uses the same shared utilities as xaiLiveSearch (resolveXaiEndpointForModel,
+ * getXAIKey, etc.) but builds the request directly to control temperature.
+ * temperature: 0 ensures deterministic output — same URL always yields same result.
  */
 
-const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
-const { parseJsonFromResponse } = require("./_xaiResponseFormat");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
+const { extractTextFromXaiResponse, parseJsonFromResponse } = require("./_xaiResponseFormat");
+
+const MODEL = "grok-3-fast";
 
 const PROMPT_TEMPLATE = (url) => `You are a metadata extraction assistant. Browse the following URL and extract review/article metadata.
 
@@ -30,8 +28,8 @@ Return EXACTLY this JSON structure:
 }
 
 Rules:
-- title: The article/video/review title. Never include the site name suffix (e.g. "- YouTube").
-- excerpt: A 1-3 sentence summary or key quote from the content (max 500 chars).
+- title: The article/video/review title exactly as it appears. Never include the site name suffix (e.g. "- YouTube").
+- excerpt: The first 1-3 sentences of the article/review as they appear on the page (max 500 chars). Do not summarize or paraphrase — copy the opening text verbatim.
 - author: The author or channel name. Empty string if unknown.
 - date: Publication date in YYYY-MM-DD format. Empty string if unknown.
 - source_name: The publication/site/channel name (e.g. "YouTube", "Forbes", "TechCrunch").
@@ -53,26 +51,70 @@ function emptyResult(url, error) {
   };
 }
 
+function isAzureWebsitesUrl(rawUrl) {
+  try {
+    const u = new URL(String(rawUrl || ""));
+    return /\.azurewebsites\.net$/i.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 async function scrapeReviewFromUrl(url) {
   const targetUrl = String(url || "").trim();
   if (!targetUrl) {
     return emptyResult("", "Missing url");
   }
 
-  try {
-    const result = await xaiLiveSearch({
-      prompt: PROMPT_TEMPLATE(targetUrl),
-      model: "grok-3-fast",
-      timeoutMs: 30000,
-      maxTokens: 900,
-    });
+  // Resolve endpoint using the same utilities as xaiLiveSearch
+  const resolvedBase = String(getXAIEndpoint() || "").trim();
+  const key = String(getXAIKey() || "").trim();
+  const apiUrl = resolveXaiEndpointForModel(resolvedBase, MODEL);
 
-    if (!result.ok) {
-      const errMsg = result.error || "XAI request failed";
-      return emptyResult(targetUrl, errMsg);
+  if (!apiUrl || !key) {
+    return emptyResult(targetUrl, "Missing XAI API configuration");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    // Build auth headers (same pattern as xaiLiveSearch)
+    const headers = { "Content-Type": "application/json" };
+    if (isAzureWebsitesUrl(apiUrl)) {
+      headers["x-functions-key"] = key;
+    } else {
+      headers["Authorization"] = `Bearer ${key}`;
     }
 
-    const text = extractTextFromXaiResponse(result.resp);
+    // Build payload with temperature: 0 for deterministic output
+    const payload = {
+      model: MODEL,
+      temperature: 0,
+      input: [{ role: "user", content: PROMPT_TEMPLATE(targetUrl) }],
+      search: { mode: "auto" },
+    };
+
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      return emptyResult(targetUrl, `XAI API error (HTTP ${res.status})`);
+    }
+
+    const rawText = await res.text();
+    let json;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      json = { raw: rawText };
+    }
+
+    const text = extractTextFromXaiResponse(json);
     const parsed = parseJsonFromResponse(text);
 
     if (!parsed || typeof parsed !== "object") {
@@ -103,6 +145,8 @@ async function scrapeReviewFromUrl(url) {
     };
   } catch (e) {
     return emptyResult(targetUrl, e?.message || String(e));
+  } finally {
+    clearTimeout(timer);
   }
 }
 
