@@ -69,6 +69,48 @@ function parseFieldsFromText(text) {
   return fields;
 }
 
+/**
+ * Extract text from an xAI /v1/responses response that used tools: [{ type: "web_search" }].
+ *
+ * When tools are used, the output array contains multiple items:
+ *   output[0] = web_search_call (tool invocation — no text)
+ *   output[N] = { type: "message", content: [{ type: "output_text", text: "..." }] }
+ *
+ * Per xAI docs, the final text is in the LAST output item.
+ * We also check the top-level `output_text` convenience field first.
+ */
+function extractTextFromToolsResponse(data) {
+  if (!data || typeof data !== "object") return "";
+
+  // 1. Try top-level output_text convenience field (simplest path)
+  if (typeof data.output_text === "string" && data.output_text.trim()) {
+    return data.output_text;
+  }
+
+  // 2. Iterate output array BACKWARDS to find the last message with output_text content
+  if (Array.isArray(data.output)) {
+    for (let i = data.output.length - 1; i >= 0; i--) {
+      const item = data.output[i];
+      if (!item || !item.content) continue;
+
+      if (Array.isArray(item.content)) {
+        const textItem = item.content.find((c) => c?.type === "output_text");
+        if (textItem?.text && typeof textItem.text === "string" && textItem.text.trim()) {
+          return textItem.text;
+        }
+      }
+
+      // content is a string (unlikely but defensive)
+      if (typeof item.content === "string" && item.content.trim()) {
+        return item.content;
+      }
+    }
+  }
+
+  // 3. Fallback: try the shared extractor (handles /v1/chat/completions, other shapes)
+  return extractTextFromXaiResponse(data);
+}
+
 async function scrapeReviewFromUrl(url) {
   const targetUrl = String(url || "").trim();
   if (!targetUrl) {
@@ -120,7 +162,21 @@ async function scrapeReviewFromUrl(url) {
       json = { raw: rawText };
     }
 
-    const responseText = extractTextFromXaiResponse(json);
+    // Log raw response structure for debugging tools-based responses
+    const outputTypes = Array.isArray(json.output)
+      ? json.output.map((o, i) => `[${i}]=${o?.type || "unknown"}`).join(", ")
+      : "no-output-array";
+    console.log(
+      `[reviewScrape] Response structure: output=[${outputTypes}], has_output_text=${typeof json.output_text === "string"}`
+    );
+
+    // Use local extractor that handles tools-based multi-item output arrays
+    const responseText = extractTextFromToolsResponse(json);
+
+    if (!responseText || !responseText.trim()) {
+      console.log(`[reviewScrape] Empty response text for ${targetUrl}`);
+      return emptyResult(targetUrl, "Empty response from XAI API");
+    }
 
     // Check for "Invalid URL" response
     if (/invalid\s+url/i.test(responseText)) {
@@ -128,6 +184,7 @@ async function scrapeReviewFromUrl(url) {
     }
 
     // Parse plain-text fields from Grok's response
+    console.log(`[reviewScrape] Extracted text (first 200 chars): ${responseText.slice(0, 200)}`);
     const fields = parseFieldsFromText(responseText);
 
     const title = String(fields.title || "").trim();
