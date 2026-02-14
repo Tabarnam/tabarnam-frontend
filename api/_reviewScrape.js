@@ -1,27 +1,26 @@
 /**
  * _reviewScrape.js — Extract review/article metadata from a URL using XAI/Grok.
  *
- * Uses xaiLiveSearch (the proven production module) with grok-4-latest
- * and search enabled. Grok browses the page via its built-in web_search
- * tool and extracts structured metadata as JSON.
+ * Uses the xAI /v1/responses API with tools: [{ type: "web_search" }]
+ * and a browse_page prompt to have Grok visit the specific URL and
+ * extract metadata directly from the page content.
  */
 
-const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
-const { parseJsonFromResponse } = require("./_xaiResponseFormat");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
+const { extractTextFromXaiResponse } = require("./_xaiResponseFormat");
+
+const MODEL = "grok-4-latest";
+const TIMEOUT_MS = 60000;
 
 const PROMPT_TEMPLATE = (url) =>
-  `What is the title, author, publication date, source/publication name, and opening text of this page: ${url}
-
-Return valid JSON only, no other text:
-{"title":"...","excerpt":"...","author":"...","date":"YYYY-MM-DD","source_name":"...","rating":null}
-
-Rules:
-- title: exact page title without site suffix (e.g. no "- YouTube")
-- excerpt: first 1-3 sentences from the page verbatim (max 500 chars)
-- author: author or channel name, empty string if unknown
-- date: publication date as YYYY-MM-DD, empty string if unknown
-- source_name: site or publication name (e.g. "YouTube", "Forbes")
-- rating: numeric rating if present, otherwise null`;
+  `Use the browse_page tool on ${url} with instructions: Fetch the page content and confirm it loads publicly without errors or paywalls. If valid and containing review content, extract these fields if they exist:
+- Source: Name of the publication, channel, or website (e.g., 'YouTube' or 'Healthline').
+- Author: Author or channel name (from byline or uploader).
+- URL: Return the provided URL as-is.
+- Title: Exact title as published (article headline or video title).
+- Date: Publication or upload date in any format (from metadata or text).
+- Text: A 1-3 sentence excerpt or summary of the review content (directly from body/description; focus on key opinions; no additions).
+If invalid, irrelevant, or not a review, return 'Invalid URL'. Output only the extracted fields in plain text, one per line, no markdown.`;
 
 function emptyResult(url, error) {
   return {
@@ -38,40 +37,104 @@ function emptyResult(url, error) {
   };
 }
 
+function isAzureWebsitesUrl(rawUrl) {
+  try {
+    return /\.azurewebsites\.net$/i.test(new URL(String(rawUrl || "")).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse Grok's plain-text response into structured fields.
+ * Expected format:
+ *   Source: YouTube
+ *   Author: Channel Name
+ *   URL: https://...
+ *   Title: Video Title
+ *   Date: 2024-01-15
+ *   Text: First sentence of the review...
+ */
+function parseFieldsFromText(text) {
+  const lines = String(text || "").split("\n");
+  const fields = {};
+
+  for (const line of lines) {
+    const match = line.match(/^(Source|Author|URL|Title|Date|Text)\s*:\s*(.+)/i);
+    if (match) {
+      fields[match[1].toLowerCase()] = match[2].trim();
+    }
+  }
+
+  return fields;
+}
+
 async function scrapeReviewFromUrl(url) {
   const targetUrl = String(url || "").trim();
   if (!targetUrl) {
     return emptyResult("", "Missing url");
   }
 
+  const resolvedBase = String(getXAIEndpoint() || "").trim();
+  const key = String(getXAIKey() || "").trim();
+  const apiUrl = resolveXaiEndpointForModel(resolvedBase, MODEL);
+
+  if (!apiUrl || !key) {
+    return emptyResult(targetUrl, "Missing XAI API configuration");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   try {
-    const result = await xaiLiveSearch({
-      prompt: PROMPT_TEMPLATE(targetUrl),
-      model: "grok-4-latest",
-      timeoutMs: 30000,
-      maxTokens: 900,
-      search_parameters: { mode: "on" },
+    const headers = { "Content-Type": "application/json" };
+    if (isAzureWebsitesUrl(apiUrl)) {
+      headers["x-functions-key"] = key;
+    } else {
+      headers["Authorization"] = `Bearer ${key}`;
+    }
+
+    const payload = {
+      model: MODEL,
+      temperature: 0,
+      input: [{ role: "user", content: PROMPT_TEMPLATE(targetUrl) }],
+      tools: [{ type: "web_search" }],
+    };
+
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
     });
 
-    if (!result.ok) {
-      const errMsg = result.error || "XAI request failed";
-      return emptyResult(targetUrl, errMsg);
+    if (!res.ok) {
+      return emptyResult(targetUrl, `XAI API error (HTTP ${res.status})`);
     }
 
-    const text = extractTextFromXaiResponse(result.resp);
-    const parsed = parseJsonFromResponse(text);
-
-    if (!parsed || typeof parsed !== "object") {
-      return emptyResult(targetUrl, "Failed to parse extraction response");
+    const rawText = await res.text();
+    let json;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      json = { raw: rawText };
     }
 
-    const title = String(parsed.title || "").trim();
-    const excerpt = String(parsed.excerpt || "").trim().slice(0, 500);
-    const author = String(parsed.author || "").trim();
-    const date = String(parsed.date || "").trim();
-    const source_name = String(parsed.source_name || "").trim();
-    const rawRating = parsed.rating;
-    const rating = typeof rawRating === "number" && Number.isFinite(rawRating) ? rawRating : null;
+    const responseText = extractTextFromXaiResponse(json);
+
+    // Check for "Invalid URL" response
+    if (/invalid\s+url/i.test(responseText)) {
+      return emptyResult(targetUrl, "Page is invalid or not a review");
+    }
+
+    // Parse plain-text fields from Grok's response
+    const fields = parseFieldsFromText(responseText);
+
+    const title = String(fields.title || "").trim();
+    const excerpt = String(fields.text || "").trim().slice(0, 500);
+    const author = String(fields.author || "").trim();
+    const date = String(fields.date || "").trim();
+    const source_name = String(fields.source || "").trim();
 
     const hasContent = Boolean(title || excerpt);
 
@@ -82,13 +145,15 @@ async function scrapeReviewFromUrl(url) {
       author,
       date,
       source_name,
-      source_url: targetUrl,
-      rating,
-      strategy: "xai",
+      source_url: fields.url || targetUrl,
+      rating: null,
+      strategy: "xai-browse",
       error: hasContent ? "" : "Could not extract meaningful content",
     };
   } catch (e) {
     return emptyResult(targetUrl, e?.message || String(e));
+  } finally {
+    clearTimeout(timer);
   }
 }
 
