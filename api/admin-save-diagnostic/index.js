@@ -48,6 +48,7 @@ async function adminSaveDiagnosticHandler(req, context) {
 
     if (method === "GET") {
       const diagnostics = {
+        ok: true,
         timestamp: new Date().toISOString(),
         cosmosConfigured: !!container,
         build_info: (() => {
@@ -62,8 +63,15 @@ async function adminSaveDiagnosticHandler(req, context) {
           key: env("COSMOS_DB_KEY") ? "✓ Set" : "✗ Missing",
           database: env("COSMOS_DB_DATABASE") || "tabarnam-db",
           container: env("COSMOS_DB_COMPANIES_CONTAINER") || "companies",
+          has_endpoint: !!env("COSMOS_DB_ENDPOINT"),
+          has_key: !!env("COSMOS_DB_KEY"),
         },
       };
+
+      if (!container) {
+        diagnostics.ok = false;
+        diagnostics.error = "Cosmos DB not configured. Check environment variables.";
+      }
 
       if (container) {
         try {
