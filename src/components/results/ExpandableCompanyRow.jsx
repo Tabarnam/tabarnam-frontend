@@ -442,18 +442,20 @@ export default function ExpandableCompanyRow({
                     <div key={idx} className="text-xs text-muted-foreground">
                       <div className="line-clamp-1">{r.text || "—"}</div>
                       {r.sourceUrl ? (
-                        <a
-                  href={withAmazonAffiliate(r.sourceUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 dark:text-blue-400 hover:underline inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                  onClick={(e) => e.stopPropagation()}
-                  title={withAmazonAffiliate(r.sourceUrl)}
-                >
-                  Source: {r.sourceName}
-                </a>
+                        <div className="mt-1">
+                          <a
+                            href={withAmazonAffiliate(r.sourceUrl)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 dark:text-blue-400 hover:underline inline-block py-1 px-2 -ml-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors border border-transparent hover:border-blue-200 dark:hover:border-blue-800"
+                            onClick={(e) => e.stopPropagation()}
+                            title={withAmazonAffiliate(r.sourceUrl)}
+                          >
+                            Source: {r.sourceName}
+                          </a>
+                        </div>
                       ) : (
-                        <div className="text-muted-foreground">Source: {r.sourceName}</div>
+                        <div className="text-muted-foreground mt-1">Source: {r.sourceName}</div>
                       )}
                     </div>
                   ))}
@@ -488,14 +490,16 @@ export default function ExpandableCompanyRow({
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
   const handleRowClick = (e) => {
-    if (e.target.closest("a, button, [role='button'], input, textarea, select")) {
+    // Strict click zones: ignore interactive elements and their wrappers
+    if (e.target.closest("a, button, [role='button'], input, textarea, select, label, .reviews-widget, .share-button-container, .keywordsRow")) {
       return;
     }
     setIsExpanded(!isExpanded);
   };
 
   const handleExpandedClick = (e) => {
-    if (e.target.closest("a, button, [role='button'], input, textarea, select")) {
+    // Strict click zones
+    if (e.target.closest("a, button, [role='button'], input, textarea, select, label, .reviews-widget, .share-button-container, .keywordsRow, .location-sources-container")) {
       return;
     }
     setIsExpanded(false);
@@ -643,7 +647,7 @@ export default function ExpandableCompanyRow({
           </div>
         </div>
 
-        <div className="mt-6 space-y-4">
+        <div className="mt-6 space-y-4 reviews-widget">
           {Array.isArray(company?.notes_entries) && company.notes_entries.some((n) => n?.is_public) && (
             <div className="rounded-lg border border-border bg-muted/50 p-4">
               <div className="text-sm font-semibold text-foreground mb-2">Notes from Tabarnam</div>
@@ -682,7 +686,7 @@ export default function ExpandableCompanyRow({
       onClick={handleRowClick}
       className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
     >
-      <div className="absolute top-1 right-1 z-10">
+      <div className="absolute top-1 right-1 z-10 share-button-container">
         <ShareButton company={company} />
       </div>
       <div className="col-span-4 lg:col-span-1">
@@ -824,7 +828,7 @@ export default function ExpandableCompanyRow({
 
       {/* Location Sources Section */}
       {company.show_location_sources_to_users && Array.isArray(company.location_sources) && company.location_sources.length > 0 && (
-        <div className="col-span-6 lg:col-span-5 border-t pt-4 mt-4">
+        <div className="col-span-6 lg:col-span-5 border-t pt-4 mt-4 location-sources-container">
           <div className="text-xs font-semibold text-foreground mb-3">📍 Location Sources</div>
           <div className="grid grid-cols-2 gap-3 text-xs">
             {company.location_sources.map((source, idx) => (
