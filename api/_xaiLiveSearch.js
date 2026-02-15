@@ -158,6 +158,11 @@ function extractTextFromXaiResponse(resp) {
           return item.content.text;
         }
       }
+
+      // Defensive: content is a direct string (some xAI response variants)
+      if (typeof item.content === "string" && item.content.trim()) {
+        return item.content;
+      }
     }
   }
 
@@ -170,6 +175,9 @@ function extractTextFromXaiResponse(resp) {
 
   // 5. String passthrough
   if (typeof r === "string") return r;
+
+  // Warn when all extraction paths failed — helps diagnose unexpected xAI response formats
+  try { console.warn(`[extractTextFromXaiResponse] all paths failed, keys=${Object.keys(obj).join(",")}`); } catch {}
 
   try {
     return JSON.stringify(r);

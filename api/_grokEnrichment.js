@@ -769,8 +769,27 @@ Text: [1-3 sentence excerpt or summary of the review]`.trim();
     };
   }
 
+  // Diagnostic: log response shape for tools-based review calls
+  const _respShape = r.resp && typeof r.resp === "object" ? r.resp : {};
+  const _respInner = _respShape.data && typeof _respShape.data === "object" ? _respShape.data : _respShape;
+  console.log(`[fetchCuratedReviews] response_shape`, {
+    has_output_text: typeof _respInner.output_text === "string",
+    output_text_len: typeof _respInner.output_text === "string" ? _respInner.output_text.length : null,
+    has_output: Array.isArray(_respInner.output),
+    output_len: Array.isArray(_respInner.output) ? _respInner.output.length : null,
+    output_types: Array.isArray(_respInner.output)
+      ? _respInner.output.map(i => `${i?.type || "?"}${i?.role ? ":" + i.role : ""}`)
+      : null,
+    top_keys: Object.keys(_respInner).slice(0, 12),
+  });
+
   // Parse response — try plain-text format first (Source:/Author:/URL:), fall back to JSON.
   const rawText = asString(extractTextFromXaiResponse(r.resp));
+
+  // Diagnostic: warn when text extraction yields unexpectedly short/empty result
+  if (!rawText || rawText.length < 10) {
+    console.warn(`[fetchCuratedReviews] rawText extraction produced ${rawText ? rawText.length : 0} chars (expected review data)`);
+  }
   let rawCandidates = null;
 
   // Plain-text parser: split on "Source:" blocks

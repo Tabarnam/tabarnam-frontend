@@ -82,7 +82,7 @@ const ENRICHMENT_FIELDS = [
  * Check if a field value is considered "complete"
  */
 function isFieldComplete(fieldKey, value, status) {
-  if (status === "ok" || status === "not_found" || status === "not_disclosed") {
+  if (status === "ok" || status === "not_found" || status === "not_disclosed" || status === "empty") {
     return true;
   }
   // "incomplete" means the field has partial data but didn't meet its target
