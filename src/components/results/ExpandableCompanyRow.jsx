@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Copy } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
 import ReviewsWidget from "@/components/ReviewsWidget";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -489,20 +489,27 @@ export default function ExpandableCompanyRow({
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
+  // --- Strict expand/collapse click-zone logic ---
+  // Only card background, company-name area, and the dedicated chevron trigger expand/collapse.
+  // All interactive elements (links, buttons, inputs, etc.) are excluded.
+  const INTERACTIVE_SELECTOR =
+    "a, button, [role='button'], input, textarea, select, label, " +
+    ".reviews-widget, .share-button-container, .keywordsRow, " +
+    ".location-sources-container, .affiliate-links-zone, .social-links-zone";
+
   const handleRowClick = (e) => {
-    // Strict click zones: ignore interactive elements and their wrappers
-    if (e.target.closest("a, button, [role='button'], input, textarea, select, label, .reviews-widget, .share-button-container, .keywordsRow")) {
-      return;
-    }
-    setIsExpanded(!isExpanded);
+    if (e.target.closest(INTERACTIVE_SELECTOR)) return;
+    setIsExpanded(true);
   };
 
   const handleExpandedClick = (e) => {
-    // Strict click zones
-    if (e.target.closest("a, button, [role='button'], input, textarea, select, label, .reviews-widget, .share-button-container, .keywordsRow, .location-sources-container")) {
-      return;
-    }
+    if (e.target.closest(INTERACTIVE_SELECTOR)) return;
     setIsExpanded(false);
+  };
+
+  const handleChevronClick = (e) => {
+    e.stopPropagation();
+    setIsExpanded((prev) => !prev);
   };
 
   if (isExpanded) {
@@ -511,8 +518,18 @@ export default function ExpandableCompanyRow({
         onClick={handleExpandedClick}
         className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-4 sm:p-6 bg-card cursor-pointer relative"
       >
-        <div className="absolute top-2 right-2 z-10">
+        {/* Collapse chevron + share button row */}
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
           <ShareButton company={company} />
+          <button
+            type="button"
+            onClick={handleChevronClick}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            aria-label="Collapse details"
+            title="Collapse"
+          >
+            <ChevronUp className="h-5 w-5" />
+          </button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6 pb-6 border-b">
           <div className="sm:col-span-2 lg:col-span-2">
@@ -533,17 +550,18 @@ export default function ExpandableCompanyRow({
             )}
 
             {(affiliateLinks.length > 0 || amazonLink) && (
-              <div className="mt-3 space-y-1">
+              <div className="affiliate-links-zone mt-3 space-y-1 border-l-2 border-blue-200 dark:border-blue-800 pl-3">
                 {affiliateLinks.map((link, idx) => (
                   <div key={link.url || idx} className="text-sm">
                     <a
                       href={withAmazonAffiliate(link.url)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                      className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 py-1 px-2 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
+                      <span className="text-muted-foreground text-xs">↗</span>
                     </a>
                   </div>
                 ))}
@@ -553,12 +571,11 @@ export default function ExpandableCompanyRow({
                       href={withAmazonAffiliate(amazonLink)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                      }}
+                      className="text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-flex items-center gap-1 py-1 px-2 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                      onClick={(e) => e.stopPropagation()}
                     >
                       Amazon
+                      <span className="text-muted-foreground text-xs">↗</span>
                     </a>
                   </div>
                 )}
@@ -676,7 +693,17 @@ export default function ExpandableCompanyRow({
           <ReviewsWidget companyId={company.company_id || company.id} companyName={canonicalName} displayName={displayName} />
         </div>
 
-        <div className="text-xs text-muted-foreground mt-4 text-center">Click anywhere to collapse</div>
+        {/* Collapse control at bottom */}
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={handleChevronClick}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 px-3 rounded-md hover:bg-muted"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+            Collapse
+          </button>
+        </div>
       </div>
     );
   }
@@ -686,8 +713,18 @@ export default function ExpandableCompanyRow({
       onClick={handleRowClick}
       className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
     >
-      <div className="absolute top-1 right-1 z-10 share-button-container">
+      {/* Expand chevron + share button */}
+      <div className="absolute top-1 right-1 z-10 flex items-center gap-0.5 share-button-container">
         <ShareButton company={company} />
+        <button
+          type="button"
+          onClick={handleChevronClick}
+          className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          aria-label="Expand details"
+          title="Expand"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
       </div>
       <div className="col-span-4 lg:col-span-1">
         <h2 className="font-bold text-foreground">
@@ -708,7 +745,7 @@ export default function ExpandableCompanyRow({
         )}
 
         {(affiliateLinks.length > 0 || amazonLink) && (
-          <div className="mt-2 space-y-0.5 text-xs">
+          <div className="affiliate-links-zone mt-2 space-y-0.5 text-xs border-l-2 border-blue-200 dark:border-blue-800 pl-2">
             {affiliateLinks.map((link, idx) => (
               <div key={link.url || idx} className="truncate">
                 <span className="font-semibold text-foreground mr-1">Aff.</span>
@@ -716,10 +753,11 @@ export default function ExpandableCompanyRow({
                   href={withAmazonAffiliate(link.url)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 dark:text-blue-400 hover:underline inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                  className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5 py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
+                  <span className="text-muted-foreground">↗</span>
                 </a>
               </div>
             ))}
@@ -730,10 +768,11 @@ export default function ExpandableCompanyRow({
                   href={withAmazonAffiliate(amazonLink)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-block py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                  className="text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-flex items-center gap-0.5 py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                   onClick={(e) => e.stopPropagation()}
                 >
                   Amazon
+                  <span className="text-muted-foreground">↗</span>
                 </a>
               </div>
             )}
