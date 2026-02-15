@@ -3244,7 +3244,7 @@ export default function CompanyDashboard() {
                                         <ChevronDown className="h-3.5 w-3.5" />
                                       </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent align="end" className="w-52 p-3">
+                                    <PopoverContent align="end" className="w-52 p-3 z-[110]">
                                       <div className="space-y-2">
                                         <div className="text-xs font-medium text-muted-foreground mb-2">Fields to refresh</div>
                                         {REFRESHABLE_FIELDS.map((f) => (
