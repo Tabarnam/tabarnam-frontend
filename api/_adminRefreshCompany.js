@@ -618,6 +618,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     deadlineAtMs = startedAt + budgetMs;
 
     const companyId = asString(body.company_id || body.id).trim();
+    const fieldsToEnrich = Array.isArray(body.fields_to_refresh) ? body.fields_to_refresh : undefined;
 
     if (!companyId) {
       pushBreadcrumb("client_bad_request", { reason: "missing_company_id" });
@@ -919,6 +920,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         budgetMs: Math.max(30000, getRemainingBudgetMs() - 20000), // Reserve 20s for geocoding + save
         xaiUrl,
         xaiKey,
+        fieldsToEnrich,
       });
 
       enrichment_status = enrichmentResult.field_statuses || {};

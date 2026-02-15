@@ -2417,6 +2417,36 @@ async function enrichCompanyFields({
 
   const domain = normalizeDomain(normalizedDomain || websiteUrl);
 
+  // When targeting ≤2 specific fields, skip the unified prompt (Phase 1) and
+  // jump straight to dedicated per-field fetchers (Phase 3). This is faster and
+  // cheaper for targeted refreshes.
+  const skipUnified = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 && fieldsToEnrich.length <= 2;
+
+  if (skipUnified) {
+    console.log(`[enrichCompanyFields] Targeted refresh: skipping Phase 1 unified prompt, going direct to Phase 3 for [${fieldsToEnrich.join(", ")}], budget=${budgetMs}ms`);
+
+    // Map long field names to short names for fillMissingFieldsIndividually
+    const LONG_TO_SHORT = {};
+    for (const [short, long] of Object.entries(FIELD_SHORT_TO_LONG)) LONG_TO_SHORT[long] = short;
+    const targetShortNames = fieldsToEnrich
+      .map((f) => LONG_TO_SHORT[f] || f)
+      .filter(Boolean);
+
+    const { filled, field_statuses } = await fillMissingFieldsIndividually(
+      targetShortNames,
+      { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
+    );
+
+    return {
+      ok: true,
+      method: "targeted_direct",
+      proposed: filled,
+      field_statuses,
+      elapsed_ms: Date.now() - started,
+      remaining_budget_ms: getRemainingMs(),
+    };
+  }
+
   // Phase 1: Unified prompt
   console.log(`[enrichCompanyFields] Phase 1: unified prompt for "${companyName}" (${domain}), budget=${budgetMs}ms`);
   const unified = await fetchAllFieldsUnified({
