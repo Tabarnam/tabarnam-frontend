@@ -478,12 +478,12 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     }
   }
   if (
-    (!Array.isArray(updated.reviews) || updated.reviews.length === 0) &&
-    updated.reviews_status !== "not_found" &&
-    updated.reviews_status !== "not_disclosed"
+    (!Array.isArray(updated.curated_reviews) || updated.curated_reviews.length === 0) &&
+    updated.reviews_stage_status !== "not_found" &&
+    updated.reviews_stage_status !== "not_disclosed"
   ) {
     refreshedMissing.push("reviews");
-    refreshedReasons.reviews = updated.reviews_status || "missing";
+    refreshedReasons.reviews = updated.reviews_stage_status || "missing";
   }
   if (!updated.logo_url && updated.logo_status !== "not_found_on_site") {
     refreshedMissing.push("logo");

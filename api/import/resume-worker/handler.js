@@ -1847,7 +1847,20 @@ async function resumeWorkerHandler(req, context) {
     // has finished writing the seed company doc and resume doc. The async enrichment
     // fire-and-forget in import-start will handle enrichment — don't run empty.
     if (plannedIds.length === 0 && isFreshSeed) {
-      console.log(`[resume-worker] SKIPPING: fresh seed with no planned IDs for session=${sessionId} — seed not yet saved`);
+      console.log(`[resume-worker] SKIPPING: fresh seed with no planned IDs for session=${sessionId} — seed not yet saved, re-enqueueing with 15s delay`);
+      try {
+        await enqueueResumeRun({
+          session_id: sessionId,
+          company_ids: [],
+          reason: "seed_not_ready_retry",
+          requested_by: "resume_worker_self",
+          cycle_count: 0,
+          run_after_ms: 15_000,
+        });
+        console.log(`[resume-worker] seed_not_ready re-enqueue OK for session=${sessionId} (15s delay)`);
+      } catch (enqErr) {
+        console.warn(`[resume-worker] seed_not_ready re-enqueue failed for session=${sessionId}: ${enqErr?.message || enqErr}`);
+      }
       return gracefulExit("seed_not_ready");
     }
 
