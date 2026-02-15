@@ -715,7 +715,7 @@ export default function ExpandableCompanyRow({
       className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
     >
       {/* Expand chevron + share button */}
-      <div className="absolute top-1 right-1 z-10 flex items-center gap-0.5 share-button-container">
+      <div className="absolute -top-3 right-1 z-10 flex items-center gap-0.5 share-button-container">
         <ShareButton company={company} />
         <button
           type="button"
