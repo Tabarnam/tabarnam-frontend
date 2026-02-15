@@ -1445,7 +1445,8 @@ export default function CompanyDashboard() {
     }
 
     // Client-side timeout: slightly above the backend's 200s budget so we get a clean
-    // timeout instead of waiting for SWA to drop the connection at ~120s.
+    // timeout. SWA gateway drops at ~45s, but the backend keeps running and saves
+    // results to Cosmos. The retry/recovery path picks them up on the next attempt.
     const refreshAbortCtrl = new AbortController();
     const refreshTimeoutId = setTimeout(() => refreshAbortCtrl.abort(), 210_000);
 
@@ -1491,8 +1492,9 @@ export default function CompanyDashboard() {
           if (status === 404) continue;
 
           // ── SWA 500 auto-retry ──
-          // The SWA gateway may return 500 "Backend call failure" during cold starts or
-          // when the Function App is under heavy load. Retry up to 3 times with backoff.
+          // SWA gateway drops at ~45s and returns 500 "Backend call failure" with empty headers.
+          // After the first timeout, subsequent requests may also fail (connection poisoning).
+          // Retry up to 3 times with backoff; fast retries (<5s) are treated as probable locks.
           const errText = asString(err?.text).trim();
           const isSwa500 = status >= 500 &&
             (errText === "Backend call failure" || errText === "" || !errText);

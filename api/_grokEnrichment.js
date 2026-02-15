@@ -2411,6 +2411,7 @@ async function enrichCompanyFields({
   xaiKey,
   fieldsToEnrich,
   skipDedicatedDeepening = false,
+  onIntermediateSave,
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -2476,6 +2477,18 @@ async function enrichCompanyFields({
       unified.parsed_fields,
       { companyName, budgetMs: Math.min(getRemainingMs() - 15000, 120000) }
     );
+
+    // Intermediate save: persist Phase 1+2 results to Cosmos so the recovery path
+    // (_pending_refresh_proposal) can return them if SWA drops the connection during Phase 3.
+    // SWA gateway timeout is ~45s; Phase 1+2 typically completes in ~36s.
+    if (typeof onIntermediateSave === 'function') {
+      try {
+        await onIntermediateSave(verified, verification_status);
+        console.log(`[enrichCompanyFields] Intermediate save after Phase 2 complete`);
+      } catch (e) {
+        console.warn(`[enrichCompanyFields] Intermediate save failed: ${e?.message}`);
+      }
+    }
 
     // Phase 3: Dedicated deepening for keywords, reviews, HQ, and mfg.
     // skipDedicatedDeepening: when true, return Phase 1+2 results as-is (used by

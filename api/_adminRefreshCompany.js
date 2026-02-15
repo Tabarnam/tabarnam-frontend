@@ -779,11 +779,11 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     try {
-      // Cap lock window at 130s (120s enrichment + 10s buffer) instead of budgetMs + 10s (~210s).
-      // Shorter lock window means ghost locks (from SWA connection drops) resolve much faster.
-      // Enrichment rarely exceeds 2 minutes; the longer budget is for geocoding/logo which
-      // happen after enrichment and don't need lock protection.
-      const lockWindowMs = Math.max(8000, Math.min(130000, Math.min(budgetMs, 120000) + 10000));
+      // SWA gateway drops at ~45s. Keep lock short so the recovery path
+      // (_pending_refresh_proposal) fires sooner when the user retries.
+      // Phase 1+2 saves an intermediate proposal at ~36s; after this 60s lock expires,
+      // the next request can recover those results immediately.
+      const lockWindowMs = Math.max(8000, Math.min(60000, Math.min(budgetMs, 50000) + 10000));
       const lockUntil = nowMs + lockWindowMs;
       await patchCompanyById(container, companyId, existing, {
         company_refresh_lock_key: `company_refresh_lock::${companyId}`,
@@ -921,6 +921,16 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         xaiUrl,
         xaiKey,
         fieldsToEnrich,
+        // Save Phase 1+2 results early so the recovery path (_pending_refresh_proposal)
+        // can return them if SWA drops the connection during Phase 3 (~45s gateway timeout).
+        onIntermediateSave: async (intermediateFields) => {
+          try {
+            await patchCompanyById(container, companyId, existing, {
+              _pending_refresh_proposal: intermediateFields,
+              _pending_refresh_at: new Date().toISOString(),
+            });
+          } catch { /* best effort — don't block enrichment */ }
+        },
       });
 
       enrichment_status = enrichmentResult.field_statuses || {};
