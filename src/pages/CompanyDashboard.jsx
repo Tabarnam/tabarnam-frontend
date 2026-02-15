@@ -490,6 +490,15 @@ const REFRESHABLE_FIELDS = [
   { key: "reviews", label: "Reviews", missingKey: "reviews" },
 ];
 
+const REFRESH_FIELD_STATUS = {
+  tagline: "Searching for tagline\u2026",
+  headquarters_location: "Looking up HQ location\u2026",
+  manufacturing_locations: "Researching manufacturing locations\u2026",
+  industries: "Identifying industries\u2026",
+  product_keywords: "Cataloging products & keywords\u2026",
+  reviews: "Finding & verifying reviews\u2026",
+};
+
 export default function CompanyDashboard() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -534,6 +543,7 @@ export default function CompanyDashboard() {
   });
 
   const refreshInFlightRef = useRef(false);
+  const [refreshActiveField, setRefreshActiveField] = useState(null);
 
   const [refreshMetaByCompany, setRefreshMetaByCompany] = useState({});
 
@@ -1393,6 +1403,18 @@ export default function CompanyDashboard() {
     }));
 
     setRefreshLoading(true);
+
+    // Cycle through selected fields to show progress in the status banner
+    const selectedFields = Array.isArray(fieldsToRefresh) && fieldsToRefresh.length > 0
+      ? fieldsToRefresh
+      : REFRESHABLE_FIELDS.map((f) => f.key);
+    let fieldIdx = 0;
+    setRefreshActiveField(selectedFields[0]);
+    const fieldCycleInterval = setInterval(() => {
+      fieldIdx = (fieldIdx + 1) % selectedFields.length;
+      setRefreshActiveField(selectedFields[fieldIdx]);
+    }, 4000);
+
     // Keep the last failure visible while the next attempt is running.
     setRefreshProposed(null);
     setRefreshTaglineMeta(null);
@@ -1507,6 +1529,8 @@ export default function CompanyDashboard() {
                       lastRefreshDebug: { swa_timeout_recovery: true, retry_after_ms: retryAfterMs },
                     },
                   }));
+                  clearInterval(fieldCycleInterval);
+                  setRefreshActiveField(null);
                   setRefreshLoading(false);
                   setRefreshError(null);
                   refreshInFlightRef.current = false;
@@ -1910,6 +1934,8 @@ export default function CompanyDashboard() {
             lastRefreshDebug: { client_timeout: true },
           },
         }));
+        clearInterval(fieldCycleInterval);
+        setRefreshActiveField(null);
         setRefreshLoading(false);
         setRefreshError(null);
         refreshInFlightRef.current = false;
@@ -1994,6 +2020,8 @@ export default function CompanyDashboard() {
 
       toast.error(errObj.message);
     } finally {
+      clearInterval(fieldCycleInterval);
+      setRefreshActiveField(null);
       refreshInFlightRef.current = false;
       setRefreshLoading(false);
     }
@@ -3370,14 +3398,18 @@ export default function CompanyDashboard() {
 
                       {/* ─── Refresh search status banner ─── */}
                       {editorOriginalId && refreshLoading && !proposedDraft && !refreshError ? (
-                        <div className="rounded-lg border border-blue-300 bg-blue-50 p-4 flex items-center gap-4">
+                        <div className="rounded-lg border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 p-4 flex items-center gap-4">
                           <div className="relative flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 dark:bg-blue-500 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500 dark:bg-blue-400"></span>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-blue-900">Refreshing company data…</div>
-                            <div className="text-xs text-blue-700 mt-0.5">Fetching proposed updates from xAI</div>
+                            <div className="text-sm font-medium text-blue-900 dark:text-blue-100">Refreshing company data…</div>
+                            <div className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
+                              {refreshActiveField && REFRESH_FIELD_STATUS[refreshActiveField]
+                                ? REFRESH_FIELD_STATUS[refreshActiveField]
+                                : "Fetching proposed updates from xAI"}
+                            </div>
                           </div>
                         </div>
                       ) : null}
