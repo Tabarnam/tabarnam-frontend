@@ -714,21 +714,8 @@ export default function ExpandableCompanyRow({
       onClick={handleRowClick}
       className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
     >
-      {/* Expand chevron + share button */}
-      <div className="absolute top-0 right-1 z-10 flex items-center gap-0.5 share-button-container">
-        <ShareButton company={company} />
-        <button
-          type="button"
-          onClick={handleChevronClick}
-          className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-          aria-label="Expand details"
-          title="Expand"
-        >
-          <ChevronDown className="h-4 w-4" />
-        </button>
-      </div>
       <div className="col-span-4 lg:col-span-1">
-        <h2 className="font-bold text-foreground">
+        <h2 className="font-bold text-foreground flex items-center gap-0.5">
           {websiteUrl ? (
             <CompanyNameWithUrlTooltip
               href={withAmazonAffiliate(websiteUrl)}
@@ -740,6 +727,18 @@ export default function ExpandableCompanyRow({
           ) : (
             <span className="font-semibold text-sm">{displayName}</span>
           )}
+          <span className="inline-flex items-center gap-0 share-button-container">
+            <ShareButton company={company} className="!w-7 !h-7 !min-w-0 !min-h-0" />
+            <button
+              type="button"
+              onClick={handleChevronClick}
+              className="inline-flex items-center justify-center w-6 h-6 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+              aria-label="Expand details"
+              title="Expand"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </span>
         </h2>
         {company.tagline && (
           <div className="text-xs text-muted-foreground mt-1">{company.tagline}</div>
