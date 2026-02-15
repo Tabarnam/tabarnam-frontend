@@ -1422,6 +1422,11 @@ export default function CompanyDashboard() {
       // ignore — best effort
     }
 
+    // Client-side timeout: slightly above the backend's 200s budget so we get a clean
+    // timeout instead of waiting for SWA to drop the connection at ~120s.
+    const refreshAbortCtrl = new AbortController();
+    const refreshTimeoutId = setTimeout(() => refreshAbortCtrl.abort(), 210_000);
+
     try {
       const refreshPaths = ["/xadmin-api-refresh-company"];
       const attempts = [];
@@ -1436,6 +1441,7 @@ export default function CompanyDashboard() {
           const r = await apiFetchParsed(path, {
             method: "POST",
             body: requestPayload,
+            signal: refreshAbortCtrl.signal,
           });
 
           const requestExplain = getLastApiRequestExplain();
@@ -1480,7 +1486,32 @@ export default function CompanyDashboard() {
                 const retryResult = await apiFetchParsed(path, {
                   method: "POST",
                   body: requestPayload,
+                  signal: refreshAbortCtrl.signal,
                 });
+
+                // If the retry got a "locked" response, the original request is still
+                // running behind the SWA timeout. Show a helpful message instead of an error.
+                const retryData = retryResult.data;
+                if (retryData?.ok === false && retryData?.root_cause === "locked") {
+                  clearTimeout(refreshTimeoutId);
+                  const retryAfterMs = Number(retryData.retry_after_ms || 0);
+                  toast.info(
+                    `Your refresh is still running — the connection timed out but the backend is working. ` +
+                    `Please wait ~${Math.ceil(retryAfterMs / 1000)}s and try again.`
+                  );
+                  setRefreshMetaByCompany((prev) => ({
+                    ...(prev || {}),
+                    [companyId]: {
+                      lastRefreshAt: startedAt,
+                      lastRefreshStatus: { kind: "running", code: null },
+                      lastRefreshDebug: { swa_timeout_recovery: true, retry_after_ms: retryAfterMs },
+                    },
+                  }));
+                  setRefreshLoading(false);
+                  setRefreshError(null);
+                  refreshInFlightRef.current = false;
+                  return;
+                }
 
                 // Success — use this result
                 const retryExplain = getLastApiRequestExplain();
@@ -1514,6 +1545,9 @@ export default function CompanyDashboard() {
           }
         }
       }
+
+      // Cancel the client-side timeout now that the fetch loop has completed.
+      clearTimeout(refreshTimeoutId);
 
       if (!result) {
         const staticBuildId = await fetchStaticBuildId();
@@ -1632,7 +1666,7 @@ export default function CompanyDashboard() {
           }));
           setRefreshError({
             status: 423,
-            message: `Refresh locked — try again in ~${Math.ceil(retryAfterMs / 60000)} minute(s)`,
+            message: `A refresh is still in progress — try again in ~${Math.ceil(retryAfterMs / 60000)} minute(s)`,
             debug: jsonBody,
           });
           return;
@@ -1863,6 +1897,25 @@ export default function CompanyDashboard() {
       }
       playNotification();
     } catch (e) {
+      clearTimeout(refreshTimeoutId);
+
+      // Client-side timeout or SWA connection drop — the backend may still be running.
+      if (e?.name === "AbortError" || e?.name === "TimeoutError") {
+        toast.info("The refresh is taking longer than expected but may still be running. Try again shortly.");
+        setRefreshMetaByCompany((prev) => ({
+          ...(prev || {}),
+          [companyId]: {
+            lastRefreshAt: startedAt,
+            lastRefreshStatus: { kind: "running", code: null },
+            lastRefreshDebug: { client_timeout: true },
+          },
+        }));
+        setRefreshLoading(false);
+        setRefreshError(null);
+        refreshInFlightRef.current = false;
+        return;
+      }
+
       // Normalize diagnostics from API wrapper errors (preferred) and plain exceptions.
       const errStatus =
         normalizeHttpStatusNumber(e?.status) ??
@@ -3463,7 +3516,7 @@ export default function CompanyDashboard() {
                                   <div className="space-y-3">
                                     <div className="flex flex-wrap items-start justify-between gap-2">
                                       <div className="min-w-0 flex-1">
-                                        <div className="font-semibold">Refresh failed</div>
+                                        <div className="font-semibold">{status === 423 || debugObj?.root_cause === "locked" ? "Refresh in progress" : "Refresh failed"}</div>
 
                                         <div className="mt-1 text-xs text-red-900/90 space-y-0.5">
                                           <div>HTTP status: {status != null ? status : "—"}</div>
