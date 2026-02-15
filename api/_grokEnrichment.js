@@ -747,7 +747,10 @@ Text: [1-3 sentence excerpt or summary of the review]`.trim();
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,
-    search_parameters: searchBuild.search_parameters,
+    search_parameters: {
+      ...searchBuild.search_parameters,
+      excluded_domains: searchBuild.excluded_domains,
+    },
   });
 
   if (!r.ok) {
@@ -1999,6 +2002,8 @@ Return STRICT JSON only:
   ]
 }`.trim();
 
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+
   const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
@@ -2011,7 +2016,10 @@ Return STRICT JSON only:
     model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
-    search_parameters: { mode: "on" },
+    search_parameters: {
+      ...searchBuild.search_parameters,
+      excluded_domains: searchBuild.excluded_domains,
+    },
   });
 
   const elapsedMs = Date.now() - started;

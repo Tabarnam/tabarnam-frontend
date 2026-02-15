@@ -28,6 +28,29 @@ function isResponsesEndpoint(rawUrl) {
   return raw.includes("/v1/responses") || raw.includes("/responses");
 }
 
+/**
+ * Build the `tools` array for /v1/responses payloads.
+ * Uses xAI's agentic web_search tool instead of deprecated search parameter.
+ * See: https://docs.x.ai/docs/guides/tools/search-tools
+ */
+function buildToolsArray(search_parameters) {
+  const tool = { type: "web_search" };
+
+  if (search_parameters && typeof search_parameters === "object") {
+    const excluded = Array.isArray(search_parameters.excluded_domains)
+      ? search_parameters.excluded_domains
+          .filter(d => typeof d === "string" && d.trim())
+          .slice(0, 5)
+      : [];
+
+    if (excluded.length > 0) {
+      tool.filters = { excluded_domains: excluded };
+    }
+  }
+
+  return [tool];
+}
+
 function normalizeHeaderKey(key) {
   return asString(key).trim().toLowerCase();
 }
@@ -254,12 +277,10 @@ async function xaiLiveSearch({
     // Build payload in the appropriate format for the endpoint
     const payload = useResponsesFormat
       ? {
-          // /v1/responses format
+          // /v1/responses format — use tools array (agentic web search)
           model: resolvedModel,
           input: [{ role: "user", content: asString(prompt) }],
-          search: search_parameters && typeof search_parameters === "object"
-            ? { mode: search_parameters.mode || "on" }
-            : { mode: "on" },
+          tools: buildToolsArray(search_parameters),
         }
       : {
           // /v1/chat/completions format

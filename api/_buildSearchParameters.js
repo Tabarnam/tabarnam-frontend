@@ -188,6 +188,7 @@ function buildSearchParameters({ companyWebsiteHost, additionalExcludedHosts } =
         { type: "x" },
       ],
     },
+    excluded_domains: used,
     prompt_exclusion_text: buildPromptExclusionText(spilled, { maxHostsInPrompt: 15 }),
     excluded_hosts: {
       used,
