@@ -4,6 +4,7 @@
 const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
+const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES } = require("./_xaiPromptGuidance");
 
 // ============================================================================
 // Module-level bypass flag for admin refresh
@@ -682,28 +683,8 @@ async function fetchCuratedReviews({
 
   // Declarative review prompt: ask for what we want, let Grok decide how to find it.
   // Client-side verification (URL reachability + YouTube oEmbed) provides a safety net.
-  const attemptedExclusion = Array.isArray(attempted_urls) && attempted_urls.length > 0
-    ? `\nPREVIOUSLY TRIED URLs (all failed verification — do NOT return any of these):\n${attempted_urls.map((u) => `- ${u}`).join("\n")}\nFind DIFFERENT sources instead.\n`
-    : "";
-
-  const prompt = `Find 5 real, publicly accessible third-party reviews of ${name} (${websiteUrlForPrompt || "(unknown website)"}).
-
-Requirements:
-- Each review must have a working URL to a specific article, video, or post
-- Reviews must be about ${name} or its products (not just mentioning the company in passing)
-- Prefer a mix of sources: YouTube videos, magazine articles, blog posts, news articles
-- Do not return any URL that is broken, paywalled, or deleted
-- Do not return reviews from: ${excludeDomains.join(", ")}
-- If you can only find 3 verified reviews, return 3 — quality over quantity
-${attemptedExclusion}
-For each review, output in this exact plain-text format. Separate reviews with one blank line. No markdown.
-
-Source: [publication or channel name]
-Author: [author or channel name]
-URL: [direct URL to the review article/video/post]
-Title: [exact title as published]
-Date: [publication date, any format]
-Text: [1-3 sentence excerpt or summary of the review]`.trim();
+  const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, excludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)")}
+${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.reviews;
 
@@ -1017,23 +998,11 @@ async function fetchHeadquartersLocation({ companyName, normalizedDomain, budget
 Task: Determine the company's HEADQUARTERS location.
 
 Rules:
-- Conduct thorough research. Cross-reference multiple sources.
-- Use web search (do not rely only on the company website).
-- Check LinkedIn, SEC filings, Crunchbase, official press releases, business registrations, state corporation records.
-- Do deep dives for HQ location if necessary.
-- Having the actual city is crucial — do not return just the state or country if city-level data exists.
-- Use initials for state or province (e.g., "Austin, TX" not "Austin, Texas").
-- Format: "City, ST" for US/Canada, "City, Country" for international.
-- If only country is known, return "Country".
-- No explanatory info – just the location.
-- No guessing or hallucinating. Only report verified information.
+${FIELD_GUIDANCE.headquarters.rules}
 - Output STRICT JSON only.
 
 Return:
-{
-  "headquarters_location": "...",
-  "location_source_urls": { "hq_source_urls": ["https://...", "https://..."] }
-}
+${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
@@ -1186,26 +1155,11 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
 Task: Identify ALL known MANUFACTURING locations for this company worldwide.
 
 Rules:
-- Conduct thorough research to identify ALL known manufacturing locations worldwide.
-- Include every city and country found. Deep-dive on any US sites to confirm actual cities.
-- Check press releases, job postings, facility announcements, regulatory filings, news articles, LinkedIn.
-- List them exhaustively without missing any.
-- Having the actual cities within the United States is crucial. Be accurate.
-- Use initials for state or province (e.g., "Los Angeles, CA" not "Los Angeles, California").
-- Format: "City, ST" for US/Canada, "City, Country" for international.
-- Return an array of one or more locations. Include multiple cities when applicable.
-- If only country-level is available, country-only entries are acceptable.
-- No explanatory info – just locations.
-- If manufacturing is not publicly disclosed after thorough searching, return ["Not disclosed"].
-- Provide the supporting URLs you used for the manufacturing determination.
-- No guessing or hallucinating. Only report verified information.
+${FIELD_GUIDANCE.manufacturing.rules}
 - Output STRICT JSON only.
 
 Return:
-{
-  "manufacturing_locations": ["City, ST", "City, Country"],
-  "location_source_urls": { "mfg_source_urls": ["https://...", "https://..."] }
-}
+${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
@@ -1355,16 +1309,11 @@ async function fetchTagline({
 Task: Provide the company's official tagline or slogan.
 
 Rules:
-- Use web search.
-- Return the company's actual marketing tagline/slogan.
-- A sentence fragment is acceptable.
-- Do NOT return navigation labels, promotional text, or legal text.
-- Do NOT hallucinate or embellish. Accuracy is paramount.
-- If no tagline is found, return empty string.
+${FIELD_GUIDANCE.tagline.rules}
 - Output STRICT JSON only.
 
 Return:
-{ "tagline": "..." }
+{ ${FIELD_GUIDANCE.tagline.jsonSchema} }
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
@@ -1485,17 +1434,11 @@ async function fetchIndustries({
 Task: Identify the company's industries.
 
 Rules:
-- Use web search.
-- Return an array of industries/categories that best describe what the company makes or sells.
-- Provide not industry codes but the type of business they do.
-- Be thorough and complete in identifying all relevant industries.
-- Avoid store navigation terms (e.g. "New Arrivals", "Shop", "Sale") and legal terms.
-- Prefer industry labels that can be mapped to standard business taxonomies.
-- No guessing or hallucinating. Only report verified information.
+${FIELD_GUIDANCE.industries.rules}
 - Output STRICT JSON only.
 
 Return:
-{ "industries": ["Industry 1", "Industry 2", "..."] }
+{ ${FIELD_GUIDANCE.industries.jsonSchema} }
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
@@ -1610,27 +1553,11 @@ async function fetchProductKeywords({
 Task: Provide an EXHAUSTIVE, COMPLETE, and ALL-INCLUSIVE list of ALL PRODUCTS this company sells.
 
 Hard rules:
-- Browse the company website AND use web search. Check product pages, collections, "Shop" sections, "All Products" pages.
-- List every individual product, product line, flavor, variety, and SKU you can find.
-- For companies with product variants (flavors, sizes, formulations), list EACH variant separately.
-- Keywords should be exhaustive – if a customer could search for it and find this company's product, include it.
-- Return ONLY actual products/product lines. Do NOT include:
-  Navigation labels: Shop All, Collections, New, Best Sellers, Sale, Limited Edition, All
-  Site features: Account, Cart, Store Locator, FAQ, Shipping, Returns, Contact, About, Blog
-  Generic category labels unless they ARE an actual product line name
-  Bundle/pack descriptors unless they are a named product (e.g. "Starter Kit" is OK if it's a real product name)
-- The list must be materially more complete than what appears in the site's top navigation.
-- If you are uncertain about completeness, expand your search. Check category pages, seasonal items, discontinued-but-listed products.
-- Do NOT return a short/partial list without marking it incomplete.
-- No guessing or hallucinating. Only report verified product information.
+${FIELD_GUIDANCE.keywords.rules}
 - Output STRICT JSON only.
 
 Return:
-{
-  "product_keywords": ["Product 1", "Product 2", "..."],
-  "completeness": "complete" | "incomplete",
-  "incomplete_reason": null | "..."
-}
+${FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness}
 `.trim();
 
   // Use keywords-specific timeout (2x light) since keywords must accumulate all products
@@ -1995,31 +1922,22 @@ async function fetchAllFieldsUnified({
 
   const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) please provide their tagline, HQ, manufacturing, industries, keywords (products), and reviews.
 
-LOCATIONS: Do deep dives for hq and manufacturing locations if necessary. Including city or cities. Having the actual cities within the United States is crucial. No explanatory info - just locations. Use initials for state or province in location info.
+LOCATIONS: ${FIELD_SUMMARIES.locations}
 
-INDUSTRIES: Return as a JSON array of industry strings.
+INDUSTRIES: ${FIELD_SUMMARIES.industries}
 
-KEYWORDS: Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.
+KEYWORDS: ${FIELD_SUMMARIES.keywords}
 
-REVIEWS: Find 5 real, publicly accessible third-party reviews with working URLs. Each must be about this company or its products. Prefer a mix of sources (YouTube, magazines, blogs). If only 3 verified reviews exist, return 3 — quality over quantity. Do not return broken, paywalled, or deleted URLs. Fields: "source_name", "author", "source_url" (direct URL, not homepage), "title", "date", "excerpt".
+REVIEWS: ${FIELD_GUIDANCE.reviews.rulesCompact()} Fields: "source_name", "author", "source_url" (direct URL, not homepage), "title", "date", "excerpt".
 
 Return STRICT JSON only:
 {
-  "tagline": "...",
-  "headquarters_location": "City, ST",
-  "manufacturing_locations": ["City, ST", "City, Country"],
-  "industries": ["Industry 1", "Industry 2"],
-  "product_keywords": ["Product 1", "Product 2"],
-  "reviews": [
-    {
-      "source_name": "Channel or Publication Name",
-      "author": "Author Name",
-      "source_url": "https://...",
-      "title": "Exact Title",
-      "date": "YYYY-MM-DD or approximate",
-      "excerpt": "Brief excerpt or summary"
-    }
-  ]
+  ${FIELD_GUIDANCE.tagline.jsonSchema},
+  ${FIELD_GUIDANCE.headquarters.jsonSchema},
+  ${FIELD_GUIDANCE.manufacturing.jsonSchema},
+  ${FIELD_GUIDANCE.industries.jsonSchema},
+  ${FIELD_GUIDANCE.keywords.jsonSchemaArray},
+  ${FIELD_GUIDANCE.reviews.jsonSchemaRich}
 }`.trim();
 
   const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
