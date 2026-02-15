@@ -482,12 +482,12 @@ function StarNotesEditor({ star, onChange }) {
   );
 }
 const REFRESHABLE_FIELDS = [
-  { key: "tagline", label: "Tagline" },
-  { key: "headquarters_location", label: "HQ location" },
-  { key: "manufacturing_locations", label: "Manufacturing" },
-  { key: "industries", label: "Industries" },
-  { key: "product_keywords", label: "Keywords" },
-  { key: "reviews", label: "Reviews" },
+  { key: "tagline", label: "Tagline", missingKey: "tagline" },
+  { key: "headquarters_location", label: "HQ location", missingKey: "HQ location" },
+  { key: "manufacturing_locations", label: "Manufacturing", missingKey: "manufacturing" },
+  { key: "industries", label: "Industries", missingKey: "industries" },
+  { key: "product_keywords", label: "Keywords", missingKey: "keywords" },
+  { key: "reviews", label: "Reviews", missingKey: "reviews" },
 ];
 
 export default function CompanyDashboard() {
@@ -3300,17 +3300,30 @@ export default function CompanyDashboard() {
                                     <PopoverContent align="end" className="w-52 p-3 z-[110]">
                                       <div className="space-y-2">
                                         <div className="text-xs font-medium text-muted-foreground mb-2">Fields to refresh</div>
-                                        {REFRESHABLE_FIELDS.map((f) => (
-                                          <label key={f.key} className="flex items-center gap-2 cursor-pointer text-sm">
-                                            <Checkbox
-                                              checked={refreshFieldChecks[f.key]}
-                                              onCheckedChange={(v) =>
-                                                setRefreshFieldChecks((prev) => ({ ...prev, [f.key]: !!v }))
-                                              }
-                                            />
-                                            {f.label}
-                                          </label>
-                                        ))}
+                                        {editorProfileInfo?.missing?.length > 0 && (
+                                          <div className="text-[10px] text-amber-600 dark:text-amber-400 -mt-1 mb-1">
+                                            {editorProfileInfo.missing.length} of {REFRESHABLE_FIELDS.length} empty
+                                          </div>
+                                        )}
+                                        {REFRESHABLE_FIELDS.map((f) => {
+                                          const isEmpty = editorProfileInfo?.missing?.includes(f.missingKey);
+                                          return (
+                                            <label key={f.key} className="flex items-center gap-2 cursor-pointer text-sm">
+                                              <Checkbox
+                                                checked={refreshFieldChecks[f.key]}
+                                                onCheckedChange={(v) =>
+                                                  setRefreshFieldChecks((prev) => ({ ...prev, [f.key]: !!v }))
+                                                }
+                                              />
+                                              <span className="flex items-center gap-1.5">
+                                                {f.label}
+                                                {isEmpty && (
+                                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">(empty)</span>
+                                                )}
+                                              </span>
+                                            </label>
+                                          );
+                                        })}
                                         <Button
                                           size="sm"
                                           className="w-full mt-2"
