@@ -33,9 +33,10 @@ function isResponsesEndpoint(rawUrl) {
  * Uses xAI's agentic web_search tool instead of deprecated search parameter.
  * See: https://docs.x.ai/docs/guides/tools/search-tools
  */
-function buildToolsArray(search_parameters) {
-  const tool = { type: "web_search" };
+function buildToolsArray(search_parameters, { useBrowse = false } = {}) {
+  const tools = [];
 
+  const searchTool = { type: "web_search" };
   if (search_parameters && typeof search_parameters === "object") {
     const excluded = Array.isArray(search_parameters.excluded_domains)
       ? search_parameters.excluded_domains
@@ -44,11 +45,16 @@ function buildToolsArray(search_parameters) {
       : [];
 
     if (excluded.length > 0) {
-      tool.filters = { excluded_domains: excluded };
+      searchTool.filters = { excluded_domains: excluded };
     }
   }
+  tools.push(searchTool);
 
-  return [tool];
+  if (useBrowse) {
+    tools.push({ type: "browse_page" });
+  }
+
+  return tools;
 }
 
 function normalizeHeaderKey(key) {
@@ -196,6 +202,7 @@ async function xaiLiveSearch({
   xaiKey,
   search_parameters,
   useTools = false,
+  useBrowse = false,
 } = {}) {
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
@@ -291,7 +298,7 @@ async function xaiLiveSearch({
           // factual fields like tagline/HQ/industries are faster without tools)
           model: resolvedModel,
           input: [{ role: "user", content: asString(prompt) }],
-          ...(useTools ? { tools: buildToolsArray(search_parameters) } : {}),
+          ...(useTools ? { tools: buildToolsArray(search_parameters, { useBrowse }) } : {}),
         }
       : {
           // /v1/chat/completions format

@@ -665,9 +665,14 @@ async function fetchCuratedReviews({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
+  const logResult = (status, extra = "") => {
+    console.log(`[grokEnrichment] fetchCuratedReviews: DONE status=${status}, elapsed=${Date.now() - started}ms${extra ? ", " + extra : ""}`);
+  };
+
   const cacheKey = domain ? `reviews:${domain}` : "";
   const cached = cacheKey ? readStageCache(cacheKey) : null;
   if (cached) {
+    logResult("cache_hit");
     return {
       ...cached,
       diagnostics: {
@@ -696,7 +701,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   console.log(`[grokEnrichment] fetchCuratedReviews: budgetMs=${budgetMs}, remaining=${remaining}, minRequired=${minRequired}, hasStub=${hasStub}`);
   if (!hasStub) {
     if (remaining < minRequired) {
-      console.log(`[grokEnrichment] fetchCuratedReviews: DEFERRED - remaining (${remaining}) < minRequired (${minRequired})`);
+      logResult("deferred", `remaining=${remaining}ms, minRequired=${minRequired}ms`);
       return {
         curated_reviews: [],
         reviews_stage_status: "deferred",
@@ -724,7 +729,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 2000,  // Increased to accommodate excerpts in response
+    maxTokens: 4000,  // Increased — browse_page responses include page content in tool chain
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,
@@ -732,11 +737,13 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       ...searchBuild.search_parameters,
       excluded_domains: searchBuild.excluded_domains,
     },
-    useTools: true,  // Reviews need real web search to find verifiable URLs
+    useTools: true,   // Reviews need real web search to find verifiable URLs
+    useBrowse: true,  // Enable browse_page for xAI-side URL verification
   });
 
   if (!r.ok) {
     const failure = classifyXaiFailure(r);
+    logResult(failure, `error=${r.error || "unknown"}`);
     return {
       curated_reviews: [],
       reviews_stage_status: failure,
@@ -809,6 +816,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   }
 
   if (!rawCandidates) {
+    logResult("invalid_response", "no_parseable_reviews");
     return {
       curated_reviews: [],
       reviews_stage_status: "invalid_response",
@@ -848,6 +856,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       excluded_hosts: searchBuild.excluded_hosts,
     };
     // Don't cache 0-candidate results — resume worker should retry with fresh XAI call
+    logResult("not_found", "0 candidates after filtering");
     return value;
   }
 
@@ -953,6 +962,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       excluded_hosts: searchBuild.excluded_hosts,
     };
     if (cacheKey && curated_reviews.length > 0) writeStageCache(cacheKey, value);
+    logResult("incomplete", `verified=${curated_reviews.length}, candidates=${candidates.length}`);
     return value;
   }
 
@@ -970,6 +980,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     excluded_hosts: searchBuild.excluded_hosts,
   };
   if (cacheKey) writeStageCache(cacheKey, value);
+  logResult("ok", `verified=${curated_reviews.length}, youtube=${youtubeCount}, blog=${blogCount}`);
   return value;
 }
 
@@ -2382,6 +2393,7 @@ async function fillMissingFieldsIndividually(missingFields, {
     }
   }
 
+  console.log(`[fillMissingFieldsIndividually] Done: ${JSON.stringify(field_statuses)}, filled=[${Object.keys(filled).join(", ")}]`);
   return { filled, field_statuses };
 }
 
@@ -2493,13 +2505,22 @@ async function enrichCompanyFields({
       const filteredMissing = filterMissingByTarget(missing);
 
       if (filteredMissing.length > 0 && getRemainingMs() > 30000) {
-        console.log(`[enrichCompanyFields] Phase 3: dedicated deepening [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms`);
+        // Clamp budget to stay safely within Azure function timeout (host.json functionTimeout).
+        // Reserve 15s for response serialization + lock release after enrichment completes.
+        const AZURE_FUNCTION_TIMEOUT_MS = 600_000; // 10 minutes — must match host.json
+        const elapsedSinceStart = Date.now() - started;
+        const azureBudgetRemaining = Math.max(0, AZURE_FUNCTION_TIMEOUT_MS - elapsedSinceStart - 15_000);
+        const phase3Budget = Math.min(getRemainingMs() - 5000, azureBudgetRemaining);
+
+        console.log(`[enrichCompanyFields] Phase 3: dedicated deepening [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms, phase3Budget=${phase3Budget}ms`);
         const { filled, field_statuses: fStatuses } = await fillMissingFieldsIndividually(
           filteredMissing,
-          { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
+          { companyName, normalizedDomain: domain, budgetMs: phase3Budget, xaiUrl, xaiKey }
         );
         Object.assign(verified, filled);
         fallback_statuses = fStatuses;
+      } else if (filteredMissing.length > 0) {
+        console.warn(`[enrichCompanyFields] Phase 3 SKIPPED — remaining=${getRemainingMs()}ms < 30000ms, fields=[${filteredMissing.join(", ")}]`);
       }
 
       // If Phase 3 dedicated reviews returned nothing, fall back to Phase 2 verified reviews.

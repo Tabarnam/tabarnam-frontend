@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "functionTimeout": "00:05:00",
+  "functionTimeout": "00:10:00",
   "extensionBundle": {
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
     "version": "[4.0.0, 6.0.0)"
