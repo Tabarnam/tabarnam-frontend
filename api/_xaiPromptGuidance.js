@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "1.1.0";
+const PROMPT_GUIDANCE_VERSION = "1.2.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -117,8 +117,8 @@ const FIELD_GUIDANCE = {
 
   reviews: {
     // Compact rules for unified prompts (enrichment)
-    rulesCompact: () => `Use web_search to find third-party reviews, then use browse_page on each candidate to verify it loads and is a real review. Return up to 5 verified reviews with source, author, URL, title, date, and excerpt. Only include reviews you successfully browsed. Quality over quantity.`,
-    // Full investigation rules for dedicated review fetcher (uses web_search + browse_page chaining)
+    rulesCompact: () => `Find third-party reviews using web search. For each candidate, verify the URL loads and contains a real review before including it. Return up to 5 verified reviews with source, author, URL, title, date, and excerpt. Only include reviews you confirmed are live. Quality over quantity.`,
+    // Full investigation rules for dedicated review fetcher (web_search includes page browsing)
     rulesFull: (companyName, excludeDomains, attemptedUrls, websiteUrl) => {
       const attemptedExclusion =
         Array.isArray(attemptedUrls) && attemptedUrls.length > 0
@@ -129,19 +129,19 @@ const FIELD_GUIDANCE = {
           ? excludeDomains.join(", ")
           : "";
       const companyRef = websiteUrl ? `${companyName} (${websiteUrl})` : companyName;
-      return `Use web_search to find third-party reviews of ${companyRef}.
-Then, for each candidate URL from the search results, use browse_page to confirm the page loads and contains a real review of ${companyName}.
+      return `Search the web for third-party reviews of ${companyRef}.
+For each candidate URL from search results, visit the page to confirm it loads and contains a real review of ${companyName}.
 
 For each verified review, extract:
 - Source (publication or channel name)
 - Author (name)
-- URL (the exact URL you browsed — do not modify it)
+- URL (the exact URL you visited — do not modify it)
 - Title (exact title as published)
 - Date (publication date, any format)
 - Text (1-3 sentence excerpt or summary of the review)
 
 Rules:
-- Only return reviews you successfully browsed and confirmed
+- Only return reviews where you visited the URL and confirmed it contains a review
 - Skip any URL that fails to load, is paywalled, or doesn't contain a review of ${companyName}
 - Reviews must be about ${companyName} or its products (not just mentioning the company in passing)
 - Prefer a mix of sources: YouTube videos, magazine articles, blog posts, news articles

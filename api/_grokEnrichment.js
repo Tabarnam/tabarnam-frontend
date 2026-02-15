@@ -737,8 +737,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       ...searchBuild.search_parameters,
       excluded_domains: searchBuild.excluded_domains,
     },
-    useTools: true,   // Reviews need real web search to find verifiable URLs
-    useBrowse: true,  // Enable browse_page for xAI-side URL verification
+    useTools: true,   // Reviews need real web search — includes page browsing in agentic flow
   });
 
   if (!r.ok) {
