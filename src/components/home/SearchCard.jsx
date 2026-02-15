@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { getCountries } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
+import { extractSearchTermFromUrl } from '@/lib/queryNormalizer';
 import { placesAutocomplete, placeDetails } from '@/lib/google';
 import { cn } from '@/lib/utils';
 
@@ -218,7 +219,10 @@ export default function SearchCard({
   };
 
   const handleSubmit = () => {
-    const params = { q: q.trim(), sort: sortBy, country, state: stateCode, city };
+    // If the user pasted a URL, extract the brand name so search works
+    const extracted = extractSearchTermFromUrl(q.trim());
+    if (extracted !== q.trim()) setQ(extracted); // update input so user sees what was searched
+    const params = { q: extracted, sort: sortBy, country, state: stateCode, city };
     if (onSubmitParams) onSubmitParams(params);
     else nav(`/results?${toQs(params)}`);
   };
