@@ -751,6 +751,7 @@ Text: [1-3 sentence excerpt or summary of the review]`.trim();
       ...searchBuild.search_parameters,
       excluded_domains: searchBuild.excluded_domains,
     },
+    useTools: true,  // Reviews need real web search to find verifiable URLs
   });
 
   if (!r.ok) {

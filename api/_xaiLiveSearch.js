@@ -187,6 +187,7 @@ async function xaiLiveSearch({
   xaiUrl,
   xaiKey,
   search_parameters,
+  useTools = false,
 } = {}) {
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
@@ -278,10 +279,11 @@ async function xaiLiveSearch({
     // Build payload in the appropriate format for the endpoint
     const payload = useResponsesFormat
       ? {
-          // /v1/responses format — use tools array (agentic web search)
+          // /v1/responses format — tools only when caller opts in (reviews need web search;
+          // factual fields like tagline/HQ/industries are faster without tools)
           model: resolvedModel,
           input: [{ role: "user", content: asString(prompt) }],
-          tools: buildToolsArray(search_parameters),
+          ...(useTools ? { tools: buildToolsArray(search_parameters) } : {}),
         }
       : {
           // /v1/chat/completions format
