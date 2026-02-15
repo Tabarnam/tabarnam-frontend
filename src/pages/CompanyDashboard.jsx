@@ -44,6 +44,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -104,6 +105,29 @@ import ReviewLinkFetcher from "./company-dashboard/ReviewLinkFetcher";
 import RatingEditor from "./company-dashboard/RatingEditor";
 import CompanyNotesEditor from "./company-dashboard/CompanyNotesEditor";
 import StructuredLocationListEditor from "./company-dashboard/StructuredLocationListEditor";
+
+// Collapsible section wrapper for sidebar and left column groups
+function CollapsibleSection({ title, isOpen, onToggle, badge, children, className = "" }) {
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-800 dark:text-foreground hover:bg-slate-50 dark:hover:bg-muted transition-colors"
+        aria-expanded={isOpen}
+      >
+        <div className="flex items-center gap-2">
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+          <span>{title}</span>
+          {badge != null && !isOpen ? (
+            <span className="text-[10px] text-muted-foreground bg-slate-100 dark:bg-muted rounded-full px-1.5 py-0.5 font-normal">{badge}</span>
+          ) : null}
+        </div>
+      </button>
+      {isOpen ? children : null}
+    </div>
+  );
+}
 
 // Renders text with URLs converted to clickable links
 function TextWithLinks({ text, className = "" }) {
@@ -457,6 +481,15 @@ function StarNotesEditor({ star, onChange }) {
     </div>
   );
 }
+const REFRESHABLE_FIELDS = [
+  { key: "tagline", label: "Tagline" },
+  { key: "headquarters_location", label: "HQ location" },
+  { key: "manufacturing_locations", label: "Manufacturing" },
+  { key: "industries", label: "Industries" },
+  { key: "product_keywords", label: "Keywords" },
+  { key: "reviews", label: "Reviews" },
+];
+
 export default function CompanyDashboard() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -490,6 +523,15 @@ export default function CompanyDashboard() {
   const [proposedDraftText, setProposedDraftText] = useState({});
   const [refreshSelection, setRefreshSelection] = useState({});
   const [refreshApplied, setRefreshApplied] = useState(false);
+  const [refreshFieldsOpen, setRefreshFieldsOpen] = useState(false);
+  const [refreshFieldChecks, setRefreshFieldChecks] = useState({
+    tagline: true,
+    headquarters_location: true,
+    manufacturing_locations: true,
+    industries: true,
+    product_keywords: true,
+    reviews: true,
+  });
 
   const refreshInFlightRef = useRef(false);
 
@@ -524,6 +566,32 @@ export default function CompanyDashboard() {
   const [notesToReviewsLoading, setNotesToReviewsLoading] = useState(false);
   const [notesToReviewsPreview, setNotesToReviewsPreview] = useState([]);
   const [notesToReviewsPreviewMeta, setNotesToReviewsPreviewMeta] = useState(null);
+
+  // Collapsible sidebar sections — Visibility and Stars open by default
+  const [sidebarSections, setSidebarSections] = useState({
+    visibility: true,
+    stars: true,
+    webReviewFetcher: false,
+    reviewsImport: false,
+    importedReviews: false,
+    notes: false,
+    pasteReviews: false,
+  });
+  const toggleSidebarSection = useCallback((key) => {
+    setSidebarSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  // Collapsible left column sections — all open by default
+  const [leftSections, setLeftSections] = useState({
+    basicInfo: true,
+    logo: true,
+    locations: true,
+    categories: true,
+    reviews: true,
+  });
+  const toggleLeftSection = useCallback((key) => {
+    setLeftSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   useEffect(() => {
     try {
@@ -1301,7 +1369,7 @@ export default function CompanyDashboard() {
     else toast.error("Copy failed");
   }, [proposedDraft]);
 
-  const refreshCompany = useCallback(async () => {
+  const refreshCompany = useCallback(async (fieldsToRefresh = null) => {
     const companyId = asString(editorOriginalId || editorDraft?.company_id).trim();
     if (!companyId) {
       toast.error("Save the company first.");
@@ -1337,6 +1405,9 @@ export default function CompanyDashboard() {
       company_id: companyId,
       timeout_ms: 200000,
       deadline_ms: 200000,
+      ...(Array.isArray(fieldsToRefresh) && fieldsToRefresh.length > 0
+        ? { fields_to_refresh: fieldsToRefresh }
+        : {}),
     };
 
     // Pre-warm: fire a lightweight request to wake up the Function App before the heavy refresh.
@@ -2132,6 +2203,19 @@ export default function CompanyDashboard() {
     }
   }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, proposedDraft, refreshDiffFields, refreshSelection, refreshTaglineMeta]);
 
+  // Ctrl/Cmd+S keyboard shortcut to save
+  useEffect(() => {
+    if (!editorOpen) return;
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        if (!editorSaving && editorDraft) saveEditor();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [editorOpen, editorSaving, editorDraft, saveEditor]);
+
   const updateCompanyInState = useCallback((companyId, patch) => {
     const id = asString(companyId).trim();
     if (!id) return;
@@ -2881,6 +2965,31 @@ export default function CompanyDashboard() {
     return editorDraft ? validateCompanyDraft(editorDraft) : null;
   }, [editorDraft]);
 
+  // Profile completeness for editor summary
+  const editorProfileInfo = useMemo(() => {
+    if (!editorDraft) return null;
+    const score = getProfileCompleteness(editorDraft);
+    const label = getProfileCompletenessLabel(score);
+    const missing = [];
+    if (!asString(editorDraft.tagline).trim()) missing.push("tagline");
+    const industries = Array.isArray(editorDraft.industries) ? editorDraft.industries.filter(Boolean) : [];
+    if (industries.length === 0) missing.push("industries");
+    const kw = Array.isArray(editorDraft.keywords) ? editorDraft.keywords : [];
+    if (kw.filter(Boolean).length < 3) missing.push("keywords");
+    if (
+      !(Array.isArray(editorDraft.headquarters_locations) && editorDraft.headquarters_locations.length > 0) &&
+      !asString(editorDraft.headquarters_location).trim()
+    ) missing.push("HQ location");
+    if (
+      !(Array.isArray(editorDraft.manufacturing_locations) && editorDraft.manufacturing_locations.length > 0) &&
+      !(Array.isArray(editorDraft.manufacturing_geocodes) && editorDraft.manufacturing_geocodes.length > 0)
+    ) missing.push("manufacturing");
+    const hasReviews = (Array.isArray(editorDraft.curated_reviews) && editorDraft.curated_reviews.length > 0) ||
+      (Array.isArray(editorDraft.reviews) && editorDraft.reviews.length > 0);
+    if (!hasReviews) missing.push("reviews");
+    return { score, label, missing };
+  }, [editorDraft]);
+
   const editorCompanyId = useMemo(() => {
     if (!editorDraft) return "";
     const isNew = !editorOriginalId;
@@ -3111,17 +3220,62 @@ export default function CompanyDashboard() {
                               </div>
 
                               {editorOriginalId ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="flex-none"
-                                  onClick={refreshCompany}
-                                  disabled={refreshLoading || editorSaving}
-                                  title="Refresh search"
-                                >
-                                  <RefreshCcw className="h-4 w-4 mr-2" />
-                                  {refreshLoading ? "Refreshing…" : "Refresh search"}
-                                </Button>
+                                <div className="flex-none flex items-stretch">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="rounded-r-none border-r-0"
+                                    onClick={() => refreshCompany()}
+                                    disabled={refreshLoading || editorSaving}
+                                    title="Refresh all fields"
+                                  >
+                                    <RefreshCcw className="h-4 w-4 mr-2" />
+                                    {refreshLoading ? "Refreshing…" : "Refresh search"}
+                                  </Button>
+                                  <Popover open={refreshFieldsOpen} onOpenChange={setRefreshFieldsOpen}>
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="rounded-l-none px-1.5"
+                                        disabled={refreshLoading || editorSaving}
+                                        title="Choose fields to refresh"
+                                      >
+                                        <ChevronDown className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent align="end" className="w-52 p-3">
+                                      <div className="space-y-2">
+                                        <div className="text-xs font-medium text-muted-foreground mb-2">Fields to refresh</div>
+                                        {REFRESHABLE_FIELDS.map((f) => (
+                                          <label key={f.key} className="flex items-center gap-2 cursor-pointer text-sm">
+                                            <Checkbox
+                                              checked={refreshFieldChecks[f.key]}
+                                              onCheckedChange={(v) =>
+                                                setRefreshFieldChecks((prev) => ({ ...prev, [f.key]: !!v }))
+                                              }
+                                            />
+                                            {f.label}
+                                          </label>
+                                        ))}
+                                        <Button
+                                          size="sm"
+                                          className="w-full mt-2"
+                                          disabled={!Object.values(refreshFieldChecks).some(Boolean)}
+                                          onClick={() => {
+                                            const selected = REFRESHABLE_FIELDS
+                                              .filter((f) => refreshFieldChecks[f.key])
+                                              .map((f) => f.key);
+                                            setRefreshFieldsOpen(false);
+                                            refreshCompany(selected.length === REFRESHABLE_FIELDS.length ? null : selected);
+                                          }}
+                                        >
+                                          Refresh selected
+                                        </Button>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
                               ) : null}
 
                               {editorOriginalId ? (
@@ -3531,9 +3685,32 @@ export default function CompanyDashboard() {
                         </div>
                       ) : null}
 
+                      {/* Profile completeness summary */}
+                      {editorProfileInfo ? (
+                        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-2">
+                          <div className="flex items-center gap-2">
+                            <div className={`text-xs font-semibold ${
+                              editorProfileInfo.score >= 85 ? "text-emerald-700 dark:text-emerald-400" :
+                              editorProfileInfo.score >= 60 ? "text-blue-700 dark:text-blue-400" :
+                              editorProfileInfo.score >= 35 ? "text-amber-700 dark:text-amber-400" :
+                              "text-red-700 dark:text-red-400"
+                            }`}>
+                              Profile: {editorProfileInfo.score}%
+                            </div>
+                            <span className="text-xs text-slate-500 dark:text-muted-foreground">({editorProfileInfo.label})</span>
+                          </div>
+                          {editorProfileInfo.missing.length > 0 ? (
+                            <div className="text-xs text-slate-500 dark:text-muted-foreground">
+                              Missing: {editorProfileInfo.missing.join(", ")}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
                       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,460px)]">
-                        <div className="space-y-5">
-                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div className="space-y-3">
+                          <CollapsibleSection title="Basic Info" isOpen={leftSections.basicInfo} onToggle={() => toggleLeftSection("basicInfo")}>
+                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 px-1 pt-1">
                             <div className="space-y-1 md:col-span-2">
                               <div className="flex items-center justify-between gap-2">
                                 <label className="text-sm text-slate-700 dark:text-muted-foreground">
@@ -3636,9 +3813,35 @@ export default function CompanyDashboard() {
                               </label>
                             </div>
 
-                          </div>
+                            <div className="space-y-1">
+                              <label className="text-sm text-slate-700 dark:text-muted-foreground">Email address</label>
+                              <Input
+                                value={asString(editorDraft.email_address)}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, email_address: e.target.value }))}
+                                placeholder="info@example.com"
+                              />
+                            </div>
 
-                          <div className="space-y-2">
+                            <div className="space-y-1">
+                              <label className="text-sm text-slate-700 dark:text-muted-foreground">Contact page URL</label>
+                              <Input
+                                value={asString(editorDraft.company_contact_info?.contact_page_url)}
+                                onChange={(e) => setEditorDraft((d) => ({
+                                  ...d,
+                                  company_contact_info: {
+                                    ...(d?.company_contact_info || {}),
+                                    contact_page_url: e.target.value,
+                                  },
+                                }))}
+                                placeholder="https://example.com/contact"
+                              />
+                            </div>
+
+                          </div>
+                          </CollapsibleSection>
+
+                          <CollapsibleSection title="Logo" isOpen={leftSections.logo} onToggle={() => toggleLeftSection("logo")}>
+                          <div className="space-y-2 px-1 pt-1">
                             <label className="text-sm text-slate-700 dark:text-muted-foreground">Logo</label>
 
                             {(() => {
@@ -3848,7 +4051,10 @@ export default function CompanyDashboard() {
                             value={editorDraft.affiliate_link_urls}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
                           />
+                          </CollapsibleSection>
 
+                          <CollapsibleSection title="Locations" isOpen={leftSections.locations} onToggle={() => toggleLeftSection("locations")}>
+                          <div className="space-y-5 px-1 pt-1">
                           <LocationSourcesEditor
                             value={editorDraft.location_sources}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), location_sources: next }))}
@@ -3867,7 +4073,11 @@ export default function CompanyDashboard() {
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), manufacturing_locations: next }))}
                             LocationStatusBadge={LocationStatusBadge}
                           />
+                          </div>
+                          </CollapsibleSection>
 
+                          <CollapsibleSection title="Categories" isOpen={leftSections.categories} onToggle={() => toggleLeftSection("categories")}>
+                          <div className="space-y-5 px-1 pt-1">
                           <StringListEditor
                             label="Industries"
                             value={editorDraft.industries}
@@ -3881,7 +4091,16 @@ export default function CompanyDashboard() {
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), keywords: next }))}
                             placeholder="Add a keyword…"
                           />
+                          </div>
+                          </CollapsibleSection>
 
+                          <CollapsibleSection
+                            title="Reviews"
+                            isOpen={leftSections.reviews}
+                            onToggle={() => toggleLeftSection("reviews")}
+                            badge={Array.isArray(editorDraft.curated_reviews) ? editorDraft.curated_reviews.length : 0}
+                          >
+                          <div className="space-y-5 px-1 pt-1">
                           <ReviewLinkFetcher
                             onAddReview={(review) => {
                               setEditorDraft((d) => ({
@@ -3897,12 +4116,14 @@ export default function CompanyDashboard() {
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), curated_reviews: next }))}
                             disabled={editorSaving}
                           />
+                          </div>
+                          </CollapsibleSection>
 
                         </div>
 
-                        <div className="space-y-5">
+                        <div className="space-y-3">
+                          <CollapsibleSection title="Visibility" isOpen={sidebarSections.visibility} onToggle={() => toggleSidebarSection("visibility")}>
                           <div className="space-y-3 rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-4">
-                            <div className="text-sm font-semibold text-slate-900 dark:text-foreground">Visibility</div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-foreground">
                                 <Checkbox
@@ -3963,15 +4184,21 @@ export default function CompanyDashboard() {
                               </label>
                             </div>
                           </div>
+                          </CollapsibleSection>
 
+                          <CollapsibleSection title="Stars" isOpen={sidebarSections.stars} onToggle={() => toggleSidebarSection("stars")}>
                           <RatingEditor draft={editorDraft} onChange={(next) => setEditorDraft(next)} StarNotesEditor={StarNotesEditor} />
+                          </CollapsibleSection>
 
+                          <CollapsibleSection title="Fetch Reviews From Web" isOpen={sidebarSections.webReviewFetcher} onToggle={() => toggleSidebarSection("webReviewFetcher")}>
                           <WebReviewFetcher
                             company={editorDraft}
                             disabled={editorSaving}
                             onApply={applySelectedProposedReviews}
                           />
+                          </CollapsibleSection>
 
+                          <CollapsibleSection title="Reviews Import" isOpen={sidebarSections.reviewsImport} onToggle={() => toggleSidebarSection("reviewsImport")}>
                           <ReviewsImportPanel
                             ref={reviewsImportRef}
                             companyId={
@@ -3983,7 +4210,14 @@ export default function CompanyDashboard() {
                             disabled={editorSaving}
                             onApply={applySelectedProposedReviews}
                           />
+                          </CollapsibleSection>
 
+                          <CollapsibleSection
+                            title="Imported Reviews"
+                            isOpen={sidebarSections.importedReviews}
+                            onToggle={() => toggleSidebarSection("importedReviews")}
+                            badge={Array.isArray(editorDraft.curated_reviews) ? editorDraft.curated_reviews.length : 0}
+                          >
                           <ImportedReviewsPanel
                             companyId={
                               asString(editorDraft.company_id).trim() ||
@@ -3996,13 +4230,22 @@ export default function CompanyDashboard() {
                             onDeleteSavedReview={deleteCuratedReviewFromDraft}
                             onUpdateSavedReview={(reviewId, patch) => updateCuratedReviewInDraft(reviewId, patch)}
                           />
+                          </CollapsibleSection>
 
+                          <CollapsibleSection
+                            title="Admin Notes"
+                            isOpen={sidebarSections.notes}
+                            onToggle={() => toggleSidebarSection("notes")}
+                            badge={Array.isArray(editorDraft.notes_entries) ? editorDraft.notes_entries.length : 0}
+                          >
                           <CompanyNotesEditor
                             value={editorDraft.notes_entries}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), notes_entries: next }))}
                             TextWithLinks={TextWithLinks}
                           />
+                          </CollapsibleSection>
 
+                          <CollapsibleSection title="Paste Reviews" isOpen={sidebarSections.pasteReviews} onToggle={() => toggleSidebarSection("pasteReviews")}>
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <label className="text-sm text-slate-700 dark:text-muted-foreground">Paste reviews (Grok / manual)</label>
@@ -4109,6 +4352,7 @@ export default function CompanyDashboard() {
                               </div>
                             ) : null}
                           </div>
+                          </CollapsibleSection>
 
                           {editorOriginalId ? <AdminEditHistory companyId={editorOriginalId} /> : null}
                         </div>
@@ -4119,6 +4363,20 @@ export default function CompanyDashboard() {
                           {editorValidationError}
                         </div>
                       ) : null}
+                    </div>
+                  ) : null}
+                  {/* Floating Save & Close button */}
+                  {editorDraft ? (
+                    <div className="sticky bottom-4 flex justify-end pr-12 pointer-events-none" style={{ marginTop: "-3rem" }}>
+                      <Button
+                        onClick={saveEditor}
+                        disabled={editorSaving || Boolean(editorValidationError)}
+                        className="pointer-events-auto shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+                        size="sm"
+                      >
+                        <Save className="h-3.5 w-3.5 mr-1.5" />
+                        {editorSaving ? "Saving…" : "Save & Close"}
+                      </Button>
                     </div>
                   ) : null}
                   </div>

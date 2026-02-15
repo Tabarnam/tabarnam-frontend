@@ -112,9 +112,12 @@ export default function WebReviewFetcher({ company, onApply, disabled }) {
       >
         <div className="flex items-center gap-2">
           {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          <span className="font-semibold text-sm">Fetch Reviews From Web</span>
+          <div>
+            <span className="font-semibold text-sm">Fetch Reviews From Web</span>
+            <div className="text-[11px] text-slate-500 dark:text-muted-foreground font-normal">Search the web for reviews of this company</div>
+          </div>
         </div>
-        {!isOpen && results.length > 0 && (
+        {results.length > 0 && (
           <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-2 py-0.5 rounded-full">
             {results.length} found
           </span>
