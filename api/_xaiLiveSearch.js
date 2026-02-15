@@ -120,54 +120,55 @@ function withHardTimeout(promise, ms, label = "operation") {
 function extractTextFromXaiResponse(resp) {
   const r = resp && typeof resp === "object" ? resp : {};
 
-  // Axios response shape.
+  // Normalize: handle both axios-wrapped (r.data) and raw objects
   const data = r.data && typeof r.data === "object" ? r.data : null;
-  if (data) {
-    // Try /responses format first: data.output[0].content[...].text
-    if (Array.isArray(data.output)) {
-      const firstOutput = data.output[0];
-      if (firstOutput?.content) {
-        const textItem = Array.isArray(firstOutput.content)
-          ? firstOutput.content.find(c => c?.type === "output_text") || firstOutput.content[0]
-          : firstOutput.content;
+  const obj = data || r;
+
+  // 1. Top-level output_text convenience field (works for both search and tools responses)
+  if (typeof obj.output_text === "string" && obj.output_text.trim()) {
+    return obj.output_text;
+  }
+
+  // 2. /v1/responses format: iterate output array BACKWARDS.
+  //    With tools: [{ type: "web_search" }], the output array contains:
+  //      output[0] = web_search_call (tool invocation — no text)
+  //      output[N] = message or output_text block (actual text)
+  //    The text is always in the LAST output item, not the first.
+  if (Array.isArray(obj.output)) {
+    for (let i = obj.output.length - 1; i >= 0; i--) {
+      const item = obj.output[i];
+      if (!item) continue;
+
+      // Direct output_text block in output array (no message wrapper)
+      if (item.type === "output_text" && typeof item.text === "string" && item.text.trim()) {
+        return item.text;
+      }
+
+      // Message wrapper with content array
+      if (Array.isArray(item.content)) {
+        const textItem = item.content.find(c => c?.type === "output_text");
         if (textItem?.text && typeof textItem.text === "string" && textItem.text.trim()) {
           return textItem.text;
         }
       }
-    }
 
-    // Try /chat/completions format
-    const content = data?.choices?.[0]?.message?.content;
-    if (typeof content === "string" && content.trim()) return content;
-
-    const alt = data?.output_text;
-    if (typeof alt === "string" && alt.trim()) return alt;
-
-    // Some xAI proxies return the content directly.
-    const direct = data?.content;
-    if (typeof direct === "string" && direct.trim()) return direct;
-  }
-
-  // Raw object shapes - try /responses format first
-  if (Array.isArray(r.output)) {
-    const firstOutput = r.output[0];
-    if (firstOutput?.content) {
-      const textItem = Array.isArray(firstOutput.content)
-        ? firstOutput.content.find(c => c?.type === "output_text") || firstOutput.content[0]
-        : firstOutput.content;
-      if (textItem?.text && typeof textItem.text === "string" && textItem.text.trim()) {
-        return textItem.text;
+      // Fallback: content is a single object with text
+      if (item.content && typeof item.content === "object" && !Array.isArray(item.content)) {
+        if (typeof item.content.text === "string" && item.content.text.trim()) {
+          return item.content.text;
+        }
       }
     }
   }
 
-  // Raw object shapes - /chat/completions format
-  const content = r?.choices?.[0]?.message?.content;
+  // 3. /v1/chat/completions format (legacy)
+  const content = obj?.choices?.[0]?.message?.content;
   if (typeof content === "string" && content.trim()) return content;
 
-  const outputText = r?.output_text;
-  if (typeof outputText === "string" && outputText.trim()) return outputText;
+  // 4. Direct content field (some xAI proxies)
+  if (typeof obj.content === "string" && obj.content.trim()) return obj.content;
 
+  // 5. String passthrough
   if (typeof r === "string") return r;
 
   try {
