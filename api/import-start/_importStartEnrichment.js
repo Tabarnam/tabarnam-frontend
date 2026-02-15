@@ -1014,12 +1014,11 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       };
 
       // ═══════════════════════════════════════════════════════════════
-      // Single-pass enrichment + resume worker for reviews.
-      // Fire-and-forget runs PASS1a only (unified + verify, ~37s) and
-      // saves a checkpoint. Reviews are always deferred to the resume
-      // worker which has a full 300s budget and survives worker recycling.
+      // Single-pass enrichment: unified prompt + verify (PASS1a).
+      // All core fields including reviews are enriched in one pass.
+      // Phase 1 fetches everything, Phase 2 verifies URLs & caps reviews.
       // ═══════════════════════════════════════════════════════════════
-      const ALL_CORE_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords"];
+      const ALL_CORE_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"];
       const ENRICHMENT_BUDGET_MS = 150000;  // 2.5 min: unified + verify (no Phase 3 deepening)
 
       // ── PASS1a: Unified + verify (NO Phase 3 deepening) ──

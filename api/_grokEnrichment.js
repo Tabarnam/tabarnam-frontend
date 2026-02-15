@@ -1978,7 +1978,7 @@ INDUSTRIES: Return as a JSON array of industry strings.
 
 KEYWORDS: Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.
 
-REVIEWS: Find 5 unique, legitimate third-party reviews with verified, working URLs. Use web_search to discover candidates and browse_page to verify each URL loads with real content about this company. Return 3 YouTube video reviews and 2 from magazines/blogs/review sites. If you cannot verify 3 YouTube videos exist, replace them with additional blog/magazine reviews. Do not fabricate YouTube video IDs — only return YouTube URLs verified via browse_page. Fields: "source_name", "author", "source_url" (the actual URL of the review, not the homepage), "title", "date", "excerpt". Accuracy is paramount. Do not include the same author more than once.
+REVIEWS: Find 5 real, publicly accessible third-party reviews with working URLs. Each must be about this company or its products. Prefer a mix of sources (YouTube, magazines, blogs). If only 3 verified reviews exist, return 3 — quality over quantity. Do not return broken, paywalled, or deleted URLs. Fields: "source_name", "author", "source_url" (direct URL, not homepage), "title", "date", "excerpt".
 
 Return STRICT JSON only:
 {
