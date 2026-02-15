@@ -1505,6 +1505,7 @@ export default function CompanyDashboard() {
 
                 toast.info(`Retrying refresh (attempt ${retryIdx + 2})…`);
 
+                const retryStartedAt = Date.now();
                 const retryResult = await apiFetchParsed(path, {
                   method: "POST",
                   body: requestPayload,
@@ -1555,9 +1556,37 @@ export default function CompanyDashboard() {
                 const retryText = asString(retryErr?.text).trim();
                 const retryIsSwa500 = retryStatus >= 500 &&
                   (retryText === "Backend call failure" || retryText === "" || !retryText);
+                const retryElapsedMs = Date.now() - retryStartedAt;
                 try {
-                  console.warn(`[refresh-company] SWA 500 auto-retry attempt ${retryIdx + 1}/${retryDelays.length} ${retryIsSwa500 ? "still got 500" : "real error"}`);
+                  console.warn(`[refresh-company] SWA 500 auto-retry attempt ${retryIdx + 1}/${retryDelays.length} ${retryIsSwa500 ? "still got 500" : "real error"} (${retryElapsedMs}ms)`);
                 } catch {}
+
+                // If retry returned SWA 500 very quickly (< 5s), the backend likely returned
+                // a lock/busy response that SWA stripped to a bare 500. Treat as "still running"
+                // rather than retrying — the backend IS working, we just can't see its response.
+                if (retryIsSwa500 && retryElapsedMs < 5000) {
+                  console.log(`[refreshCompany] Fast SWA 500 on retry (${retryElapsedMs}ms) — treating as probable lock`);
+                  clearTimeout(refreshTimeoutId);
+                  toast.info(
+                    `Your refresh is still running — the connection timed out but the backend is working. ` +
+                    `Please wait and try again shortly.`
+                  );
+                  clearInterval(fieldCycleInterval);
+                  setRefreshActiveField(null);
+                  setRefreshMetaByCompany((prev) => ({
+                    ...(prev || {}),
+                    [companyId]: {
+                      lastRefreshAt: startedAt,
+                      lastRefreshStatus: { kind: "running", code: null },
+                      lastRefreshDebug: { swa_fast_500_recovery: true, retry_elapsed_ms: retryElapsedMs },
+                    },
+                  }));
+                  setRefreshLoading(false);
+                  setRefreshError(null);
+                  refreshInFlightRef.current = false;
+                  return;
+                }
+
                 if (!retryIsSwa500) break; // Real error, stop retrying
               }
             }

@@ -2489,6 +2489,7 @@ async function enrichCompanyFields({
       // Save Phase 2 verified reviews as fallback before zeroing — if Phase 3
       // dedicated call returns 0 (XAI hallucinated URLs), we still keep these.
       const phase2VerifiedReviews = Array.isArray(verified.reviews) ? [...verified.reviews] : [];
+      const phase1Keywords = Array.isArray(verified.product_keywords) ? [...verified.product_keywords] : [];
       // Discard Phase 1 results for these fields so dedicated calls always run.
       verified.product_keywords = [];
       verified.reviews = [];
@@ -2530,6 +2531,16 @@ async function enrichCompanyFields({
         verified.reviews = phase2VerifiedReviews;
         fallback_statuses.reviews = phase2VerifiedReviews.length >= 5 ? "ok" : "incomplete";
         console.log(`[enrichCompanyFields] Phase 3 reviews empty — using ${phase2VerifiedReviews.length} Phase 2 verified review(s) as fallback`);
+      }
+
+      // If Phase 3 dedicated keyword fetcher returned nothing, fall back to Phase 1 keywords.
+      // Phase 1 unified prompt produces reasonable keyword lists; Phase 3 re-fetches with a
+      // stronger prompt but may fail (timeout, not_found). Preserve Phase 1 results rather
+      // than discarding everything — same pattern as the reviews fallback above.
+      if ((!Array.isArray(verified.product_keywords) || verified.product_keywords.length === 0) && phase1Keywords.length > 0) {
+        verified.product_keywords = phase1Keywords;
+        fallback_statuses.keywords = "incomplete";
+        console.log(`[enrichCompanyFields] Phase 3 keywords empty — using ${phase1Keywords.length} Phase 1 keyword(s) as fallback`);
       }
     } else {
       console.log(`[enrichCompanyFields] skipDedicatedDeepening=true — returning Phase 1+2 results, remaining=${getRemainingMs()}ms`);
