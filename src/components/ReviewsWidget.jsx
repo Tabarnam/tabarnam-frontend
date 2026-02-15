@@ -132,7 +132,20 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
               return (
                 <li key={r.id || `${companyName || companyId || "company"}-${idx}`} className="bg-card border border-border rounded p-3">
                   <div className="flex items-center justify-between">
-                    <div className="font-medium text-amber-600">{sourceName || "Unknown Source"}</div>
+                    {normalizedSourceUrl ? (
+                      <a
+                        href={withAmazonAffiliate(normalizedSourceUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-amber-600 hover:text-amber-700 dark:hover:text-amber-500 hover:underline transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                        title={`View on ${sourceName || "source"}`}
+                      >
+                        {sourceName || "Unknown Source"}
+                      </a>
+                    ) : (
+                      <div className="font-medium text-amber-600">{sourceName || "Unknown Source"}</div>
+                    )}
                     <div className="text-xs text-muted-foreground">
                       {formatReviewDate(pickReviewDate(r))}
                     </div>
@@ -157,17 +170,17 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
                     )}
 
                     {normalizedSourceUrl && (
-                      <div className="text-xs">
+                      <div className="text-xs mt-1">
                         <a
                           href={withAmazonAffiliate(normalizedSourceUrl)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 py-1 px-2 -mx-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 py-1.5 px-3 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
                           title={withAmazonAffiliate(normalizedSourceUrl)}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {truncateUrl(withAmazonAffiliate(normalizedSourceUrl))}
-                          <span className="text-muted-foreground">↗</span>
+                          View on {sourceName || "source"}
+                          <span className="text-blue-400 dark:text-blue-500">↗</span>
                         </a>
                       </div>
                     )}

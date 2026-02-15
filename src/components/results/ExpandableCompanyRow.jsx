@@ -442,16 +442,17 @@ export default function ExpandableCompanyRow({
                     <div key={idx} className="text-xs text-muted-foreground">
                       <div className="line-clamp-1">{r.text || "—"}</div>
                       {r.sourceUrl ? (
-                        <div className="mt-1">
+                        <div className="mt-1.5">
                           <a
                             href={withAmazonAffiliate(r.sourceUrl)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-600 dark:text-blue-400 hover:underline inline-block py-1 px-2 -ml-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors border border-transparent hover:border-blue-200 dark:hover:border-blue-800"
+                            className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 py-1 px-2.5 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
                             onClick={(e) => e.stopPropagation()}
                             title={withAmazonAffiliate(r.sourceUrl)}
                           >
-                            Source: {r.sourceName}
+                            {r.sourceName}
+                            <span className="text-blue-400 dark:text-blue-500">↗</span>
                           </a>
                         </div>
                       ) : (
