@@ -4621,7 +4621,8 @@ export default function CompanyDashboard() {
                       <Button
                         onClick={() => saveEditor({ closeAfter: false })}
                         disabled={editorSaving || Boolean(editorValidationError)}
-                        className="pointer-events-auto shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+                        className="pointer-events-auto shadow-lg text-black hover:brightness-95"
+                        style={{ backgroundColor: "#B1DDE3" }}
                         size="sm"
                       >
                         <Save className="h-3.5 w-3.5 mr-1.5" />
