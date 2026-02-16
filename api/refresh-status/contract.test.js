@@ -61,15 +61,15 @@ test("POST returns 405 Method not allowed", async () => {
   assert.equal(body.error, "Method not allowed");
 });
 
-// ─── 4. GET without job_id returns 400 with handler_id ─────────────────────
+// ─── 4. GET without company_id or job_id returns 400 with handler_id ────────
 
-test("GET without job_id returns 400 with handler_id", async () => {
+test("GET without company_id or job_id returns 400 with handler_id", async () => {
   const res = await handler(makeReq({ method: "GET", query: {} }));
   assert.equal(res.status, 400);
 
   const body = parseJson(res);
   assert.equal(body.ok, false);
-  assert.equal(body.error, "job_id required");
+  assert.equal(body.error, "company_id or job_id required");
   assert.equal(body.handler_id, "refresh-status");
 });
 
@@ -92,6 +92,30 @@ test("GET with job_id but no Cosmos returns 503", async () => {
     assert.equal(body.error, "Cosmos not configured");
   } finally {
     // Restore env
+    for (const k of ["COSMOS_DB_ENDPOINT", "COSMOS_ENDPOINT", "COSMOS_DB_KEY", "COSMOS_KEY"]) {
+      if (saved[k] !== undefined) process.env[k] = saved[k];
+      else delete process.env[k];
+    }
+  }
+});
+
+// ─── 5b. GET with company_id but no Cosmos returns 503 ─────────────────────
+
+test("GET with company_id but no Cosmos returns 503", async () => {
+  const saved = { ...process.env };
+  delete process.env.COSMOS_DB_ENDPOINT;
+  delete process.env.COSMOS_ENDPOINT;
+  delete process.env.COSMOS_DB_KEY;
+  delete process.env.COSMOS_KEY;
+
+  try {
+    const res = await handler(makeReq({ method: "GET", query: { company_id: "test-co-123" } }));
+    assert.equal(res.status, 503);
+
+    const body = parseJson(res);
+    assert.equal(body.ok, false);
+    assert.equal(body.error, "Cosmos not configured");
+  } finally {
     for (const k of ["COSMOS_DB_ENDPOINT", "COSMOS_ENDPOINT", "COSMOS_DB_KEY", "COSMOS_KEY"]) {
       if (saved[k] !== undefined) process.env[k] = saved[k];
       else delete process.env[k];
