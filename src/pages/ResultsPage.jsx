@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import PinIcon from "@/assets/tabarnam-pin.jpg";
 import { geocode } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
@@ -393,14 +392,6 @@ export default function ResultsPage() {
 
             return (
               <div key={colKey} className="col-span-2 lg:col-span-1 flex items-center gap-1">
-                {idx === 0 && (
-                  <img
-                    src={PinIcon}
-                    alt="location"
-                    style={{ width: "1.1em", height: "1.1em" }}
-                  />
-                )}
-
                 {colKey === "stars" ? (
                   <TooltipProvider>
                     <Tooltip>
