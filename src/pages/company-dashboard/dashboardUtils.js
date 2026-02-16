@@ -604,14 +604,9 @@ export function isCuratedReviewPubliclyVisible(review) {
   const url = normalizeExternalUrl(urlRaw);
   if (!url) return false;
 
-  const linkStatus = asString(review?.link_status ?? review?.linkStatus).trim();
-  if (!linkStatus || linkStatus.toLowerCase() !== "ok") return false;
-
-  const mcRaw = review?.match_confidence ?? review?.matchConfidence;
-  const mc =
-    typeof mcRaw === "number" ? mcRaw : typeof mcRaw === "string" && mcRaw.trim() ? Number(mcRaw) : null;
-
-  if (typeof mc === "number" && Number.isFinite(mc) && mc < 0.7) return false;
+  // Note: link_status and match_confidence are informational signals displayed
+  // as badges in the admin UI, but they must NOT silently hide admin-curated
+  // reviews. This matches the backend get-reviews filter logic.
 
   return true;
 }

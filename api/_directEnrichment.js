@@ -480,7 +480,8 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
   if (
     (!Array.isArray(updated.curated_reviews) || updated.curated_reviews.length === 0) &&
     updated.reviews_stage_status !== "not_found" &&
-    updated.reviews_stage_status !== "not_disclosed"
+    updated.reviews_stage_status !== "not_disclosed" &&
+    updated.reviews_stage_status !== "empty"
   ) {
     refreshedMissing.push("reviews");
     refreshedReasons.reviews = updated.reviews_stage_status || "missing";

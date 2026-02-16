@@ -50,6 +50,15 @@ function getCompaniesContainer() {
   return client.database(database).container(containerName);
 }
 
+async function loadCompanyById(container, companyId) {
+  const querySpec = {
+    query: "SELECT * FROM c WHERE c.id = @id",
+    parameters: [{ name: "@id", value: companyId }],
+  };
+  const { resources } = await container.items.query(querySpec, { enableCrossPartitionQuery: true }).fetchAll();
+  return Array.isArray(resources) && resources.length > 0 ? resources[0] : null;
+}
+
 async function loadRefreshJob(container, jobId) {
   const querySpec = {
     query: "SELECT * FROM c WHERE c.id = @id AND c.type = @type",
@@ -80,15 +89,17 @@ async function refreshStatusHandler(req, context) {
     }, 405);
   }
 
-  // Get job_id from query params (handle both URLSearchParams and plain object)
+  // Get query params (handle both URLSearchParams and plain object)
   const q = req.query && typeof req.query.get === "function"
     ? Object.fromEntries(req.query.entries())
     : (req.query || {});
   const jobId = asString(q.job_id || q.refresh_job_id || "").trim();
-  if (!jobId) {
+  const companyId = asString(q.company_id || "").trim();
+
+  if (!jobId && !companyId) {
     return json({
       ok: false,
-      error: "job_id required",
+      error: "company_id or job_id required",
       handler_id: HANDLER_ID,
       build_id: String(BUILD_INFO.build_id || ""),
       elapsed_ms: Date.now() - startedAt,
@@ -107,6 +118,56 @@ async function refreshStatusHandler(req, context) {
   }
 
   try {
+    // ── Company-based status lookup (for async refresh polling) ──
+    if (companyId) {
+      const doc = await loadCompanyById(container, companyId);
+      if (!doc) {
+        return json({
+          ok: false,
+          error: "Company not found",
+          company_id: companyId,
+          handler_id: HANDLER_ID,
+          build_id: String(BUILD_INFO.build_id || ""),
+          elapsed_ms: Date.now() - startedAt,
+        }, 404);
+      }
+
+      const refreshStatus = asString(doc._refresh_status).trim();
+
+      if (!refreshStatus) {
+        return json({
+          ok: true,
+          company_id: companyId,
+          status: "idle",
+          handler_id: HANDLER_ID,
+          build_id: String(BUILD_INFO.build_id || ""),
+          elapsed_ms: Date.now() - startedAt,
+        });
+      }
+
+      const result = {
+        ok: true,
+        company_id: companyId,
+        status: refreshStatus,
+        started_at: doc._refresh_started_at || null,
+        completed_at: doc._refresh_completed_at || null,
+        enrichment_status: doc._refresh_enrichment_status || null,
+        error: refreshStatus === "error" ? (doc._refresh_error || null) : null,
+      };
+
+      if (refreshStatus === "complete" && doc._pending_refresh_proposal) {
+        result.proposed = doc._pending_refresh_proposal;
+      }
+
+      return json({
+        ...result,
+        handler_id: HANDLER_ID,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+      });
+    }
+
+    // ── Job-based status lookup (existing path) ──
     const job = await loadRefreshJob(container, jobId);
 
     if (!job) {
@@ -139,7 +200,8 @@ async function refreshStatusHandler(req, context) {
     return json({
       ok: false,
       error: e?.message || "Internal error",
-      job_id: jobId,
+      company_id: companyId || undefined,
+      job_id: jobId || undefined,
       handler_id: HANDLER_ID,
       build_id: String(BUILD_INFO.build_id || ""),
       elapsed_ms: Date.now() - startedAt,

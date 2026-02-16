@@ -544,6 +544,16 @@ export default function CompanyDashboard() {
 
   const refreshInFlightRef = useRef(false);
   const [refreshActiveField, setRefreshActiveField] = useState(null);
+  const refreshPollTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (refreshPollTimerRef.current) {
+        clearTimeout(refreshPollTimerRef.current);
+        refreshPollTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const [refreshMetaByCompany, setRefreshMetaByCompany] = useState({});
 
@@ -1379,6 +1389,130 @@ export default function CompanyDashboard() {
     else toast.error("Copy failed");
   }, [proposedDraft]);
 
+  // Helper: apply proposed refresh results to the UI state.
+  // Shared by sync success, async poll success, and lock-retry success paths.
+  const applyRefreshProposed = useCallback(
+    (proposed, jsonBody, companyId, startedAt) => {
+      const draft = deepClone(proposed);
+      setRefreshProposed(proposed);
+      setProposedDraft(draft);
+
+      const nextTaglineMeta =
+        jsonBody?.tagline_meta && typeof jsonBody.tagline_meta === "object" ? jsonBody.tagline_meta : null;
+      setRefreshTaglineMeta(nextTaglineMeta);
+
+      if (nextTaglineMeta?.error) {
+        toast.warning(`Tagline verification issue: ${asString(nextTaglineMeta.error).trim().slice(0, 160)}`);
+      }
+
+      const nextText = {};
+      for (const f of refreshDiffFields) {
+        if (!Object.prototype.hasOwnProperty.call(draft, f.key)) continue;
+        nextText[f.key] = proposedValueToInputText(f.key, draft[f.key]);
+      }
+      setProposedDraftText(nextText);
+
+      const defaults = {};
+      for (const f of refreshDiffFields) {
+        if (!Object.prototype.hasOwnProperty.call(proposed, f.key)) continue;
+        const a = normalizeForDiff(f.key, editorDraft?.[f.key]);
+        const b = normalizeForDiff(f.key, proposed?.[f.key]);
+        if (JSON.stringify(a) !== JSON.stringify(b)) defaults[f.key] = true;
+      }
+      setRefreshSelection(defaults);
+
+      setRefreshMetaByCompany((prev) => ({
+        ...(prev || {}),
+        [companyId]: {
+          lastRefreshAt: startedAt,
+          lastRefreshStatus: { kind: "success", code: 200 },
+          lastRefreshDebug: null,
+        },
+      }));
+
+      setRefreshError(null);
+    },
+    [editorDraft, normalizeForDiff, proposedValueToInputText, refreshDiffFields]
+  );
+
+  // Poll /refresh-status?company_id=X until enrichment completes or times out.
+  const pollRefreshStatus = useCallback(
+    (companyId, startedAt) => {
+      const POLL_INTERVAL_MS = 5000;
+      const POLL_MAX_DURATION_MS = 210000; // 3.5 minutes
+      const pollStartedAt = Date.now();
+
+      const doPoll = async () => {
+        if (Date.now() - pollStartedAt > POLL_MAX_DURATION_MS) {
+          setRefreshError({
+            status: 0,
+            message: "Refresh timed out. The backend may still be processing — try again in a moment.",
+          });
+          setRefreshMetaByCompany((prev) => ({
+            ...(prev || {}),
+            [companyId]: {
+              lastRefreshAt: startedAt,
+              lastRefreshStatus: { kind: "error", code: null },
+              lastRefreshDebug: { timeout: true },
+            },
+          }));
+          refreshInFlightRef.current = false;
+          setRefreshLoading(false);
+          refreshPollTimerRef.current = null;
+          return;
+        }
+
+        try {
+          const statusResult = await apiFetchParsed(
+            `/refresh-status?company_id=${encodeURIComponent(companyId)}`,
+            { method: "GET" }
+          );
+
+          const statusBody = statusResult.data;
+
+          if (statusBody?.status === "complete" && statusBody?.proposed) {
+            applyRefreshProposed(statusBody.proposed, statusBody, companyId, startedAt);
+            toast.success("Proposed updates loaded");
+            playNotification();
+            refreshInFlightRef.current = false;
+            setRefreshLoading(false);
+            refreshPollTimerRef.current = null;
+            return;
+          }
+
+          if (statusBody?.status === "error") {
+            const errorMsg = statusBody?.error || "Enrichment failed on the server";
+            setRefreshError({ status: 0, message: errorMsg, debug: statusBody });
+            setRefreshMetaByCompany((prev) => ({
+              ...(prev || {}),
+              [companyId]: {
+                lastRefreshAt: startedAt,
+                lastRefreshStatus: { kind: "error", code: null },
+                lastRefreshDebug: statusBody,
+              },
+            }));
+            toast.error(errorMsg);
+            refreshInFlightRef.current = false;
+            setRefreshLoading(false);
+            refreshPollTimerRef.current = null;
+            return;
+          }
+
+          // Still running — schedule next poll
+          refreshPollTimerRef.current = setTimeout(doPoll, POLL_INTERVAL_MS);
+        } catch (pollErr) {
+          // Network error during poll — retry on next cycle (transient-safe)
+          console.warn("[refresh-company] poll error, retrying:", pollErr?.message);
+          refreshPollTimerRef.current = setTimeout(doPoll, POLL_INTERVAL_MS);
+        }
+      };
+
+      // Start first poll after initial delay
+      refreshPollTimerRef.current = setTimeout(doPoll, POLL_INTERVAL_MS);
+    },
+    [applyRefreshProposed, playNotification]
+  );
+
   const refreshCompany = useCallback(async (fieldsToRefresh = null) => {
     const companyId = asString(editorOriginalId || editorDraft?.company_id).trim();
     if (!companyId) {
@@ -1427,6 +1561,7 @@ export default function CompanyDashboard() {
       company_id: companyId,
       timeout_ms: 200000,
       deadline_ms: 200000,
+      async_mode: true,
       ...(Array.isArray(fieldsToRefresh) && fieldsToRefresh.length > 0
         ? { fields_to_refresh: fieldsToRefresh }
         : {}),
@@ -1750,50 +1885,8 @@ export default function CompanyDashboard() {
             const retryJson = retryResult.data && typeof retryResult.data === "object" ? retryResult.data : null;
 
             if (retryJson?.ok === true && retryJson?.proposed) {
-              // Success on retry — fall through to the success handling below
-              // by reassigning result and continuing
               result = retryResult;
-              // Re-read response variables for success path
-              const retryRes = retryResult.response;
-              const retryApiBuildId = normalizeBuildIdString(retryRes.headers.get("x-api-build-id"));
-              const retryProposed = retryJson.proposed;
-              const draft = deepClone(retryProposed);
-              setRefreshProposed(retryProposed);
-              setProposedDraft(draft);
-
-              const nextTaglineMeta = retryJson?.tagline_meta && typeof retryJson.tagline_meta === "object" ? retryJson.tagline_meta : null;
-              setRefreshTaglineMeta(nextTaglineMeta);
-
-              if (nextTaglineMeta?.error) {
-                toast.warning(`Tagline verification issue: ${asString(nextTaglineMeta.error).trim().slice(0, 160)}`);
-              }
-
-              const nextText = {};
-              for (const f of refreshDiffFields) {
-                if (!Object.prototype.hasOwnProperty.call(draft, f.key)) continue;
-                nextText[f.key] = proposedValueToInputText(f.key, draft[f.key]);
-              }
-              setProposedDraftText(nextText);
-
-              const defaults = {};
-              for (const f of refreshDiffFields) {
-                if (!Object.prototype.hasOwnProperty.call(retryProposed, f.key)) continue;
-                const a = normalizeForDiff(f.key, editorDraft?.[f.key]);
-                const b = normalizeForDiff(f.key, retryProposed?.[f.key]);
-                if (JSON.stringify(a) !== JSON.stringify(b)) defaults[f.key] = true;
-              }
-              setRefreshSelection(defaults);
-
-              setRefreshMetaByCompany((prev) => ({
-                ...(prev || {}),
-                [companyId]: {
-                  lastRefreshAt: startedAt,
-                  lastRefreshStatus: { kind: "success", code: retryRes.status },
-                  lastRefreshDebug: null,
-                },
-              }));
-
-              setRefreshError(null);
+              applyRefreshProposed(retryJson.proposed, retryJson, companyId, startedAt);
               if (retryJson?.recovered_from_pending) {
                 toast.info("Refresh results recovered from a previous attempt.");
               } else {
@@ -1867,6 +1960,14 @@ export default function CompanyDashboard() {
         return;
       }
 
+      // ── Async accepted response — start polling ──
+      if (jsonBody?.ok === true && jsonBody?.status === "accepted" && jsonBody?.async === true) {
+        toast.info("Refresh started — waiting for results…");
+        pollRefreshStatus(companyId, startedAt);
+        // Don't clear refreshLoading or refreshInFlightRef — polling will do that
+        return;
+      }
+
       const proposed = jsonBody?.proposed && typeof jsonBody.proposed === "object" ? jsonBody.proposed : null;
       if (!proposed) {
         const errObj = {
@@ -1909,43 +2010,7 @@ export default function CompanyDashboard() {
         return;
       }
 
-      const draft = deepClone(proposed);
-      setRefreshProposed(proposed);
-      setProposedDraft(draft);
-
-      const nextTaglineMeta = jsonBody?.tagline_meta && typeof jsonBody.tagline_meta === "object" ? jsonBody.tagline_meta : null;
-      setRefreshTaglineMeta(nextTaglineMeta);
-
-      if (nextTaglineMeta?.error) {
-        toast.warning(`Tagline verification issue: ${asString(nextTaglineMeta.error).trim().slice(0, 160)}`);
-      }
-
-      const nextText = {};
-      for (const f of refreshDiffFields) {
-        if (!Object.prototype.hasOwnProperty.call(draft, f.key)) continue;
-        nextText[f.key] = proposedValueToInputText(f.key, draft[f.key]);
-      }
-      setProposedDraftText(nextText);
-
-      const defaults = {};
-      for (const f of refreshDiffFields) {
-        if (!Object.prototype.hasOwnProperty.call(proposed, f.key)) continue;
-        const a = normalizeForDiff(f.key, editorDraft?.[f.key]);
-        const b = normalizeForDiff(f.key, proposed?.[f.key]);
-        if (JSON.stringify(a) !== JSON.stringify(b)) defaults[f.key] = true;
-      }
-      setRefreshSelection(defaults);
-
-      setRefreshMetaByCompany((prev) => ({
-        ...(prev || {}),
-        [companyId]: {
-          lastRefreshAt: startedAt,
-          lastRefreshStatus: { kind: "success", code: res.status },
-          lastRefreshDebug: null,
-        },
-      }));
-
-      setRefreshError(null);
+      applyRefreshProposed(proposed, jsonBody, companyId, startedAt);
       if (jsonBody?.recovered_from_pending) {
         toast.info("Refresh results recovered from a previous attempt.");
       } else {
@@ -2054,10 +2119,14 @@ export default function CompanyDashboard() {
     } finally {
       clearInterval(fieldCycleInterval);
       setRefreshActiveField(null);
-      refreshInFlightRef.current = false;
-      setRefreshLoading(false);
+      // Only clear loading state if polling is NOT active.
+      // When polling is active, the poll function manages its own cleanup.
+      if (!refreshPollTimerRef.current) {
+        refreshInFlightRef.current = false;
+        setRefreshLoading(false);
+      }
     }
-  }, [editorDraft, editorOriginalId, normalizeForDiff, playNotification, proposedValueToInputText, refreshDiffFields]);
+  }, [applyRefreshProposed, editorDraft, editorOriginalId, normalizeForDiff, playNotification, pollRefreshStatus, proposedValueToInputText, refreshDiffFields]);
 
   const applySelectedProposedReviews = useCallback(
     (selectedReviews) => {

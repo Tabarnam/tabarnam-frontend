@@ -938,6 +938,10 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       title: c.title || meta.title || null,
       date: meta.date || null,
       excerpt: c.excerpt || meta.excerpt || null,
+      link_status: "ok",
+      match_confidence: 1.0,
+      show_to_users: true,
+      is_public: true,
     });
     if (host) usedHosts.add(host);
   }

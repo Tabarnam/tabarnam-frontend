@@ -937,165 +937,261 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     // ========================================================================
-    // UNIFIED ENRICHMENT ENGINE
-    // Single Grok prompt for all fields (mirrors manual query for accuracy),
-    // with verification pipeline and individual-prompt fallback for gaps.
+    // ENRICHMENT HELPER
+    // Runs the full enrichment pipeline: unified Grok prompt, geocoding, logo.
+    // Used by both sync and async paths.
+    // ========================================================================
+    async function runEnrichmentPipeline({ onIntermediateSave } = {}) {
+      let enrichment_status = {};
+      let proposed = {
+        company_name: companyName,
+        normalized_domain: normalizedDomain,
+      };
+
+      try {
+        setAdminRefreshBypass(true);
+
+        const enrichmentResult = await enrichCompanyFields({
+          companyName,
+          websiteUrl,
+          normalizedDomain,
+          budgetMs: Math.max(30000, getRemainingBudgetMs() - 20000), // Reserve 20s for geocoding + save
+          xaiUrl,
+          xaiKey,
+          fieldsToEnrich,
+          onIntermediateSave,
+        });
+
+        enrichment_status = enrichmentResult.field_statuses || {};
+
+        if (enrichmentResult.proposed && typeof enrichmentResult.proposed === "object") {
+          // Map enrichment result into proposed changeset
+          const ep = enrichmentResult.proposed;
+
+          if (ep.tagline) proposed.tagline = ep.tagline;
+
+          if (ep.headquarters_location) {
+            proposed.headquarters_location = ep.headquarters_location;
+            proposed.headquarters_locations = [{
+              location: ep.headquarters_location,
+              formatted: ep.headquarters_location,
+              is_hq: true,
+              source: "xai_refresh",
+            }];
+            if (ep.headquarters_city) proposed.headquarters_city = ep.headquarters_city;
+            if (ep.headquarters_state_code) proposed.headquarters_state_code = ep.headquarters_state_code;
+            if (ep.headquarters_country) proposed.headquarters_country = ep.headquarters_country;
+            if (ep.headquarters_country_code) proposed.headquarters_country_code = ep.headquarters_country_code;
+          }
+
+          if (Array.isArray(ep.manufacturing_locations) && ep.manufacturing_locations.length > 0) {
+            proposed.manufacturing_locations = ep.manufacturing_locations.map(loc => ({
+              location: typeof loc === "string" ? loc : loc.location || loc,
+              formatted: typeof loc === "string" ? loc : loc.location || loc,
+              source: "xai_refresh",
+            }));
+          }
+
+          if (Array.isArray(ep.industries) && ep.industries.length > 0) {
+            proposed.industries = ep.industries;
+          }
+
+          if (Array.isArray(ep.product_keywords) && ep.product_keywords.length > 0) {
+            proposed.keywords = ep.product_keywords;
+          }
+
+          if (Array.isArray(ep.reviews) && ep.reviews.length > 0) {
+            proposed.curated_reviews = ep.reviews;
+          }
+
+          // Store raw response and enrichment metadata for debugging
+          if (enrichmentResult.raw_response) {
+            proposed.last_enrichment_raw_response = enrichmentResult.raw_response;
+          }
+          proposed.last_enrichment_at = new Date().toISOString();
+          proposed.enrichment_method = enrichmentResult.method || "unknown";
+        }
+
+        // Geocoding (only if time permits)
+        if (getRemainingBudgetMs() > 20000) {
+          try {
+            if (Array.isArray(proposed.manufacturing_locations) && proposed.manufacturing_locations.length > 0) {
+              const locationStrings = proposed.manufacturing_locations
+                .map(loc => typeof loc === "string" ? loc : loc.location || loc.formatted || "")
+                .filter(Boolean);
+              if (locationStrings.length > 0) {
+                const geocoded = await geocodeLocationArray(locationStrings, { timeoutMs: 10000, concurrency: 4 });
+                proposed.manufacturing_locations = proposed.manufacturing_locations.map((loc, i) => ({
+                  ...loc,
+                  ...(geocoded[i] || {}),
+                }));
+              }
+            }
+
+            if (proposed.headquarters_location) {
+              const geocoded = await geocodeLocationArray([proposed.headquarters_location], { timeoutMs: 10000, concurrency: 1 });
+              if (geocoded[0]) {
+                proposed.headquarters_geocode = geocoded[0];
+                if (geocoded[0].lat && geocoded[0].lng) {
+                  proposed.hq_lat = geocoded[0].lat;
+                  proposed.hq_lng = geocoded[0].lng;
+                }
+              }
+            }
+          } catch (geoErr) {
+            pushBreadcrumb("geocoding_error", { error: geoErr?.message || String(geoErr) });
+          }
+        }
+
+        // Also fetch logo separately (not part of unified prompt since it's visual)
+        if (getRemainingBudgetMs() > 15000) {
+          try {
+            const logoResult = await fetchLogo({
+              companyName,
+              normalizedDomain,
+              budgetMs: getRemainingBudgetMs() - 5000,
+              xaiUrl,
+              xaiKey,
+            });
+            if (logoResult?.logo_url) {
+              proposed.logo_url = logoResult.logo_url;
+              proposed.logo_source = logoResult.logo_source;
+              proposed.logo_confidence = logoResult.logo_confidence;
+              enrichment_status.logo = "ok";
+            } else {
+              enrichment_status.logo = logoResult?.logo_status || "empty";
+            }
+          } catch {
+            enrichment_status.logo = "error";
+          }
+        }
+
+      } finally {
+        setAdminRefreshBypass(false);
+      }
+
+      return { proposed, enrichment_status };
+    }
+
+    // Save Phase 1+2 results early so the recovery path (_pending_refresh_proposal)
+    // can return them if SWA drops the connection during Phase 3 (~45s gateway timeout).
+    // Shared by both async and sync paths.
+    const intermediateSaveCallback = async (intermediateFields) => {
+      const mapped = { ...intermediateFields };
+      if (mapped.product_keywords && !mapped.keywords) {
+        mapped.keywords = mapped.product_keywords;
+        delete mapped.product_keywords;
+      }
+      if (mapped.reviews && !mapped.curated_reviews) {
+        mapped.curated_reviews = mapped.reviews;
+        delete mapped.reviews;
+      }
+      const fieldNames = Object.keys(mapped);
+      console.log(`[onIntermediateSave] Saving ${fieldNames.length} field(s): [${fieldNames.join(", ")}]`);
+      try {
+        await patchCompanyById(container, companyId, existing, {
+          _pending_refresh_proposal: mapped,
+          _pending_refresh_at: new Date().toISOString(),
+        });
+        console.log(`[onIntermediateSave] Cosmos patch OK for [${fieldNames.join(", ")}]`);
+      } catch (e) {
+        console.warn(`[onIntermediateSave] Cosmos patch failed: ${e?.message}`);
+      }
+    };
+
+    // ========================================================================
+    // ASYNC MODE: return immediately, run enrichment in background
+    // SWA has a hard 45-second proxy timeout. Enrichment takes 70-173s.
+    // In async mode, we start enrichment as a floating promise and return
+    // "accepted" right away. The frontend polls /refresh-status for results.
+    // ========================================================================
+    const asyncMode = Boolean(body.async_mode);
+
+    if (asyncMode) {
+      stage = "async_accept";
+      pushBreadcrumb("async_mode", { company_id: companyId });
+
+      // Save status marker before returning so the poll endpoint can see "running"
+      try {
+        await patchCompanyById(container, companyId, existing, {
+          _refresh_status: "running",
+          _refresh_started_at: new Date().toISOString(),
+          _pending_refresh_proposal: null,
+          _pending_refresh_at: null,
+          _refresh_error: null,
+          _refresh_enrichment_status: null,
+          _refresh_completed_at: null,
+        });
+      } catch {
+        // If we can't save the status marker, fall through to sync mode
+        pushBreadcrumb("async_status_save_failed");
+      }
+
+      // Fire-and-forget: start enrichment as a floating promise.
+      // The Node.js process stays alive (functionTimeout: 5 min) even after
+      // the HTTP response is sent.
+      const enrichAndSave = async () => {
+        try {
+          const { proposed, enrichment_status } = await runEnrichmentPipeline({
+            onIntermediateSave: intermediateSaveCallback,
+          });
+          const successCount = Object.values(enrichment_status).filter(s => s === "ok").length;
+
+          if (successCount > 0) {
+            await patchCompanyById(container, companyId, existing, {
+              _pending_refresh_proposal: proposed,
+              _pending_refresh_at: new Date().toISOString(),
+              _refresh_status: "complete",
+              _refresh_enrichment_status: enrichment_status,
+              _refresh_completed_at: new Date().toISOString(),
+            });
+          } else {
+            await patchCompanyById(container, companyId, existing, {
+              _refresh_status: "error",
+              _refresh_error: "No fields could be enriched",
+              _refresh_enrichment_status: enrichment_status,
+              _refresh_completed_at: new Date().toISOString(),
+            });
+          }
+        } catch (err) {
+          try {
+            await patchCompanyById(container, companyId, existing, {
+              _refresh_status: "error",
+              _refresh_error: err?.message || "Unhandled enrichment error",
+              _refresh_completed_at: new Date().toISOString(),
+            });
+          } catch { /* best effort */ }
+        } finally {
+          await releaseRefreshLockBestEffort();
+        }
+      };
+
+      // Intentionally not awaited — floating promise
+      enrichAndSave().catch((err) => {
+        console.error("[admin-refresh-company] async enrichment unhandled error:", err?.message || err);
+      });
+
+      return json({
+        ok: true,
+        status: "accepted",
+        async: true,
+        company_id: companyId,
+        company_name: companyName,
+        breadcrumbs,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+      });
+    }
+
+    // ========================================================================
+    // SYNC MODE (existing behavior — backward compatibility)
     // ========================================================================
     stage = "unified_enrichment";
     pushBreadcrumb(stage, { company_id: companyId, budget_ms: budgetMs });
 
-    let enrichment_status = {};
-    let proposed = {
-      company_name: companyName,
-      normalized_domain: normalizedDomain,
-    };
-
-    try {
-      setAdminRefreshBypass(true);
-
-      const enrichmentResult = await enrichCompanyFields({
-        companyName,
-        websiteUrl,
-        normalizedDomain,
-        budgetMs: Math.max(30000, getRemainingBudgetMs() - 20000), // Reserve 20s for geocoding + save
-        xaiUrl,
-        xaiKey,
-        fieldsToEnrich,
-        // Save Phase 1+2 results early so the recovery path (_pending_refresh_proposal)
-        // can return them if SWA drops the connection during Phase 3 (~45s gateway timeout).
-        onIntermediateSave: async (intermediateFields) => {
-          // Map raw enrichment names → frontend-expected names so recovery
-          // paths return field keys the diff engine recognises.
-          const mapped = { ...intermediateFields };
-          if (mapped.product_keywords && !mapped.keywords) {
-            mapped.keywords = mapped.product_keywords;
-            delete mapped.product_keywords;
-          }
-          if (mapped.reviews && !mapped.curated_reviews) {
-            mapped.curated_reviews = mapped.reviews;
-            delete mapped.reviews;
-          }
-          const fieldNames = Object.keys(mapped);
-          console.log(`[onIntermediateSave] Saving ${fieldNames.length} field(s): [${fieldNames.join(", ")}]`);
-          try {
-            await patchCompanyById(container, companyId, existing, {
-              _pending_refresh_proposal: mapped,
-              _pending_refresh_at: new Date().toISOString(),
-            });
-            console.log(`[onIntermediateSave] Cosmos patch OK for [${fieldNames.join(", ")}]`);
-          } catch (e) {
-            console.warn(`[onIntermediateSave] Cosmos patch failed: ${e?.message}`);
-          }
-        },
-      });
-
-      enrichment_status = enrichmentResult.field_statuses || {};
-
-      if (enrichmentResult.proposed && typeof enrichmentResult.proposed === "object") {
-        // Map enrichment result into proposed changeset
-        const ep = enrichmentResult.proposed;
-
-        if (ep.tagline) proposed.tagline = ep.tagline;
-
-        if (ep.headquarters_location) {
-          proposed.headquarters_location = ep.headquarters_location;
-          proposed.headquarters_locations = [{
-            location: ep.headquarters_location,
-            formatted: ep.headquarters_location,
-            is_hq: true,
-            source: "xai_refresh",
-          }];
-          if (ep.headquarters_city) proposed.headquarters_city = ep.headquarters_city;
-          if (ep.headquarters_state_code) proposed.headquarters_state_code = ep.headquarters_state_code;
-          if (ep.headquarters_country) proposed.headquarters_country = ep.headquarters_country;
-          if (ep.headquarters_country_code) proposed.headquarters_country_code = ep.headquarters_country_code;
-        }
-
-        if (Array.isArray(ep.manufacturing_locations) && ep.manufacturing_locations.length > 0) {
-          proposed.manufacturing_locations = ep.manufacturing_locations.map(loc => ({
-            location: typeof loc === "string" ? loc : loc.location || loc,
-            formatted: typeof loc === "string" ? loc : loc.location || loc,
-            source: "xai_refresh",
-          }));
-        }
-
-        if (Array.isArray(ep.industries) && ep.industries.length > 0) {
-          proposed.industries = ep.industries;
-        }
-
-        if (Array.isArray(ep.product_keywords) && ep.product_keywords.length > 0) {
-          proposed.keywords = ep.product_keywords;
-        }
-
-        if (Array.isArray(ep.reviews) && ep.reviews.length > 0) {
-          proposed.curated_reviews = ep.reviews;
-        }
-
-        // Store raw response and enrichment metadata for debugging
-        if (enrichmentResult.raw_response) {
-          proposed.last_enrichment_raw_response = enrichmentResult.raw_response;
-        }
-        proposed.last_enrichment_at = new Date().toISOString();
-        proposed.enrichment_method = enrichmentResult.method || "unknown";
-      }
-
-      // Geocoding (only if time permits)
-      if (getRemainingBudgetMs() > 20000) {
-        try {
-          if (Array.isArray(proposed.manufacturing_locations) && proposed.manufacturing_locations.length > 0) {
-            const locationStrings = proposed.manufacturing_locations
-              .map(loc => typeof loc === "string" ? loc : loc.location || loc.formatted || "")
-              .filter(Boolean);
-            if (locationStrings.length > 0) {
-              const geocoded = await geocodeLocationArray(locationStrings, { timeoutMs: 10000, concurrency: 4 });
-              proposed.manufacturing_locations = proposed.manufacturing_locations.map((loc, i) => ({
-                ...loc,
-                ...(geocoded[i] || {}),
-              }));
-            }
-          }
-
-          if (proposed.headquarters_location) {
-            const geocoded = await geocodeLocationArray([proposed.headquarters_location], { timeoutMs: 10000, concurrency: 1 });
-            if (geocoded[0]) {
-              proposed.headquarters_geocode = geocoded[0];
-              if (geocoded[0].lat && geocoded[0].lng) {
-                proposed.hq_lat = geocoded[0].lat;
-                proposed.hq_lng = geocoded[0].lng;
-              }
-            }
-          }
-        } catch (geoErr) {
-          pushBreadcrumb("geocoding_error", { error: geoErr?.message || String(geoErr) });
-        }
-      }
-
-      // Also fetch logo separately (not part of unified prompt since it's visual)
-      if (getRemainingBudgetMs() > 15000) {
-        try {
-          const logoResult = await fetchLogo({
-            companyName,
-            normalizedDomain,
-            budgetMs: getRemainingBudgetMs() - 5000,
-            xaiUrl,
-            xaiKey,
-          });
-          if (logoResult?.logo_url) {
-            proposed.logo_url = logoResult.logo_url;
-            proposed.logo_source = logoResult.logo_source;
-            proposed.logo_confidence = logoResult.logo_confidence;
-            enrichment_status.logo = "ok";
-          } else {
-            enrichment_status.logo = logoResult?.logo_status || "empty";
-          }
-        } catch {
-          enrichment_status.logo = "error";
-        }
-      }
-
-    } finally {
-      setAdminRefreshBypass(false);
-    }
+    const { proposed, enrichment_status } = await runEnrichmentPipeline({
+      onIntermediateSave: intermediateSaveCallback,
+    });
 
     const successCount = Object.values(enrichment_status).filter(s => s === "ok").length;
 
