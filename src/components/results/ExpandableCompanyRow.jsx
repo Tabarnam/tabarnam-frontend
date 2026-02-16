@@ -264,14 +264,7 @@ export default function ExpandableCompanyRow({
   };
 
   const getLocationsList = (locations, geocodes, distances = [], isManu = false) => {
-    if (isManu && Array.isArray(distances) && distances.length > 0) {
-      return distances.slice(0, 5).map((loc) => ({
-        formatted: formatLocationDisplayName(loc),
-        distance: typeof loc?.dist === "number" ? loc.dist : null,
-        geocode_status: typeof loc?.geocode_status === "string" ? loc.geocode_status : null,
-      }));
-    }
-
+    // Build the full source list (all locations the company has)
     const sourceArray =
       Array.isArray(geocodes) && geocodes.length > 0
         ? geocodes
@@ -279,7 +272,33 @@ export default function ExpandableCompanyRow({
           ? locations
           : [];
 
-    return sourceArray.slice(0, 5).map((loc) => ({
+    if (isManu && Array.isArray(distances) && distances.length > 0) {
+      // Start with distance-enriched locations
+      const withDist = distances.map((loc) => ({
+        formatted: formatLocationDisplayName(loc),
+        distance: typeof loc?.dist === "number" ? loc.dist : null,
+        geocode_status: typeof loc?.geocode_status === "string" ? loc.geocode_status : null,
+      }));
+
+      // Add locations from the source array that weren't included in _manuDists
+      // (locations without valid lat/lng get dropped by attachDistances)
+      if (sourceArray.length > distances.length) {
+        const distFormatted = new Set(withDist.map((d) => d.formatted));
+        for (const loc of sourceArray) {
+          const fmt = formatLocationDisplayName(loc);
+          if (fmt !== "—" && !distFormatted.has(fmt)) {
+            withDist.push({
+              formatted: fmt,
+              distance: null,
+              geocode_status: loc && typeof loc === "object" && typeof loc.geocode_status === "string" ? loc.geocode_status : null,
+            });
+          }
+        }
+      }
+      return withDist;
+    }
+
+    return sourceArray.map((loc) => ({
       formatted: formatLocationDisplayName(loc),
       distance: null,
       geocode_status: loc && typeof loc === "object" && typeof loc.geocode_status === "string" ? loc.geocode_status : null,
@@ -361,9 +380,12 @@ export default function ExpandableCompanyRow({
 
   const renderRightColumn = (colKey) => {
     if (colKey === "manu") {
+      const maxVisible = isExpanded ? manuLocations.length : 3;
+      const visible = manuLocations.slice(0, maxVisible);
+      const hiddenCount = manuLocations.length - visible.length;
       return (
         <div className="space-y-2">
-          {manuLocations.map((loc, idx) => (
+          {visible.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {loc.formatted !== "—" && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
@@ -373,6 +395,9 @@ export default function ExpandableCompanyRow({
               <div className="text-foreground">{loc.formatted}</div>
             </div>
           ))}
+          {hiddenCount > 0 && (
+            <div className="text-xs text-muted-foreground">+{hiddenCount} more location{hiddenCount > 1 ? "s" : ""}</div>
+          )}
           {manuLocations.length === 0 && <div className="text-sm text-muted-foreground">—</div>}
         </div>
       );
