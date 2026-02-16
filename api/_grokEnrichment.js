@@ -784,7 +784,8 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   // Parse response — try plain-text format first (Source:/Author:/URL:), fall back to JSON.
   const rawText = asString(extractTextFromXaiResponse(r.resp));
 
-  // Diagnostic: warn when text extraction yields unexpectedly short/empty result
+  // Diagnostic: always log rawText metrics so we can trace parsing failures
+  console.log(`[fetchCuratedReviews] rawText: ${rawText ? rawText.length : 0} chars, preview: ${rawText ? rawText.slice(0, 300).replace(/\n/g, "\\n") : "(empty)"}`);
   if (!rawText || rawText.length < 10) {
     console.warn(`[fetchCuratedReviews] rawText extraction produced ${rawText ? rawText.length : 0} chars (expected review data)`);
   }

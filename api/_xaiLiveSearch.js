@@ -124,9 +124,12 @@ function extractTextFromXaiResponse(resp) {
   const data = r.data && typeof r.data === "object" ? r.data : null;
   const obj = data || r;
 
-  // 1. Top-level output_text convenience field (works for both search and tools responses)
+  // 1. Top-level output_text or text convenience field (xAI /v1/responses)
   if (typeof obj.output_text === "string" && obj.output_text.trim()) {
     return obj.output_text;
+  }
+  if (typeof obj.text === "string" && obj.text.trim()) {
+    return obj.text;
   }
 
   // 2. /v1/responses format: iterate output array BACKWARDS.
