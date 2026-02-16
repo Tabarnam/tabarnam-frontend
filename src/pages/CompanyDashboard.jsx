@@ -4662,7 +4662,7 @@ export default function CompanyDashboard() {
                   </Button>
                   <Button onClick={saveEditor} disabled={editorSaving || Boolean(editorValidationError)}>
                     <Save className="h-4 w-4 mr-2" />
-                    {editorSaving ? "Saving…" : editorOriginalId ? "Save changes" : "Create"}
+                    {editorSaving ? "Saving…" : editorOriginalId ? "Save & Close" : "Create"}
                   </Button>
                 </DialogFooter>
                 </div>
