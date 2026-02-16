@@ -1439,7 +1439,7 @@ export default function CompanyDashboard() {
   const pollRefreshStatus = useCallback(
     (companyId, startedAt) => {
       const POLL_INTERVAL_MS = 5000;
-      const POLL_MAX_DURATION_MS = 210000; // 3.5 minutes
+      const POLL_MAX_DURATION_MS = 540000; // 9 min — covers 8 min enrichment + 1 min save margin
       const pollStartedAt = Date.now();
 
       const doPoll = async () => {
@@ -1559,8 +1559,8 @@ export default function CompanyDashboard() {
 
     const requestPayload = {
       company_id: companyId,
-      timeout_ms: 200000,
-      deadline_ms: 200000,
+      timeout_ms: 480000,   // 8 min — async floating promise has full functionTimeout (10 min)
+      deadline_ms: 480000,
       async_mode: true,
       ...(Array.isArray(fieldsToRefresh) && fieldsToRefresh.length > 0
         ? { fields_to_refresh: fieldsToRefresh }
