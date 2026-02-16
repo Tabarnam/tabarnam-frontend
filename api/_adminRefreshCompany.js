@@ -1137,7 +1137,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
           const { proposed, enrichment_status } = await runEnrichmentPipeline({
             onIntermediateSave: intermediateSaveCallback,
           });
-          const successCount = Object.values(enrichment_status).filter(s => s === "ok").length;
+          // "incomplete" means partial data was produced (e.g. 4 of 5 reviews found) — still a success
+          const successCount = Object.values(enrichment_status).filter(s => s === "ok" || s === "incomplete").length;
 
           if (successCount > 0) {
             await patchCompanyById(container, companyId, existing, {
@@ -1195,7 +1196,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       onIntermediateSave: intermediateSaveCallback,
     });
 
-    const successCount = Object.values(enrichment_status).filter(s => s === "ok").length;
+    // "incomplete" means partial data was produced (e.g. 4 of 5 reviews found) — still a success
+    const successCount = Object.values(enrichment_status).filter(s => s === "ok" || s === "incomplete").length;
 
     // Save enrichment results as pending proposal so they survive SWA 500s.
     // If the SWA gateway returns 500 to the browser before this response can be
