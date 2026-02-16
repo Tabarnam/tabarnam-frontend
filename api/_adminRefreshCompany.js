@@ -757,6 +757,46 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       }
     }
 
+    // ── Recovery path #2: no lock, but a fresh pending proposal exists ──
+    // This handles the case where the previous enrichment completed successfully
+    // (lock released) but SWA dropped the connection before the response reached
+    // the browser. The results are saved in Cosmos — return them instead of
+    // starting a redundant new enrichment.
+    stage = "pending_proposal_check";
+    {
+      const pendingProposal = existing._pending_refresh_proposal;
+      const pendingAt = existing._pending_refresh_at;
+      const pendingAgeMs = pendingAt ? (nowMs - new Date(pendingAt).getTime()) : Infinity;
+
+      if (pendingProposal && typeof pendingProposal === "object" && pendingAgeMs < 300_000) {
+        pushBreadcrumb("recovered_pending_proposal_no_lock", {
+          company_id: companyId,
+          pending_age_ms: pendingAgeMs,
+        });
+        console.log(`[xadmin-api-refresh-company] Recovery: found pending proposal (${Math.round(pendingAgeMs / 1000)}s old, no lock) — returning saved results`);
+        // Clear pending data so the next refresh starts fresh
+        try {
+          await patchCompanyById(container, companyId, existing, {
+            _pending_refresh_proposal: null,
+            _pending_refresh_at: null,
+          });
+        } catch { /* best effort */ }
+
+        const companyName = asString(existing.company_name || existing.name).trim();
+        return json({
+          ok: true,
+          proposed: pendingProposal,
+          company_id: companyId,
+          company_name: companyName,
+          recovered_from_pending: true,
+          breadcrumbs,
+          build_id: String(BUILD_INFO.build_id || ""),
+          elapsed_ms: Date.now() - startedAt,
+          budget_ms: budgetMs,
+        });
+      }
+    }
+
     stage = "budget_guard";
     if (getRemainingBudgetMs() < 4500) {
       pushBreadcrumb("time_budget_exhausted", { company_id: companyId });

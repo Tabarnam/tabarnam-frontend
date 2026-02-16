@@ -1502,12 +1502,13 @@ export default function CompanyDashboard() {
             const retryDelays = [5000, 10000, 15000];
             let retrySucceeded = false;
             for (let retryIdx = 0; retryIdx < retryDelays.length; retryIdx++) {
+              let retryStartedAt = Date.now();
               try {
                 await new Promise((resolve) => setTimeout(resolve, retryDelays[retryIdx]));
 
                 toast.info(`Retrying refresh (attempt ${retryIdx + 2})…`);
 
-                const retryStartedAt = Date.now();
+                retryStartedAt = Date.now();
                 const retryResult = await apiFetchParsed(path, {
                   method: "POST",
                   body: requestPayload,
@@ -3483,6 +3484,32 @@ export default function CompanyDashboard() {
                                   Refresh failed{code ? ` (${code})` : ""}
                                 </div>
                                 {at ? <div className="text-xs text-red-700 mt-0.5">{toDisplayDate(at)}</div> : null}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // "running" — SWA timed out but backend is still working.
+                        // Show a persistent banner so the user knows to retry.
+                        const isRunning = lastRefreshMeta.lastRefreshStatus.kind === "running";
+                        const isLocked = lastRefreshMeta.lastRefreshStatus.kind === "locked";
+                        if (isRunning || isLocked) {
+                          return (
+                            <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-600 dark:bg-amber-950/30 p-4 flex items-center gap-4">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white">
+                                <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                                  Refresh is running in the background
+                                </div>
+                                <div className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                                  The gateway timed out but the backend is still working. Click <strong>Refresh Search</strong> again in ~60s to check for results.
+                                </div>
+                                {at ? <div className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">{toDisplayDate(at)}</div> : null}
                               </div>
                             </div>
                           );
