@@ -42,7 +42,11 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
   const withDerivedDistances = useMemo(() => {
     return companies.map((comp) => {
       const hq = comp.headquarters?.[0];
-      const mfg = comp.manufacturing_sites || [];
+      const mfg = (Array.isArray(comp.manufacturing_geocodes) && comp.manufacturing_geocodes.length > 0)
+        ? comp.manufacturing_geocodes
+        : (Array.isArray(comp.manufacturing_locations) && comp.manufacturing_locations.length > 0)
+          ? comp.manufacturing_locations
+          : comp.manufacturing_sites || [];
       const hqDist = (hq && userLocation)
         ? calculateDistance(userLocation.latitude, userLocation.longitude, hq.latitude, hq.longitude)
         : Infinity;

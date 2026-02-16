@@ -123,7 +123,11 @@ const CompanyRow = ({
   const shouldShowLogo = Boolean(logoUrl) && !logoFailed;
 
   const hqs = company.headquarters || [];
-  const mfgs = company.manufacturing_sites || [];
+  const mfgs = (Array.isArray(company.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0)
+    ? company.manufacturing_geocodes
+    : (Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0)
+      ? company.manufacturing_locations
+      : company.manufacturing_sites || [];
   const hq1 = hqs[0],
     hq2 = hqs[1];
   const mfg1 = mfgs[0],
