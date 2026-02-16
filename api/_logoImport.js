@@ -805,7 +805,7 @@ function escapeRegExp(s) {
  * external SVG, extracts the referenced symbol, and returns a self-contained
  * SVG buffer with the real vector content inlined.
  */
-async function maybeResolveSvgSpriteReference(svgText, pageUrl, logger) {
+async function maybeResolveSvgSpriteReference(svgText, pageUrl, logger, pageHtml = "") {
   // Detect <use href="..." /> or <use xlink:href="..." />
   const useMatch = svgText.match(/<use\b[^>]*\bhref=["']([^"']+)["'][^>]*>/i)
     || svgText.match(/<use\b[^>]*\bxlink:href=["']([^"']+)["'][^>]*>/i);
@@ -818,8 +818,54 @@ async function maybeResolveSvgSpriteReference(svgText, pageUrl, logger) {
   const fragmentId = hashIdx >= 0 ? hrefRaw.slice(hashIdx + 1) : "";
 
   if (!urlPart) {
-    // Pure fragment reference (#id) within the same document — can't resolve externally
-    return { wasSprite: true, ok: false, reason: "svg_sprite_internal_ref_only" };
+    // Pure fragment reference (#id) within the same document.
+    // Try to resolve from the full page HTML where <symbol> definitions live.
+    if (!fragmentId || !pageHtml) {
+      return { wasSprite: true, ok: false, reason: "svg_sprite_internal_ref_only" };
+    }
+
+    const internalSymbolRe = new RegExp(
+      `<(symbol|svg)\\b[^>]*\\bid=["']${escapeRegExp(fragmentId)}["'][^>]*>([\\s\\S]*?)<\\/\\1>`,
+      "i"
+    );
+    const internalMatch = pageHtml.match(internalSymbolRe);
+    if (!internalMatch) {
+      return { wasSprite: true, ok: false, reason: "svg_sprite_symbol_not_found_in_page" };
+    }
+
+    const internalContent = internalMatch[2];
+    let internalViewBox = "";
+    const internalVbMatch = internalMatch[0].match(/viewBox=["']([^"']+)["']/i);
+    if (internalVbMatch) internalViewBox = internalVbMatch[1];
+
+    if (!internalContent || internalContent.trim().length < 10) {
+      return { wasSprite: true, ok: false, reason: "svg_sprite_empty_symbol" };
+    }
+
+    if (looksLikeUnsafeSvg(Buffer.from(internalContent, "utf8"))) {
+      return { wasSprite: true, ok: false, reason: "svg_sprite_unsafe_internal" };
+    }
+
+    // Build self-contained SVG — reuse existing logic from the external sprite path
+    const internalSvgOpenMatch = svgText.match(/<svg\b[^>]*>/i);
+    let internalResolvedOpen = internalSvgOpenMatch
+      ? internalSvgOpenMatch[0]
+      : `<svg viewBox="${internalViewBox || "0 0 100 100"}" xmlns="http://www.w3.org/2000/svg">`;
+
+    if (!internalResolvedOpen.includes("xmlns")) {
+      internalResolvedOpen = internalResolvedOpen.replace(/<svg\b/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+    // Inject viewBox from symbol if the wrapper SVG doesn't have one
+    if (internalViewBox && !internalResolvedOpen.includes("viewBox")) {
+      internalResolvedOpen = internalResolvedOpen.replace(/<svg\b/, `<svg viewBox="${internalViewBox}"`);
+    }
+    internalResolvedOpen = internalResolvedOpen.replace(/\s+class="[^"]*"/gi, "");
+
+    const internalResolvedSvg = `${internalResolvedOpen}\n${internalContent}\n</svg>`;
+    const internalResolvedBuf = Buffer.from(internalResolvedSvg, "utf8");
+
+    logger?.info?.(`[logoImport] SVG sprite resolved (internal): #${fragmentId} -> ${internalResolvedBuf.length} bytes`);
+    return { wasSprite: true, ok: true, buf: internalResolvedBuf };
   }
 
   // Resolve to absolute URL using the page origin
@@ -980,7 +1026,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
         // Sprite-only SVGs are hollow shells that reference external .svg files;
         // they render blank when served standalone from blob storage.
         const svgText = buf.toString("utf8");
-        const resolved = await maybeResolveSvgSpriteReference(svgText, candidate?.page_url, logger);
+        const resolved = await maybeResolveSvgSpriteReference(svgText, candidate?.page_url, logger, options?.pageHtml || "");
         if (resolved.wasSprite) {
           if (!resolved.ok) return { ok: false, reason: resolved.reason || "svg_sprite_unresolvable" };
           // Reject sprites whose reference URL contains negative tokens (e.g. "ui-icons.svg#accounts-icon").
@@ -1399,8 +1445,12 @@ function collectInlineSvgCandidates(html, baseUrl, { companyNameTokens, allowedH
       let score = 180 + 45; // header base + SVG ext bonus
       const hasLogoSignal = hasAnyToken(hay, ["logo", "wordmark", "logotype", "brand"]);
       if (hasLogoSignal) score += 80;
-      // Penalize hollow SVG sprite references (e.g. <use href="#icon-cart">)
-      if (/<use\b[^>]*\bhref=["']|<use\b[^>]*\bxlink:href=["']/i.test(svgTag)) score -= 120;
+      // Penalize hollow SVG sprite references — but only if they lack logo-like signals.
+      // Sprites like <use href="#icon--logo"> should not be penalized since we can now
+      // resolve internal fragment references from the page HTML.
+      if (/<use\b[^>]*\bhref=["']|<use\b[^>]*\bxlink:href=["']/i.test(svgTag)) {
+        if (!hasLogoSignal) score -= 120;
+      }
       // Penalize SVGs with icon-like class/role attributes — never company logos.
       // Shopify themes embed user/cart/search icons as inline SVGs in <header>;
       // without this penalty they score 225 (header base + SVG bonus) and beat
@@ -1742,7 +1792,7 @@ async function discoverLogoCandidates({ domain, websiteUrl, companyName, selecto
       });
 
       if (candidates.length > 0) {
-        return { ok: true, candidates, page_url: baseUrl, allowed_host_root: allowedHostRoot, warning: "" };
+        return { ok: true, candidates, page_url: baseUrl, allowed_host_root: allowedHostRoot, warning: "", page_html: text };
       }
 
       lastError = "no_on_site_candidates";
@@ -1760,6 +1810,7 @@ async function discoverLogoSourceUrl({ domain, websiteUrl, companyName, selector
   const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 12_000, maxMs: 20_000 });
 
   const discovered = await discoverLogoCandidates({ domain: d, websiteUrl, companyName, selector }, logger, { budget });
+  const pageHtml = discovered?.page_html || "";
   const candidates = dedupeAndSortCandidates(discovered?.candidates || []);
   candidates.sort(sortCandidatesStrict);
 
@@ -1770,7 +1821,7 @@ async function discoverLogoSourceUrl({ domain, websiteUrl, companyName, selector
     }
 
     const candidate = candidates[i];
-    const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget });
+    const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget, pageHtml });
     if (evalResult.ok) {
       return {
         ok: true,
@@ -2044,6 +2095,7 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
     telemetry.time_budget_exhausted = true;
   }
 
+  const pageHtml = discovered?.page_html || "";
   telemetry.discovery_ok = Boolean(discovered?.ok);
   telemetry.discovery_page_url = String(discovered?.page_url || "");
   telemetry.allowed_host_root = String(discovered?.allowed_host_root || "");
@@ -2130,7 +2182,7 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
         // ignore
       }
 
-      const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget });
+      const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget, pageHtml });
 
       if (!evalResult.ok) {
         const reason = String(evalResult.reason || "unknown");

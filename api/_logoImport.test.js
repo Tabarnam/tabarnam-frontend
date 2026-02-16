@@ -218,3 +218,71 @@ test("maybeResolveSvgSpriteReference handles invalid href gracefully", async () 
   assert.equal(result.wasSprite, true);
   assert.equal(result.ok, false);
 });
+
+// ── Internal SVG sprite resolution from pageHtml ─────────────────────────────
+
+test("maybeResolveSvgSpriteReference resolves internal fragment ref from pageHtml", async () => {
+  const svg = `<svg><use href="#icon--logo"></use></svg>`;
+  const pageHtml = `
+    <html><body>
+    <svg style="display:none">
+      <symbol id="icon--logo" viewBox="0 0 200 50">
+        <path d="M10 20 L190 20 L100 45 Z" fill="#000"/>
+      </symbol>
+    </svg>
+    <header><a href="/"><svg><use href="#icon--logo"></use></svg></a></header>
+    </body></html>
+  `;
+  const result = await maybeResolveSvgSpriteReference(svg, "https://example.com", null, pageHtml);
+  assert.equal(result.wasSprite, true);
+  assert.equal(result.ok, true);
+  assert.ok(result.buf instanceof Buffer);
+  const resolved = result.buf.toString("utf8");
+  assert.ok(resolved.includes("M10 20 L190 20"), "should contain symbol path content");
+  assert.ok(resolved.includes('viewBox="0 0 200 50"'), "should inject viewBox from symbol");
+  assert.ok(resolved.includes("xmlns"), "should include xmlns");
+});
+
+test("maybeResolveSvgSpriteReference fails when internal symbol not found in pageHtml", async () => {
+  const svg = `<svg><use href="#nonexistent-symbol"></use></svg>`;
+  const pageHtml = `<html><body><svg style="display:none"><symbol id="other-id" viewBox="0 0 100 100"><rect width="100" height="100"/></symbol></svg></body></html>`;
+  const result = await maybeResolveSvgSpriteReference(svg, "https://example.com", null, pageHtml);
+  assert.equal(result.wasSprite, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "svg_sprite_symbol_not_found_in_page");
+});
+
+test("maybeResolveSvgSpriteReference still rejects internal ref without pageHtml (backward compat)", async () => {
+  const svg = `<svg viewBox="0 0 100 50"><use href="#local-symbol"></use></svg>`;
+  // No pageHtml argument — same behavior as before
+  const result = await maybeResolveSvgSpriteReference(svg, "https://example.com", null);
+  assert.equal(result.wasSprite, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "svg_sprite_internal_ref_only");
+});
+
+// ── Conditional sprite score penalty ─────────────────────────────────────────
+
+test("collectInlineSvgCandidates does not penalize sprite refs with logo signal", () => {
+  const html = `
+    <header>
+      <svg width="200" height="50"><use href="#icon--logo"></use></svg>
+    </header>
+  `;
+  const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
+  assert.equal(candidates.length, 1);
+  // Base 225 (180 + 45) + logo signal 80 + wordmark shape 40 = 345 (no -120 penalty)
+  assert.ok(candidates[0].score >= 300, `expected score >= 300, got ${candidates[0].score}`);
+});
+
+test("collectInlineSvgCandidates still penalizes sprite refs without logo signal", () => {
+  const html = `
+    <header>
+      <svg width="200" height="50"><use href="#icon--cart"></use></svg>
+    </header>
+  `;
+  const candidates = collectInlineSvgCandidates(html, "https://example.com", {});
+  assert.equal(candidates.length, 1);
+  // Base 225 (180 + 45) + wordmark 40 - sprite penalty 120 = 145
+  assert.ok(candidates[0].score < 200, `expected score < 200, got ${candidates[0].score}`);
+});
