@@ -3,7 +3,7 @@ import { toast as sonnerToast } from 'sonner';
 
 type ToastId = string | number;
 
-type ToastVariant = 'default' | 'success' | 'error' | 'warning' | 'info' | 'loading';
+type ToastVariant = 'default' | 'success' | 'error' | 'warning' | 'info' | 'loading' | 'branded';
 
 type ToastUpdateOptions = {
   id?: ToastId;
@@ -147,9 +147,18 @@ function getVariantClasses(variant: ToastVariant) {
       return 'border-sky-500/30';
     case 'loading':
       return 'border-muted';
+    case 'branded':
+      return 'border-[#B1DDE3]';
     default:
       return 'border-border';
   }
+}
+
+function getVariantStyle(variant: ToastVariant): React.CSSProperties | undefined {
+  if (variant === 'branded') {
+    return { backgroundColor: '#B1DDE3', color: '#000000' };
+  }
+  return undefined;
 }
 
 function resolveVariant(input?: ToastObjectInput['variant']): ToastVariant {
@@ -175,7 +184,7 @@ function ToastContent({ id, variant, title, description }: ToastContentProps) {
   const paused = Boolean(st?.paused);
 
   return (
-    <div className={`flex w-full items-start gap-3 rounded-md border p-4 ${getVariantClasses(variant)}`}>
+    <div className={`flex w-full items-start gap-3 rounded-md border p-4 ${getVariantClasses(variant)}`} style={getVariantStyle(variant)}>
       <div className="min-w-0 flex-1">
         {title ? (
           <div className="text-sm font-medium leading-5">
@@ -292,6 +301,14 @@ baseToast.loading = (message: string | ToastObjectInput, opts?: ToastUpdateOptio
   });
 };
 
+baseToast.branded = (message: string | ToastObjectInput, opts?: ToastUpdateOptions) => {
+  const data = normalizeInput(message);
+  return show('branded', data.title, data.description, {
+    id: opts?.id,
+    duration: typeof data.duration !== 'undefined' ? data.duration : opts?.duration,
+  });
+};
+
 export const toast = baseToast as typeof baseToast & {
   dismiss: typeof dismiss;
   success: (message: string | ToastObjectInput, opts?: ToastUpdateOptions) => ToastId;
@@ -299,6 +316,7 @@ export const toast = baseToast as typeof baseToast & {
   warning: (message: string | ToastObjectInput, opts?: ToastUpdateOptions) => ToastId;
   info: (message: string | ToastObjectInput, opts?: ToastUpdateOptions) => ToastId;
   loading: (message: string | ToastObjectInput, opts?: ToastUpdateOptions) => ToastId;
+  branded: (message: string | ToastObjectInput, opts?: ToastUpdateOptions) => ToastId;
 };
 
 export function useGlobalToast() {

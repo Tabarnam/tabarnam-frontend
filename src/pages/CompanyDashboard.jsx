@@ -2377,16 +2377,12 @@ export default function CompanyDashboard() {
         : "";
 
       if (closeAfter) {
-        toast(reviewDetail ? `${label} — ${reviewDetail}` : label, {
-          style: { backgroundColor: "#B1DDE3", color: "#000000" },
-        });
+        toast.branded(reviewDetail ? `${label} — ${reviewDetail}` : label);
         closeEditor();
       } else {
         // Inline save (green sticky button) — stay open, show branded toast
         const msg = reviewDetail ? `${label} — ${reviewDetail}` : label;
-        toast(msg, {
-          style: { backgroundColor: "#B1DDE3", color: "#000000" },
-        });
+        toast.branded(msg);
         // Update the draft with the saved company so it reflects the persisted state
         const merged = buildCompanyDraft(savedCompany);
         setEditorDraft(merged);
