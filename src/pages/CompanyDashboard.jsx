@@ -2195,7 +2195,7 @@ export default function CompanyDashboard() {
     });
   }, []);
 
-  const saveEditor = useCallback(async () => {
+  const saveEditor = useCallback(async ({ closeAfter = true } = {}) => {
     if (!editorDraft) return;
 
     const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
@@ -2376,8 +2376,20 @@ export default function CompanyDashboard() {
           }`
         : "";
 
-      toast.success(reviewDetail ? `${label} — ${reviewDetail}` : label);
-      closeEditor();
+      if (closeAfter) {
+        toast.success(reviewDetail ? `${label} — ${reviewDetail}` : label);
+        closeEditor();
+      } else {
+        // Inline save (green sticky button) — stay open, show branded toast
+        const msg = reviewDetail ? `${label} — ${reviewDetail}` : label;
+        toast(msg, {
+          style: { backgroundColor: "#B1DDE3", color: "#000000" },
+        });
+        // Update the draft with the saved company so it reflects the persisted state
+        const merged = buildCompanyDraft(savedCompany);
+        setEditorDraft(merged);
+        setEditorOriginalId(savedId);
+      }
     } catch (e) {
       toast.error(e?.message || "Save failed");
     } finally {
@@ -2391,7 +2403,7 @@ export default function CompanyDashboard() {
     const handler = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
-        if (!editorSaving && editorDraft) saveEditor();
+        if (!editorSaving && editorDraft) saveEditor({ closeAfter: false });
       }
     };
     window.addEventListener("keydown", handler);
@@ -4603,17 +4615,17 @@ export default function CompanyDashboard() {
                       ) : null}
                     </div>
                   ) : null}
-                  {/* Floating Save & Close button */}
+                  {/* Floating Save button (saves without closing) */}
                   {editorDraft ? (
                     <div className="sticky bottom-4 flex justify-end pr-12 pointer-events-none" style={{ marginTop: "-3rem" }}>
                       <Button
-                        onClick={saveEditor}
+                        onClick={() => saveEditor({ closeAfter: false })}
                         disabled={editorSaving || Boolean(editorValidationError)}
                         className="pointer-events-auto shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white"
                         size="sm"
                       >
                         <Save className="h-3.5 w-3.5 mr-1.5" />
-                        {editorSaving ? "Saving…" : "Save & Close"}
+                        {editorSaving ? "Saving…" : "Save"}
                       </Button>
                     </div>
                   ) : null}
