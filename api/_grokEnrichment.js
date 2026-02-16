@@ -21,6 +21,16 @@ function isAdminRefreshBypass() {
   return _adminRefreshBypass;
 }
 
+// Promise.race-based timeout — rejects if the promise doesn't settle within `ms`.
+// Used to cap fillMissingFieldsIndividually so it never exceeds its budget.
+function raceTimeout(promise, ms, label = "operation") {
+  let tid;
+  const tp = new Promise((_, reject) => {
+    tid = setTimeout(() => reject(new Error(`${label} exceeded ${ms}ms`)), Math.max(1000, ms));
+  });
+  return Promise.race([promise, tp]).finally(() => clearTimeout(tid));
+}
+
 const DEFAULT_REVIEW_EXCLUDE_DOMAINS = [
   "amazon.",
   "amzn.to",
@@ -729,6 +739,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
+    maxAttempts: 1,   // No retry — review timeout is already generous (150-240s); retrying doubles it
     maxTokens: 4000,  // Increased — browse_page responses include page content in tool chain
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
@@ -2317,7 +2328,18 @@ async function fillMissingFieldsIndividually(missingFields, {
 
   if (promises.length === 0) return { filled, field_statuses };
 
-  const results = await Promise.allSettled(promises);
+  // Wrap allSettled with a hard timeout so it never exceeds the budget.
+  // xaiLiveSearchWithRetry can retry (2 attempts × full timeout), causing
+  // allSettled to wait far longer than budgetMs. This cap ensures we return
+  // partial results instead of hanging.
+  const results = await raceTimeout(
+    Promise.allSettled(promises),
+    budgetMs + 5000,
+    "fillMissingFieldsIndividually"
+  ).catch((e) => {
+    console.warn(`[fillMissingFieldsIndividually] ${e.message} — returning partial results`);
+    return promises.map(() => ({ status: "rejected", reason: e }));
+  });
 
   for (let i = 0; i < results.length; i++) {
     const field = fieldNames[i];
@@ -2444,10 +2466,28 @@ async function enrichCompanyFields({
       .map((f) => LONG_TO_SHORT[f] || f)
       .filter(Boolean);
 
-    const { filled, field_statuses } = await fillMissingFieldsIndividually(
-      targetShortNames,
-      { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
-    );
+    // Run each field as its own fillMissing call so we can save after each resolves.
+    // This enables incremental recovery: if keywords finish at ~90s, save immediately;
+    // if reviews finish at ~150s, save again with both. SWA drops at ~45s, so the
+    // recovery path returns whatever was last saved when the user retries.
+    const filled = {};
+    const field_statuses = {};
+
+    const wrappedPromises = targetShortNames.map(async (shortName) => {
+      const result = await fillMissingFieldsIndividually(
+        [shortName],
+        { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
+      );
+      Object.assign(filled, result.filled);
+      Object.assign(field_statuses, result.field_statuses);
+      // Save incrementally so recovery path (_pending_refresh_proposal) has partial results
+      if (typeof onIntermediateSave === 'function' && Object.keys(filled).length > 0) {
+        try { await onIntermediateSave(filled); } catch { /* best effort */ }
+      }
+      return result;
+    });
+
+    await Promise.allSettled(wrappedPromises);
 
     return {
       ok: true,
