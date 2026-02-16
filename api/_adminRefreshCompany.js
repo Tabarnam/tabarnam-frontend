@@ -964,11 +964,22 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         // Save Phase 1+2 results early so the recovery path (_pending_refresh_proposal)
         // can return them if SWA drops the connection during Phase 3 (~45s gateway timeout).
         onIntermediateSave: async (intermediateFields) => {
-          const fieldNames = Object.keys(intermediateFields || {});
+          // Map raw enrichment names → frontend-expected names so recovery
+          // paths return field keys the diff engine recognises.
+          const mapped = { ...intermediateFields };
+          if (mapped.product_keywords && !mapped.keywords) {
+            mapped.keywords = mapped.product_keywords;
+            delete mapped.product_keywords;
+          }
+          if (mapped.reviews && !mapped.curated_reviews) {
+            mapped.curated_reviews = mapped.reviews;
+            delete mapped.reviews;
+          }
+          const fieldNames = Object.keys(mapped);
           console.log(`[onIntermediateSave] Saving ${fieldNames.length} field(s): [${fieldNames.join(", ")}]`);
           try {
             await patchCompanyById(container, companyId, existing, {
-              _pending_refresh_proposal: intermediateFields,
+              _pending_refresh_proposal: mapped,
               _pending_refresh_at: new Date().toISOString(),
             });
             console.log(`[onIntermediateSave] Cosmos patch OK for [${fieldNames.join(", ")}]`);
