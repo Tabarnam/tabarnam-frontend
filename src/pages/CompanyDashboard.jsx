@@ -2377,7 +2377,9 @@ export default function CompanyDashboard() {
         : "";
 
       if (closeAfter) {
-        toast.success(reviewDetail ? `${label} — ${reviewDetail}` : label);
+        toast(reviewDetail ? `${label} — ${reviewDetail}` : label, {
+          style: { backgroundColor: "#B1DDE3", color: "#000000" },
+        });
         closeEditor();
       } else {
         // Inline save (green sticky button) — stay open, show branded toast
