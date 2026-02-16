@@ -827,12 +827,17 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   }
 
   if (!rawCandidates) {
-    logResult("invalid_response", "no_parseable_reviews");
+    // Distinguish "xAI searched but found nothing" from "response was unparseable garbage"
+    const noResultsPattern = /no\s+(verified|third[- ]party)?\s*reviews?\s+(were\s+)?found|could\s+not\s+find|unable\s+to\s+find|no\s+results/i;
+    const isEmptySearch = rawText && rawText.length > 10 && noResultsPattern.test(rawText);
+    const status = isEmptySearch ? "empty" : "invalid_response";
+    const reason = isEmptySearch ? "xai_found_no_reviews" : "no_parseable_reviews";
+    logResult(status, reason);
     return {
       curated_reviews: [],
-      reviews_stage_status: "invalid_response",
+      reviews_stage_status: status,
       diagnostics: {
-        reason: "no_parseable_reviews",
+        reason,
         raw_preview: rawText ? rawText.slice(0, 1200) : null,
       },
       search_telemetry: searchBuild.telemetry,
