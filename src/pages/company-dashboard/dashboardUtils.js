@@ -461,6 +461,17 @@ export function getContractMissingFields(company) {
     fields.push("amazon_url");
   }
 
+  // Check for missing reviews (unless marked as "no_reviews")
+  const noReviews = Boolean(company?.no_reviews);
+  if (noReviews) {
+    // Remove "reviews" / "curated_reviews" from the list if admin marked no reviews available
+    const reviewFields = new Set(["reviews", "curated_reviews"]);
+    return fields.filter((f) => !reviewFields.has(f));
+  }
+  if (getComputedReviewCount(company) === 0 && !fields.some((f) => f === "reviews" || f === "curated_reviews")) {
+    fields.push("reviews");
+  }
+
   return fields;
 }
 
