@@ -542,7 +542,7 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-4 sm:p-6 bg-card cursor-pointer relative"
+        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-pointer relative"
       >
         {/* Collapse chevron + share button row */}
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
@@ -557,8 +557,8 @@ export default function ExpandableCompanyRow({
             <ChevronUp className="h-5 w-5" />
           </button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6 pb-6 border-b">
-          <div className="sm:col-span-2 lg:col-span-2">
+        <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 mb-6 pb-6 border-b">
+          <div className="col-span-4 lg:col-span-1">
             <h2 className="font-bold text-lg text-foreground">
               {websiteUrl ? (
                 <CompanyNameWithUrlTooltip
@@ -627,20 +627,20 @@ export default function ExpandableCompanyRow({
             </div>
           </div>
 
-          <div>
+          <div className="col-span-2 lg:col-span-1">
             {shouldShowLogo ? (
               <img
                 src={logoUrl}
                 alt={displayName}
-                className="w-full h-40 object-contain mb-3"
+                className="w-full max-h-40 h-auto object-contain"
                 onError={() => setLogoFailed(true)}
               />
             ) : (
-              <div className="w-full h-40 mb-3 bg-muted rounded flex items-center justify-center text-foreground font-bold text-2xl">
+              <div className="w-full h-32 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
                 {logoStatus === "not_found_on_site" ? (
-                  <span className="text-sm font-semibold text-muted-foreground">No logo found on company website</span>
+                  <span className="text-xs font-semibold text-muted-foreground">No logo found on company website</span>
                 ) : logoStatus === "not_found" ? (
-                  <span className="text-sm font-semibold text-muted-foreground">No logo found</span>
+                  <span className="text-xs font-semibold text-muted-foreground">No logo found</span>
                 ) : (
                   displayName
                     .split(" ")
@@ -654,7 +654,7 @@ export default function ExpandableCompanyRow({
           </div>
 
           {rightColsOrder.map((colKey) => (
-            <div key={colKey}>
+            <div key={colKey} className="col-span-2 lg:col-span-1">
               <div className="text-sm font-semibold text-foreground mb-2">
                 {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "Home/HQ" : "QQ"}
               </div>
@@ -663,7 +663,7 @@ export default function ExpandableCompanyRow({
           ))}
         </div>
 
-        <div className="mt-2 keywordsRow">
+        <div className="mt-2 px-2 sm:px-4 keywordsRow">
           <div className="text-sm font-semibold text-foreground">Keywords</div>
           <div className="mt-2 text-sm text-muted-foreground">
             {sortedKeywords.length > 0 ? (
@@ -690,7 +690,7 @@ export default function ExpandableCompanyRow({
           </div>
         </div>
 
-        <div className="mt-6 space-y-4 reviews-widget">
+        <div className="mt-6 px-2 sm:px-4 space-y-4 reviews-widget">
           {Array.isArray(company?.notes_entries) && company.notes_entries.some((n) => n?.is_public) && (
             <div className="rounded-lg border border-border bg-muted/50 p-4">
               <div className="text-sm font-semibold text-foreground mb-2">Notes from Tabarnam</div>
