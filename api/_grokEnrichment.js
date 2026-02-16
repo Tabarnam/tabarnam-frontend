@@ -2487,8 +2487,15 @@ async function enrichCompanyFields({
       return result;
     });
 
-    await Promise.allSettled(wrappedPromises);
+    await raceTimeout(
+      Promise.allSettled(wrappedPromises),
+      getRemainingMs() + 10000,
+      "targeted_refresh_allSettled"
+    ).catch((e) => {
+      console.warn(`[enrichCompanyFields] ${e.message} — returning partial targeted results`);
+    });
 
+    console.log(`[enrichCompanyFields] Targeted refresh done: filled=[${Object.keys(filled).join(", ")}], statuses=${JSON.stringify(field_statuses)}, elapsed=${Date.now() - started}ms`);
     return {
       ok: true,
       method: "targeted_direct",

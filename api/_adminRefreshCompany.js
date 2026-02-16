@@ -924,12 +924,17 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         // Save Phase 1+2 results early so the recovery path (_pending_refresh_proposal)
         // can return them if SWA drops the connection during Phase 3 (~45s gateway timeout).
         onIntermediateSave: async (intermediateFields) => {
+          const fieldNames = Object.keys(intermediateFields || {});
+          console.log(`[onIntermediateSave] Saving ${fieldNames.length} field(s): [${fieldNames.join(", ")}]`);
           try {
             await patchCompanyById(container, companyId, existing, {
               _pending_refresh_proposal: intermediateFields,
               _pending_refresh_at: new Date().toISOString(),
             });
-          } catch { /* best effort — don't block enrichment */ }
+            console.log(`[onIntermediateSave] Cosmos patch OK for [${fieldNames.join(", ")}]`);
+          } catch (e) {
+            console.warn(`[onIntermediateSave] Cosmos patch failed: ${e?.message}`);
+          }
         },
       });
 
