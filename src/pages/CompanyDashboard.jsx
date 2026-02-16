@@ -4457,6 +4457,19 @@ export default function CompanyDashboard() {
                           />
                           </CollapsibleSection>
 
+                          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-2 ml-1">
+                            <Checkbox
+                              checked={Boolean(editorDraft.no_reviews)}
+                              onCheckedChange={(v) =>
+                                setEditorDraft((d) => ({
+                                  ...(d || {}),
+                                  no_reviews: Boolean(v),
+                                }))
+                              }
+                            />
+                            <span>No Reviews Available</span>
+                          </label>
+
                           <CollapsibleSection
                             title="Admin Notes"
                             isOpen={sidebarSections.notes}

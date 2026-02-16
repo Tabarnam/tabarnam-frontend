@@ -436,7 +436,7 @@ export function toLegacyIssueTags(company) {
   const keywords = normalizeStringList(company?.keywords || company?.product_keywords);
   if (keywords.length === 0) issues.push("missing keywords");
 
-  if (getComputedReviewCount(company) === 0) issues.push("reviews");
+  if (getComputedReviewCount(company) === 0 && !company?.no_reviews) issues.push("reviews");
 
   return issues;
 }

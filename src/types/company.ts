@@ -128,6 +128,7 @@ export interface Company {
   amazon_store_url?: string;
   amazon_url?: string;
   no_amazon_store?: boolean;
+  no_reviews?: boolean;
   tagline?: string;
   logo_url?: string;
   notes_entries?: CompanyNote[];
