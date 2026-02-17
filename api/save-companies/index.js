@@ -579,10 +579,20 @@ async function saveCompaniesHandler(req, context) {
 
           if (company?.headquarters_location && String(company.headquarters_location).trim()) {
             const primaryAddr = String(company.headquarters_location).trim();
+            const primaryLower = primaryAddr.toLowerCase();
             const alreadyHasPrimary = headquarters_locations.some((hq) => {
               if (!hq) return false;
-              if (typeof hq === "string") return hq.trim() === primaryAddr;
-              return typeof hq.address === "string" && hq.address.trim() === primaryAddr;
+              if (typeof hq === "string") return hq.trim().toLowerCase() === primaryLower;
+              const existing = String(
+                hq.address || hq.formatted || hq.full_address || hq.location || ""
+              ).trim().toLowerCase();
+              if (existing === primaryLower) return true;
+              const city = String(hq.city || "").trim().toLowerCase();
+              const country = String(hq.country || "").trim().toLowerCase();
+              if (city && city === primaryLower) return true;
+              if (country && country === primaryLower) return true;
+              if (city && country && `${city}, ${country}` === primaryLower) return true;
+              return false;
             });
 
             if (!alreadyHasPrimary) {
