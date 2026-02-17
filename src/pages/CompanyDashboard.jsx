@@ -275,6 +275,20 @@ function LocationSourcesEditor({ value, onChange }) {
 function StringListEditor({ label, value, onChange, placeholder = "" }) {
   const list = normalizeStringList(value);
   const [draft, setDraft] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
+  const confirmTimerRef = useRef(null);
+
+  const handleClearAll = useCallback(() => {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = setTimeout(() => setConfirmClear(false), 3000);
+      return;
+    }
+    clearTimeout(confirmTimerRef.current);
+    setConfirmClear(false);
+    onChange([]);
+  }, [confirmClear, onChange]);
 
   const add = useCallback(() => {
     const parts = asString(draft)
@@ -330,6 +344,20 @@ function StringListEditor({ label, value, onChange, placeholder = "" }) {
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm text-slate-700 dark:text-muted-foreground font-medium">{label}</div>
+        {list.length > 0 && (
+          <button
+            type="button"
+            className={`text-xs font-medium px-2 py-0.5 rounded transition-colors ${
+              confirmClear
+                ? "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30"
+                : "text-slate-500 dark:text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
+            }`}
+            onClick={handleClearAll}
+            onBlur={() => { clearTimeout(confirmTimerRef.current); setConfirmClear(false); }}
+          >
+            {confirmClear ? "Confirm?" : "Clear All"}
+          </button>
+        )}
       </div>
 
       <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card">
