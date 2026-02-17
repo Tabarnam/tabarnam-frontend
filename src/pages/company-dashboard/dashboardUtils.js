@@ -210,14 +210,18 @@ export function normalizeStructuredLocationEntry(value) {
 }
 
 export function normalizeStructuredLocationList(value) {
-  if (Array.isArray(value)) {
-    return value
-      .map((v) => normalizeStructuredLocationEntry(v))
-      .filter(Boolean);
-  }
+  const entries = Array.isArray(value)
+    ? value.map((v) => normalizeStructuredLocationEntry(v)).filter(Boolean)
+    : (() => { const s = normalizeStructuredLocationEntry(value); return s ? [s] : []; })();
 
-  const single = normalizeStructuredLocationEntry(value);
-  return single ? [single] : [];
+  // Deduplicate by formatted display string (case-insensitive)
+  const seen = new Set();
+  return entries.filter((entry) => {
+    const key = formatStructuredLocation(entry).toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function formatStructuredLocation(loc) {
