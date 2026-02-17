@@ -4290,11 +4290,6 @@ export default function CompanyDashboard() {
 
                           <CollapsibleSection title="Locations" isOpen={leftSections.locations} onToggle={() => toggleLeftSection("locations")}>
                           <div className="space-y-5 px-1 pt-1">
-                          <LocationSourcesEditor
-                            value={editorDraft.location_sources}
-                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), location_sources: next }))}
-                          />
-
                           <StructuredLocationListEditor
                             label="HQ locations"
                             value={editorDraft.headquarters_locations}
@@ -4360,19 +4355,6 @@ export default function CompanyDashboard() {
                           <CollapsibleSection title="Visibility" isOpen={sidebarSections.visibility} onToggle={() => toggleSidebarSection("visibility")}>
                           <div className="space-y-3 rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-4">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-foreground">
-                                <Checkbox
-                                  checked={Boolean(editorDraft.show_location_sources_to_users)}
-                                  onCheckedChange={(v) =>
-                                    setEditorDraft((d) => ({
-                                      ...(d || {}),
-                                      show_location_sources_to_users: Boolean(v),
-                                    }))
-                                  }
-                                />
-                                <span>Show location sources to users</span>
-                              </label>
-
                               <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-foreground">
                                 <Checkbox
                                   checked={Boolean(editorDraft.visibility?.hq_public)}
