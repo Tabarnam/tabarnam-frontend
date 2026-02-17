@@ -485,6 +485,12 @@ export default function ExpandableCompanyRow({
                       )}
                     </div>
                   ))}
+                  {(() => {
+                    const total = (Array.isArray(company._reviews) ? company._reviews.length : 0) || (typeof company.reviews_count === "number" ? company.reviews_count : 0);
+                    return total > 2 ? (
+                      <div className="text-xs text-muted-foreground">+{total - 2} more</div>
+                    ) : null;
+                  })()}
                 </div>
               ) : typeof company.reviews_count === "number" && company.reviews_count > 0 ? (
                 <div className="text-xs text-muted-foreground">
@@ -866,29 +872,36 @@ export default function ExpandableCompanyRow({
       ))}
 
       {/* Keywords Row - spans full width, 2 lines max */}
-      <div className="col-span-6 lg:col-span-5 mt-2 border-t pt-2">
-        <div className="text-xs font-semibold text-muted-foreground mb-1">Keywords</div>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 overflow-hidden max-h-10 relative">
-          {(Array.isArray(company.keywords) && company.keywords.length > 0
-            ? company.keywords
-            : String(company.product_keywords || "").split(",").map((kw) => kw.trim()).filter(Boolean)
-          ).map((kw, idx) => (
-            <button
-              key={idx}
-              onClick={(e) => {
-                e.stopPropagation();
-                onKeywordSearch(kw);
-              }}
-              className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
-            >
-              {kw}
-            </button>
-          ))}
-          {((Array.isArray(company.keywords) ? company.keywords.length : String(company.product_keywords || "").split(",").filter(Boolean).length) > 12) && (
-            <span className="text-xs text-muted-foreground ml-1">...</span>
-          )}
-        </div>
-      </div>
+      {(() => {
+        const allKw = Array.isArray(company.keywords) && company.keywords.length > 0
+          ? company.keywords
+          : String(company.product_keywords || "").split(",").map((kw) => kw.trim()).filter(Boolean);
+        const maxVisible = 12;
+        const visible = allKw.slice(0, maxVisible);
+        const hiddenCount = allKw.length - visible.length;
+        return (
+          <div className="col-span-6 lg:col-span-5 mt-2 border-t pt-2">
+            <div className="text-xs font-semibold text-muted-foreground mb-1">Keywords</div>
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+              {visible.map((kw, idx) => (
+                <button
+                  key={idx}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onKeywordSearch(kw);
+                  }}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+                >
+                  {kw}
+                </button>
+              ))}
+              {hiddenCount > 0 && (
+                <span className="text-xs text-muted-foreground">+{hiddenCount} more</span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Location Sources Section */}
       {company.show_location_sources_to_users && Array.isArray(company.location_sources) && company.location_sources.length > 0 && (
