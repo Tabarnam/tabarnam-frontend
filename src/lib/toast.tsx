@@ -198,8 +198,10 @@ function ToastContent({ id, variant, title, description }: ToastContentProps) {
       <div className="flex shrink-0 items-center gap-2">
         <button
           type="button"
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-sm leading-none transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring ${
-            paused ? 'bg-muted' : 'bg-background'
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-sm leading-none transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
+            variant === 'branded'
+              ? `border-black/20 text-black ${paused ? 'bg-black/20' : 'bg-white/40'} hover:bg-white/60`
+              : `hover:bg-muted ${paused ? 'bg-muted' : 'bg-background'}`
           }`}
           aria-label={paused ? 'Resume auto-dismiss' : 'Pause auto-dismiss'}
           onClick={() => {
@@ -212,7 +214,11 @@ function ToastContent({ id, variant, title, description }: ToastContentProps) {
 
         <button
           type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border bg-background text-sm leading-none transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-sm leading-none transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
+            variant === 'branded'
+              ? 'border-black/20 text-black bg-white/40 hover:bg-white/60'
+              : 'bg-background hover:bg-muted'
+          }`}
           aria-label="Dismiss notification"
           onClick={() => dismiss(id)}
         >
