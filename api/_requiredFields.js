@@ -476,6 +476,10 @@ function looksLikeHqLocationString(value) {
   const words = s.split(/\s+/).filter(Boolean);
   if (words.length >= 2 && s.length <= 80) return true;
 
+  // Accept single-word location names (e.g. "Singapore", "Tokyo", "London")
+  // as long as they are at least 2 characters.
+  if (words.length === 1 && s.length >= 2) return true;
+
   return false;
 }
 
