@@ -2306,6 +2306,8 @@ async function resumeWorkerHandler(req, context) {
                   country: r?.headquarters_country || "",
                   country_code: r?.headquarters_country_code || "",
                 }];
+                // Keep headquarters in sync with headquarters_locations (matches _directEnrichment.js pattern)
+                doc.headquarters = doc.headquarters_locations;
               }
 
               // Geocode the HQ location to get lat/lng for distance calculations

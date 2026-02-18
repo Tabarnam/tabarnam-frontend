@@ -151,7 +151,8 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
   merged.hq_unknown_reason = mergedHqHasValue ? "" : preferString(incomingDoc.hq_unknown_reason, existingDoc.hq_unknown_reason);
 
   merged.headquarters_locations = preferArray(incomingDoc.headquarters_locations, existingDoc.headquarters_locations);
-  merged.headquarters = preferArray(incomingDoc.headquarters, existingDoc.headquarters);
+  // Enforce headquarters_locations as single source of truth — prevents independent drift
+  merged.headquarters = merged.headquarters_locations;
 
   merged.hq_lat = preferFinite(incomingDoc.hq_lat, existingDoc.hq_lat);
   merged.hq_lng = preferFinite(incomingDoc.hq_lng, existingDoc.hq_lng);

@@ -333,6 +333,24 @@ function hasAnyLatLng(list) {
   return list.some((loc) => Boolean(extractLatLng(loc)));
 }
 
+/**
+ * Normalize a country token for dedup comparison.
+ * Maps ISO-2 codes, common abbreviations, and full names to a canonical form.
+ * E.g., "US" | "USA" | "United States" → "US"
+ */
+function normalizeCountryToken(val) {
+  if (!val || typeof val !== "string") return "";
+  const s = val.trim().toUpperCase();
+  const ALIASES = {
+    "USA": "US", "UNITED STATES": "US", "UNITED STATES OF AMERICA": "US",
+    "U.S.A.": "US", "U.S.A": "US", "U.S.": "US", "U.S": "US",
+    "UK": "GB", "UNITED KINGDOM": "GB",
+    "SOUTH KOREA": "KR", "REPUBLIC OF KOREA": "KR",
+    "CZECHIA": "CZ", "CZECH REPUBLIC": "CZ",
+  };
+  return ALIASES[s] || s;
+}
+
 function buildHeadquartersSeedFromDoc(doc) {
   const base = doc && typeof doc === "object" ? doc : {};
 
@@ -348,25 +366,47 @@ function buildHeadquartersSeedFromDoc(doc) {
   const primaryRaw = typeof base.headquarters_location === "string" ? base.headquarters_location.trim() : "";
   if (!primaryRaw) return list;
 
+  const primaryNorm = primaryRaw.toLowerCase();
+
+  // Generate a country-normalized variant of the primary string
+  // e.g. "Culver City, CA, USA" → also try "Culver City, CA, US"
+  const primaryParts = primaryRaw.split(",").map((p) => p.trim());
+  const primaryCountryNorm = primaryParts.length >= 2
+    ? (() => {
+        const last = primaryParts[primaryParts.length - 1];
+        const norm = normalizeCountryToken(last);
+        return norm !== last.trim().toUpperCase()
+          ? [...primaryParts.slice(0, -1), norm].join(", ").toLowerCase()
+          : "";
+      })()
+    : "";
+  const primaryVariants = [primaryNorm, primaryCountryNorm].filter(Boolean);
+
   const already = list.some((h) => {
     if (!h) return false;
-    if (typeof h === "string") return h.trim() === primaryRaw;
+    if (typeof h === "string") return primaryVariants.includes(h.trim().toLowerCase());
     if (typeof h !== "object") return false;
-    const candidates = [h.address, h.full_address, h.formatted, h.location].map((v) => (typeof v === "string" ? v.trim() : ""));
 
-    // Also check composite location format (city, region, country)
+    // Direct string field candidates
+    const candidates = [h.address, h.full_address, h.formatted, h.location]
+      .map((v) => (typeof v === "string" ? v.trim().toLowerCase() : ""))
+      .filter(Boolean);
+
+    // Composite candidates from city/region/country with all country form variants
     const city = typeof h.city === "string" ? h.city.trim() : "";
     const region = typeof (h.region || h.state) === "string" ? String(h.region || h.state).trim() : "";
     const country = typeof h.country === "string" ? h.country.trim() : "";
+    const countryCode = typeof h.country_code === "string" ? h.country_code.trim() : "";
 
-    if (city && region && country) {
-      candidates.push(`${city}, ${region}, ${country}`);
-    }
-    if (city && country) {
-      candidates.push(`${city}, ${country}`);
+    const countryVariants = new Set(
+      [country, countryCode, normalizeCountryToken(country), normalizeCountryToken(countryCode)].filter(Boolean)
+    );
+    for (const ct of countryVariants) {
+      if (city && region) candidates.push(`${city}, ${region}, ${ct}`.toLowerCase());
+      if (city) candidates.push(`${city}, ${ct}`.toLowerCase());
     }
 
-    return candidates.some((c) => c === primaryRaw);
+    return candidates.some((c) => primaryVariants.includes(c));
   });
 
   if (already) return list;
