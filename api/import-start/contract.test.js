@@ -343,7 +343,7 @@ test("grokEnrichment.fetchHeadquartersLocation returns HQ + source_urls", async 
     });
 
     assert.equal(out.hq_status, "ok");
-    assert.equal(out.headquarters_location, "Austin, TX, United States");
+    assert.equal(out.headquarters_location, "Austin, TX, USA");
     assert.deepEqual(out.source_urls, ["https://example.com/source1", "https://example.com/source2"]);
   });
 });
