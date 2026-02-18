@@ -3661,7 +3661,7 @@ async function resumeWorkerHandler(req, context) {
         const priorUrls4 = Array.isArray(doc.review_cursor.attempted_urls) ? doc.review_cursor.attempted_urls : [];
         doc.review_cursor.attempted_urls = [...new Set([...priorUrls4, ...newAttempted4])];
 
-        if (inferredStatus === "upstream_unreachable" || inferredStatus === "upstream_timeout") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("reviews", "grok_reviews", r?.diagnostics || r, {
             upstream_preview: safeJsonPreview(r?.diagnostics || r),
           });
@@ -3669,7 +3669,7 @@ async function resumeWorkerHandler(req, context) {
           markFieldError(doc, "reviews", entry);
 
           doc.review_cursor.last_error = {
-            code: inferredStatus,
+            code: status,
             message: entry.message,
             at: entry.at,
             request_id: requestId || null,
@@ -3681,12 +3681,12 @@ async function resumeWorkerHandler(req, context) {
 
           addImportWarning(doc, {
             field: "reviews",
-            missing_reason: inferredStatus,
+            missing_reason: status,
             stage: "grok_reviews",
             retryable: !terminal,
             message:
-              inferredStatus === "upstream_timeout" ? "Grok reviews request timed out" : "Grok reviews fetch failed",
-            error_code: inferredStatus,
+              status === "upstream_timeout" ? "Grok reviews request timed out" : "Grok reviews fetch failed",
+            error_code: status,
             elapsed_ms: entry.elapsed_ms ?? null,
             timeout_ms: entry.timeout_ms ?? null,
             aborted_by_us: entry.aborted_by_us ?? null,
@@ -3694,7 +3694,7 @@ async function resumeWorkerHandler(req, context) {
             at: nowIso(),
           });
           markEnrichmentIncomplete(doc, {
-            reason: inferredStatus === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
+            reason: status === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
             field: "reviews",
           });
         } else {

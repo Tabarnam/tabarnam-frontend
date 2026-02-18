@@ -512,8 +512,13 @@ async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 12_000
     const isTrustedBlog = TRUSTED_BLOG_DOMAINS.some((d) => attempted.toLowerCase().includes(d));
     const soft404 =
       !isTrustedBlog &&
-      ((title && /\b(404|not found|page not found)\b/i.test(title)) ||
-        /\b(404|page not found|sorry, we can\s*'t find)\b/i.test(head));
+      ((title &&
+        /\b(404|not found|page not found|invalid|no longer available|doesn'?t exist|has been removed)\b/i.test(
+          title
+        )) ||
+        /\b(404|page not found|sorry,?\s+we\s+can'?t\s+find|brand.{0,20}invalid|content\s+(is\s+)?(not|un)\s*available|no longer available|doesn'?t exist|this\s+(page|article|content)\s+(has\s+been|was)\s+(removed|deleted)|requested\s+(page|resource|item).{0,15}(not|invalid))\b/i.test(
+          head
+        ));
 
     if (soft404) return { ok: false, url: attempted, status, reason: "soft_404" };
 

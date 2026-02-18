@@ -99,6 +99,14 @@ export default function StatusAlerts({
               {activeRun.progress_notice}
             </div>
           ) : null}
+          <button
+            type="button"
+            onClick={replayNotification}
+            className="shrink-0 rounded-md p-1.5 text-blue-600 hover:bg-blue-100 transition-colors"
+            title="Replay notification sound"
+          >
+            <Volume2 className="h-4 w-4" />
+          </button>
         </div>
       ) : null}
 

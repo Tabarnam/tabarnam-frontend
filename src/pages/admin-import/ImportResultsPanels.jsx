@@ -214,6 +214,27 @@ export default function ImportResultsPanels({
                             reviews_stage_status: {stageStatus}
                           </span>
                         ) : null}
+                        {(() => {
+                          const isExhausted = Boolean(
+                            c?.review_cursor?.exhausted === true ||
+                            c?.import_missing_reason?.reviews === "exhausted"
+                          );
+                          if (isExhausted && reviewCount === 0) {
+                            return (
+                              <span className="text-[11px] text-slate-500 dark:text-muted-foreground italic">
+                                No third-party reviews could be found for this company.
+                              </span>
+                            );
+                          }
+                          if (isExhausted && reviewCount > 0 && reviewCount < 3) {
+                            return (
+                              <span className="text-[11px] text-slate-500 dark:text-muted-foreground italic">
+                                Only {reviewCount} review{reviewCount === 1 ? "" : "s"} found (target: 3–5).
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
                         {companyId ? (
                           <a
                             className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-0.5 text-slate-700 dark:text-muted-foreground hover:bg-slate-50 dark:bg-muted dark:hover:bg-accent"

@@ -134,8 +134,19 @@ const FIELD_GUIDANCE = {
           ? excludeDomains.join(", ")
           : "";
       const companyRef = websiteUrl ? `${companyName} (${websiteUrl})` : companyName;
-      return `Search the web for third-party reviews of ${companyRef}.
-For each candidate URL from search results, visit the page to confirm it loads and contains a real review of ${companyName}.
+      return `Find 3-5 unique, legitimate third-party reviews of ${companyRef} using multiple search strategies.
+
+SEARCH STRATEGY — run at least 2-3 separate searches to build a broad candidate pool:
+1. Video reviews: search "${companyName} review site:youtube.com" — look for taste tests, product reviews, or comparison videos
+2. Blog/magazine reviews: search "${companyName} review" — look for articles on food blogs, lifestyle magazines, or review sites (tastingtable.com, thedailymeal.com, etc.)
+3. If those yield fewer than 3 total results, try broader queries: "${companyName} honest review", "${companyName} taste test", "${companyName} ranking", or "${companyName} vs" (comparison reviews)
+
+VERIFICATION — for each candidate URL, visit the page and confirm:
+- The page loads successfully without errors (no "page not found", "brand not found", "invalid", or error messages)
+- The page contains an actual review, taste test, or substantive opinion about ${companyName} — not just a product listing, brand directory entry, or passing mention
+- The reviewer is not affiliated with ${companyName}
+
+REJECT any page that shows an error message, brand-not-found notice, paywall, empty brand page, or generic product listing without review content.
 
 For each verified review, extract:
 - Source (publication or channel name)
@@ -145,13 +156,10 @@ For each verified review, extract:
 - Date (publication date, any format)
 - Text (1-3 sentence excerpt or summary of the review)
 
-Rules:
-- Only return reviews where you visited the URL and confirmed it contains a review
-- Skip any URL that fails to load, is paywalled, or doesn't contain a review of ${companyName}
-- Reviews must be about ${companyName} or its products (not just mentioning the company in passing)
-- Prefer a mix of sources: YouTube videos, magazine articles, blog posts, news articles
-- Do not return any URL from: ${excludeStr}
-- Return up to 5 verified reviews. If only 3 exist, return 3 — quality over quantity
+SOURCE MIX: Aim for a mix — ideally 2-3 YouTube videos from different creators plus 2-3 written articles from blogs or magazines. Do not include the same author more than once.
+${excludeStr ? `- Do not return any URL from: ${excludeStr}` : ""}
+- Return up to 5 verified reviews. Quality over quantity — 3 strong reviews beat 5 weak ones.
+- If you cannot find ANY legitimate third-party reviews after trying multiple search strategies, return an empty reviews array.
 ${attemptedExclusion}`;
     },
     // JSON shapes
