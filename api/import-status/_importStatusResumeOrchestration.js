@@ -519,249 +519,124 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
     }
   } catch {}
 
-  const workerRes = await (async () => {
-    try {
-      const invokeRes = await invokeResumeWorkerInProcess({
-        session_id: ctx.sessionId,
-        context: ctx.context,
-        workerRequest,
-        deadline_ms: INLINE_RESUME_DEADLINE_MS,
-      });
-
-      ctx.resume_gateway_key_attached = Boolean(invokeRes.gateway_key_attached);
-      ctx.resume_trigger_request_id = invokeRes.request_id || workerRequest.request_id;
-
-      return {
-        ok: Boolean(invokeRes.ok),
-        status: Number(invokeRes.status || 0) || 0,
-        text: async () => String(invokeRes.bodyText || ""),
-        _error: invokeRes.error,
-      };
-    } catch (e) {
-      ctx.resume_gateway_key_attached = Boolean(workerRequest.gateway_key_attached);
-      ctx.resume_trigger_request_id = workerRequest.request_id;
-      return { ok: false, status: 0, text: async () => "", _error: e };
-    }
-  })();
-
-  let workerText = "";
+  // ── Mark resume doc as "in_progress" BEFORE firing the worker ──
+  // This prevents the next poll from re-triggering a duplicate worker
+  // ("in_progress" is NOT in the triggerable set at line 494).
   try {
-    if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
-  } catch {}
-
-  const statusCode = Number(workerRes?.status || 0) || 0;
-  const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
-
-  let workerJson = null;
-  try {
-    workerJson = workerText ? JSON.parse(workerText) : null;
-  } catch {
-    workerJson = null;
-  }
-
-  const responseOk = workerJson && typeof workerJson === "object" ? workerJson.ok : null;
-
-  const bodySessionId = workerJson && typeof workerJson === "object"
-    ? String(workerJson.session_id || workerJson.sessionId || "").trim()
-    : "";
-
-  const enteredAtFromBody = workerJson && typeof workerJson === "object"
-    ? String(
-        workerJson.handler_entered_at ||
-          workerJson.worker_entered_at ||
-          workerJson.handler_entered_at_iso ||
-          workerJson.worker_entered_at_iso ||
-          ""
-      ).trim()
-    : "";
-
-  const enteredTs = Date.parse(enteredAtFromBody) || 0;
-  const attemptTs = Date.parse(String(triggerAttemptAt || "")) || 0;
-  const enteredSameSecond = Boolean(enteredTs && attemptTs) && Math.floor(enteredTs / 1000) === Math.floor(attemptTs / 1000);
-  const enteredAfterAttempt = Boolean(enteredTs && attemptTs) && enteredTs >= attemptTs;
-  const enteredTimeOk = enteredAfterAttempt || enteredSameSecond;
-
-  const strongTriggerOk =
-    Boolean(workerRes?.ok) &&
-    responseOk !== false &&
-    Boolean(bodySessionId) &&
-    bodySessionId === ctx.sessionId &&
-    Boolean(enteredAtFromBody) &&
-    enteredTimeOk;
-
-  const triggerNoopOrNoEnter = Boolean(workerRes?.ok) && responseOk !== false && !strongTriggerOk;
-  const triggerOk = strongTriggerOk;
-
-  ctx.resume_triggered = triggerOk;
-
-  const triggerResult = {
-    ok: triggerOk,
-    invocation: "in_process",
-    http_status: statusCode,
-    triggered_at: triggerAttemptAt,
-    request_id: ctx.resume_trigger_request_id || null,
-    gateway_key_attached: Boolean(ctx.resume_gateway_key_attached),
-    response:
-      workerJson && typeof workerJson === "object"
-        ? {
-            ok: responseOk !== false,
-            stage_beacon: typeof workerJson.stage_beacon === "string" ? workerJson.stage_beacon : null,
-            resume_needed: typeof workerJson.resume_needed === "boolean" ? workerJson.resume_needed : null,
-            session_id: bodySessionId || null,
-            handler_entered_at: enteredAtFromBody || null,
-            did_work: typeof workerJson.did_work === "boolean" ? workerJson.did_work : null,
-            did_work_reason:
-              typeof workerJson.did_work_reason === "string" && workerJson.did_work_reason.trim()
-                ? workerJson.did_work_reason.trim()
-                : null,
-            error:
-              (typeof workerJson.error === "string" && workerJson.error.trim() ? workerJson.error.trim() : null) ||
-              (typeof workerJson.root_cause === "string" && workerJson.root_cause.trim() ? workerJson.root_cause.trim() : null) ||
-              null,
-            _budget_debug: workerJson?._budget_debug || null,
-          }
-        : {
-            response_text_preview: preview || null,
-          },
-  };
-
-  if (!triggerOk) {
-    const baseErr =
-      triggerNoopOrNoEnter
-        ? "resume_worker_trigger_noop_or_no_enter"
-        : (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
-            ? workerJson.error.trim()
-            : null) ||
-          (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
-            ? workerJson.root_cause.trim()
-            : null) ||
-          workerRes?._error?.message ||
-          `resume_worker_http_${statusCode}`;
-
-    ctx.resume_trigger_error = watchdog_stuck_queued ? "resume_worker_stuck_or_trigger_failed" : baseErr;
-    ctx.resume_trigger_error_details = {
-      ...triggerResult,
-      response_body: workerJson && typeof workerJson === "object" ? workerJson : null,
-      response_text_preview: preview || null,
-      watchdog: watchdog_stuck_queued
-        ? {
-            stuck_ms: resumeStuckQueuedMs,
-            last_finished_at: watchdog_last_finished_at,
-          }
-        : null,
-    };
-  }
-
-  // Always persist the trigger result so /api/import/status can be truthful even if the worker never re-enters.
-  try {
-    const sessionDocId = `_import_session_${ctx.sessionId}`;
-    const sessionDocAfter = await readControlDoc(ctx.container, sessionDocId, ctx.sessionId).catch(() => null);
-
-    const persistEnteredTs = Date.parse(String(sessionDocAfter?.resume_worker_handler_entered_at || "")) || 0;
-    const persistAttemptTs = Date.parse(String(triggerAttemptAt || "")) || Date.now();
-
-    const rejectLayer =
-      statusCode === 401
-        ? persistEnteredTs && persistEnteredTs >= persistAttemptTs - 5000
-          ? "handler"
-          : "gateway"
-        : null;
-
-    if (sessionDocAfter && typeof sessionDocAfter === "object") {
+    const resumeDocForMark = await readControlDoc(ctx.container, resumeDocId, ctx.sessionId).catch(() => null);
+    if (resumeDocForMark && typeof resumeDocForMark === "object") {
       await upsertDoc(ctx.container, {
-        ...sessionDocAfter,
-        resume_worker_last_trigger_result: triggerResult,
-        resume_worker_last_trigger_ok: triggerOk,
-        resume_worker_last_trigger_http_status: statusCode,
-        resume_worker_last_trigger_request_id: ctx.resume_trigger_request_id || null,
-        resume_worker_last_gateway_key_attached: Boolean(ctx.resume_gateway_key_attached),
-        ...(triggerOk
-          ? {}
-          : {
-              resume_error: String(ctx.resume_trigger_error || "").trim() || "resume_worker_trigger_failed",
-              resume_error_details:
-                ctx.resume_trigger_error_details && typeof ctx.resume_trigger_error_details === "object" ? ctx.resume_trigger_error_details : null,
-              resume_needed: true,
-              resume_worker_last_http_status: statusCode,
-              resume_worker_last_reject_layer: rejectLayer,
-            }),
-        updated_at: nowIso(),
+        ...resumeDocForMark,
+        status: "in_progress",
+        enrichment_started_at: triggerAttemptAt,
+        updated_at: triggerAttemptAt,
       }).catch(() => null);
-
-      // After resume-worker completes, refresh saved_company_ids from the updated session doc
-      if (triggerOk && Array.isArray(sessionDocAfter.saved_company_ids_verified) && sessionDocAfter.saved_company_ids_verified.length > 0) {
-        ctx.saved_company_ids_verified = sessionDocAfter.saved_company_ids_verified;
-        if (typeof sessionDocAfter.saved_verified_count === "number" && Number.isFinite(sessionDocAfter.saved_verified_count)) {
-          ctx.saved_verified_count = sessionDocAfter.saved_verified_count;
-        } else {
-          ctx.saved_verified_count = ctx.saved_company_ids_verified.length;
-        }
-      }
-
-      // Propagate resume_needed from the worker result so import-status response
-      // reflects the post-enrichment state instead of the stale pre-worker value.
-      if (triggerOk) {
-        const workerResumeNeeded = triggerResult?.response?.resume_needed;
-        if (typeof workerResumeNeeded === "boolean") {
-          ctx.resume_needed = workerResumeNeeded;
-          if (!workerResumeNeeded) {
-            ctx.resume_status = "complete";
-            ctx.resumeStatus = "complete";
-          }
-        } else if (sessionDocAfter && typeof sessionDocAfter.resume_needed === "boolean") {
-          ctx.resume_needed = sessionDocAfter.resume_needed;
-          if (!sessionDocAfter.resume_needed) {
-            ctx.resume_status = sessionDocAfter.status === "complete" ? "complete" : ctx.resume_status;
-            ctx.resumeStatus = sessionDocAfter.status === "complete" ? "complete" : ctx.resumeStatus;
-          }
-        }
-      }
     }
   } catch {}
 
-  if (watchdog_stuck_queued && !triggerOk) {
-    const erroredAt = nowIso();
-    ctx.resume_status = "error";
+  // ── Fire-and-forget: invoke the resume worker WITHOUT awaiting ──
+  // The worker runs in the background. import-status responds immediately with
+  // resume_needed=true, resume.status="in_progress". The next poll cycle reads
+  // the updated Cosmos docs to see if the worker completed.
+  const sessionId = ctx.sessionId;
+  const container = ctx.container;
+  const context = ctx.context;
+
+  const backgroundPromise = invokeResumeWorkerInProcess({
+    session_id: sessionId,
+    context,
+    workerRequest,
+    deadline_ms: INLINE_RESUME_DEADLINE_MS,
+  }).then(async (invokeRes) => {
+    // Background post-completion: persist trigger result to session doc.
+    // This runs AFTER the HTTP response has already been sent.
+    const bgOk = Boolean(invokeRes?.ok);
+    const bgStatus = Number(invokeRes?.status || 0) || 0;
+    const bgBodyText = String(invokeRes?.bodyText || "");
+
+    let bgJson = null;
+    try { bgJson = bgBodyText ? JSON.parse(bgBodyText) : null; } catch {}
+
+    const bgTriggerResult = {
+      ok: bgOk && bgStatus >= 200 && bgStatus < 300,
+      invocation: "in_process_background",
+      http_status: bgStatus,
+      triggered_at: triggerAttemptAt,
+      request_id: invokeRes?.request_id || workerRequest.request_id,
+      gateway_key_attached: Boolean(invokeRes?.gateway_key_attached),
+      response: bgJson && typeof bgJson === "object"
+        ? {
+            ok: bgJson.ok !== false,
+            stage_beacon: typeof bgJson.stage_beacon === "string" ? bgJson.stage_beacon : null,
+            resume_needed: typeof bgJson.resume_needed === "boolean" ? bgJson.resume_needed : null,
+            session_id: String(bgJson.session_id || bgJson.sessionId || "").trim() || null,
+            handler_entered_at: bgJson.handler_entered_at || null,
+            did_work: typeof bgJson.did_work === "boolean" ? bgJson.did_work : null,
+            did_work_reason: typeof bgJson.did_work_reason === "string" ? bgJson.did_work_reason.trim() : null,
+            error: bgJson.error || bgJson.root_cause || null,
+            _budget_debug: bgJson._budget_debug || null,
+          }
+        : { response_text_preview: bgBodyText?.slice(0, 2000) || null },
+    };
 
     try {
-      const rdoc = await readControlDoc(ctx.container, resumeDocId, ctx.sessionId).catch(() => null);
-      if (rdoc && typeof rdoc === "object") {
-        await upsertDoc(ctx.container, {
-          ...rdoc,
-          status: "error",
-          last_error: {
-            code: "resume_worker_stuck_or_trigger_failed",
-            message: "Resume worker queued but no worker activity; retrigger failed",
-            last_finished_at: watchdog_last_finished_at,
-            trigger_result: triggerResult,
-          },
-          updated_at: erroredAt,
-          lock_expires_at: null,
+      const sessionDocId = `_import_session_${sessionId}`;
+      const sessionDocAfterBg = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+      if (sessionDocAfterBg && typeof sessionDocAfterBg === "object") {
+        await upsertDoc(container, {
+          ...sessionDocAfterBg,
+          resume_worker_last_trigger_result: bgTriggerResult,
+          resume_worker_last_trigger_ok: bgTriggerResult.ok,
+          resume_worker_last_trigger_http_status: bgStatus,
+          resume_worker_last_finished_at: nowIso(),
+          updated_at: nowIso(),
         }).catch(() => null);
       }
     } catch {}
 
-    try {
-      const sessionDocId = `_import_session_${ctx.sessionId}`;
-      const sessionDocAfter2 = await readControlDoc(ctx.container, sessionDocId, ctx.sessionId).catch(() => null);
-      if (sessionDocAfter2 && typeof sessionDocAfter2 === "object") {
-        await upsertDoc(ctx.container, {
-          ...sessionDocAfter2,
-          resume_error: "resume_worker_stuck_or_trigger_failed",
-          resume_error_details: {
-            ...((ctx.resume_trigger_error_details && typeof ctx.resume_trigger_error_details === "object")
-              ? ctx.resume_trigger_error_details
-              : {}),
-            updated_at: erroredAt,
-          },
-          resume_needed: true,
-          status: "error",
-          stage_beacon: "enrichment_resume_error",
-          updated_at: erroredAt,
-        }).catch(() => null);
-      }
-    } catch {}
-  }
+    console.log(`[import-status] background resume worker completed for session=${sessionId}: ok=${bgOk} status=${bgStatus} resume_needed=${bgJson?.resume_needed}`);
+  }).catch((bgErr) => {
+    // Background error: persist error state so next poll can diagnose
+    console.error(`[import-status] background resume worker error for session=${sessionId}:`, bgErr?.message || bgErr);
+    (async () => {
+      try {
+        const sessionDocId = `_import_session_${sessionId}`;
+        const sd = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+        if (sd && typeof sd === "object") {
+          await upsertDoc(container, {
+            ...sd,
+            resume_error: "background_worker_exception",
+            resume_error_details: {
+              message: bgErr?.message || String(bgErr),
+              triggered_at: triggerAttemptAt,
+            },
+            updated_at: nowIso(),
+          }).catch(() => null);
+        }
+      } catch {}
+    })().catch(() => {});
+  });
+
+  // Prevent Node.js from crashing on unhandled rejection (belt-and-suspenders).
+  backgroundPromise.catch(() => {});
+
+  // Set context for immediate HTTP response — worker is running in background.
+  ctx.resume_triggered = true;
+  ctx.resume_gateway_key_attached = Boolean(workerRequest.gateway_key_attached);
+  ctx.resume_trigger_request_id = workerRequest.request_id;
+  ctx.resume_status = "in_progress";
+  ctx.resumeStatus = "in_progress";
+  // resume_needed stays true — the worker hasn't finished yet.
+  // The next poll will read the Cosmos session doc to see if the worker completed.
+
+  ctx.stageBeaconValues.status_resume_worker_fire_and_forget = triggerAttemptAt;
+  ctx.stageBeaconValues.status_trigger_resume_worker_ok = true;
+
+  console.log(`[import-status] session=${sessionId} resume worker fired in background (fire-and-forget)`);
+
+  // NOTE: The watchdog error escalation (for stuck_queued + trigger failure) is not needed here.
+  // In fire-and-forget mode, we optimistically assume the trigger launched. If the worker crashes,
+  // the 5-minute staleness recovery (index.js:840-877) converts "in_progress" back to "queued".
 }
 
 // ── runTerminalCycleEnforcement ──────────────────────────────────────────────

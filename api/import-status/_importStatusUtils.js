@@ -523,6 +523,7 @@ function deriveResumeStageBeacon({ resume_status, forceComplete, resume_needed, 
   if (s === "blocked") return "enrichment_resume_blocked";
   if (s === "queued") return "enrichment_resume_queued";
   if (s === "running") return "enrichment_resume_running";
+  if (s === "in_progress") return "enrichment_resume_running";
   if (s === "stalled") return "enrichment_resume_stalled";
   if (s === "error") return "enrichment_resume_error";
   if (retryableMissingCount > 0) return "enrichment_incomplete_retryable";

@@ -690,7 +690,10 @@ export default function AdminImport() {
   const POLL_MAX_ATTEMPTS = 180;
   const DEFAULT_POLL_INTERVAL_MS = 2500;
   const RESUME_POLL_RUNNING_MS = 15_000;
-  const RESUME_POLL_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000];
+  // When resume worker is actively running in background (fire-and-forget), poll more aggressively.
+  const RESUME_POLL_IN_PROGRESS_MS = [5_000, 5_000, 10_000, 10_000, 15_000, 15_000, 30_000];
+  // When resume is queued but worker not yet triggered, use slower backoff.
+  const RESUME_POLL_QUEUED_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000];
   const STATUS_POLL_TIMEOUT_MS = 180_000; // 3 min — generous for inline worker, short enough to recover from hung connections
 
   const resetPollAttempts = useCallback((session_id) => {
@@ -1111,28 +1114,44 @@ export default function AdminImport() {
           resumeNeeded &&
           (resumeStatus === "queued" ||
             resumeStatus === "running" ||
+            resumeStatus === "in_progress" ||
             stageBeaconNow === "enrichment_resume_queued" ||
             stageBeaconNow === "enrichment_resume_running" ||
             stageBeaconNow === "enrichment_incomplete_retryable");
 
         const computeNextDelayMs = () => {
-          const inResumeBackoffState =
+          // When the resume worker is actively running in background, poll more aggressively
+          // so we detect completion quickly (worker may finish at any moment).
+          const isInProgress =
+            resumeNeeded &&
+            (resumeStatus === "in_progress" ||
+              resumeStatus === "running" ||
+              stageBeaconNow === "enrichment_resume_running");
+
+          if (isInProgress) {
+            const currentIndex = pollBackoffRef.current.get(sid) || 0;
+            const idx = Math.max(0, Math.min(currentIndex, RESUME_POLL_IN_PROGRESS_MS.length - 1));
+            pollBackoffRef.current.set(sid, Math.min(idx + 1, RESUME_POLL_IN_PROGRESS_MS.length - 1));
+            pollAttemptsRef.current.set(sid, 0);
+            return RESUME_POLL_IN_PROGRESS_MS[idx];
+          }
+
+          // When resume is queued but not yet triggered, use slower backoff.
+          const isQueued =
             resumeNeeded &&
             (resumeStatus === "queued" ||
-              resumeStatus === "running" ||
               stageBeaconNow === "enrichment_resume_queued" ||
-              stageBeaconNow === "enrichment_resume_running" ||
               stageBeaconNow === "enrichment_incomplete_retryable");
 
-          if (inResumeBackoffState) {
+          if (isQueued) {
             const currentIndex = pollBackoffRef.current.get(sid) || 0;
-            const idx = Math.max(0, Math.min(currentIndex, RESUME_POLL_BACKOFF_MS.length - 1));
-            pollBackoffRef.current.set(sid, Math.min(idx + 1, RESUME_POLL_BACKOFF_MS.length - 1));
+            const idx = Math.max(0, Math.min(currentIndex, RESUME_POLL_QUEUED_BACKOFF_MS.length - 1));
+            pollBackoffRef.current.set(sid, Math.min(idx + 1, RESUME_POLL_QUEUED_BACKOFF_MS.length - 1));
 
-            // Don't let queued/running resume runs hit the tight-poll max.
+            // Don't let queued resume runs hit the tight-poll max.
             pollAttemptsRef.current.set(sid, 0);
 
-            return RESUME_POLL_BACKOFF_MS[idx];
+            return RESUME_POLL_QUEUED_BACKOFF_MS[idx];
           }
 
           pollBackoffRef.current.delete(sid);
