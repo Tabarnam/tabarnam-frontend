@@ -116,7 +116,8 @@ const generateSoundManifest = {
   },
 };
 
-// Also generate manifest during dev so the hook can fetch it from /sounds/notifications/manifest.json
+// Also generate manifest during dev so the hook can fetch it from /sounds/notifications/manifest.json.
+// Watches the folder for changes so dropping in new files instantly updates the manifest.
 const generateSoundManifestDev = {
   name: "generate-sound-manifest-dev",
   apply: "serve",
@@ -124,14 +125,32 @@ const generateSoundManifestDev = {
     const soundsDir = resolve(__dirname, "public/sounds/notifications");
     if (!fs.existsSync(soundsDir)) return;
 
-    const files = fs
-      .readdirSync(soundsDir)
-      .filter((f) => /\.(mp3|ogg|wav|m4a|webm)$/i.test(f))
-      .sort();
-
+    const audioPattern = /\.(mp3|ogg|wav|m4a|webm)$/i;
     const dest = path.join(soundsDir, "manifest.json");
-    fs.writeFileSync(dest, JSON.stringify(files, null, 2), "utf8");
-    console.log(`✓ Sound manifest (dev): ${files.length} file(s) → public/sounds/notifications/manifest.json`);
+
+    function rebuild() {
+      const files = fs
+        .readdirSync(soundsDir)
+        .filter((f) => audioPattern.test(f))
+        .sort();
+      fs.writeFileSync(dest, JSON.stringify(files, null, 2), "utf8");
+      return files.length;
+    }
+
+    const count = rebuild();
+    console.log(`✓ Sound manifest (dev): ${count} file(s) → public/sounds/notifications/manifest.json`);
+
+    // Watch for added/removed audio files and regenerate manifest automatically.
+    fs.watch(soundsDir, (_event, filename) => {
+      if (filename === "manifest.json") return;
+      if (filename && !audioPattern.test(filename)) return;
+      try {
+        const n = rebuild();
+        console.log(`✓ Sound manifest (dev): regenerated (${n} file(s))`);
+      } catch {
+        // Directory may be mid-rename; ignore transient errors.
+      }
+    });
   },
 };
 
