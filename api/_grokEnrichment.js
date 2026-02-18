@@ -456,22 +456,13 @@ const TRUSTED_BLOG_DOMAINS = [
   "popsugar.com", "who what wear", "coveteur.com", "mindbodygreen.com",
 ];
 
-async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 12_000 } = {}) {
+async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 50_000 } = {}) {
   const attempted = safeUrl(url);
   if (!attempted) return { ok: false, url: attempted, status: 0, reason: "empty_url" };
 
-  // HEAD first, but many sites block it.
-  try {
-    const headRes = await fetchWithTimeout(attempted, { method: "HEAD", timeoutMs });
-    const status = Number(headRes.status || 0) || 0;
-    if (status >= 200 && status < 300) {
-      return { ok: true, url: attempted, status };
-    }
-    // Fall through to GET.
-  } catch {
-    // ignore and fall back to GET
-  }
-
+  // Always use GET so we can read the response body for soft-404 detection.
+  // HEAD returns 200 even on error pages (e.g. bevnet.com "brand invalid"),
+  // bypassing our content-based checks.
   try {
     const res = await fetchWithTimeout(attempted, {
       method: "GET",
