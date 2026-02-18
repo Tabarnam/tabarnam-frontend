@@ -188,7 +188,7 @@ const MAX_ATTEMPTS_LOCATION = envInt("MAX_ATTEMPTS_LOCATION", 3, { min: 1, max: 
 const MAX_ATTEMPTS_INDUSTRIES = envInt("MAX_ATTEMPTS_INDUSTRIES", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_TAGLINE = envInt("MAX_ATTEMPTS_TAGLINE", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_KEYWORDS = envInt("MAX_ATTEMPTS_KEYWORDS", 3, { min: 1, max: 10 });
-const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 1, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
@@ -2101,7 +2101,7 @@ async function resumeWorkerHandler(req, context) {
           if (field === "industries") r = await fetchIndustries(grokArgsForField);
           if (field === "product_keywords") r = await fetchProductKeywords(grokArgsForField);
           if (field === "logo") {
-            // Logo fetch - uses importCompanyLogo utility
+            // Logo fetch - HTML scraping first, then Grok fallback
             const logoBudgetMs = Math.min(15000, grokArgsForField?.budgetMs || 15000);
             console.log(`[resume-worker] logo fetch: budgetMs=${logoBudgetMs}, companyId=${companyId}`);
             const logoResult = await importCompanyLogo({
@@ -2111,11 +2111,50 @@ async function resumeWorkerHandler(req, context) {
               companyName: companyName,
               logoSourceUrl: null,
             }, console, { budgetMs: logoBudgetMs });
-            r = {
-              logo_url: logoResult?.logo_url || "",
-              logo_status: logoResult?.logo_url ? "ok" : (logoResult?.logo_stage_status || "not_found"),
-              diagnostics: { logo_source_type: logoResult?.logo_source_type || null },
-            };
+
+            if (logoResult?.logo_url) {
+              // HTML scraping found a logo
+              r = {
+                logo_url: logoResult.logo_url,
+                logo_source_url: logoResult.logo_source_url || null,
+                logo_status: "ok",
+                diagnostics: { logo_source_type: logoResult.logo_source_type || "discovered" },
+              };
+            } else {
+              // HTML scraping failed — try Grok fallback (same pattern as retry path)
+              console.log(`[resume-worker] HTML logo failed for ${companyId}, trying Grok fallback`);
+              try {
+                const grokLogoResult = await fetchLogo({
+                  companyName: companyName,
+                  normalizedDomain: normalizedDomain,
+                  budgetMs: Math.min(15000, Math.max(3000, budgetRemainingMs() - 2000)),
+                  xaiUrl: getXAIEndpoint(),
+                  xaiKey: getXAIKey(),
+                });
+                if (grokLogoResult?.logo_url && grokLogoResult.logo_status === "ok") {
+                  r = {
+                    logo_url: grokLogoResult.logo_url,
+                    logo_status: "ok",
+                    diagnostics: { logo_source_type: "grok_fallback" },
+                  };
+                  console.log(`[resume-worker] Logo found via Grok fallback: ${grokLogoResult.logo_url}`);
+                } else {
+                  r = {
+                    logo_url: "",
+                    logo_status: grokLogoResult?.logo_status || "not_found",
+                    diagnostics: { logo_source_type: null },
+                  };
+                  console.log(`[resume-worker] Logo not found (Grok fallback): ${grokLogoResult?.logo_status || "no result"}`);
+                }
+              } catch (grokErr) {
+                console.warn(`[resume-worker] Grok logo fallback error: ${grokErr?.message}`);
+                r = {
+                  logo_url: "",
+                  logo_status: logoResult?.logo_stage_status || "not_found",
+                  diagnostics: { logo_source_type: null },
+                };
+              }
+            }
             console.log(`[resume-worker] logo result: status=${r?.logo_status}, url=${r?.logo_url || "(none)"}`);
           }
           if (field === "reviews") {

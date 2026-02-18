@@ -310,8 +310,8 @@ export default function ImportResultsPanels({
                   const logoUrl = c?.logo_url;
                   const logoStatus = asString(c?.logo_stage_status || c?.logo_status || "").toLowerCase();
                   if (!logoUrl && !missing.has("logo")) {
-                    if (logoStatus === "not_found_on_site" || logoStatus === "not_found") {
-                      missing.add("logo (not found on site)");
+                    if (logoStatus === "not_found_on_site" || logoStatus === "not_found" || logoStatus === "not_found_terminal") {
+                      missing.add("logo (not found)");
                     } else if (!logoStatus || logoStatus === "incomplete" || logoStatus === "deferred") {
                       missing.add("logo");
                     }
@@ -681,8 +681,8 @@ export default function ImportResultsPanels({
                     const logoUrl = c?.logo_url;
                     const logoStatus = asString(c?.logo_stage_status || c?.logo_status || "").toLowerCase();
                     if (!logoUrl && !missing.has("logo")) {
-                      if (logoStatus === "not_found_on_site" || logoStatus === "not_found") {
-                        missing.add("logo (not found on site)");
+                      if (logoStatus === "not_found_on_site" || logoStatus === "not_found" || logoStatus === "not_found_terminal") {
+                        missing.add("logo (not found)");
                       } else if (!logoStatus || logoStatus === "incomplete" || logoStatus === "deferred") {
                         missing.add("logo");
                       }
