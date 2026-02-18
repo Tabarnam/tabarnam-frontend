@@ -871,6 +871,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
         title: asString(x.title || "").trim() || null,
         date: asString(x.date || "").trim() || null,
         excerpt: asString(x.excerpt || "").trim() || null,
+        author: asString(x.author || "").trim() || null,
       };
     })
     .filter((x) => x.source_url)
@@ -952,7 +953,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
     verified_reviews.push({
       source_name: isYouTubeUrl(c.source_url) ? "YouTube" : (c.source_name || meta.source_name || null),
-      author: c.source_name || meta.author || null,
+      author: c.author || meta.author || null,
       source_url: verified.final_url || c.source_url,
       title: c.title || meta.title || null,
       date: c.date || meta.date || null,
