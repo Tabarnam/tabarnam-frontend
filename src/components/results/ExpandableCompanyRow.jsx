@@ -802,7 +802,6 @@ export default function ExpandableCompanyRow({
           <div className="affiliate-links-zone mt-2 space-y-0.5 text-xs border-l-2 border-blue-200 dark:border-blue-800 pl-2">
             {affiliateLinks.map((link, idx) => (
               <div key={link.url || idx} className="truncate">
-                <span className="font-semibold text-foreground mr-1">Aff.</span>
                 <a
                   href={withAmazonAffiliate(link.url)}
                   target="_blank"
@@ -817,7 +816,6 @@ export default function ExpandableCompanyRow({
             ))}
             {amazonLink && (
               <div className="truncate">
-                <span className="font-semibold text-foreground mr-1">Aff.</span>
                 <a
                   href={withAmazonAffiliate(amazonLink)}
                   target="_blank"
