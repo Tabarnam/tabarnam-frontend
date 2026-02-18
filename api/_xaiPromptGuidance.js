@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "1.2.0";
+const PROMPT_GUIDANCE_VERSION = "1.3.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -38,11 +38,12 @@ const FIELD_GUIDANCE = {
 - Do deep dives for HQ location if necessary.
 - Having the actual city is crucial — do not return just the state or country if city-level data exists.
 - Use initials for state or province (e.g., "Austin, TX" not "Austin, Texas").
-- Format: "City, ST" for US/Canada, "City, Country" for international.
-- If only country is known, return "Country".
+- Format: "City, ST, USA" for US, "City, ST, Canada" for Canada, "City, Country" for international.
+- Always append the country. Use "USA" (not "United States" or "U.S.A.").
+- If only country is known, return "Country" (e.g., "USA").
 - No explanatory info – just the location.
 - No guessing or hallucinating. Only report verified information.`,
-    jsonSchema: `"headquarters_location": "City, ST"`,
+    jsonSchema: `"headquarters_location": "City, ST, USA"`,
     jsonSchemaWithSources: `{
   "headquarters_location": "...",
   "location_source_urls": { "hq_source_urls": ["https://...", "https://..."] }
@@ -54,18 +55,19 @@ const FIELD_GUIDANCE = {
 - Include every city and country found. Deep-dive on any US sites to confirm actual cities.
 - Check press releases, job postings, facility announcements, regulatory filings, news articles, LinkedIn.
 - List them exhaustively without missing any.
-- Having the actual cities within the United States is crucial. Be accurate.
+- Having the actual cities within the USA is crucial. Be accurate.
 - Use initials for state or province (e.g., "Los Angeles, CA" not "Los Angeles, California").
-- Format: "City, ST" for US/Canada, "City, Country" for international.
+- Format: "City, ST, USA" for US, "City, ST, Canada" for Canada, "City, Country" for international.
+- Always append the country. Use "USA" (not "United States" or "U.S.A.").
 - Return an array of one or more locations. Include multiple cities when applicable.
-- If only country-level is available, country-only entries are acceptable.
+- If only country-level is available, country-only entries are acceptable (e.g., "USA").
 - No explanatory info – just locations.
 - If manufacturing is not publicly disclosed after thorough searching, return ["Not disclosed"].
 - Provide the supporting URLs you used for the manufacturing determination.
 - No guessing or hallucinating. Only report verified information.`,
-    jsonSchema: `"manufacturing_locations": ["City, ST", "City, Country"]`,
+    jsonSchema: `"manufacturing_locations": ["City, ST, USA", "City, Country"]`,
     jsonSchemaWithSources: `{
-  "manufacturing_locations": ["City, ST", "City, Country"],
+  "manufacturing_locations": ["City, ST, USA", "City, Country"],
   "location_source_urls": { "mfg_source_urls": ["https://...", "https://..."] }
 }`,
   },
@@ -73,10 +75,13 @@ const FIELD_GUIDANCE = {
   industries: {
     rules: `- Use web search.
 - Return an array of industries/categories that best describe what the company makes or sells.
+- Return specific, descriptive industry labels that describe what the company actually makes or does
+  (e.g., "Sparkling Water Production", "Non-Alcoholic Beverages", "Beverage Manufacturing").
+- Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce".
+- Each label should be specific enough to distinguish this company's business from unrelated companies.
 - Provide not industry codes but the type of business they do.
 - Be thorough and complete in identifying all relevant industries.
 - Avoid store navigation terms (e.g. "New Arrivals", "Shop", "Sale") and legal terms.
-- Prefer industry labels that can be mapped to standard business taxonomies.
 - No guessing or hallucinating. Only report verified information.`,
     jsonSchema: `"industries": ["Industry 1", "Industry 2", "..."]`,
   },
@@ -191,8 +196,8 @@ Text: [1-3 sentence excerpt or summary of the review]`,
 // in sync with the full FIELD_GUIDANCE.*.rules above.
 // ---------------------------------------------------------------------------
 const FIELD_SUMMARIES = {
-  locations: `Do deep dives for hq and manufacturing locations if necessary. Including city or cities. Having the actual cities within the United States is crucial. No explanatory info - just locations. Use initials for state or province in location info.`,
-  industries: `Return as a JSON array of industry strings.`,
+  locations: `Do deep dives for hq and manufacturing locations if necessary. Including city or cities. Having the actual cities within the USA is crucial. No explanatory info - just locations. Use initials for state or province in location info. Use "USA" not "United States".`,
+  industries: `Return as a JSON array of specific, descriptive industry strings. Avoid generic umbrella terms like "Consumer Goods" or "Food and Beverage".`,
   keywords: `Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.`,
 };
 

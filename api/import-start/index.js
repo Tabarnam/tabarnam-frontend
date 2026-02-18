@@ -2192,9 +2192,9 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
 2. MANUFACTURING LOCATIONS (Array, STRONGLY REQUIRED - be aggressive and multi-source):
    - Gather ALL identifiable manufacturing, production, factory, and plant locations from ALL available sources.
    - Return as an array of strings, each string being a location. DO NOT leave this empty unless there is truly no credible signal.
-   - Acceptable detail per entry: Full address OR City + state/region + country OR country only (e.g., "United States", "China").
+   - Acceptable detail per entry: Full address OR City + state/region + country OR country only (e.g., "USA", "China").
    - "Country only" manufacturing locations are FULLY ACCEPTABLE and PREFERRED over empty array.
-   - Examples of acceptable results: ["Charlotte, NC, USA", "Shanghai, China", "Vietnam", "United States", "Mexico"]
+   - Examples of acceptable results: ["Charlotte, NC, USA", "Shanghai, China", "Vietnam", "USA", "Mexico"]
 
    PRIMARY SOURCES (check ALL of these first):
    a) Official website: "Facilities", "Plants", "Manufacturing", "Where We Make", "Our Factories", "Production Sites" pages
@@ -2244,7 +2244,7 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    - If government guides or B2B directories list the company as a "Manufacturer" with specific location, include that location
    - If packaging or product listings consistently say "Made in [X]", include X even if the brand website doesn't explicitly state it
    - If multiple independent sources consistently point to one or more countries, include those countries
-   - "All made in the USA" or similar inclusive statements â†’ manufacturing_locations: ["United States"]
+   - "All made in the USA" or similar inclusive statements â†’ manufacturing_locations: ["USA"]
    - If only country-level information is available after exhaustive checking, country-only entries are FULLY VALID and PREFERRED
    - When inferring from suppliers, customs, packaging, or government guides, set location_confidence to "medium" and note the inference source in red_flag_reason
    - Inferred manufacturing locations from secondary sources should NOT trigger red_flag: true (the flag is only for completely unknown locations)
@@ -2299,7 +2299,7 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
 CRITICAL REQUIREMENTS FOR THIS SEARCH:
 - Do NOT return empty manufacturing_locations arrays unless you have exhaustively checked government guides, B2B directories, and trade data
 - Do NOT treat "not explicitly stated on website" as "manufacturing location unknown" - use secondary sources
-- Always prefer country-level manufacturing locations (e.g., "United States") over empty arrays
+- Always prefer country-level manufacturing locations (e.g., "USA") over empty arrays
 - Government Buyer Guides (like Yumpu entries) are CREDIBLE PRIMARY sources for both HQ and manufacturing claims
 - Companies listed in B2B manufacturer directories should have their listed location included
 - For EACH location returned, MUST have a corresponding entry in location_sources array (this is non-negotiable)
@@ -2316,7 +2316,7 @@ FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
 - industries (array): Industry categories
 - product_keywords (string): Comma-separated list of up to 25 concrete product keywords (real products/product lines/product categories; no vague marketing terms; prefer noun phrases; include flagship + secondary products; infer industry-standard product types if needed; no near-duplicates; no services unless primarily services)
 - headquarters_location (string, REQUIRED): "City, State/Region, Country" format (or empty string ONLY if truly unknown after checking all sources)
-- manufacturing_locations (array, REQUIRED): Array of location strings (MUST include all credible sources - official, government guides, B2B directories, suppliers, customs, packaging labels). Use country-only entries (e.g., "United States") if that's all that's known.
+- manufacturing_locations (array, REQUIRED): Array of location strings (MUST include all credible sources - official, government guides, B2B directories, suppliers, customs, packaging labels). Use country-only entries (e.g., "USA") if that's all that's known.
 - location_sources (array, REQUIRED): Array of objects with structure: { "location": "City, State, Country", "source_url": "https://...", "source_type": "official_website|government_guide|b2b_directory|trade_data|packaging|media|other", "location_type": "headquarters|manufacturing" }. Include ALL sources found for both HQ and manufacturing locations.
 - red_flag (boolean, REQUIRED): true only if HQ unknown or manufacturing completely unverifiable despite exhaustive checking of ALL sources including government guides and B2B directories
 - red_flag_reason (string, REQUIRED): Explanation if red_flag=true, empty string if false; may note if manufacturing was inferred from secondary sources
@@ -2329,8 +2329,8 @@ FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
 
 IMPORTANT FINAL RULES:
 1. For companies with vague or missing manufacturing info on their website, ALWAYS check government guides, B2B directories, suppliers, import records, packaging claims, and third-party sources BEFORE returning an empty manufacturing_locations array.
-2. Country-only manufacturing locations (e.g., ["United States"]) are FULLY ACCEPTABLE results - do NOT treat them as incomplete.
-3. If government sources (like Yumpu buyer guides) list "all made in the USA", return manufacturing_locations: ["United States"] with high confidence.
+2. Country-only manufacturing locations (e.g., ["USA"]) are FULLY ACCEPTABLE results - do NOT treat them as incomplete.
+3. If government sources (like Yumpu buyer guides) list "all made in the USA", return manufacturing_locations: ["USA"] with high confidence.
 4. Only flag as red_flag: true when you have actually exhaustively checked all sources listed above and still have no credible signal.
 
 Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`;
@@ -5968,7 +5968,7 @@ For EACH company, you MUST AGGRESSIVELY extract:
    - Packaging claims and "Made in..." labels
    - Media articles
    Be AGGRESSIVE in extraction - NEVER return empty without exhaustively checking all sources above
-   - Country-only entries (e.g., "United States", "China") are FULLY ACCEPTABLE
+   - Country-only entries (e.g., "USA", "China") are FULLY ACCEPTABLE
 
 Format your response as a valid JSON array with this structure:
 - company_name (string)
@@ -5982,7 +5982,7 @@ Format your response as a valid JSON array with this structure:
 - location_confidence (string, optional)
 - amazon_url, social (optional)
 
-IMPORTANT: Do not leave manufacturing_locations empty after checking government guides, B2B directories, and trade data. Prefer "United States" or "China" over empty array.
+IMPORTANT: Do not leave manufacturing_locations empty after checking government guides, B2B directories, and trade data. Prefer "USA" or "China" over empty array.
 
 Return ONLY the JSON array, no other text.`,
               };

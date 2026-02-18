@@ -94,10 +94,10 @@ function inferCountryFromStateAbbreviation(location) {
       city: city.trim(),
       state: US_STATE_ABBREVIATIONS[codeUpper],
       state_code: codeUpper,
-      country: "United States",
+      country: "USA",
       country_code: "US",
       // Use abbreviation (MO) in formatted string for display, not full name (Missouri)
-      formatted: `${city.trim()}, ${codeUpper}, United States`
+      formatted: `${city.trim()}, ${codeUpper}, USA`
     };
   }
 
@@ -149,6 +149,20 @@ function normalizeLocationWithStateAbbrev(location) {
   }
 
   return trimmed;
+}
+
+/**
+ * Normalize country name variants to a canonical short form.
+ * "United States", "United States of America", "U.S.A.", "U.S.", "US" → "USA"
+ * Applied to location strings after XAI response parsing.
+ */
+function normalizeCountryInLocation(location) {
+  if (!location || typeof location !== "string") return location;
+  // Replace country-part variants at the end of a location string
+  return location.replace(
+    /,\s*(United States of America|United States|U\.S\.A\.?|U\.S\.?)\s*$/i,
+    ", USA"
+  );
 }
 
 function clampInt(value, { min, max, fallback }) {
@@ -857,6 +871,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
         // Capture XAI-provided metadata for fallback
         source_name: asString(x.source_name || "").trim() || null,
         title: asString(x.title || "").trim() || null,
+        date: asString(x.date || "").trim() || null,
         excerpt: asString(x.excerpt || "").trim() || null,
       };
     })
@@ -942,7 +957,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       author: c.source_name || meta.author || null,
       source_url: verified.final_url || c.source_url,
       title: c.title || meta.title || null,
-      date: meta.date || null,
+      date: c.date || meta.date || null,
       excerpt: c.excerpt || meta.excerpt || null,
       link_status: "ok",
       match_confidence: 1.0,
@@ -1142,10 +1157,11 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
     return valueOut;
   }
 
-  // Infer country from US state or Canadian province abbreviation (e.g., "Chicago, IL" → "Chicago, IL, United States")
+  // Infer country from US state or Canadian province abbreviation (e.g., "Chicago, IL" → "Chicago, IL, USA")
   const inferred = inferCountryFromStateAbbreviation(value);
+  const hqValue = inferred ? inferred.formatted : normalizeCountryInLocation(value);
   const valueOut = {
-    headquarters_location: inferred ? inferred.formatted : value,
+    headquarters_location: hqValue,
     hq_status: "ok",
     source_urls,
     location_source_urls,
@@ -1284,7 +1300,8 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
   const cleaned = arr
     .map((x) => asString(x).trim())
     .filter(Boolean)
-    .map(normalizeLocationWithStateAbbrev);  // Normalize state names to abbreviations
+    .map(normalizeLocationWithStateAbbrev)  // Normalize state names to abbreviations
+    .map(normalizeCountryInLocation);       // Normalize "United States" → "USA"
 
   if (cleaned.length === 0) {
     const valueOut = { manufacturing_locations: [], mfg_status: "not_found", source_urls, location_source_urls };
@@ -2039,14 +2056,15 @@ Return STRICT JSON only:
   field_statuses.tagline = tagline ? "ok" : "empty";
 
   const hq_raw = asString(parsed.headquarters_location || parsed.hq || "").trim();
-  const hq_normalized = hq_raw ? normalizeLocationWithStateAbbrev(hq_raw) : "";
+  const hq_normalized = hq_raw ? normalizeCountryInLocation(normalizeLocationWithStateAbbrev(hq_raw)) : "";
   field_statuses.headquarters = hq_normalized ? "ok" : "empty";
 
   const mfg_raw = Array.isArray(parsed.manufacturing_locations) ? parsed.manufacturing_locations : [];
   const mfg_cleaned = mfg_raw
     .map((x) => asString(x).trim())
     .filter(Boolean)
-    .map(normalizeLocationWithStateAbbrev);
+    .map(normalizeLocationWithStateAbbrev)
+    .map(normalizeCountryInLocation);
   field_statuses.manufacturing = mfg_cleaned.length > 0 ? "ok" : "empty";
 
   const industries_raw = Array.isArray(parsed.industries) ? parsed.industries : [];
@@ -2684,6 +2702,7 @@ module.exports = {
   enrichCompanyFields,
   // Helpers for location normalization
   normalizeLocationWithStateAbbrev,
+  normalizeCountryInLocation,
   inferCountryFromStateAbbreviation,
   // Admin refresh bypass flag
   setAdminRefreshBypass,

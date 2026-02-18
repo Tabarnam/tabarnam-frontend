@@ -33,6 +33,7 @@ const {
   fetchIndustries,
   fetchProductKeywords,
   fetchLogo,
+  normalizeCountryInLocation,
 } = require("../../_grokEnrichment");
 
 const { enqueueResumeRun } = require("../../_enrichmentQueue");
@@ -1704,6 +1705,25 @@ async function resumeWorkerHandler(req, context) {
       },
     }).catch(() => null);
 
+    // Write the completion doc so import-status detects terminal state.
+    if (seedDocs.length > 0) {
+      const savedIds = seedDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
+      await upsertDoc(container, {
+        id: completionDocId,
+        session_id: sessionId,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        completed_at: updatedAt,
+        updated_at: updatedAt,
+        reason: "forced_terminalize_single",
+        saved: savedIds.length,
+        saved_ids: savedIds,
+        saved_company_ids_verified: savedIds,
+        saved_verified_count: savedIds.length,
+      }).catch(() => null);
+    }
+
     return json(
       {
         ok: true,
@@ -2226,7 +2246,7 @@ async function resumeWorkerHandler(req, context) {
 
           if (field === "headquarters_location") {
             bumpFieldAttempt(doc, "headquarters_location", requestId);
-            const value = typeof r?.headquarters_location === "string" ? r.headquarters_location.trim() : "";
+            const value = normalizeCountryInLocation(typeof r?.headquarters_location === "string" ? r.headquarters_location.trim() : "");
             if (status === "ok" && value) {
               doc.headquarters_location = value;
               doc.hq_unknown = false;
@@ -2292,7 +2312,7 @@ async function resumeWorkerHandler(req, context) {
           if (field === "manufacturing_locations") {
             bumpFieldAttempt(doc, "manufacturing_locations", requestId);
             const locs = Array.isArray(r?.manufacturing_locations)
-              ? r.manufacturing_locations.map((x) => String(x || "").trim()).filter(Boolean)
+              ? r.manufacturing_locations.map((x) => normalizeCountryInLocation(String(x || "").trim())).filter(Boolean)
               : [];
             if (status === "ok" && locs.length > 0) {
               doc.manufacturing_locations = locs;
@@ -4449,6 +4469,26 @@ async function resumeWorkerHandler(req, context) {
       updated_at: updatedAt,
     },
   }).catch(() => null);
+
+  // Write the completion doc so import-status has an authoritative completion signal.
+  // Previously only import-start wrote this doc, leaving resume-worker completions invisible.
+  if (!resumeNeeded && seedDocs.length > 0) {
+    const savedIds = seedDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
+    await upsertDoc(container, {
+      id: completionDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      completed_at: updatedAt,
+      updated_at: updatedAt,
+      reason: completion_beacon,
+      saved: savedIds.length,
+      saved_ids: savedIds,
+      saved_company_ids_verified: savedIds,
+      saved_verified_count: savedIds.length,
+    }).catch(() => null);
+  }
 
   // Lightweight telemetry on the session control doc.
   if (sessionDoc && typeof sessionDoc === "object") {

@@ -29,6 +29,7 @@ const { applyEnrichment } = require("../_applyEnrichment");
 
 const {
   toNormalizedDomain,
+  normalizeCountryInLocation,
   normalizeIndustries,
   normalizeProductKeywords,
   keywordListToString,
@@ -559,7 +560,7 @@ async function saveCompaniesToCosmos({
               websiteUrl: company.website_url || company.canonical_url || company.url || "",
             }).slice(0, 25);
 
-            const headquartersLocation = String(company.headquarters_location || "").trim();
+            const headquartersLocation = normalizeCountryInLocation(String(company.headquarters_location || "").trim());
             const headquartersMeaningful = (() => {
               if (!headquartersLocation) return false;
               const lower = headquartersLocation.toLowerCase();
@@ -570,9 +571,9 @@ async function saveCompaniesToCosmos({
             const manufacturingLocationsNormalized = Array.isArray(company.manufacturing_locations)
               ? company.manufacturing_locations
                   .map((loc) => {
-                    if (typeof loc === "string") return loc.trim();
+                    if (typeof loc === "string") return normalizeCountryInLocation(loc.trim());
                     if (loc && typeof loc === "object") {
-                      return String(loc.formatted || loc.address || loc.location || "").trim();
+                      return normalizeCountryInLocation(String(loc.formatted || loc.address || loc.location || "").trim());
                     }
                     return "";
                   })

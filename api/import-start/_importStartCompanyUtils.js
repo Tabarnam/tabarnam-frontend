@@ -10,6 +10,16 @@ try {
   createHash = null;
 }
 
+// ── Country Normalization ─────────────────────────────────────────────────────
+/** Normalize trailing country variants to "USA" in location strings. */
+function normalizeCountryInLocation(location) {
+  if (!location || typeof location !== "string") return location;
+  return location.replace(
+    /,\s*(United States of America|United States|U\.S\.A\.?|U\.S\.?)\s*$/i,
+    ", USA"
+  );
+}
+
 // ── Industry & Keyword Normalization ───────────────────────────────────────────
 
 function normalizeIndustries(input) {
@@ -149,14 +159,14 @@ function enrichCompany(company, center) {
   const urlForDomain = c.canonical_url || c.website_url || c.url || c.amazon_url || "";
   c.normalized_domain = toNormalizedDomain(urlForDomain);
 
-  c.headquarters_location = String(c.headquarters_location || "").trim();
+  c.headquarters_location = normalizeCountryInLocation(String(c.headquarters_location || "").trim());
 
   if (Array.isArray(c.manufacturing_locations)) {
     c.manufacturing_locations = c.manufacturing_locations
-      .map(l => String(l).trim())
+      .map(l => normalizeCountryInLocation(String(l).trim()))
       .filter(l => l.length > 0);
   } else if (typeof c.manufacturing_locations === 'string') {
-    const trimmed = String(c.manufacturing_locations || "").trim();
+    const trimmed = normalizeCountryInLocation(String(c.manufacturing_locations || "").trim());
     c.manufacturing_locations = trimmed ? [trimmed] : [];
   } else {
     c.manufacturing_locations = [];
@@ -408,6 +418,7 @@ module.exports = {
   enrichCompany,
 
   // Location
+  normalizeCountryInLocation,
   normalizeLocationEntries,
   buildImportLocations,
 
