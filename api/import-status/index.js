@@ -705,6 +705,54 @@ async function handler(req, context) {
     try {
       const { endpoint, key, databaseId, containerId } = getCosmosConfig();
 
+      // ── Safety net: re-read company docs when enrichment recently completed ──
+      // If retryableMissingCount > 0 but enrichment just finished, the company docs may
+      // be stale (written by import-start but not yet visible to our earlier read).
+      // Re-read from Cosmos to avoid triggering the inline resume worker unnecessarily.
+      if (retryableMissingCount > 0 && !forceResume && endpoint && key && CosmosClient) {
+        const enrichCompletedAt = Date.parse(String(sessionDoc?.enrichment_completed_at || "")) || 0;
+        const enrichRecentMs = 120_000;
+        if (enrichCompletedAt && Date.now() - enrichCompletedAt < enrichRecentMs) {
+          try {
+            const freshIds = Array.isArray(saved_company_ids_verified) && saved_company_ids_verified.length > 0
+              ? saved_company_ids_verified : [];
+            if (freshIds.length > 0) {
+              const refreshClient = new CosmosClient({ endpoint, key });
+              const refreshContainer = refreshClient.database(databaseId).container(containerId);
+              const freshDocs = await fetchCompaniesByIds(refreshContainer, freshIds).catch(() => []);
+              if (freshDocs.length > 0) {
+                savedDocsForHealth.length = 0;
+                savedDocsForHealth.push(...freshDocs);
+                reconcileLowQualityDocs(savedDocsForHealth, stageBeaconValues);
+                saved_companies = toSavedCompanies(savedDocsForHealth);
+
+                const freshAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth);
+                resumeMissingAnalysis.total_missing = freshAnalysis.total_missing;
+                resumeMissingAnalysis.total_retryable_missing = freshAnalysis.total_retryable_missing;
+                resumeMissingAnalysis.total_terminal_missing = freshAnalysis.total_terminal_missing;
+                resumeMissingAnalysis.terminal_only = freshAnalysis.terminal_only;
+                retryableMissingCount = freshAnalysis.total_retryable_missing;
+
+                // Recompute resume_needed with fresh data
+                resume_needed = forceResume ? true : retryableMissingCount > 0;
+
+                stageBeaconValues.status_pre_orchestration_refresh = nowIso();
+                console.log(`[import-status] session=${sessionId} pre-orchestration refresh: retryable=${retryableMissingCount} resume_needed=${resume_needed}`);
+
+                // Update report.session if enrichment is actually complete
+                if (!resume_needed && report?.session) {
+                  report.session.resume_needed = false;
+                  report.session.status = "complete";
+                  report.session.stage_beacon = "complete";
+                }
+              }
+            }
+          } catch (refreshErr) {
+            stageBeaconValues.status_pre_orchestration_refresh_error = String(refreshErr?.message || refreshErr).slice(0, 200);
+          }
+        }
+      }
+
       if (resume_needed && endpoint && key && CosmosClient) {
         const client = new CosmosClient({ endpoint, key });
         const container = client.database(databaseId).container(containerId);

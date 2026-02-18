@@ -936,6 +936,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   // Use direct HTTP enrichment instead of queue
   const enrichmentResults = [];
   const container = getCompaniesCosmosContainer();
+  let anyNeedsResume = false; // Track whether any company still needs resume worker
 
   for (const companyId of ids) {
     try {
@@ -1011,6 +1012,12 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
             }
           }
         }
+
+        // Return enrichment state so caller can compute actual resume_needed
+        return {
+          import_missing_fields: updatedCompany.import_missing_fields || [],
+          reviews_stage_status: updatedCompany.reviews_stage_status || "",
+        };
       };
 
       // ═══════════════════════════════════════════════════════════════
@@ -1029,7 +1036,15 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         fieldsToEnrich: [...ALL_CORE_FIELDS],
         skipDedicatedDeepening: true,
       });
-      await applyAndUpsertEnrichment(enrichResult1a, "PASS1a");
+      const pass1aState = await applyAndUpsertEnrichment(enrichResult1a, "PASS1a");
+
+      // Determine if this company still needs the resume worker.
+      // A company needs resume if it has retryable missing fields OR reviews below quality threshold.
+      const missingAfterPass1a = pass1aState?.import_missing_fields || [];
+      const reviewsStatusAfterPass1a = pass1aState?.reviews_stage_status || "";
+      const companyNeedsResume = missingAfterPass1a.length > 0 || reviewsStatusAfterPass1a === "incomplete";
+      if (companyNeedsResume) anyNeedsResume = true;
+      console.log(`[import-start] session=${sessionId} company=${companyId} needs_resume=${companyNeedsResume} missing_count=${missingAfterPass1a.length} reviews_status=${reviewsStatusAfterPass1a} anyNeedsResume=${anyNeedsResume}`);
 
       // ── Checkpoint: persist partial state so resume worker can recover if Azure kills us ──
       try {
@@ -1085,15 +1100,16 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
 
   const anyOk = enrichmentResults.some((r) => r.ok);
 
-  // Update session doc: always "running" + "enrichment_partial" because
-  // reviews are deferred to the resume worker. The resume worker will
-  // set "complete" after reviews are fetched.
+  // Update session doc: compute actual resume_needed from enriched docs.
+  // If all companies have all fields (including reviews above quality threshold),
+  // mark as complete — no need for the resume worker.
+  console.log(`[import-start] session=${sessionId} post-enrichment anyNeedsResume=${anyNeedsResume} anyOk=${anyOk}`);
   const postEnrichSessionPatch = {
-    status: "running",
-    stage_beacon: "enrichment_partial",
+    status: anyNeedsResume ? "running" : "complete",
+    stage_beacon: anyNeedsResume ? "enrichment_partial" : "enrichment_complete",
     enrichment_completed_at: new Date().toISOString(),
     enrichment_mode: "direct_http",
-    resume_needed: true,
+    resume_needed: anyNeedsResume,
     resume_updated_at: new Date().toISOString(),
     direct_enrichment_results: enrichmentResults.slice(0, 10),
     saved: ids.length,
@@ -1132,30 +1148,36 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   // Update in-memory session store so import-status polls see completion immediately.
   // Without this, import-status reads stale in-memory data (stage_beacon="xai_primary_fetch_start")
   // because the async enrichment runs after the HTTP response was already sent.
+  const computedBeacon = anyNeedsResume ? "enrichment_partial" : "enrichment_complete";
+  const computedStatus = anyNeedsResume ? "running" : "complete";
   try {
     upsertImportSession({
       session_id: sessionId,
       request_id: requestId,
-      status: "running",
-      stage_beacon: "enrichment_partial",
+      status: computedStatus,
+      stage_beacon: computedBeacon,
       saved: ids.length,
       saved_count: ids.length,
       saved_verified_count: ids.length,
       saved_company_ids_verified: [...ids],
-      resume_needed: true,
+      resume_needed: anyNeedsResume,
     });
-    console.log(`[import-start] session=${sessionId} in-memory session store updated: beacon=enrichment_partial resume_needed=true`);
+    console.log(`[import-start] session=${sessionId} in-memory session store updated: beacon=${computedBeacon} resume_needed=${anyNeedsResume}`);
   } catch (memErr) {
     console.warn(`[import-start] session=${sessionId} in-memory session store update failed: ${memErr?.message || memErr}`);
   }
 
-  // Update resume doc — core fields saved, reviews deferred to resume worker.
+  // Update resume doc — core fields saved, reviews deferred to resume worker if needed.
+  const resumeDocStatus = anyNeedsResume
+    ? (anyOk ? "queued" : "stalled")
+    : "complete";
   await upsertResumeDoc({
     session_id: sessionId,
-    status: anyOk ? "queued" : "stalled",
+    status: resumeDocStatus,
     updated_at: new Date().toISOString(),
     enrichment_completed_at: new Date().toISOString(),
     invocation_mode: "direct_http",
+    resume_needed: anyNeedsResume,
     resume_error: anyOk
       ? null
       : {
@@ -1165,6 +1187,32 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
           at: new Date().toISOString(),
         },
   }).catch(() => null);
+
+  // Write completion doc when all fields are present (no resume needed).
+  // This matches the resume-worker's completion doc pattern so import-status
+  // detects terminal state immediately without waiting for the resume worker.
+  if (!anyNeedsResume && container) {
+    try {
+      const completionDocId = `_import_complete_${sessionId}`;
+      const completionNow = new Date().toISOString();
+      const savedIds = ids.map((id) => String(id || "").trim()).filter(Boolean);
+      await container.items.upsert({
+        id: completionDocId,
+        ...buildImportControlDocBase(sessionId),
+        type: "import_control",
+        completed_at: completionNow,
+        updated_at: completionNow,
+        reason: "enrichment_complete",
+        saved: savedIds.length,
+        saved_ids: savedIds,
+        saved_company_ids_verified: savedIds,
+        saved_verified_count: savedIds.length,
+      }, { partitionKey: "import" });
+      console.log(`[import-start] session=${sessionId} completion doc written — all fields enriched, no resume needed`);
+    } catch (completionErr) {
+      console.warn(`[import-start] session=${sessionId} completion doc write failed: ${completionErr?.message || completionErr}`);
+    }
+  }
 
   logInfo(context, {
     event: "direct_enrichment_batch_complete",
