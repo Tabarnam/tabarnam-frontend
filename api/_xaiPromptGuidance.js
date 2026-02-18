@@ -122,7 +122,7 @@ const FIELD_GUIDANCE = {
 
   reviews: {
     // Compact rules for unified prompts (enrichment)
-    rulesCompact: () => `Find third-party reviews using web search. For each candidate, verify the URL loads and contains a real review before including it. Return up to 5 verified reviews with source, author, URL, title, date, and excerpt. Only include reviews you confirmed are live. Quality over quantity.`,
+    rulesCompact: () => `Find third-party reviews using web search. For each candidate, verify the URL loads and contains a real review before including it. Return up to 5 verified reviews with source, author, URL, exact title as published, date, and excerpt. Only include reviews you confirmed are live. Quality over quantity.`,
     // Full investigation rules for dedicated review fetcher (web_search includes page browsing)
     rulesFull: (companyName, excludeDomains, attemptedUrls, websiteUrl) => {
       const attemptedExclusion =

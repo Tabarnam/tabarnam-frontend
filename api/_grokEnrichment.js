@@ -2197,6 +2197,11 @@ async function verifyEnrichmentFields(parsed, { companyName, budgetMs = 60000 } 
           unverifiedReviews.push(review);
           continue;
         }
+        // Enrich YouTube reviews with HTML metadata (og:title has the actual video title)
+        if (urlCheck.html_preview) {
+          const meta = buildReviewMetadataFromHtml(review.source_url, urlCheck.html_preview);
+          if (meta.title) review.title = meta.title;
+        }
       }
 
       // Blog: verify content mentions the company
@@ -2212,7 +2217,7 @@ async function verifyEnrichmentFields(parsed, { companyName, budgetMs = 60000 } 
         }
         // Enrich with HTML metadata when available
         const meta = buildReviewMetadataFromHtml(review.source_url, urlCheck.html_preview);
-        if (meta.title && !review.title) review.title = meta.title;
+        if (meta.title) review.title = meta.title;
         if (meta.author && !review.author) review.author = meta.author;
         if (meta.date && !review.date) review.date = meta.date;
         if (meta.excerpt && !review.excerpt) review.excerpt = meta.excerpt;
