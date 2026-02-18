@@ -662,7 +662,7 @@ async function handler(req, context) {
     stageBeaconValues.status_resume_missing_terminal = resumeMissingAnalysis.total_terminal_missing;
     if (resumeMissingAnalysis.terminal_only) stageBeaconValues.status_resume_terminal_only = nowIso();
 
-    const missing_by_company = saved_companies
+    let missing_by_company = saved_companies
       .filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0)
       .map((c) => ({
         company_id: c.company_id,
@@ -677,7 +677,7 @@ async function handler(req, context) {
       resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // If the saved companies are only missing terminal fields (or none), ignore stale control-doc resume_needed/resume-doc existence.
-    const retryableMissingCount = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
+    let retryableMissingCount = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
 
     let resume_needed = forceResume ? true : retryableMissingCount > 0;
 
@@ -976,6 +976,55 @@ async function handler(req, context) {
       }
     } catch (e) {
       resume_trigger_error = e?.message || String(e);
+    }
+
+    // ── Post-worker refresh: re-read company docs to get post-enrichment state ──
+    // When the inline resume-worker ran successfully and changed resume_needed,
+    // the pre-worker savedDocsForHealth is stale. Re-read from Cosmos so
+    // forceComplete, retryableMissingCount, and stageBeaconValues reflect reality.
+    if (resume_triggered && !resume_needed) {
+      try {
+        const refreshIds =
+          Array.isArray(saved_company_ids_verified) && saved_company_ids_verified.length > 0
+            ? saved_company_ids_verified
+            : [];
+        if (refreshIds.length > 0) {
+          const refreshedDocs = await fetchCompaniesByIds(container, refreshIds).catch(() => []);
+          if (refreshedDocs.length > 0) {
+            savedDocsForHealth.length = 0;
+            savedDocsForHealth.push(...refreshedDocs);
+            reconcileLowQualityDocs(savedDocsForHealth, stageBeaconValues);
+            saved_companies = toSavedCompanies(savedDocsForHealth);
+
+            const refreshedAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth);
+            resumeMissingAnalysis.total_missing = refreshedAnalysis.total_missing;
+            resumeMissingAnalysis.total_retryable_missing = refreshedAnalysis.total_retryable_missing;
+            resumeMissingAnalysis.total_terminal_missing = refreshedAnalysis.total_terminal_missing;
+            resumeMissingAnalysis.terminal_only = refreshedAnalysis.terminal_only;
+
+            stageBeaconValues.status_resume_missing_total = refreshedAnalysis.total_missing;
+            stageBeaconValues.status_resume_missing_retryable = refreshedAnalysis.total_retryable_missing;
+            stageBeaconValues.status_resume_missing_terminal = refreshedAnalysis.total_terminal_missing;
+            if (refreshedAnalysis.terminal_only) stageBeaconValues.status_resume_terminal_only = nowIso();
+
+            retryableMissingCount = refreshedAnalysis.total_retryable_missing;
+
+            missing_by_company = saved_companies
+              .filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0)
+              .map((c) => ({
+                company_id: c.company_id,
+                company_name: c.company_name,
+                website_url: c.website_url,
+                missing_fields: c.enrichment_health.missing_fields,
+              }));
+
+            stageBeaconValues.status_post_worker_refresh = nowIso();
+          }
+        }
+      } catch (refreshErr) {
+        // Non-fatal: stale data is better than a 500
+        stageBeaconValues.status_post_worker_refresh_error = refreshErr?.message || String(refreshErr);
+      }
     }
 
     const reportSessionStatus = typeof report?.session?.status === "string" ? report.session.status.trim() : "";
