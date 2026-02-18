@@ -697,6 +697,25 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
           ctx.saved_verified_count = ctx.saved_company_ids_verified.length;
         }
       }
+
+      // Propagate resume_needed from the worker result so import-status response
+      // reflects the post-enrichment state instead of the stale pre-worker value.
+      if (triggerOk) {
+        const workerResumeNeeded = triggerResult?.response?.resume_needed;
+        if (typeof workerResumeNeeded === "boolean") {
+          ctx.resume_needed = workerResumeNeeded;
+          if (!workerResumeNeeded) {
+            ctx.resume_status = "complete";
+            ctx.resumeStatus = "complete";
+          }
+        } else if (sessionDocAfter && typeof sessionDocAfter.resume_needed === "boolean") {
+          ctx.resume_needed = sessionDocAfter.resume_needed;
+          if (!sessionDocAfter.resume_needed) {
+            ctx.resume_status = sessionDocAfter.status === "complete" ? "complete" : ctx.resume_status;
+            ctx.resumeStatus = sessionDocAfter.status === "complete" ? "complete" : ctx.resumeStatus;
+          }
+        }
+      }
     }
   } catch {}
 
