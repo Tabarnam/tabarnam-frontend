@@ -20,7 +20,8 @@ import {
 
 import { calculateInitialRating, normalizeRating } from "@/lib/stars/calculateRating";
 import { getQQScore } from "@/lib/stars/qqRating";
-import { getProfileCompleteness, getProfileCompletenessLabel } from "@/lib/profileCompleteness";
+import { getProfileCompleteness, getProfileCompletenessLabel, getProfileGaps } from "@/lib/profileCompleteness";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import AdminHeader from "@/components/AdminHeader";
 import useNotificationSound from "@/hooks/useNotificationSound";
@@ -2950,20 +2951,39 @@ export default function CompanyDashboard() {
         cell: (row) => {
           const score = getProfileCompleteness(row);
           const label = getProfileCompletenessLabel(score);
+          const gaps = getProfileGaps(row);
 
           const tone =
             score >= 85
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
               : score >= 60
-                ? "border-blue-200 bg-blue-50 text-blue-800"
+                ? "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
                 : score >= 35
-                  ? "border-amber-200 bg-amber-50 text-amber-900"
-                  : "border-red-200 bg-red-50 text-red-800";
+                  ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                  : "border-red-200 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950/40 dark:text-red-300";
 
-          return (
+          const badge = (
             <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${tone}`}>
               {label} · {score}%
             </span>
+          );
+
+          if (gaps.length === 0) return badge;
+
+          return (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>{badge}</TooltipTrigger>
+                <TooltipContent side="left" className="max-w-[220px] text-xs">
+                  <p className="font-medium mb-1">Missing fields:</p>
+                  <ul className="list-disc pl-3.5 space-y-0.5">
+                    {gaps.map((g) => (
+                      <li key={g.label}>{g.label}</li>
+                    ))}
+                  </ul>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           );
         },
       },

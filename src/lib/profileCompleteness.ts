@@ -78,6 +78,49 @@ export function getProfileCompleteness(company: any): number {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
+export interface ProfileGap {
+  label: string;
+  points: number;
+}
+
+export function getProfileGaps(company: any): ProfileGap[] {
+  if (!company || typeof company !== "object") return [];
+
+  const gaps: ProfileGap[] = [];
+
+  if (!Boolean(asString(company.tagline).trim())) {
+    gaps.push({ label: "Missing tagline", points: 20 });
+  }
+
+  const industries = Array.isArray(company.industries) ? company.industries.filter(Boolean) : [];
+  if (industries.length === 0) {
+    gaps.push({ label: "No industries", points: 15 });
+  }
+
+  const keywords = normalizeStringList(
+    Array.isArray(company.keywords) ? company.keywords : company.product_keywords || company.keywords,
+  );
+  const kw = keywords.length;
+  if (kw < 15) {
+    const earned = kw >= 8 ? 15 : kw >= 3 ? 8 : 0;
+    gaps.push({ label: kw === 0 ? "No keywords" : `Only ${kw} keyword${kw === 1 ? "" : "s"} (15 for full score)`, points: 20 - earned });
+  }
+
+  if (!hasHeadquarters(company)) {
+    gaps.push({ label: "No headquarters location", points: 15 });
+  }
+
+  if (!hasManufacturing(company)) {
+    gaps.push({ label: "No manufacturing locations", points: 15 });
+  }
+
+  if (!hasReviews(company)) {
+    gaps.push({ label: "No reviews", points: 15 });
+  }
+
+  return gaps;
+}
+
 export function getProfileCompletenessLabel(score: number): string {
   const s = Math.max(0, Math.min(100, Math.round(score)));
   if (s >= 85) return "Complete";
