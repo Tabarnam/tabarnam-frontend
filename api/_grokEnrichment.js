@@ -824,7 +824,9 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       ptCandidates.push({
         source_url: url,
         source_name: getField("Source") || null,
+        author: getField("Author") || null,
         title: getField("Title") || null,
+        date: getField("Date") || null,
         excerpt: getField("Text") || null,
         category: isYouTubeUrl(url) ? "youtube" : "blog",
       });

@@ -2811,6 +2811,12 @@ async function resumeWorkerHandler(req, context) {
 
     const sessionPatch = {
       resume_needed: finalResumeNeeded,
+      // Signal completion on the session doc so import-status detects it
+      ...(!finalResumeNeeded ? {
+        status: "complete",
+        stage_beacon: finalStatus === "complete" ? "complete" : "terminal_only",
+        completed_at: updatedAt,
+      } : {}),
       resume_updated_at: updatedAt,
       resume_worker_last_finished_at: updatedAt,
       resume_worker_last_result: finalStatus,
@@ -2852,6 +2858,26 @@ async function resumeWorkerHandler(req, context) {
     }).catch((err) => {
       console.error(`[resume-worker] Session doc patch failed for session ${sessionId}: ${err?.message || err}`);
     });
+
+    // Write the completion doc so import-status detects terminal state.
+    // This path is the main enrichment loop; the post-enrichment path has its own write at line ~4475.
+    if (!finalResumeNeeded && seedDocs.length > 0) {
+      const savedIds = seedDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
+      await upsertDoc(container, {
+        id: completionDocId,
+        session_id: sessionId,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        completed_at: updatedAt,
+        updated_at: updatedAt,
+        reason: finalStatus === "complete" ? "complete" : "terminal",
+        saved: savedIds.length,
+        saved_ids: savedIds,
+        saved_company_ids_verified: savedIds,
+        saved_verified_count: savedIds.length,
+      }).catch(() => null);
+    }
 
     return json(
       {

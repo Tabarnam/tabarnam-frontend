@@ -380,7 +380,13 @@ export default function ExpandableCompanyRow({
 
   const renderRightColumn = (colKey) => {
     if (colKey === "manu") {
-      const maxVisible = isExpanded ? manuLocations.length : 3;
+      // Show up to 3, but if there's only 1 more beyond that, show it instead of "+1 more"
+      const baseMax = 3;
+      const maxVisible = isExpanded
+        ? manuLocations.length
+        : manuLocations.length - baseMax === 1
+          ? baseMax + 1
+          : baseMax;
       const visible = manuLocations.slice(0, maxVisible);
       const hiddenCount = manuLocations.length - visible.length;
       return (
