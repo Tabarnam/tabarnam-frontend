@@ -168,6 +168,7 @@ function getLocationAddress(loc) {
     loc.location,
     loc.city && loc.state && loc.country ? `${loc.city}, ${loc.state}, ${loc.country}` : "",
     loc.city && loc.country ? `${loc.city}, ${loc.country}` : "",
+    loc.city || "",
     stateOrRegion && loc.country ? `${stateOrRegion}, ${loc.country}` : "",
     loc.country || "",
   ];
