@@ -2831,7 +2831,7 @@ export default function CompanyDashboard() {
         name: "Edit",
         button: true,
         cell: (row) => (
-          <Button size="sm" variant="outline" onClick={() => openEditorForCompany(row)}>
+          <Button size="sm" variant="ghost" onClick={() => openEditorForCompany(row)}>
             <Pencil className="h-4 w-4" />
           </Button>
         ),
@@ -2931,8 +2931,8 @@ export default function CompanyDashboard() {
         width: "80px",
         cell: (row) => {
           const val = getQQScore(row);
-          if (!val) return <span className="text-xs text-slate-400 dark:text-muted-foreground">—</span>;
-          return <span className="text-xs text-slate-900 dark:text-foreground">{val.toFixed(1)}</span>;
+          if (!val) return <span className="text-xs opacity-40">—</span>;
+          return <span className="text-xs">{val.toFixed(1)}</span>;
         },
       },
       {
