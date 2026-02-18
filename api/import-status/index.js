@@ -1027,6 +1027,16 @@ async function handler(req, context) {
       }
     }
 
+    // Re-patch report.session after worker completes so the response doesn't carry
+    // stale resume_needed=true from the pre-worker session doc snapshot.
+    // Without this, the frontend OR-gates body.resume_needed (false) with
+    // report.session.resume_needed (stale true) and shows "waiting for worker".
+    if (resume_triggered && !resume_needed && report?.session) {
+      report.session.resume_needed = false;
+      report.session.status = "complete";
+      report.session.stage_beacon = "complete";
+    }
+
     const reportSessionStatus = typeof report?.session?.status === "string" ? report.session.status.trim() : "";
     const reportSessionStageBeacon = typeof report?.session?.stage_beacon === "string" ? report.session.stage_beacon.trim() : "";
 

@@ -328,7 +328,9 @@ export default function AdminImport() {
     async ({ session_id }) => {
       try {
         const encoded = encodeURIComponent(session_id);
-        const { res } = await apiFetchWithFallback([`/import/status?session_id=${encoded}`]);
+        const { res } = await apiFetchWithFallback([`/import/status?session_id=${encoded}`], {
+          signal: AbortSignal.timeout(STATUS_POLL_TIMEOUT_MS),
+        });
         const body = await readJsonOrText(res);
 
         const state = typeof body?.state === "string" ? body.state : "";
@@ -649,11 +651,13 @@ export default function AdminImport() {
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
-              progress_notice: terminalOnlyFlag && isTerminalComplete
-                ? "Completed (terminal-only): remaining missing fields were marked Not disclosed / Exhausted."
-                : shouldBackoffForResume
-                  ? `Resume ${resumeStatusLabel || "queued"}, waiting for worker. Polling will slow down.`
-                  : r.progress_notice,
+              progress_notice: isTerminalComplete && !terminalOnlyFlag
+                ? null
+                : terminalOnlyFlag && isTerminalComplete
+                  ? "Completed (terminal-only): remaining missing fields were marked Not disclosed / Exhausted."
+                  : shouldBackoffForResume
+                    ? `Resume ${resumeStatusLabel || "queued"}, waiting for worker. Polling will slow down.`
+                    : r.progress_notice,
               updatedAt: new Date().toISOString(),
             };
           })
@@ -687,6 +691,7 @@ export default function AdminImport() {
   const DEFAULT_POLL_INTERVAL_MS = 2500;
   const RESUME_POLL_RUNNING_MS = 15_000;
   const RESUME_POLL_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000];
+  const STATUS_POLL_TIMEOUT_MS = 180_000; // 3 min — generous for inline worker, short enough to recover from hung connections
 
   const resetPollAttempts = useCallback((session_id) => {
     if (!session_id) return;
