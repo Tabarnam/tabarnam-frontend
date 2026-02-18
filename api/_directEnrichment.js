@@ -363,7 +363,15 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     const reviews = enriched.reviews.reviews || enriched.reviews.review_candidates || [];
     updated.curated_reviews = reviews;
     updated.review_count = reviews.length;
-    updated.reviews_stage_status = enriched.reviews.reviews_status || "ok";
+    const rawReviewsStatus = enriched.reviews.reviews_status || "ok";
+    // Signal "incomplete" when review count is below the quality threshold so the
+    // resume-worker re-fetches with the stronger fetchCuratedReviews() prompt.
+    // Threshold matches resume-worker success gate (line 2508: curated.length >= 3).
+    const REVIEWS_QUALITY_THRESHOLD = 3;
+    updated.reviews_stage_status =
+      rawReviewsStatus === "ok" && reviews.length > 0 && reviews.length < REVIEWS_QUALITY_THRESHOLD
+        ? "incomplete"
+        : rawReviewsStatus;
     updated.reviews_searched_at = enriched.reviews.searched_at;
   }
 

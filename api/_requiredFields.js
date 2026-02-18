@@ -646,15 +646,14 @@ function isRealValue(field, value, doc) {
 
     const reviewCount = Number.isFinite(Number(doc?.review_count)) ? Number(doc.review_count) : 0;
 
-    // If reviews_stage_status is "incomplete", the resume-worker has signaled that more
-    // reviews are needed (e.g. verified count < REVIEWS_MIN_VIABLE).  Keep the field
-    // unsatisfied so import-status won't finalize before a queued retry cycle can run.
-    // Data-wins-over-flag: if curated reviews exist (admin-added or pipeline-found),
-    // they satisfy the field regardless of the "incomplete" pipeline signal.
-    // "incomplete" only blocks when there are truly no curated reviews yet.
+    // "incomplete" signals the pipeline found some reviews but below the quality
+    // threshold. Return false so the resume-worker re-fetches with the stronger
+    // fetchCuratedReviews() prompt. Threshold matches resume-worker success gate
+    // (line 2508: status === "ok" && curated.length >= 3).
+    const REVIEWS_QUALITY_THRESHOLD = 3;
     const stageStatus = (doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status || "")
       .toString().toLowerCase().trim();
-    if (stageStatus === "incomplete" && curated.length === 0) return false;
+    if (stageStatus === "incomplete" && curated.length < REVIEWS_QUALITY_THRESHOLD) return false;
 
     // Data completeness (separate from retry/terminal state): we only treat reviews as present
     // when we actually have review data.
