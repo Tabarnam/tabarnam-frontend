@@ -609,7 +609,7 @@ export default function ExpandableCompanyRow({
                       href={withAmazonAffiliate(amazonLink)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-flex items-center gap-1 py-1 px-2 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                      className="text-[1.25em] text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-flex items-center gap-1 py-1 px-2 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                       onClick={(e) => e.stopPropagation()}
                     >
                       Amazon
@@ -641,12 +641,29 @@ export default function ExpandableCompanyRow({
 
           <div className="col-span-2 lg:col-span-1">
             {shouldShowLogo ? (
-              <img
-                src={logoUrl}
-                alt={displayName}
-                className="w-full max-h-60 h-auto object-contain"
-                onError={() => setLogoFailed(true)}
-              />
+              websiteUrl ? (
+                <a
+                  href={websiteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="block"
+                >
+                  <img
+                    src={logoUrl}
+                    alt={displayName}
+                    className="w-full max-h-60 h-auto object-contain"
+                    onError={() => setLogoFailed(true)}
+                  />
+                </a>
+              ) : (
+                <img
+                  src={logoUrl}
+                  alt={displayName}
+                  className="w-full max-h-60 h-auto object-contain"
+                  onError={() => setLogoFailed(true)}
+                />
+              )
             ) : (
               <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
                 {logoStatus === "not_found_on_site" ? (
@@ -805,7 +822,7 @@ export default function ExpandableCompanyRow({
                   href={withAmazonAffiliate(amazonLink)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-flex items-center gap-0.5 py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                  className="text-[1.25em] text-blue-600 dark:text-blue-400 hover:underline font-semibold inline-flex items-center gap-0.5 py-0.5 px-1 -mx-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                   onClick={(e) => e.stopPropagation()}
                 >
                   Amazon
@@ -843,12 +860,29 @@ export default function ExpandableCompanyRow({
       {/* Logo Column */}
       <div className="col-span-2 lg:col-span-1">
         {shouldShowLogo ? (
-          <img
-            src={logoUrl}
-            alt={displayName}
-            className="w-full max-h-60 h-auto object-contain"
-            onError={() => setLogoFailed(true)}
-          />
+          websiteUrl ? (
+            <a
+              href={websiteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="block"
+            >
+              <img
+                src={logoUrl}
+                alt={displayName}
+                className="w-full max-h-60 h-auto object-contain"
+                onError={() => setLogoFailed(true)}
+              />
+            </a>
+          ) : (
+            <img
+              src={logoUrl}
+              alt={displayName}
+              className="w-full max-h-60 h-auto object-contain"
+              onError={() => setLogoFailed(true)}
+            />
+          )
         ) : (
           <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
             {logoStatus === "not_found_on_site" ? (
