@@ -687,6 +687,8 @@ export default function CompanyDashboard() {
   const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false);
   const [deleteConfirmError, setDeleteConfirmError] = useState(null);
 
+  const [proposedConfirmOpen, setProposedConfirmOpen] = useState(false);
+
   const requestSeqRef = useRef(0);
   const abortRef = useRef(null);
   const editorFetchSeqRef = useRef(0);
@@ -2423,6 +2425,17 @@ export default function CompanyDashboard() {
       setEditorSaving(false);
     }
   }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, proposedDraft, refreshDiffFields, refreshSelection, refreshTaglineMeta]);
+
+  const handleSaveClick = useCallback(() => {
+    // Only gate when editing an existing company (not creating)
+    // and there are unaddressed proposed changes
+    const unaddressedCount = diffRows.filter((r) => !refreshSelection[r.key]).length;
+    if (editorOriginalId && unaddressedCount > 0) {
+      setProposedConfirmOpen(true);
+      return;
+    }
+    saveEditor();
+  }, [diffRows, editorOriginalId, refreshSelection, saveEditor]);
 
   // Ctrl/Cmd+S keyboard shortcut to save
   useEffect(() => {
@@ -4688,7 +4701,7 @@ export default function CompanyDashboard() {
                   <Button variant="outline" onClick={closeEditor}>
                     Cancel
                   </Button>
-                  <Button onClick={saveEditor} disabled={editorSaving || Boolean(editorValidationError)}>
+                  <Button onClick={handleSaveClick} disabled={editorSaving || Boolean(editorValidationError)}>
                     <Save className="h-4 w-4 mr-2" />
                     {editorSaving ? "Saving…" : editorOriginalId ? "Save & Close" : "Create"}
                   </Button>
@@ -4746,6 +4759,30 @@ export default function CompanyDashboard() {
                   disabled={deleteConfirmLoading}
                 >
                   {deleteConfirmLoading ? "Deleting…" : "Delete"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog open={proposedConfirmOpen} onOpenChange={setProposedConfirmOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Unaddressed proposed changes</AlertDialogTitle>
+                <AlertDialogDescription>
+                  There are proposed changes that haven't been applied or dismissed.
+                  Saving now will close without addressing them.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setProposedConfirmOpen(false);
+                    saveEditor();
+                  }}
+                >
+                  Save &amp; Close
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
