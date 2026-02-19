@@ -138,6 +138,7 @@ async function runDirectEnrichment({
   existingAttempts = {},
   skipDedicatedDeepening = false,
   dedicatedFieldsOnly,            // NEW: when set, Phase 3 only deepens these fields
+  onIntermediateSave,             // Optional: fires after Phase 2 with verified fields (survives DrainMode)
 } = {}) {
   const startedAt = Date.now();
   const resolvedXaiUrl = asString(xaiUrl).trim() || getXAIEndpoint();
@@ -188,6 +189,7 @@ async function runDirectEnrichment({
       fieldsToEnrich,
       skipDedicatedDeepening,
       dedicatedFieldsOnly,
+      onIntermediateSave,
     });
 
     result.enrichment_method = ecf.method || "unified";

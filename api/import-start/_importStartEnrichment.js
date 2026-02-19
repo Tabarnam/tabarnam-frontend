@@ -1041,6 +1041,32 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         fieldsToEnrich: [...ALL_CORE_FIELDS],
         skipDedicatedDeepening: false,
         dedicatedFieldsOnly: ["reviews"],
+        // Save Phase 1+2 results to Cosmos immediately after verification so
+        // the resume-worker sees populated fields even if Azure DrainMode kills
+        // Phase 3 (review deepening). Without this, a DrainMode event loses all
+        // Phase 1+2 work and forces the resume-worker to re-fetch every field.
+        // Pattern follows _adminRefreshCompany.js intermediateSaveCallback.
+        onIntermediateSave: async (verified, _verificationStatus) => {
+          try {
+            const mapped = { ...verified };
+            // enrichCompanyFields returns "product_keywords" / "reviews";
+            // Cosmos doc uses "keywords" alias and "curated_reviews".
+            if (mapped.product_keywords && !mapped.keywords) {
+              mapped.keywords = mapped.product_keywords;
+            }
+            if (mapped.reviews && !mapped.curated_reviews) {
+              mapped.curated_reviews = mapped.reviews;
+              delete mapped.reviews;
+            }
+            // Apply to in-memory doc and upsert to Cosmos
+            Object.assign(companyDoc, mapped);
+            companyDoc.updated_at = new Date().toISOString();
+            await upsertItemWithPkCandidates(container, companyDoc);
+            console.log(`[import-start] session=${sessionId} Phase 2 intermediate save OK: [${Object.keys(mapped).join(", ")}]`);
+          } catch (err) {
+            console.warn(`[import-start] session=${sessionId} Phase 2 intermediate save failed: ${err?.message}`);
+          }
+        },
       });
       const pass1aState = await applyAndUpsertEnrichment(enrichResult1a, "PASS1a");
 

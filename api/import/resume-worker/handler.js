@@ -2702,14 +2702,14 @@ async function resumeWorkerHandler(req, context) {
 
       const hasTimeout = attemptedProgress.some((p) => String(p?.last_error || "") === "upstream_timeout");
       if (hasTimeout) {
-        const schedule = [30_000, 60_000, 120_000];
+        const schedule = [15_000, 30_000, 60_000];
         const idx = Math.min(schedule.length - 1, Math.max(0, nextCycleCount - 1));
         return { reason: "timeout", backoff_ms: schedule[idx] };
       }
 
       const hasNetwork = attemptedProgress.some((p) => String(p?.last_error || "") === "upstream_unreachable");
       if (hasNetwork) {
-        const schedule = [30_000, 60_000, 120_000];
+        const schedule = [15_000, 30_000, 60_000];
         const idx = Math.min(schedule.length - 1, Math.max(0, nextCycleCount - 1));
         return { reason: "network", backoff_ms: schedule[idx] };
       }
