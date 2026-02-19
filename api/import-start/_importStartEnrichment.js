@@ -1041,6 +1041,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         fieldsToEnrich: [...ALL_CORE_FIELDS],
         skipDedicatedDeepening: false,
         dedicatedFieldsOnly: ["reviews"],
+        phase3BudgetCapMs: 90000,         // Cap Phase 3 at 90s — enough for one search, not 3+ min waste on timeout
         // Save Phase 1+2 results to Cosmos immediately after verification so
         // the resume-worker sees populated fields even if Azure DrainMode kills
         // Phase 3 (review deepening). Without this, a DrainMode event loses all

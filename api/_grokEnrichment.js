@@ -2322,6 +2322,7 @@ async function fillMissingFieldsIndividually(missingFields, {
   budgetMs = 120000,
   xaiUrl,
   xaiKey,
+  attempted_urls = [],
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -2358,7 +2359,7 @@ async function fillMissingFieldsIndividually(missingFields, {
         fieldNames.push("keywords");
         break;
       case "reviews":
-        promises.push(fetchCuratedReviews(args));
+        promises.push(fetchCuratedReviews({ ...args, attempted_urls }));
         fieldNames.push("reviews");
         break;
     }
@@ -2473,6 +2474,7 @@ async function enrichCompanyFields({
   skipDedicatedDeepening = false,
   dedicatedFieldsOnly,            // NEW: when set, Phase 3 only zeros out and re-fetches these fields
   onIntermediateSave,
+  phase3BudgetCapMs,              // optional cap on Phase 3 budget (e.g. PASS1a uses 90s)
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -2623,12 +2625,19 @@ async function enrichCompanyFields({
         const AZURE_FUNCTION_TIMEOUT_MS = 600_000; // 10 minutes — must match host.json
         const elapsedSinceStart = Date.now() - started;
         const azureBudgetRemaining = Math.max(0, AZURE_FUNCTION_TIMEOUT_MS - elapsedSinceStart - 15_000);
-        const phase3Budget = Math.min(getRemainingMs() - 5000, azureBudgetRemaining);
+        const phase3Budget = Math.min(
+          getRemainingMs() - 5000,
+          azureBudgetRemaining,
+          ...(Number.isFinite(phase3BudgetCapMs) ? [phase3BudgetCapMs] : [])
+        );
 
         console.log(`[enrichCompanyFields] Phase 3: dedicated deepening [${filteredMissing.join(", ")}]${Array.isArray(dedicatedFieldsOnly) ? ` (selective: ${dedicatedFieldsOnly.join(", ")})` : ""}, remaining=${getRemainingMs()}ms, phase3Budget=${phase3Budget}ms`);
         const { filled, field_statuses: fStatuses } = await fillMissingFieldsIndividually(
           filteredMissing,
-          { companyName, normalizedDomain: domain, budgetMs: phase3Budget, xaiUrl, xaiKey }
+          {
+            companyName, normalizedDomain: domain, budgetMs: phase3Budget, xaiUrl, xaiKey,
+            attempted_urls: verification_status.reviews_attempted_urls || [],
+          }
         );
         Object.assign(verified, filled);
         fallback_statuses = fStatuses;
