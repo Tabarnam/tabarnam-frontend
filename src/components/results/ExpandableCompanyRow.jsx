@@ -537,11 +537,15 @@ export default function ExpandableCompanyRow({
 
   const handleRowClick = (e) => {
     if (e.target.closest(INTERACTIVE_SELECTOR)) return;
+    const sel = window.getSelection();
+    if (sel && sel.toString().length > 0) return;
     setIsExpanded(true);
   };
 
   const handleExpandedClick = (e) => {
     if (e.target.closest(INTERACTIVE_SELECTOR)) return;
+    const sel = window.getSelection();
+    if (sel && sel.toString().length > 0) return;
     setIsExpanded(false);
   };
 
@@ -554,7 +558,7 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-pointer relative"
+        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-default relative"
       >
         {/* Collapse chevron + share button row */}
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
