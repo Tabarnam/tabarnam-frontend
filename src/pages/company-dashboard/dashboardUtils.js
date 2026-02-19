@@ -458,6 +458,17 @@ export function getContractMissingFields(company) {
     .map((v) => v.trim())
     .filter(Boolean);
 
+  // Drop "reviews"/"curated_reviews" from backend missing_fields if the company
+  // actually has review data.  The backend threshold (≥3) drives resume-worker
+  // retries; the ISSUES column should only flag companies with zero reviews.
+  const hasAnyReviews = getComputedReviewCount(company) > 0;
+  if (hasAnyReviews) {
+    const reviewFieldSet = new Set(["reviews", "curated_reviews"]);
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (reviewFieldSet.has(fields[i])) fields.splice(i, 1);
+    }
+  }
+
   // Check for missing Amazon URL (unless marked as "no_amazon_store")
   const hasAmazonUrl = Boolean(asString(company?.amazon_url).trim());
   const noAmazonStore = Boolean(company?.no_amazon_store);
