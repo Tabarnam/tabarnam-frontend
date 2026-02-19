@@ -16,16 +16,16 @@ export default function StatusAlerts({
     <>
       {/* Error status */}
       {activeRun?.start_error && !activeRun.completed ? (
-        <div className="rounded-lg border border-red-300 bg-red-50 p-4 flex items-center gap-4">
+        <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/50 p-4 flex items-center gap-4">
           <div className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </div>
           <div className="flex-1">
-            <div className="text-sm font-medium text-red-900">{activeRun.start_error}</div>
+            <div className="text-sm font-medium text-red-900 dark:text-red-200">{activeRun.start_error}</div>
             {activeRun.progress_notice ? (
-              <div className="text-xs text-red-700 mt-0.5">{activeRun.progress_notice}</div>
+              <div className="text-xs text-red-700 dark:text-red-300 mt-0.5">{activeRun.progress_notice}</div>
             ) : null}
           </div>
         </div>
@@ -33,13 +33,13 @@ export default function StatusAlerts({
 
       {/* Live status indicator - keep visible during enrichment even after company is created */}
       {activeRun && activeStatus !== "idle" && (activeStatus === "running" || activeStatus === "stopping" || activeRun.resume_needed || (!activeRun.completed && !activeRun.stopped && !activeRun.timedOut)) ? (
-        <div className="rounded-lg border border-blue-300 bg-blue-50 p-4 flex items-center gap-4">
+        <div className="rounded-lg border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 p-4 flex items-center gap-4">
           <div className="relative flex h-3 w-3">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-blue-900">
+            <div className="text-sm font-medium text-blue-900 dark:text-blue-200">
               {(() => {
                 const stageBeacon = asString(activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
                 const resumeNeeded = Boolean(activeRun.resume_needed);
@@ -76,7 +76,7 @@ export default function StatusAlerts({
                 return "Import in progress...";
               })()}
             </div>
-            <div className="text-xs text-blue-700 mt-0.5">
+            <div className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
               {(() => {
                 const parts = [];
                 const savedCount = Number(activeRun.saved ?? 0) || 0;
@@ -95,14 +95,14 @@ export default function StatusAlerts({
             </div>
           </div>
           {activeRun.progress_notice ? (
-            <div className="text-xs text-blue-600 max-w-xs truncate" title={activeRun.progress_notice}>
+            <div className="text-xs text-blue-600 dark:text-blue-300 max-w-xs truncate" title={activeRun.progress_notice}>
               {activeRun.progress_notice}
             </div>
           ) : null}
           <button
             type="button"
             onClick={replayNotification}
-            className="shrink-0 rounded-md p-1.5 text-blue-600 hover:bg-blue-100 transition-colors"
+            className="shrink-0 rounded-md p-1.5 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
             title="Replay notification sound"
           >
             <Volume2 className="h-4 w-4" />
@@ -122,17 +122,17 @@ export default function StatusAlerts({
           const dupName = activeRun.duplicate_company_name || activeRun.items?.[0]?.company_name || "";
           const dupId = activeRun.duplicate_of_id || "";
           return (
-            <div className="rounded-lg border border-sky-300 bg-sky-50 p-4 flex items-center gap-4">
+            <div className="rounded-lg border border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/50 p-4 flex items-center gap-4">
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-500 text-white">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
               </div>
               <div className="flex-1">
-                <div className="text-sm font-medium text-sky-900">
+                <div className="text-sm font-medium text-sky-900 dark:text-sky-200">
                   Already exists{dupName ? `: ${dupName}` : ""}
                 </div>
-                <div className="text-xs text-sky-700 mt-0.5">
+                <div className="text-xs text-sky-700 dark:text-sky-300 mt-0.5">
                   This company is already in the database.{dupId ? ` Edit it in the Companies tab.` : ""}
                 </div>
               </div>
@@ -156,9 +156,9 @@ export default function StatusAlerts({
         const isProgressStage = STAGE_BEACON_PROGRESS_OR_SUCCESS.has(stageBeacon) || resumeNeeded;
         const useGreen = hasSave || isProgressStage;
 
-        const borderClass = useGreen ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50";
-        const textClass = useGreen ? "text-emerald-900" : "text-amber-900";
-        const subTextClass = useGreen ? "text-emerald-700" : "text-amber-700";
+        const borderClass = useGreen ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50" : "border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50";
+        const textClass = useGreen ? "text-emerald-900 dark:text-emerald-200" : "text-amber-900 dark:text-amber-200";
+        const subTextClass = useGreen ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300";
         const iconBgClass = useGreen ? "bg-emerald-500" : "bg-amber-500";
 
         // Choose message text: avoid alarming "Import finished — no company saved" for
@@ -199,7 +199,7 @@ export default function StatusAlerts({
             <button
               type="button"
               onClick={replayNotification}
-              className={`shrink-0 rounded-md p-1.5 ${useGreen ? "text-emerald-600 hover:bg-emerald-100" : "text-amber-600 hover:bg-amber-100"} transition-colors`}
+              className={`shrink-0 rounded-md p-1.5 ${useGreen ? "text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50" : "text-amber-600 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50"} transition-colors`}
               title="Replay notification sound"
             >
               <Volume2 className="h-4 w-4" />
@@ -209,11 +209,11 @@ export default function StatusAlerts({
       })() : null}
 
       {!API_BASE ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 flex items-start gap-3">
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 p-4 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 mt-0.5" />
           <div className="space-y-1">
             <div className="font-semibold">Import is not configured</div>
-            <div className="text-amber-900/90">API base could not be resolved, and /api fallback is unavailable.</div>
+            <div className="text-amber-900/90 dark:text-amber-200/90">API base could not be resolved, and /api fallback is unavailable.</div>
           </div>
         </div>
       ) : null}

@@ -3746,7 +3746,7 @@ export default function AdminImport() {
             </div>
 
             {activeAsyncPrimaryMessage ? (
-              <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+              <div className="rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 px-3 py-2 text-sm text-blue-900 dark:text-blue-200">
                 {activeAsyncPrimaryMessage}
               </div>
             ) : null}
