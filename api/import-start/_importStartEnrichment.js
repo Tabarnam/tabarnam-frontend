@@ -1042,7 +1042,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       // A company needs resume if it has retryable missing fields OR reviews below quality threshold.
       const missingAfterPass1a = pass1aState?.import_missing_fields || [];
       const reviewsStatusAfterPass1a = pass1aState?.reviews_stage_status || "";
-      const companyNeedsResume = missingAfterPass1a.length > 0 || reviewsStatusAfterPass1a === "incomplete";
+      const companyNeedsResume = missingAfterPass1a.length > 0 || reviewsStatusAfterPass1a === "incomplete" || reviewsStatusAfterPass1a === "empty";
       if (companyNeedsResume) anyNeedsResume = true;
       console.log(`[import-start] session=${sessionId} company=${companyId} needs_resume=${companyNeedsResume} missing_count=${missingAfterPass1a.length} reviews_status=${reviewsStatusAfterPass1a} anyNeedsResume=${anyNeedsResume}`);
 
