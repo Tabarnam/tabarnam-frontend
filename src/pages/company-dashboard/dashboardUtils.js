@@ -934,8 +934,17 @@ export function getItemDedupKey(fieldKey, item) {
       return asString(item).trim().toLowerCase();
 
     case "headquarters_locations":
-    case "manufacturing_locations":
-      return (formatStructuredLocation(item) || "").toLowerCase().trim();
+    case "manufacturing_locations": {
+      // Build dedup key from city|region|country directly — ignoring the `formatted`
+      // field which can differ between geocoded (current) and xAI-proposed objects
+      // even when they represent the same place (e.g. "Massachusetts" vs "MA").
+      if (typeof item === "string") return item.trim().toLowerCase();
+      if (typeof item !== "object" || !item) return "";
+      const city = asString(item.city).trim().toLowerCase();
+      const region = asString(item.region || item.state).trim().toLowerCase();
+      const country = asString(item.country).trim().toLowerCase();
+      return [city, region, country].filter(Boolean).join("|");
+    }
 
     case "location_sources": {
       if (typeof item !== "object") return asString(item).trim().toLowerCase();
