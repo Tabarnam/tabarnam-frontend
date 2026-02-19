@@ -108,6 +108,9 @@ export default function AdminImport() {
   const successionTriggerRef = useRef(false);
   const successionCount = normalizeSuccessionCount(successionCountInput);
 
+  // Spreadsheet paste state
+  const [spreadsheetPasteOpen, setSpreadsheetPasteOpen] = useState(false);
+  const [spreadsheetPasteText, setSpreadsheetPasteText] = useState("");
 
   const importConfigured = Boolean(API_BASE);
 
@@ -216,6 +219,55 @@ export default function AdminImport() {
       if (field === "companyUrl") setCompanyUrl(value);
     }
   }, []);
+
+  // Spreadsheet paste: parse tab-separated lines into succession rows
+  const handleSpreadsheetPaste = useCallback((text) => {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      toast.error("No rows found. Paste tab-separated rows (Company Name \\t URL).");
+      return;
+    }
+
+    let truncated = false;
+    let trimmedLines = lines;
+    if (trimmedLines.length > SUCCESSION_MAX) {
+      trimmedLines = trimmedLines.slice(0, SUCCESSION_MAX);
+      truncated = true;
+    }
+
+    const rows = trimmedLines.map((line) => {
+      const cols = line.split("\t").map((c) => c.trim());
+      if (cols.length >= 2) {
+        return { companyName: cols[0], companyUrl: cols[1] };
+      }
+      // Single column: detect if it looks like a URL
+      const val = cols[0];
+      if (looksLikeUrlOrDomain(val)) {
+        return { companyName: "", companyUrl: val };
+      }
+      return { companyName: val, companyUrl: "" };
+    });
+
+    setSuccessionRows(rows);
+    setSuccessionCountInput(String(rows.length));
+    // Sync first row to the primary query/url inputs
+    if (rows.length > 0) {
+      setQuery(rows[0].companyName);
+      setCompanyUrl(rows[0].companyUrl);
+    }
+    setSpreadsheetPasteOpen(false);
+    setSpreadsheetPasteText("");
+
+    if (truncated) {
+      toast.warning(`Pasted ${rows.length} companies (truncated from ${lines.length} — max ${SUCCESSION_MAX}).`);
+    } else {
+      toast.success(`Pasted ${rows.length} compan${rows.length === 1 ? "y" : "ies"} from spreadsheet.`);
+    }
+  }, []);
+
+  const spreadsheetPasteRowCount = useMemo(() => {
+    return spreadsheetPasteText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).length;
+  }, [spreadsheetPasteText]);
 
   const activeRun = useMemo(() => {
     if (!activeSessionId) return null;
@@ -3448,20 +3500,72 @@ export default function AdminImport() {
 
               <div className="space-y-1">
                 <label className="text-sm text-slate-700 dark:text-muted-foreground"># of Imports to Run in Succession</label>
-                <Input
-                  value={successionCountInput}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    if (next === "" || /^\d+$/.test(next)) {
-                      handleSuccessionCountChange(next);
-                    }
-                  }}
-                  onBlur={() => setSuccessionCountInput((prev) => String(normalizeSuccessionCount(prev)))}
-                  inputMode="numeric"
-                  disabled={isSuccessionRunning}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={successionCountInput}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (next === "" || /^\d+$/.test(next)) {
+                        handleSuccessionCountChange(next);
+                      }
+                    }}
+                    onBlur={() => setSuccessionCountInput((prev) => String(normalizeSuccessionCount(prev)))}
+                    inputMode="numeric"
+                    disabled={isSuccessionRunning}
+                    className="w-20"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="whitespace-nowrap text-xs"
+                    disabled={isSuccessionRunning}
+                    onClick={() => setSpreadsheetPasteOpen((v) => !v)}
+                  >
+                    {spreadsheetPasteOpen ? "Cancel paste" : "Paste from spreadsheet"}
+                  </Button>
+                </div>
               </div>
             </div>
+
+            {spreadsheetPasteOpen ? (
+              <div className="rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-4 space-y-3">
+                <div className="text-sm text-slate-700 dark:text-muted-foreground">
+                  Paste rows from your spreadsheet (<span className="font-medium">Company Name</span> &rarr; <span className="font-medium">URL</span>, tab-separated).
+                </div>
+                <textarea
+                  value={spreadsheetPasteText}
+                  onChange={(e) => setSpreadsheetPasteText(e.target.value)}
+                  placeholder={"Faribault Mill\tfaribaultmill.com\nAmana Woolen Mill\tamanawoolenmill.com\nBerkshire Blanket\tberkshireblanket.com"}
+                  className="w-full h-36 rounded border border-slate-300 dark:border-border bg-white dark:bg-card px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                />
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-slate-500 dark:text-muted-foreground">
+                    {spreadsheetPasteRowCount} row{spreadsheetPasteRowCount !== 1 ? "s" : ""} detected
+                    {spreadsheetPasteRowCount > SUCCESSION_MAX ? ` (will truncate to ${SUCCESSION_MAX})` : ""}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setSpreadsheetPasteOpen(false); setSpreadsheetPasteText(""); }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={spreadsheetPasteRowCount === 0}
+                      onClick={() => handleSpreadsheetPaste(spreadsheetPasteText)}
+                    >
+                      Import {spreadsheetPasteRowCount} row{spreadsheetPasteRowCount !== 1 ? "s" : ""}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             {successionCount > 1 ? (
               <div className="space-y-2">
