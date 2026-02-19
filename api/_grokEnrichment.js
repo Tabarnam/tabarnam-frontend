@@ -1984,7 +1984,8 @@ Return STRICT JSON only:
   ${FIELD_GUIDANCE.manufacturing.jsonSchema},
   ${FIELD_GUIDANCE.industries.jsonSchema},
   ${FIELD_GUIDANCE.keywords.jsonSchemaArray},
-  ${FIELD_GUIDANCE.reviews.jsonSchemaRich}
+  ${FIELD_GUIDANCE.reviews.jsonSchemaRich},
+  "location_source_urls": { "hq_source_urls": ["https://..."], "mfg_source_urls": ["https://..."] }
 }`.trim();
 
   const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
@@ -2111,6 +2112,11 @@ Return STRICT JSON only:
       parsed_fields.headquarters_country = inferred.country;
       parsed_fields.headquarters_country_code = inferred.country_code;
     }
+  }
+
+  // Extract location source URLs for audit trail
+  if (parsed.location_source_urls && typeof parsed.location_source_urls === "object") {
+    parsed_fields.location_source_urls = parsed.location_source_urls;
   }
 
   console.log(`[fetchAllFieldsUnified] Parsed fields summary: tagline=${tagline ? "yes" : "no"}, hq=${hq_normalized || "none"}, mfg=${mfg_cleaned.length}, industries=${industries_cleaned.length}, keywords=${kw_cleaned.length}, reviews=${reviews_cleaned.length}`);

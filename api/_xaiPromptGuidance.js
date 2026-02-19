@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "1.3.0";
+const PROMPT_GUIDANCE_VERSION = "1.4.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -32,9 +32,9 @@ const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url
 // ---------------------------------------------------------------------------
 const FIELD_GUIDANCE = {
   headquarters: {
-    rules: `- Conduct thorough research. Cross-reference multiple sources.
-- Use web search (do not rely only on the company website).
-- Check LinkedIn, SEC filings, Crunchbase, official press releases, business registrations, state corporation records.
+    rules: `- START by browsing the company website — check About, Contact, Footer, and legal pages for self-reported HQ address or city.
+- Then cross-reference with at least 2 external sources: LinkedIn, SEC filings, Crunchbase, official press releases, business registrations, state corporation records.
+- Do NOT return a location unless at least 2 sources agree on the city.
 - Do deep dives for HQ location if necessary.
 - Having the actual city is crucial — do not return just the state or country if city-level data exists.
 - Use initials for state or province (e.g., "Austin, TX" not "Austin, Texas").
@@ -51,10 +51,12 @@ const FIELD_GUIDANCE = {
   },
 
   manufacturing: {
-    rules: `- Conduct thorough research to identify ALL known manufacturing locations worldwide.
+    rules: `- START by browsing the company website — check About, Our Story, FAQ, and product pages for any mention of where products are made.
+- Then cross-reference with external sources: press releases, job postings, facility announcements, regulatory filings, news articles, LinkedIn.
+- Conduct thorough research to identify ALL known manufacturing locations worldwide.
 - Include every city and country found. Deep-dive on any US sites to confirm actual cities.
-- Check press releases, job postings, facility announcements, regulatory filings, news articles, LinkedIn.
 - List them exhaustively without missing any.
+- Do NOT report a location unless you can corroborate it with at least 2 sources.
 - Having the actual cities within the USA is crucial. Be accurate.
 - Use initials for state or province (e.g., "Los Angeles, CA" not "Los Angeles, California").
 - Format: "City, ST, USA" for US, "City, ST, Canada" for Canada, "City, Country" for international.
@@ -204,7 +206,7 @@ Text: [1-3 sentence excerpt or summary of the review]`,
 // in sync with the full FIELD_GUIDANCE.*.rules above.
 // ---------------------------------------------------------------------------
 const FIELD_SUMMARIES = {
-  locations: `Do deep dives for hq and manufacturing locations if necessary. Including city or cities. Having the actual cities within the USA is crucial. No explanatory info - just locations. Use initials for state or province in location info. Use "USA" not "United States".`,
+  locations: `START by browsing the company website (About, Contact, Footer, legal pages) for self-reported HQ and manufacturing locations. Then cross-reference with at least 2 external sources (LinkedIn, Crunchbase, SEC filings, business registrations, press releases). Do NOT report a location unless at least 2 sources agree on the city. Having the actual cities within the USA is crucial. No explanatory info — just locations. Use initials for state or province. Use "USA" not "United States". Also return "location_source_urls" with the URLs you used to verify each location.`,
   industries: `Return as a JSON array of specific, descriptive industry strings. Avoid generic umbrella terms like "Consumer Goods" or "Food and Beverage".`,
   keywords: `Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.`,
 };
