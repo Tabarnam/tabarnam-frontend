@@ -960,23 +960,42 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       }
 
       // Fuzzy fallback: when exact search yields < 3 results and query is long enough,
-      // try a prefix-based search then post-filter with Levenshtein distance.
+      // try a prefix-based search then post-filter with Damerau-Levenshtein distance.
+      // Generate transposed prefix variants so that "fair" also tries "fari", "afir", "fiar"
+      // — catches transposition typos at the prefix boundary (e.g. "fairbuilt" → "faribault").
       if (items.length < 3 && q_norm && q_norm.length >= 4) {
         try {
-          const prefix = q_norm.substring(0, Math.min(4, q_norm.length));
-          const fuzzyParams = [
-            { name: "@fuzzyTake", value: limit },
-            { name: "@prefix", value: prefix },
-          ];
+          const basePrefix = q_norm.substring(0, Math.min(4, q_norm.length));
+          const prefixVariants = [basePrefix];
+          for (let i = 0; i < basePrefix.length - 1; i++) {
+            const chars = basePrefix.split("");
+            [chars[i], chars[i + 1]] = [chars[i + 1], chars[i]];
+            const transposed = chars.join("");
+            if (!prefixVariants.includes(transposed)) prefixVariants.push(transposed);
+          }
+
+          const fuzzyParams = [{ name: "@fuzzyTake", value: limit }];
+          prefixVariants.forEach((v, idx) => {
+            fuzzyParams.push({ name: `@prefix${idx}`, value: v });
+          });
+
+          // Build STARTSWITH OR clauses for each prefix variant
+          const prefixClauses = prefixVariants
+            .map((_, idx) => {
+              const p = `@prefix${idx}`;
+              return `(
+                (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), ${p})) OR
+                (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND STARTSWITH(LOWER(c.display_name), ${p})) OR
+                (IS_DEFINED(c.name) AND IS_STRING(c.name) AND STARTSWITH(LOWER(c.name), ${p})) OR
+                (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND STARTSWITH(LOWER(c.normalized_domain), ${p}))
+              )`;
+            })
+            .join(" OR ");
+
           const fuzzySql = `
             SELECT TOP @fuzzyTake ${SELECT_FIELDS}
             FROM c
-            WHERE (
-              (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), @prefix)) OR
-              (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND STARTSWITH(LOWER(c.display_name), @prefix)) OR
-              (IS_DEFINED(c.name) AND IS_STRING(c.name) AND STARTSWITH(LOWER(c.name), @prefix)) OR
-              (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND STARTSWITH(LOWER(c.normalized_domain), @prefix))
-            ) AND ${softDeleteFilter}
+            WHERE (${prefixClauses}) AND ${softDeleteFilter}
             ORDER BY c._ts DESC
           `;
           const fuzzyRes = await container.items
