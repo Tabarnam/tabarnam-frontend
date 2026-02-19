@@ -96,8 +96,10 @@ import {
   normalizeCompanyNotes,
   mergeCuratedReviews,
   copyToClipboard,
+  MERGEABLE_ARRAY_FIELDS,
 } from "./company-dashboard/dashboardUtils";
 
+import MergeableArrayDiff from "./company-dashboard/MergeableArrayDiff";
 import ReviewsImportPanel from "./company-dashboard/ReviewsImportPanel";
 import ImportedReviewsPanel from "./company-dashboard/ImportedReviewsPanel";
 import WebReviewFetcher from "./company-dashboard/WebReviewFetcher";
@@ -1340,6 +1342,8 @@ export default function CompanyDashboard() {
         label: f.label,
         currentText: diffToDisplay(f.key, currentVal),
         proposedText: diffToDisplay(f.key, proposedVal),
+        currentValue: currentVal,   // raw array for MergeableArrayDiff
+        proposedValue: proposedVal, // raw array for MergeableArrayDiff
       });
     }
 
@@ -3827,6 +3831,8 @@ export default function CompanyDashboard() {
                             diffRows.length > 0 ? (
                               <div className="space-y-3">
                                 {diffRows.map((row) => {
+                                  const isMergeable = MERGEABLE_ARRAY_FIELDS.has(row.key);
+
                                   const textValue = Object.prototype.hasOwnProperty.call(proposedDraftText || {}, row.key)
                                     ? proposedDraftText[row.key]
                                     : proposedValueToInputText(row.key, proposedDraft?.[row.key]);
@@ -3852,72 +3858,89 @@ export default function CompanyDashboard() {
                                               [row.key]: Boolean(checked),
                                             }))
                                           }
-                                          aria-label={`Overwrite ${row.label}`}
+                                          aria-label={`${isMergeable ? "Merge" : "Overwrite"} ${row.label}`}
                                         />
                                         <div className="flex-1 min-w-0">
                                           <div className="text-sm font-medium text-slate-900 dark:text-foreground">{row.label}</div>
-                                          <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                            <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
-                                              <div className="text-xs font-semibold text-slate-700 dark:text-muted-foreground">Current</div>
-                                              <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800 dark:text-foreground">{row.currentText}</pre>
-                                            </div>
-                                            <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
-                                              <div className="text-xs font-semibold text-slate-700 dark:text-muted-foreground">Proposed (editable)</div>
-                                              <div className="mt-1 flex items-start gap-2">
-                                                {isMultiLine ? (
-                                                  <Textarea
-                                                    value={textValue}
-                                                    onChange={(e) => {
-                                                      const nextText = e.target.value;
-                                                      setProposedDraftText((prev) => ({ ...(prev || {}), [row.key]: nextText }));
-                                                      setProposedDraft((prev) => {
-                                                        const base = prev && typeof prev === "object" ? prev : {};
-                                                        return {
-                                                          ...base,
-                                                          [row.key]: parseProposedInputText(row.key, nextText, base[row.key]),
-                                                        };
-                                                      });
-                                                    }}
-                                                    className="text-xs min-h-[84px] leading-snug"
-                                                    rows={4}
-                                                  />
-                                                ) : (
-                                                  <Input
-                                                    type="text"
-                                                    value={textValue}
-                                                    onChange={(e) => {
-                                                      const nextText = e.target.value;
-                                                      setProposedDraftText((prev) => ({ ...(prev || {}), [row.key]: nextText }));
-                                                      setProposedDraft((prev) => {
-                                                        const base = prev && typeof prev === "object" ? prev : {};
-                                                        return {
-                                                          ...base,
-                                                          [row.key]: parseProposedInputText(row.key, nextText, base[row.key]),
-                                                        };
-                                                      });
-                                                    }}
-                                                    className="h-9 text-xs"
-                                                  />
-                                                )}
 
-                                                <Button
-                                                  type="button"
-                                                  size="sm"
-                                                  variant="outline"
-                                                  className="h-9 w-9 p-0 flex-none"
-                                                  onClick={async () => {
-                                                    const ok = await copyToClipboard(textValue);
-                                                    if (ok) toast.success("Copied");
-                                                    else toast.error("Copy failed");
-                                                  }}
-                                                  disabled={!asString(textValue).trim()}
-                                                  title="Copy proposed"
-                                                >
-                                                  <Copy className="h-4 w-4" />
-                                                </Button>
+                                          {isMergeable ? (
+                                            /* ── Item-level merge UI for array fields ── */
+                                            <MergeableArrayDiff
+                                              fieldKey={row.key}
+                                              currentValue={row.currentValue}
+                                              proposedValue={row.proposedValue}
+                                              onMergedChange={(merged) => {
+                                                setProposedDraft((prev) => ({
+                                                  ...(prev && typeof prev === "object" ? prev : {}),
+                                                  [row.key]: merged,
+                                                }));
+                                              }}
+                                            />
+                                          ) : (
+                                            /* ── Original text-based diff UI for scalar fields ── */
+                                            <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                              <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
+                                                <div className="text-xs font-semibold text-slate-700 dark:text-muted-foreground">Current</div>
+                                                <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800 dark:text-foreground">{row.currentText}</pre>
+                                              </div>
+                                              <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
+                                                <div className="text-xs font-semibold text-slate-700 dark:text-muted-foreground">Proposed (editable)</div>
+                                                <div className="mt-1 flex items-start gap-2">
+                                                  {isMultiLine ? (
+                                                    <Textarea
+                                                      value={textValue}
+                                                      onChange={(e) => {
+                                                        const nextText = e.target.value;
+                                                        setProposedDraftText((prev) => ({ ...(prev || {}), [row.key]: nextText }));
+                                                        setProposedDraft((prev) => {
+                                                          const base = prev && typeof prev === "object" ? prev : {};
+                                                          return {
+                                                            ...base,
+                                                            [row.key]: parseProposedInputText(row.key, nextText, base[row.key]),
+                                                          };
+                                                        });
+                                                      }}
+                                                      className="text-xs min-h-[84px] leading-snug"
+                                                      rows={4}
+                                                    />
+                                                  ) : (
+                                                    <Input
+                                                      type="text"
+                                                      value={textValue}
+                                                      onChange={(e) => {
+                                                        const nextText = e.target.value;
+                                                        setProposedDraftText((prev) => ({ ...(prev || {}), [row.key]: nextText }));
+                                                        setProposedDraft((prev) => {
+                                                          const base = prev && typeof prev === "object" ? prev : {};
+                                                          return {
+                                                            ...base,
+                                                            [row.key]: parseProposedInputText(row.key, nextText, base[row.key]),
+                                                          };
+                                                        });
+                                                      }}
+                                                      className="h-9 text-xs"
+                                                    />
+                                                  )}
+
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-9 w-9 p-0 flex-none"
+                                                    onClick={async () => {
+                                                      const ok = await copyToClipboard(textValue);
+                                                      if (ok) toast.success("Copied");
+                                                      else toast.error("Copy failed");
+                                                    }}
+                                                    disabled={!asString(textValue).trim()}
+                                                    title="Copy proposed"
+                                                  >
+                                                    <Copy className="h-4 w-4" />
+                                                  </Button>
+                                                </div>
                                               </div>
                                             </div>
-                                          </div>
+                                          )}
                                         </div>
                                       </div>
                                     </div>

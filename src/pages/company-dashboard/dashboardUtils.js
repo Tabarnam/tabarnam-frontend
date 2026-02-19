@@ -869,3 +869,120 @@ export async function copyToClipboard(value) {
     return false;
   }
 }
+
+// ── Item-level merge helpers for array fields in the refresh diff ──
+
+/** Field keys that support item-level merge (checkbox per item). */
+export const MERGEABLE_ARRAY_FIELDS = new Set([
+  "industries",
+  "keywords",
+  "headquarters_locations",
+  "manufacturing_locations",
+  "location_sources",
+  "curated_reviews",
+]);
+
+/**
+ * Return a human-readable label for a single item within an array field.
+ * Used by MergeableArrayDiff to render checkbox labels.
+ */
+export function getItemDisplayLabel(fieldKey, item) {
+  if (item == null) return "";
+
+  switch (fieldKey) {
+    case "industries":
+    case "keywords":
+      return asString(item).trim();
+
+    case "headquarters_locations":
+    case "manufacturing_locations":
+      return formatStructuredLocation(item) || "(empty location)";
+
+    case "location_sources": {
+      if (typeof item !== "object") return asString(item).trim();
+      const location = asString(item.location).trim();
+      const sourceUrl = asString(item.source_url).trim();
+      const sourceType = asString(item.source_type).trim();
+      const locationType = asString(item.location_type).trim();
+      return [location, sourceType, locationType, sourceUrl].filter(Boolean).join(" \u2014 ");
+    }
+
+    case "curated_reviews": {
+      if (typeof item !== "object") return asString(item).trim();
+      const source = asString(item.source_name || "").trim();
+      const title = asString(item.title || "").trim();
+      const url = asString(item.source_url || item.url || "").trim();
+      const author = asString(item.author || "").trim();
+      return [title || source, author ? `by ${author}` : "", url].filter(Boolean).join(" \u2014 ");
+    }
+
+    default:
+      return typeof item === "string" ? item.trim() : JSON.stringify(item);
+  }
+}
+
+/**
+ * Return a normalized dedup key for a single item within an array field.
+ * Two items with the same dedup key are considered duplicates.
+ */
+export function getItemDedupKey(fieldKey, item) {
+  if (item == null) return "";
+
+  switch (fieldKey) {
+    case "industries":
+    case "keywords":
+      return asString(item).trim().toLowerCase();
+
+    case "headquarters_locations":
+    case "manufacturing_locations":
+      return (formatStructuredLocation(item) || "").toLowerCase().trim();
+
+    case "location_sources": {
+      if (typeof item !== "object") return asString(item).trim().toLowerCase();
+      const url = asString(item.source_url).trim();
+      if (url) return url.toLowerCase();
+      // Fall back to display string if no URL
+      return getItemDisplayLabel(fieldKey, item).toLowerCase();
+    }
+
+    case "curated_reviews": {
+      if (typeof item !== "object") return asString(item).trim().toLowerCase();
+      // Prefer URL dedup; fall back to content hash
+      const urlKey = normalizeReviewDedupUrl(item.source_url || item.url);
+      if (urlKey) return `url:${urlKey}`;
+      const hashKey = computeReviewDedupKey(item);
+      if (hashKey) return `hash:${hashKey}`;
+      return "";
+    }
+
+    default:
+      return typeof item === "string" ? item.trim().toLowerCase() : JSON.stringify(item);
+  }
+}
+
+/**
+ * Normalize an array field value into a clean array.
+ * Handles all mergeable field types.
+ */
+export function normalizeArrayFieldItems(fieldKey, value) {
+  if (!Array.isArray(value)) return [];
+
+  switch (fieldKey) {
+    case "industries":
+    case "keywords":
+      return value.map((v) => asString(v).trim()).filter(Boolean);
+
+    case "headquarters_locations":
+    case "manufacturing_locations":
+      return normalizeStructuredLocationList(value);
+
+    case "location_sources":
+      return value.filter((v) => v && typeof v === "object");
+
+    case "curated_reviews":
+      return value.filter((v) => v && typeof v === "object");
+
+    default:
+      return value.filter(Boolean);
+  }
+}
