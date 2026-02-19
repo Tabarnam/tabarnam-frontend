@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "1.6.0";
+const PROMPT_GUIDANCE_VERSION = "2.0.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -108,24 +108,24 @@ FORMAT RULES:
   },
 
   industries: {
-    rules: `- Use web search.
-- Return an array of industries/categories that best describe what the company makes or sells.
-- Return specific, descriptive industry labels that describe what the company actually makes or does
-  (e.g., "Sparkling Water Production", "Non-Alcoholic Beverages", "Beverage Manufacturing").
+    rules: `- STEP 1: Use browse_page on the company URL. Read the homepage, About page, and product pages to understand what the company makes or sells.
+- STEP 2: Use web_search "[Company Name] industry" or "[Company Name] company profile" to find LinkedIn, Bloomberg, or industry directory classifications.
+- Return an array of specific, descriptive industry labels that describe what the company actually manufactures or sells (e.g., "Home Textiles Manufacturing", "Bedding Products", "Bath Linens").
 - Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce".
-- Each label should be specific enough to distinguish this company's business from unrelated companies.
-- Provide not industry codes but the type of business they do.
-- Be thorough and complete in identifying all relevant industries.
-- Avoid store navigation terms (e.g. "New Arrivals", "Shop", "Sale") and legal terms.
+- Each label should be specific enough to distinguish this company from unrelated companies.
+- Provide the type of business, not industry codes.
+- Be thorough — include all relevant industry verticals.
+- Avoid store navigation terms ("New Arrivals", "Shop", "Sale") and legal terms.
 - No guessing or hallucinating. Only report verified information.`,
     jsonSchema: `"industries": ["Industry 1", "Industry 2", "..."]`,
   },
 
   keywords: {
-    rules: `- Browse the company website AND use web search. Check product pages, collections, "Shop" sections, "All Products" pages.
-- List every individual product, product line, flavor, variety, and SKU you can find.
-- For companies with product variants (flavors, sizes, formulations), list EACH variant separately.
-- Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.
+    rules: `- STEP 1: Use browse_page on the company URL. Navigate to product/shop/collections pages. Read ALL product names, product lines, flavors, varieties, and SKUs.
+- STEP 2: Use web_search "[Company Name] products" or "[Company Name] product line" to find comprehensive product listings from retailers, distributors, or press releases.
+- STEP 3: If the company has named product lines (e.g., brand names, model names, series names), list EACH named product separately. Include both the product line name AND individual product variants.
+  Example: "Vellux Original Blanket", "Vellux Plush Blanket", "Martex 225 Thread Count Sheet Set" — NOT just "blankets", "sheets".
+- Keywords should be exhaustive, complete and all-inclusive of all products the company produces.
 - If a customer could search for it and find this company's product, include it.
 - Return ONLY actual products/product lines. Do NOT include:
   Navigation labels: Shop All, Collections, New, Best Sellers, Sale, Limited Edition, All
@@ -146,18 +146,27 @@ FORMAT RULES:
   },
 
   tagline: {
-    rules: `- Use web search.
-- Return the company's actual marketing tagline/slogan.
+    rules: `- STEP 1: Use browse_page on the company URL. Look for the tagline in: the homepage hero section, meta description, og:description, the header/nav area near the logo, and the footer.
+- STEP 2: Use web_search "[Company Name] tagline" or "[Company Name] slogan" to cross-reference.
+- If the website displays a tagline prominently (hero, header, footer), use that. If multiple taglines exist, prefer the one displayed most prominently on the homepage.
 - A sentence fragment is acceptable.
-- Do NOT return navigation labels, promotional text, or legal text.
+- Do NOT return: navigation labels, promotional text, legal disclaimers, or page titles.
 - Do NOT hallucinate or embellish. Accuracy is paramount.
 - If no tagline is found, return empty string.`,
     jsonSchema: `"tagline": "..."`,
   },
 
   reviews: {
-    // Compact rules for unified prompts (enrichment)
-    rulesCompact: () => `Find third-party reviews using web search. For each candidate, verify the URL loads and contains a real review before including it. Return up to 5 verified reviews with source, author, URL, exact title as published, date, and excerpt. Only include reviews you confirmed are live. Quality over quantity.`,
+    // Compact rules for unified prompts (enrichment) — accepts company name and URL for brand disambiguation
+    rulesCompact: (companyName, websiteUrl) => {
+      const nameRef = companyName || "this company";
+      const urlRef = websiteUrl || "(see URL above)";
+      return `Find 5 unique, legitimate third-party reviews of ${nameRef} using web_search.
+CRITICAL — BRAND DISAMBIGUATION: Verify each review is actually about ${nameRef} at ${urlRef} — not a similarly-named company, different brand, or unrelated product. Do NOT include reviews of products by other companies that happen to share a word in the name.
+For each candidate, use browse_page to confirm: (1) the URL loads, (2) it contains a substantive review or opinion, (3) it is about this company's products specifically.
+SENTIMENT: Prefer reviews that are positive, neutral, or constructively critical. Do NOT include reviews whose primary message is that the product is bad, disliked, or not recommended.
+Return up to 5 verified reviews. Quality over quantity.`;
+    },
     // Full investigation rules for dedicated review fetcher (web_search includes page browsing)
     rulesFull: (companyName, excludeDomains, attemptedUrls, websiteUrl) => {
       const attemptedExclusion =
@@ -171,30 +180,36 @@ FORMAT RULES:
       const companyRef = websiteUrl ? `${companyName} (${websiteUrl})` : companyName;
       return `Find 3-5 unique, legitimate third-party reviews of ${companyRef} using multiple search strategies.
 
-SEARCH STRATEGY — run at least 2-3 separate searches to build a broad candidate pool:
-1. Video reviews: search "${companyName} review site:youtube.com" — look for taste tests, product reviews, or comparison videos
-2. Blog/magazine reviews: search "${companyName} review" — look for articles on food blogs, lifestyle magazines, or review sites (tastingtable.com, thedailymeal.com, etc.)
-3. If those yield fewer than 3 total results, try broader queries: "${companyName} honest review", "${companyName} taste test", "${companyName} ranking", or "${companyName} vs" (comparison reviews)
+CRITICAL — BRAND DISAMBIGUATION:
+${companyName} must refer to the company at ${websiteUrl || "(see URL above)"}.
+Before including ANY review, verify it discusses products sold on that website — not a similarly-named company, different division, or unrelated brand.
+For example, if the company is "WestPoint Home" (home textiles), do NOT include reviews of "WestPoint" kitchen appliances (a different company).
 
-VERIFICATION — for each candidate URL, visit the page and confirm:
-- The page loads successfully without errors (no "page not found", "brand not found", "invalid", or error messages)
-- The page contains an actual review, taste test, or substantive opinion about ${companyName} — not just a product listing, brand directory entry, or passing mention
-- The reviewer is not affiliated with ${companyName}
+SEARCH STRATEGY — run at least 3 separate searches to build a broad candidate pool:
+1. Video reviews: web_search "${companyName} review site:youtube.com" — product reviews, unboxing, comparison videos
+2. Blog/magazine reviews: web_search "${companyName} review" — lifestyle blogs, magazines, review sites (tastingtable.com, thedailymeal.com, etc.)
+3. Product-specific: web_search "${companyName} [flagship product name] review" — target the company's main products by name for more precise results
+4. If those yield fewer than 3: try "${companyName} honest review", "${companyName} [product] comparison", or "${companyName} worth it"
 
-REJECT any page that shows an error message, brand-not-found notice, paywall, empty brand page, or generic product listing without review content.
+VERIFICATION — for EACH candidate URL, use browse_page to confirm:
+- The page loads without errors (no 404, "page not found", paywall)
+- Contains a substantive review, taste test, or opinion about ${companyName}'s products
+- The reviewer is NOT affiliated with ${companyName}
+- The review is about THIS specific company's products (match against ${websiteUrl || "the company website"})
 
-For each verified review, extract:
-- Source (publication or channel name)
-- Author (name)
-- URL (the exact URL you visited — do not modify it)
-- Title (exact title as published)
-- Date (publication date, any format)
-- Text (1-3 sentence excerpt or summary of the review)
+REJECT:
+- Error pages, brand-not-found notices, paywall, empty brand pages
+- Generic product listings without review content
+- Reviews of a DIFFERENT company with a similar name
+- Reviews that are predominantly negative or dismissive — prefer positive, neutral, or constructively critical coverage
+
+REVIEW SENTIMENT PREFERENCE:
+Our platform presents these reviews to help consumers discover products. Prefer reviews that highlight product quality, features, or value. Constructive criticism is fine. Do NOT include reviews whose primary message is that the product is bad, disliked, or not recommended — unless that is the ONLY coverage available.
 
 SOURCE MIX: Aim for a mix — ideally 2-3 YouTube videos from different creators plus 2-3 written articles from blogs or magazines. Do not include the same author more than once.
-${excludeStr ? `- Do not return any URL from: ${excludeStr}` : ""}
-- Return up to 5 verified reviews. Quality over quantity — 3 strong reviews beat 5 weak ones.
-- If you cannot find ANY legitimate third-party reviews after trying multiple search strategies, return an empty reviews array.
+${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
+Return up to 5 verified reviews. Quality over quantity — 3 strong reviews beat 5 weak ones.
+If you cannot find ANY legitimate third-party reviews after trying multiple search strategies, return an empty reviews array.
 ${attemptedExclusion}`;
     },
     // JSON shapes
@@ -245,8 +260,8 @@ const FIELD_SUMMARIES = {
 3. If the website and an external source agree, report that city. If they conflict, trust the website. If the website has no location info, require 2+ external sources that agree.
 4. Do NOT rely on your training data or general knowledge — you MUST verify by actually visiting pages. No hallucinations.
 Having the actual cities within the USA is crucial. Use initials for state or province. Use "USA" not "United States". No explanatory info — just locations. Also return "location_source_urls" with the URLs you actually visited to determine each location.`,
-  industries: `Return as a JSON array of specific, descriptive industry strings. Avoid generic umbrella terms like "Consumer Goods" or "Food and Beverage".`,
-  keywords: `Keywords should be exhaustive, complete and all-inclusive list of all the products that the company produces.`,
+  industries: `Use browse_page on the company URL to understand their business, then web_search for industry classifications. Return as a JSON array of specific, descriptive industry strings (e.g., "Home Textiles Manufacturing", "Bedding Products"). Avoid generic umbrella terms like "Consumer Goods" or "Food and Beverage". Each label should describe what the company actually manufactures or sells.`,
+  keywords: `Use browse_page on the company URL to find all products. Keywords must be exhaustive — include every named product, product line, variant, and SKU. Use specific product names (e.g., "Vellux Original Blanket") not generic categories (e.g., "blankets"). Use web_search "[Company] products" for completeness.`,
 };
 
 module.exports = {

@@ -351,6 +351,34 @@ function strongLogoSignal({ url, id = "", cls = "", alt = "" } = {}) {
   return false;
 }
 
+/**
+ * Detect when a logo candidate's filename references a brand name that does NOT
+ * match the parent company name.  Returns a negative score adjustment (penalty)
+ * when the filename contains a capitalized token (likely a brand name) that is
+ * absent from companyNameTokens.  Example: "Martex_Logo.png" for "WestPoint Home"
+ * → "Martex" is capitalized and not in ["westpoint","home"] → penalty.
+ */
+function subBrandPenalty(url, companyNameTokens) {
+  if (!Array.isArray(companyNameTokens) || companyNameTokens.length === 0) return 0;
+  const filename = (url || "").split("/").pop()?.split("?")[0] || "";
+  if (!filename) return 0;
+  const filenameTokens = filename.replace(/[_\-\.]/g, " ").split(/\s+/).filter((t) => t.length >= 3);
+  if (filenameTokens.length === 0) return 0;
+
+  const SKIP = ["logo", "brand", "mark", "icon", "img", "image", "svg", "png", "jpg", "jpeg", "webp"];
+  const hasCompanyName = companyNameTokens.some((t) =>
+    filenameTokens.some((ft) => ft.toLowerCase() === t.toLowerCase())
+  );
+  const hasOtherBrand = filenameTokens.some(
+    (ft) =>
+      /^[A-Z]/.test(ft) &&
+      !SKIP.includes(ft.toLowerCase()) &&
+      !companyNameTokens.some((t) => ft.toLowerCase() === t.toLowerCase())
+  );
+  if (hasOtherBrand && !hasCompanyName) return -120;
+  return 0;
+}
+
 function scoreCandidate({ url, source, id = "", cls = "", alt = "", idx = 0, width = null, height = null }) {
   const hay = `${id} ${cls} ${alt} ${url}`;
   const ext = getFileExt(url);
@@ -1383,6 +1411,7 @@ function collectHeaderNavImgCandidates(html, baseUrl, { companyNameTokens, allow
       if (hasAnyToken(hay, ["logo", "brand"])) boost += 60;
       if (hasAnyToken(c.alt || "", ["logo"])) boost += 35;
       if (Array.isArray(companyNameTokens) && companyNameTokens.some((t) => hasAnyToken(c.alt || "", [t]))) boost += 70;
+      boost += subBrandPenalty(c.url, companyNameTokens);
 
       out.push(
         addLocationMeta(
@@ -1531,6 +1560,7 @@ function collectHomepageLinkImgCandidates(html, baseUrl, { companyNameTokens, al
       let boost = 280;
       if (hasAnyToken(hay, ["logo", "brand", "wordmark"])) boost += 60;
       if (Array.isArray(companyNameTokens) && companyNameTokens.some((t) => hasAnyToken(c.alt || "", [t]))) boost += 80;
+      boost += subBrandPenalty(c.url, companyNameTokens);
 
       out.push(
         addLocationMeta(
@@ -1567,7 +1597,7 @@ function collectFooterImgCandidates(html, baseUrl, { companyNameTokens, allowedH
 
       if (!hasBrandSignal) continue;
 
-      const boost = 90;
+      const boost = 90 + subBrandPenalty(c.url, companyNameTokens);
 
       out.push(
         addLocationMeta(

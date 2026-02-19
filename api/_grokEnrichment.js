@@ -1975,7 +1975,7 @@ INDUSTRIES: ${FIELD_SUMMARIES.industries}
 
 KEYWORDS: ${FIELD_SUMMARIES.keywords}
 
-REVIEWS: ${FIELD_GUIDANCE.reviews.rulesCompact()} Fields: "source_name", "author", "source_url" (direct URL, not homepage), "title", "date", "excerpt".
+REVIEWS: ${FIELD_GUIDANCE.reviews.rulesCompact(name, websiteUrlForPrompt)} Fields: "source_name", "author", "source_url" (direct URL, not homepage), "title", "date", "excerpt".
 
 Return STRICT JSON only:
 {
