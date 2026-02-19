@@ -1867,7 +1867,7 @@ async function resumeWorkerHandler(req, context) {
     // has finished writing the seed company doc and resume doc. The async enrichment
     // fire-and-forget in import-start will handle enrichment — don't run empty.
     if (plannedIds.length === 0 && isFreshSeed) {
-      console.log(`[resume-worker] SKIPPING: fresh seed with no planned IDs for session=${sessionId} — seed not yet saved, re-enqueueing with 15s delay`);
+      console.log(`[resume-worker] SKIPPING: fresh seed with no planned IDs for session=${sessionId} — seed not yet saved, re-enqueueing with 5s delay`);
       try {
         await enqueueResumeRun({
           session_id: sessionId,
@@ -1875,9 +1875,9 @@ async function resumeWorkerHandler(req, context) {
           reason: "seed_not_ready_retry",
           requested_by: "resume_worker_self",
           cycle_count: 0,
-          run_after_ms: 15_000,
+          run_after_ms: 5_000,
         });
-        console.log(`[resume-worker] seed_not_ready re-enqueue OK for session=${sessionId} (15s delay)`);
+        console.log(`[resume-worker] seed_not_ready re-enqueue OK for session=${sessionId} (5s delay)`);
       } catch (enqErr) {
         console.warn(`[resume-worker] seed_not_ready re-enqueue failed for session=${sessionId}: ${enqErr?.message || enqErr}`);
       }
@@ -2635,7 +2635,7 @@ async function resumeWorkerHandler(req, context) {
           requested_by: "resume_worker",
           enqueue_at: nowIso(),
           cycle_count: cycleCount + 1,
-          run_after_ms: 30_000,
+          run_after_ms: 15_000,
         }).catch(() => null);
       }
     } catch {}
@@ -2721,10 +2721,10 @@ async function resumeWorkerHandler(req, context) {
 
       const hasBudget = attemptedProgress.some((p) => String(p?.last_error || "") === "budget_exhausted");
       if (hasBudget) {
-        return { reason: "budget_exhausted", backoff_ms: 30_000 };
+        return { reason: "budget_exhausted", backoff_ms: 15_000 };
       }
 
-      return { reason: "default", backoff_ms: 30_000 };
+      return { reason: "default", backoff_ms: 10_000 };
     };
 
     let finalStatus = null;

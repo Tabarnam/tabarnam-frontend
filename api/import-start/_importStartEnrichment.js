@@ -1026,15 +1026,21 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       // Phase 1 fetches everything, Phase 2 verifies URLs & caps reviews.
       // ═══════════════════════════════════════════════════════════════
       const ALL_CORE_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"];
-      const ENRICHMENT_BUDGET_MS = 150000;  // 2.5 min: unified + verify (no Phase 3 deepening)
+      const ENRICHMENT_BUDGET_MS = 240000;  // 4 min: unified + verify + dedicated review deepening
 
-      // ── PASS1a: Unified + verify (NO Phase 3 deepening) ──
+      // ── PASS1a: Unified + verify + selective Phase 3 (reviews only) ──
+      // Reviews rarely survive Phase 1+2 intact (the unified prompt returns few URLs,
+      // and verification often rejects them). By running Phase 3 for reviews here instead
+      // of deferring to the resume-worker queue, we avoid 15+ minutes of Azure queue
+      // overhead from multiple resume cycles. If budget runs out, reviews remain
+      // "incomplete" and the resume worker handles them — same fallback as before.
       const enrichResult1a = await runDirectEnrichment({
         company: companyDoc,
         sessionId,
         budgetMs: ENRICHMENT_BUDGET_MS,
         fieldsToEnrich: [...ALL_CORE_FIELDS],
-        skipDedicatedDeepening: true,
+        skipDedicatedDeepening: false,
+        dedicatedFieldsOnly: ["reviews"],
       });
       const pass1aState = await applyAndUpsertEnrichment(enrichResult1a, "PASS1a");
 

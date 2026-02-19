@@ -2471,6 +2471,7 @@ async function enrichCompanyFields({
   xaiKey,
   fieldsToEnrich,
   skipDedicatedDeepening = false,
+  dedicatedFieldsOnly,            // NEW: when set, Phase 3 only zeros out and re-fetches these fields
   onIntermediateSave,
 } = {}) {
   const started = Date.now();
@@ -2578,6 +2579,9 @@ async function enrichCompanyFields({
     // Phase 3: Dedicated deepening for keywords, reviews, HQ, and mfg.
     // skipDedicatedDeepening: when true, return Phase 1+2 results as-is (used by
     // PASS1a for a fast Cosmos save before Azure kills the process).
+    // dedicatedFieldsOnly: when set (array of long field names), Phase 3 only zeros
+    // out and re-fetches the specified fields, preserving Phase 1+2 results for the rest.
+    // This is used by PASS1a to deepen only reviews without discarding keywords/HQ/MFG.
     let fallback_statuses = {};
     let missing = [];
 
@@ -2588,17 +2592,28 @@ async function enrichCompanyFields({
       // dedicated call returns 0 (XAI hallucinated URLs), we still keep these.
       const phase2VerifiedReviews = Array.isArray(verified.reviews) ? [...verified.reviews] : [];
       const phase1Keywords = Array.isArray(verified.product_keywords) ? [...verified.product_keywords] : [];
-      // Discard Phase 1 results for these fields so dedicated calls always run.
-      verified.product_keywords = [];
-      verified.reviews = [];
-      verified.headquarters_location = "";
-      verified.manufacturing_locations = [];
+
+      // Helper: should this field be zeroed out and re-fetched by dedicated fetchers?
+      // When dedicatedFieldsOnly is set, only listed fields are deepened.
+      const shouldDeepen = (longName) =>
+        !Array.isArray(dedicatedFieldsOnly) || dedicatedFieldsOnly.includes(longName);
+
+      // Discard Phase 1 results for fields that will be re-fetched.
+      if (shouldDeepen("product_keywords")) verified.product_keywords = [];
+      if (shouldDeepen("reviews")) verified.reviews = [];
+      if (shouldDeepen("headquarters_location")) verified.headquarters_location = "";
+      if (shouldDeepen("manufacturing_locations")) verified.manufacturing_locations = [];
 
       const missing = findMissingFields(verified);
-      // Force dedicated calls even if findMissingFields doesn't list them
-      const ALWAYS_DEEPEN = ["keywords", "reviews", "headquarters", "manufacturing"];
-      for (const field of ALWAYS_DEEPEN) {
-        if (!missing.includes(field)) missing.push(field);
+      // Force dedicated calls even if findMissingFields doesn't list them.
+      // SHORT_TO_LONG maps short field names (used by findMissingFields/fillMissing) to
+      // the long names used by dedicatedFieldsOnly.
+      const ALWAYS_DEEPEN_SHORT_TO_LONG = {
+        keywords: "product_keywords", reviews: "reviews",
+        headquarters: "headquarters_location", manufacturing: "manufacturing_locations",
+      };
+      for (const [shortName, longName] of Object.entries(ALWAYS_DEEPEN_SHORT_TO_LONG)) {
+        if (!missing.includes(shortName) && shouldDeepen(longName)) missing.push(shortName);
       }
       const filteredMissing = filterMissingByTarget(missing);
 
@@ -2610,7 +2625,7 @@ async function enrichCompanyFields({
         const azureBudgetRemaining = Math.max(0, AZURE_FUNCTION_TIMEOUT_MS - elapsedSinceStart - 15_000);
         const phase3Budget = Math.min(getRemainingMs() - 5000, azureBudgetRemaining);
 
-        console.log(`[enrichCompanyFields] Phase 3: dedicated deepening [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms, phase3Budget=${phase3Budget}ms`);
+        console.log(`[enrichCompanyFields] Phase 3: dedicated deepening [${filteredMissing.join(", ")}]${Array.isArray(dedicatedFieldsOnly) ? ` (selective: ${dedicatedFieldsOnly.join(", ")})` : ""}, remaining=${getRemainingMs()}ms, phase3Budget=${phase3Budget}ms`);
         const { filled, field_statuses: fStatuses } = await fillMissingFieldsIndividually(
           filteredMissing,
           { companyName, normalizedDomain: domain, budgetMs: phase3Budget, xaiUrl, xaiKey }
