@@ -528,6 +528,7 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
       await upsertDoc(ctx.container, {
         ...resumeDocForMark,
         status: "in_progress",
+        invocation_mode: "resume_worker",
         enrichment_started_at: triggerAttemptAt,
         updated_at: triggerAttemptAt,
       }).catch(() => null);

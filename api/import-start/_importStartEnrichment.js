@@ -1176,7 +1176,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     status: resumeDocStatus,
     updated_at: new Date().toISOString(),
     enrichment_completed_at: new Date().toISOString(),
-    invocation_mode: "direct_http",
+    invocation_mode: null,
     resume_needed: anyNeedsResume,
     resume_error: anyOk
       ? null

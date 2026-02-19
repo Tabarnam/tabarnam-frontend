@@ -289,6 +289,7 @@ async function upsertResumeDoc({
   next_allowed_run_at,
   last_backoff_reason,
   last_backoff_ms,
+  invocation_mode,
 }) {
   const sid = String(session_id || "").trim();
   if (!sid) return { ok: false, error: "missing_session_id" };
@@ -334,6 +335,10 @@ async function upsertResumeDoc({
       last_backoff_ms === undefined
         ? (existing?.last_backoff_ms ?? null)
         : last_backoff_ms,
+    invocation_mode:
+      invocation_mode === undefined
+        ? (existing?.invocation_mode ?? null)
+        : invocation_mode,
   };
 
   const upserted = await upsertItemWithPkCandidates(container, resumeDoc).catch((e) => ({ ok: false, error: e?.message || String(e) }));
