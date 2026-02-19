@@ -18,6 +18,7 @@ const {
 const { getXAIEndpoint, getXAIKey } = require("./_shared");
 const { sanitizeIndustries, sanitizeKeywords, isRealValue } = require("./_requiredFields");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("./_geocode");
+const { resolveReviewsStarState } = require("./_reviewsStarState");
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -514,6 +515,28 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     if (f === "manufacturing_locations") return "mfg";
     return f;
   });
+
+  // ── Auto-populate stars from enriched data ──
+  // Star1 (MFG): 1.0 if manufacturing_locations present
+  // Star2 (HQ): 1.0 if headquarters_location present
+  // Star3 (Reviews): via resolveReviewsStarState (existing pattern)
+  const hasManufacturing = Array.isArray(updated.manufacturing_locations) && updated.manufacturing_locations.length > 0;
+  const hasHeadquarters = !!(updated.headquarters_location && String(updated.headquarters_location).trim());
+
+  const existingRating = updated.rating && typeof updated.rating === "object" ? updated.rating : {};
+  const existingStar1 = existingRating.star1 && typeof existingRating.star1 === "object" ? existingRating.star1 : { value: 0, notes: [] };
+  const existingStar2 = existingRating.star2 && typeof existingRating.star2 === "object" ? existingRating.star2 : { value: 0, notes: [] };
+
+  updated.rating = {
+    ...existingRating,
+    star1: { ...existingStar1, value: hasManufacturing ? 1.0 : existingStar1.value },
+    star2: { ...existingStar2, value: hasHeadquarters ? 1.0 : existingStar2.value },
+  };
+
+  const reviewsStarState = resolveReviewsStarState(updated);
+  updated.reviews_star_value = reviewsStarState.next_value;
+  updated.reviews_star_source = reviewsStarState.next_source;
+  updated.rating = reviewsStarState.next_rating;
 
   return updated;
 }
