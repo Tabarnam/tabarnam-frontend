@@ -532,6 +532,25 @@ function generateQueryAlternatives(query) {
   return [...new Set(alternatives)];
 }
 
+/** Deduplicate HQ location entries by city|region|country key or address string. */
+function deduplicateHqList(list) {
+  if (!Array.isArray(list) || list.length <= 1) return list;
+  const seen = new Set();
+  return list.filter((h) => {
+    if (!h) return false;
+    const city = String(h?.city || "").trim().toLowerCase();
+    const region = String(h?.region || h?.state || h?.state_code || "").trim().toLowerCase();
+    const country = String(h?.country || h?.country_code || "").trim().toLowerCase();
+    let key = "";
+    if (city || country) key = [city, region, country].filter(Boolean).join("|");
+    else key = String(h?.address || h?.formatted || h?.full_address || h?.location || "").trim().toLowerCase();
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function attachDistances(c, userLoc, unit) {
   const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [], _hqDists: [] };
 
@@ -541,9 +560,9 @@ function attachDistances(c, userLoc, unit) {
   // HQ - prefer headquarters_locations, with legacy fallback to headquarters, then fall back to hq_lat/hq_lng
   let hqList = [];
   if (Array.isArray(c.headquarters_locations) && c.headquarters_locations.length > 0) {
-    hqList = c.headquarters_locations;
+    hqList = deduplicateHqList(c.headquarters_locations);
   } else if (Array.isArray(c.headquarters) && c.headquarters.length > 0) {
-    hqList = c.headquarters;
+    hqList = deduplicateHqList(c.headquarters);
   }
 
   if (hqList.length > 0) {

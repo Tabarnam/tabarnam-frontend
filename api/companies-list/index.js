@@ -9,6 +9,7 @@ try {
 const axios = require("axios");
 const { stripAmazonAffiliateTagForStorage } = require("../_amazonAffiliate");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
+const { deduplicateLocationEntries } = require("../import-start/_importStartCompanyUtils");
 console.log("[companies-list] @azure/functions imported, app object created");
 
 let CosmosClientCtor = null;
@@ -608,9 +609,10 @@ async function companiesListHandler(req, context) {
           private_review_count,
           hq_lat: hq_lat,
           hq_lng: hq_lng,
-          headquarters_locations:
-            headquarters.length > 0 ? headquarters : base.headquarters_locations,
-          headquarters,
+          headquarters_locations: deduplicateLocationEntries(
+            headquarters.length > 0 ? headquarters : base.headquarters_locations || []
+          ),
+          headquarters: deduplicateLocationEntries(headquarters),
           manufacturing_locations: manufacturing_geocodes,
           manufacturing_geocodes,
           rating_icon_type: base.rating_icon_type || "star",
