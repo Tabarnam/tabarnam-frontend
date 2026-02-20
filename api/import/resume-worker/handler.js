@@ -25,6 +25,8 @@ const {
   isRealValue,
 } = require("../../_requiredFields");
 
+const { deduplicateLocationEntries } = require("../../import-start/_importStartCompanyUtils");
+
 const {
   fetchCuratedReviews,
   fetchHeadquartersLocation,
@@ -2576,6 +2578,12 @@ async function resumeWorkerHandler(req, context) {
 
           doc.import_missing_fields = computeMissingFields(doc);
           doc.updated_at = nowIso();
+
+          // Deduplicate location arrays before persisting to Cosmos
+          if (Array.isArray(doc.headquarters_locations)) {
+            doc.headquarters_locations = deduplicateLocationEntries(doc.headquarters_locations);
+            doc.headquarters = doc.headquarters_locations;
+          }
 
           // Log and handle upsert result - don't silently swallow errors
           const upsertResult = await upsertDoc(container, doc).catch((err) => {

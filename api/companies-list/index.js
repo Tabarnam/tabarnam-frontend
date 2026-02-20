@@ -538,10 +538,14 @@ async function companiesListHandler(req, context) {
             ).trim().toLowerCase();
             if (existing === primaryLower) return true;
             const city = String(hq.city || "").trim().toLowerCase();
-            const country = String(hq.country || "").trim().toLowerCase();
+            const region = String(hq.region || hq.state || hq.state_code || "").trim().toLowerCase();
+            const country = String(hq.country || hq.country_code || "").trim().toLowerCase();
             if (city && city === primaryLower) return true;
             if (country && country === primaryLower) return true;
             if (city && country && `${city}, ${country}` === primaryLower) return true;
+            // Match "City, State, Country" or "City, StateCode, Country" against the primary string
+            if (city && region && country && `${city}, ${region}, ${country}` === primaryLower) return true;
+            if (city && region && `${city}, ${region}` === primaryLower) return true;
             return false;
           });
           if (!alreadyHasPrimary) {

@@ -34,6 +34,7 @@ const {
   normalizeProductKeywords,
   keywordListToString,
   normalizeLocationEntries,
+  deduplicateLocationEntries,
   normalizeUrlForCompare,
   computeReviewDedupeKey,
   dedupeCuratedReviews,
@@ -748,12 +749,14 @@ async function saveCompaniesToCosmos({
               headquarters_location: headquartersLocation,
               hq_unknown: Boolean(company.hq_unknown),
               hq_unknown_reason: String(company.hq_unknown_reason || "").trim(),
-              headquarters_locations: company.headquarters_locations || [],
-              headquarters: Array.isArray(company.headquarters)
-                ? company.headquarters
-                : Array.isArray(company.headquarters_locations)
-                  ? company.headquarters_locations
-                  : [],
+              headquarters_locations: deduplicateLocationEntries(company.headquarters_locations || []),
+              headquarters: deduplicateLocationEntries(
+                Array.isArray(company.headquarters)
+                  ? company.headquarters
+                  : Array.isArray(company.headquarters_locations)
+                    ? company.headquarters_locations
+                    : []
+              ),
               manufacturing_locations: manufacturingLocationsNormalized,
               mfg_unknown: Boolean(company.mfg_unknown),
               mfg_unknown_reason: String(company.mfg_unknown_reason || "").trim(),

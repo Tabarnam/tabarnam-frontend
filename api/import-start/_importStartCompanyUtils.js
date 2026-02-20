@@ -222,6 +222,38 @@ function normalizeLocationEntries(entries) {
     .filter(Boolean);
 }
 
+/**
+ * Deduplicate location entries by building a key from city|region|country (structured)
+ * or the full address string (unstructured).  Keeps the FIRST occurrence (which is
+ * typically the geocoded one with lat/lng) and drops later duplicates.
+ */
+function deduplicateLocationEntries(entries) {
+  if (!Array.isArray(entries) || entries.length <= 1) return entries;
+  const seen = new Set();
+  return entries.filter((item) => {
+    if (!item) return false;
+    const key = locationDedupeKey(item);
+    if (!key) return true; // keep items we can't key
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function locationDedupeKey(item) {
+  if (typeof item === "string") return item.trim().toLowerCase();
+  if (!item || typeof item !== "object") return "";
+  const city = String(item.city || "").trim().toLowerCase();
+  const region = String(item.region || item.state || item.state_code || "").trim().toLowerCase();
+  const country = String(item.country || item.country_code || "").trim().toLowerCase();
+  // If we have structured fields, use them
+  if (city || country) return [city, region, country].filter(Boolean).join("|");
+  // Fall back to address/formatted string
+  const addr = String(item.address || item.formatted || item.full_address || item.location || "").trim().toLowerCase();
+  if (addr) return addr;
+  return "";
+}
+
 function buildImportLocations(company) {
   const headquartersBase =
     Array.isArray(company.headquarters) && company.headquarters.length > 0
@@ -420,6 +452,7 @@ module.exports = {
   // Location
   normalizeCountryInLocation,
   normalizeLocationEntries,
+  deduplicateLocationEntries,
   buildImportLocations,
 
   // Reviews
