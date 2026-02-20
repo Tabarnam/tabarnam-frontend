@@ -162,6 +162,8 @@ export default function AdminImport() {
   activeStatusRef.current = activeStatus;
 
   const isSuccessionRunning = successionIndex >= 0;
+  const isSuccessionRunningRef = useRef(false);
+  isSuccessionRunningRef.current = isSuccessionRunning;
   const successionCompleted = !isSuccessionRunning && successionResults.length > 0 && successionQueue.length > 0;
   const showSuccessionPanel = isSuccessionRunning || successionCompleted;
 
@@ -562,6 +564,16 @@ export default function AdminImport() {
         const shouldBackoffForResume =
           resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete && resumeStatusLabel !== "stalled";
 
+        // For succession imports, advance as soon as the company is saved and
+        // initial enrichment is done (enrichment_partial or better).
+        // The resume-worker continues enriching in the background.
+        const isSuccessionAdvanceReady =
+          isSuccessionRunningRef.current &&
+          !isTerminalComplete &&
+          !isTerminalError &&
+          saved > 0 &&
+          shouldBackoffForResume;
+
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
         const noCandidatesLabel = formatDurationShort(lastError?.no_candidates_threshold_ms);
@@ -734,6 +746,16 @@ export default function AdminImport() {
             };
           })
         );
+
+        // Succession early advance: company is saved + enrichment partial + resume-worker is
+        // filling in remaining fields.  Advance the queue so the next company can start importing
+        // while the resume-worker continues enriching this one in the background.
+        if (isSuccessionAdvanceReady) {
+          try {
+            setActiveStatus((prev) => (prev === "running" ? "done" : prev));
+          } catch {}
+          return { shouldStop: true, body };
+        }
 
         if (isTerminalError) {
           try {
