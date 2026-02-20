@@ -162,6 +162,8 @@ export default function AdminImport() {
   activeStatusRef.current = activeStatus;
 
   const isSuccessionRunning = successionIndex >= 0;
+  const successionCompleted = !isSuccessionRunning && successionResults.length > 0 && successionQueue.length > 0;
+  const showSuccessionPanel = isSuccessionRunning || successionCompleted;
 
   // Audio notification on import / succession completion
   const { play: playNotification, replay: replayNotification } = useNotificationSound();
@@ -273,6 +275,24 @@ export default function AdminImport() {
     if (!activeSessionId) return null;
     return runs.find((r) => r.session_id === activeSessionId) || null;
   }, [activeSessionId, runs]);
+
+  const successionRunDetails = useMemo(() => {
+    if (!showSuccessionPanel) return [];
+    return successionQueue.map((item, i) => {
+      const result = successionResults.find((r) => r.index === i);
+      const run = result?.sessionId ? runs.find((r) => r.session_id === result.sessionId) : null;
+      const companyName =
+        run?.saved_companies?.[0]?.company_name ||
+        run?.items?.[0]?.company_name ||
+        run?.query ||
+        item.companyName ||
+        item.companyUrl ||
+        `Company ${i + 1}`;
+      const isCurrent = isSuccessionRunning && i === successionIndex;
+      const status = result ? result.status : isCurrent ? "running" : "pending";
+      return { index: i, companyName, companyUrl: item.companyUrl, status, sessionId: result?.sessionId || null };
+    });
+  }, [showSuccessionPanel, successionQueue, successionResults, successionIndex, runs, isSuccessionRunning]);
 
   useEffect(() => {
     if (!activeRun) return;
@@ -3693,22 +3713,114 @@ export default function AdminImport() {
               </div>
             ) : null}
 
-            {isSuccessionRunning ? (
-              <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 space-y-2">
-                <div className="font-medium">
-                  Succession import: {successionIndex + 1} of {successionQueue.length}
+            {showSuccessionPanel ? (
+              <div
+                className={`rounded-lg border px-4 py-3 space-y-3 ${
+                  isSuccessionRunning
+                    ? "border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30"
+                    : "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30"
+                }`}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div
+                    className={`text-sm font-semibold ${
+                      isSuccessionRunning ? "text-blue-900 dark:text-blue-200" : "text-emerald-900 dark:text-emerald-200"
+                    }`}
+                  >
+                    {isSuccessionRunning
+                      ? `Importing ${successionIndex + 1} of ${successionQueue.length} companies`
+                      : `Succession complete: ${successionResults.length} imports processed`}
+                  </div>
+                  {successionCompleted ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => {
+                        setSuccessionResults([]);
+                        setSuccessionQueue([]);
+                      }}
+                    >
+                      Dismiss
+                    </Button>
+                  ) : null}
                 </div>
-                <div className="flex gap-1 flex-wrap">
-                  {successionResults.map((r, i) => (
-                    <span
-                      key={i}
-                      className={`inline-block h-2 w-4 rounded ${r.status === "done" ? "bg-emerald-400" : "bg-red-400"}`}
-                      title={`Import ${i + 1}: ${r.status}`}
-                    />
-                  ))}
-                  <span className="inline-block h-2 w-4 rounded bg-blue-400 animate-pulse" title={`Import ${successionIndex + 1}: running`} />
-                  {Array.from({ length: successionQueue.length - successionIndex - 1 }).map((_, i) => (
-                    <span key={`pending-${i}`} className="inline-block h-2 w-4 rounded bg-slate-200" title="Pending" />
+
+                {/* Progress bar */}
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-500 ${
+                      isSuccessionRunning ? "bg-blue-500" : "bg-emerald-500"
+                    }`}
+                    style={{
+                      width: `${Math.round(
+                        ((successionResults.length + (isSuccessionRunning ? 0.5 : 0)) / successionQueue.length) * 100
+                      )}%`,
+                    }}
+                  />
+                </div>
+
+                {/* Per-company list */}
+                <div className="space-y-1">
+                  {successionRunDetails.map((item) => (
+                    <div
+                      key={item.index}
+                      className={`flex items-center gap-2 rounded px-2 py-1.5 text-sm ${
+                        item.status === "running"
+                          ? "bg-blue-100 dark:bg-blue-900/30"
+                          : item.status === "done"
+                            ? "bg-white/60 dark:bg-white/5"
+                            : item.status === "error"
+                              ? "bg-red-50 dark:bg-red-900/20"
+                              : "opacity-50"
+                      }`}
+                    >
+                      {/* Status icon */}
+                      <div className="shrink-0 w-5 text-center">
+                        {item.status === "done" ? (
+                          <span className="text-emerald-600 dark:text-emerald-400">&#10003;</span>
+                        ) : item.status === "error" ? (
+                          <span className="text-red-600 dark:text-red-400">&#10007;</span>
+                        ) : item.status === "running" ? (
+                          <Loader2 className="inline h-3.5 w-3.5 animate-spin text-blue-600 dark:text-blue-400" />
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500">&#8226;</span>
+                        )}
+                      </div>
+
+                      {/* Company name + URL */}
+                      <div className="flex-1 min-w-0 truncate">
+                        <span
+                          className={`font-medium ${
+                            item.status === "running"
+                              ? "text-blue-900 dark:text-blue-200"
+                              : item.status === "error"
+                                ? "text-red-800 dark:text-red-300"
+                                : "text-slate-800 dark:text-foreground"
+                          }`}
+                        >
+                          {item.companyName}
+                        </span>
+                        {item.companyUrl ? (
+                          <span className="ml-2 text-xs text-slate-500 dark:text-muted-foreground truncate">
+                            {item.companyUrl}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Session link */}
+                      {item.sessionId ? (
+                        <button
+                          type="button"
+                          className="shrink-0 text-xs text-blue-700 dark:text-blue-400 hover:underline"
+                          onClick={() => setActiveSessionId(item.sessionId)}
+                        >
+                          View session
+                        </button>
+                      ) : null}
+                    </div>
                   ))}
                 </div>
               </div>
