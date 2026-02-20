@@ -3372,6 +3372,11 @@ export default function AdminImport() {
   useEffect(() => {
     if (successionIndex < 0) return;
     if (activeStatus !== "done" && activeStatus !== "error") return;
+    // Guard: the trigger effect (above) fires in the same render commit and calls
+    // beginImport(), whose setActiveStatus("running") is batched and NOT yet committed.
+    // Without this guard the advancement effect sees stale activeStatus === "done",
+    // records a phantom result for the just-queued company, and skips every other import.
+    if (startImportRequestInFlightRef.current) return;
 
     setSuccessionResults((prev) => [
       ...prev,
