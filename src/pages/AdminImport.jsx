@@ -564,15 +564,18 @@ export default function AdminImport() {
         const shouldBackoffForResume =
           resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete && resumeStatusLabel !== "stalled";
 
-        // For succession imports, advance as soon as the company is saved and
-        // initial enrichment is done (enrichment_partial or better).
-        // The resume-worker continues enriching in the background.
+        // For succession imports, advance after the resume-worker completes at least
+        // one enrichment cycle.  This gives logo, reviews, and geocoding a chance to
+        // populate before we move on.  The resume-worker continues enriching in the
+        // background after advancement.
+        const resumeCycleCount = Number(body?.resume_cycle_count ?? body?.resume?.cycle_count ?? 0);
         const isSuccessionAdvanceReady =
           isSuccessionRunningRef.current &&
           !isTerminalComplete &&
           !isTerminalError &&
           saved > 0 &&
-          shouldBackoffForResume;
+          shouldBackoffForResume &&
+          resumeCycleCount >= 1;
 
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);

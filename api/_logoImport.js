@@ -1,6 +1,8 @@
 const {
   BlobServiceClient,
   StorageSharedKeyCredential,
+  generateBlobSASQueryParameters,
+  BlobSASPermissions,
 } = require("@azure/storage-blob");
 const { tryLoadSharp } = require("./_shared");
 const { v4: uuidv4 } = require("uuid");
@@ -1915,15 +1917,7 @@ async function uploadBufferToBlob({ companyId, buffer, ext, contentType }, logge
   try {
     const exists = await containerClient.exists();
     if (!exists) {
-      await containerClient.create({ access: "blob" });
-    } else {
-      // The container might already exist with private access.
-      // Ensure it's publicly readable so returned logo URLs (without SAS) work in the UI.
-      try {
-        await containerClient.setAccessPolicy("blob");
-      } catch (e) {
-        logger?.warn?.(`[logoImport] setAccessPolicy failed: ${e?.message || e}`);
-      }
+      await containerClient.create();
     }
   } catch (e) {
     logger?.warn?.(`[logoImport] container create/exists failed: ${e?.message || e}`);
@@ -1936,7 +1930,18 @@ async function uploadBufferToBlob({ companyId, buffer, ext, contentType }, logge
     blobHTTPHeaders: { blobContentType: contentType || "application/octet-stream" },
   });
 
-  return blockBlobClient.url;
+  // Return a SAS URL with long-lived read-only access.  The storage account has
+  // public blob access disabled, so bare URLs 403.  A 10-year SAS avoids that.
+  const sasToken = generateBlobSASQueryParameters(
+    {
+      containerName,
+      blobName,
+      permissions: BlobSASPermissions.parse("r"),
+      expiresOn: new Date(Date.now() + 10 * 365.25 * 24 * 60 * 60 * 1000),
+    },
+    credentials,
+  ).toString();
+  return `${blockBlobClient.url}?${sasToken}`;
 }
 
 function getStorageCredentials() {
