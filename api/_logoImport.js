@@ -2373,6 +2373,8 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
 module.exports = {
   discoverLogoSourceUrl,
   importCompanyLogo,
+  uploadSvgToBlob,
+  looksLikeUnsafeSvg,
   _test: {
     normalizeDomain,
     absolutizeUrl,

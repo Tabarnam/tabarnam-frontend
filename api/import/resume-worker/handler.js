@@ -2133,7 +2133,26 @@ async function resumeWorkerHandler(req, context) {
                   xaiUrl: getXAIEndpoint(),
                   xaiKey: getXAIKey(),
                 });
-                if (grokLogoResult?.logo_url && grokLogoResult.logo_status === "ok") {
+                if (grokLogoResult?.logo_svg_buffer && grokLogoResult.logo_status === "ok_svg") {
+                  // Grok extracted inline SVG code — upload to blob storage
+                  try {
+                    const { uploadSvgToBlob } = require("../../_logoImport");
+                    const blobUrl = await uploadSvgToBlob({ companyId: doc.id, svgBuffer: grokLogoResult.logo_svg_buffer }, console);
+                    if (blobUrl) {
+                      r = {
+                        logo_url: blobUrl,
+                        logo_status: "ok",
+                        diagnostics: { logo_source_type: "grok_svg_extraction" },
+                      };
+                      console.log(`[resume-worker] Logo uploaded from Grok SVG extraction: ${blobUrl}`);
+                    } else {
+                      r = { logo_url: "", logo_status: "svg_upload_failed", diagnostics: { logo_source_type: null } };
+                    }
+                  } catch (svgErr) {
+                    console.warn(`[resume-worker] SVG blob upload failed: ${svgErr?.message}`);
+                    r = { logo_url: "", logo_status: "svg_upload_failed", diagnostics: { logo_source_type: null, error: svgErr?.message } };
+                  }
+                } else if (grokLogoResult?.logo_url && grokLogoResult.logo_status === "ok") {
                   r = {
                     logo_url: grokLogoResult.logo_url,
                     logo_status: "ok",

@@ -1767,24 +1767,32 @@ async function fetchLogo({
 
 For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find the company logo.
 
-Task: Find the direct URL to this company's official logo image.
+Task: Find this company's official logo.
+
+Step 1: Browse ${websiteUrlForPrompt || "the company website"} and look for the logo in the header, navigation, or footer.
+
+Step 2: Determine the logo format:
+- If the logo is a separate image file (PNG, SVG, JPG, WebP), return its direct URL in logo_url
+- If the logo is an inline <svg> element embedded in the HTML (no separate image file URL), extract the full SVG markup and return it in svg_code
+  - If the SVG uses <use href="#id"> or <use xlink:href="#id">, find the referenced <symbol> or <svg> element and inline its contents to produce a self-contained SVG
+  - Strip any CSS class attributes that reference external stylesheets
 
 Requirements:
 - The logo must be the company's official brand logo or wordmark
-- Look for it in the website header, navigation, footer, or about page
-- The URL should be a direct link to an image file (PNG, SVG, JPG, WebP)
 - Do NOT return favicon.ico or generic placeholder images
 - Do NOT return product images, hero banners, or promotional graphics
-- The image should be the primary brand identifier used across the site
-- If multiple logo variants exist (light/dark, horizontal/stacked), prefer the main/primary version
-- Verify the URL actually returns an image
+- If multiple logo variants exist, prefer the main/primary version
+- Verify the URL actually returns an image (if providing a URL)
 
 Output STRICT JSON only:
 {
   "logo_url": "https://..." | null,
+  "svg_code": "<svg ...>...</svg>" | null,
   "logo_source": "header" | "nav" | "footer" | "about" | "meta" | "schema" | null,
   "confidence": "high" | "medium" | "low"
-}`.trim();
+}
+
+Return logo_url if a direct image URL exists. Return svg_code ONLY when the logo is an inline SVG with no separate image URL. Never return both.`.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
 
@@ -1818,7 +1826,7 @@ Output STRICT JSON only:
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 250,
+    maxTokens: 2000,
     model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
@@ -1853,8 +1861,45 @@ Output STRICT JSON only:
   }
 
   const logoUrl = asString(out?.logo_url).trim() || null;
+  const svgCode = asString(out?.svg_code).trim() || null;
   const logoSource = asString(out?.logo_source).trim().toLowerCase() || null;
   const confidence = asString(out?.confidence).trim().toLowerCase() || "low";
+
+  // Handle inline SVG code when Grok found no separate image URL
+  if (!logoUrl && svgCode) {
+    if (!svgCode.startsWith("<svg") || !svgCode.includes("</svg>")) {
+      const valueOut = {
+        logo_url: null,
+        logo_status: "invalid_svg",
+        diagnostics: { reason: "svg_code_malformed", preview: svgCode.slice(0, 200) },
+      };
+      if (cacheKey) writeStageCache(cacheKey, valueOut);
+      return valueOut;
+    }
+
+    const svgBuf = Buffer.from(svgCode, "utf8");
+
+    // Reuse safety check from _logoImport.js
+    const { looksLikeUnsafeSvg } = require("./_logoImport");
+    if (looksLikeUnsafeSvg(svgBuf)) {
+      const valueOut = {
+        logo_url: null,
+        logo_status: "unsafe_svg",
+        diagnostics: { reason: "svg_code_unsafe" },
+      };
+      if (cacheKey) writeStageCache(cacheKey, valueOut);
+      return valueOut;
+    }
+
+    // Return buffer for the caller to upload to blob storage
+    return {
+      logo_url: null,
+      logo_svg_buffer: svgBuf,
+      logo_source: logoSource,
+      logo_confidence: confidence,
+      logo_status: "ok_svg",
+    };
+  }
 
   if (!logoUrl) {
     const valueOut = {
