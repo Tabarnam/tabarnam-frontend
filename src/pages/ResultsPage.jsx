@@ -36,7 +36,7 @@ export default function ResultsPage() {
   const [totalCount, setTotalCount] = useState(null);
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
-  const [sortBy, setSortBy] = useState("stars");
+  const [sortBy, setSortBy] = useState(null);
 
   // Load reviews for companies
   async function loadReviews(companies) {
@@ -123,7 +123,7 @@ export default function ResultsPage() {
       }
       if (!cancelled && loc) setUserLoc({ lat: loc.lat, lng: loc.lng });
 
-      setSortBy(sortParam === "hq" || sortParam === "manu" ? sortParam : "stars");
+      setSortBy(null);
 
       if (!cancelled && qParam) {
         await doSearch({
@@ -181,7 +181,7 @@ export default function ResultsPage() {
       // ignore
     }
 
-    setSortBy(sort === "hq" || sort === "manu" ? sort : "stars");
+    setSortBy(null);
     await doSearch({ q, sort, country, state, city, take: 50, skip: 0, append: false, location: searchLocation });
   }
 
@@ -262,22 +262,26 @@ export default function ResultsPage() {
     }
   }
 
-  // Secondary sort (client-side)
-  // Primary key: name-match relevance (exact name hits first), then by chosen metric
+  // Client-side sort: null = relevance (original API order), otherwise by chosen column
   const sorted = useMemo(() => {
+    if (!sortBy) return results;
+
     const arr = [...results];
     arr.sort((a, b) => {
+      let primary;
+      if (sortBy === "stars") {
+        primary = (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity);
+      } else if (sortBy === "manu") {
+        primary = (a._nearestManuDist ?? Infinity) - (b._nearestManuDist ?? Infinity);
+      } else {
+        primary = (a._hqDist ?? Infinity) - (b._hqDist ?? Infinity);
+      }
+      if (primary !== 0) return primary;
+
+      // Tiebreaker: relevance score
       const aRel = a._relevanceScore ?? a._nameMatchScore ?? 0;
       const bRel = b._relevanceScore ?? b._nameMatchScore ?? 0;
-      if (aRel !== bRel) return bRel - aRel;
-
-      if (sortBy === "stars") {
-        return (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity);
-      } else if (sortBy === "manu") {
-        return (a._nearestManuDist ?? Infinity) - (b._nearestManuDist ?? Infinity);
-      } else {
-        return (a._hqDist ?? Infinity) - (b._hqDist ?? Infinity);
-      }
+      return bRel - aRel;
     });
     return arr;
   }, [results, sortBy]);
@@ -285,7 +289,8 @@ export default function ResultsPage() {
   const rightColsOrder = useMemo(() => {
     if (sortBy === "stars") return ["stars", "manu", "hq"];
     if (sortBy === "hq") return ["hq", "manu", "stars"];
-    return ["manu", "hq", "stars"];
+    if (sortBy === "manu") return ["manu", "hq", "stars"];
+    return ["stars", "manu", "hq"]; // default column order for relevance
   }, [sortBy]);
 
   const headerClassFor = (key) =>
