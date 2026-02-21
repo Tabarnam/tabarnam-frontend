@@ -12,13 +12,21 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "2.0.0";
+const PROMPT_GUIDANCE_VERSION = "2.1.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
 // ---------------------------------------------------------------------------
 const QUALITY_RULES = `If you don't find credible info for a field, use "" (or [] / false).
 No backticks. No extra keys.`;
+
+// ---------------------------------------------------------------------------
+// SEARCH PREAMBLE — prepended to prompts that require live web data.
+// Per xAI guidance: explicitly instruct the model to use its tools.
+// ---------------------------------------------------------------------------
+const SEARCH_PREAMBLE = `Use web_search and browse_page tools explicitly to research this query. Do not rely on training data alone.
+Confirm all info with working URLs and sources; do not hallucinate.
+If data conflicts with the official company site, prioritize the browsed page content.`;
 
 // ---------------------------------------------------------------------------
 // FIELD SCHEMA — canonical field list from the import prompt.
@@ -108,14 +116,10 @@ FORMAT RULES:
   },
 
   industries: {
-    rules: `- STEP 1: Use browse_page on the company URL. Read the homepage, About page, and product pages to understand what the company makes or sells.
-- STEP 2: Use web_search "[Company Name] industry" or "[Company Name] company profile" to find LinkedIn, Bloomberg, or industry directory classifications.
-- Return an array of specific, descriptive industry labels that describe what the company actually manufactures or sells (e.g., "Home Textiles Manufacturing", "Bedding Products", "Bath Linens").
+    rules: `- Use web_search "[Company Name] industry" or "[Company Name] company profile" to find LinkedIn, Bloomberg, or industry directory classifications.
+- Return an array of up to 3 specific, descriptive industry labels that describe what the company actually manufactures or sells (e.g., "Home Textiles Manufacturing", "Bedding Products", "Bath Linens").
 - Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce".
-- Each label should be specific enough to distinguish this company from unrelated companies.
-- Provide the type of business, not industry codes.
-- Be thorough — include all relevant industry verticals.
-- Avoid store navigation terms ("New Arrivals", "Shop", "Sale") and legal terms.
+- Maximum 3 industries. Pick the most specific and descriptive ones.
 - No guessing or hallucinating. Only report verified information.`,
     jsonSchema: `"industries": ["Industry 1", "Industry 2", "..."]`,
   },
@@ -260,13 +264,14 @@ const FIELD_SUMMARIES = {
 3. If the website and an external source agree, report that city. If they conflict, trust the website. If the website has no location info, require 2+ external sources that agree.
 4. Do NOT rely on your training data or general knowledge — you MUST verify by actually visiting pages. No hallucinations.
 Having the actual cities within the USA is crucial. Use initials for state or province. Use "USA" not "United States". No explanatory info — just locations. Also return "location_source_urls" with the URLs you actually visited to determine each location.`,
-  industries: `Use browse_page on the company URL to understand their business, then web_search for industry classifications. Return as a JSON array of specific, descriptive industry strings (e.g., "Home Textiles Manufacturing", "Bedding Products"). Avoid generic umbrella terms like "Consumer Goods" or "Food and Beverage". Each label should describe what the company actually manufactures or sells.`,
+  industries: `Use web_search for industry classifications. Return a JSON array of up to 3 specific, descriptive industry strings (e.g., "Home Textiles Manufacturing", "Bedding Products"). Avoid generic umbrella terms like "Consumer Goods" or "Food and Beverage". Maximum 3 industries.`,
   keywords: `Use browse_page on the company URL to find all products. Keywords must be exhaustive — include every named product, product line, variant, and SKU. Use specific product names (e.g., "Vellux Original Blanket") not generic categories (e.g., "blankets"). Use web_search "[Company] products" for completeness.`,
 };
 
 module.exports = {
   PROMPT_GUIDANCE_VERSION,
   QUALITY_RULES,
+  SEARCH_PREAMBLE,
   FIELD_SCHEMA,
   FIELD_GUIDANCE,
   FIELD_SUMMARIES,

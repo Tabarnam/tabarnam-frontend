@@ -4,7 +4,7 @@
 const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
-const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES } = require("./_xaiPromptGuidance");
+const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE } = require("./_xaiPromptGuidance");
 
 // ============================================================================
 // Module-level bypass flag for admin refresh
@@ -1038,7 +1038,9 @@ async function fetchHeadquartersLocation({ companyName, normalizedDomain, budget
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the headquarters location.
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the headquarters location.
 
 Task: Determine the company's HEADQUARTERS location.
 
@@ -1196,7 +1198,9 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
 
 Task: Identify ALL known MANUFACTURING locations for this company worldwide.
 
@@ -1351,7 +1355,9 @@ async function fetchTagline({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) provide the tagline.
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) provide the tagline.
 
 Task: Provide the company's official tagline or slogan.
 
@@ -1476,7 +1482,9 @@ async function fetchIndustries({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) identify the industries.
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) identify the industries.
 
 Task: Identify the company's industries.
 
@@ -1563,7 +1571,7 @@ Return:
     return valueOut;
   }
 
-  const valueOut = { industries: cleaned.slice(0, 5), industries_status: "ok" };
+  const valueOut = { industries: cleaned.slice(0, 3), industries_status: "ok" };
   if (cacheKey) writeStageCache(cacheKey, valueOut);
   return valueOut;
 }
@@ -1595,7 +1603,9 @@ async function fetchProductKeywords({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) provide the product keywords.
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) provide the product keywords.
 
 Task: Provide an EXHAUSTIVE, COMPLETE, and ALL-INCLUSIVE list of ALL PRODUCTS this company sells.
 
@@ -1753,7 +1763,9 @@ async function fetchLogo({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find the company logo.
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) find the company logo.
 
 Task: Find the direct URL to this company's official logo image.
 
@@ -1967,7 +1979,9 @@ async function fetchAllFieldsUnified({
       ? `https://${domain}`
       : "";
 
-  const prompt = `For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) please provide their tagline, HQ, manufacturing, industries, keywords (products), and reviews.
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) please provide their tagline, HQ, manufacturing, industries, keywords (products), and reviews.
 
 LOCATIONS: ${FIELD_SUMMARIES.locations}
 
@@ -2006,6 +2020,7 @@ Return STRICT JSON only:
       ...searchBuild.search_parameters,
       excluded_domains: searchBuild.excluded_domains,
     },
+    useTools: true,
   });
 
   const elapsedMs = Date.now() - started;
@@ -2068,7 +2083,7 @@ Return STRICT JSON only:
   field_statuses.manufacturing = mfg_cleaned.length > 0 ? "ok" : "empty";
 
   const industries_raw = Array.isArray(parsed.industries) ? parsed.industries : [];
-  const industries_cleaned = industries_raw.map((x) => asString(x).trim()).filter(Boolean);
+  const industries_cleaned = industries_raw.map((x) => asString(x).trim()).filter(Boolean).slice(0, 3);
   field_statuses.industries = industries_cleaned.length > 0 ? "ok" : "empty";
 
   const kw_raw = Array.isArray(parsed.product_keywords)

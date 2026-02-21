@@ -287,14 +287,22 @@ async function xaiLiveSearch({
     // Detect if we're using the /responses endpoint (newer xAI API) vs /chat/completions
     const useResponsesFormat = isResponsesEndpoint(url);
 
-    // Build payload in the appropriate format for the endpoint
+    // Build payload in the appropriate format for the endpoint.
+    // For /v1/responses, translate search_parameters into tools automatically.
+    // search_parameters.mode: "on" is the /v1/chat/completions way to enable search;
+    // for /v1/responses, the equivalent is tools: [{ type: "web_search" }].
+    const shouldEnableTools = useTools || (
+      useResponsesFormat &&
+      search_parameters &&
+      typeof search_parameters === "object" &&
+      (search_parameters.mode === "on" || Object.keys(search_parameters).length > 0)
+    );
+
     const payload = useResponsesFormat
       ? {
-          // /v1/responses format — tools only when caller opts in (reviews need web search;
-          // factual fields like tagline/HQ/industries are faster without tools)
           model: resolvedModel,
           input: [{ role: "user", content: asString(prompt) }],
-          ...(useTools ? { tools: buildToolsArray(search_parameters) } : {}),
+          ...(shouldEnableTools ? { tools: buildToolsArray(search_parameters) } : {}),
         }
       : {
           // /v1/chat/completions format
