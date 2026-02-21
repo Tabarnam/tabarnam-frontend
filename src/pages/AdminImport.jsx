@@ -164,6 +164,7 @@ export default function AdminImport() {
   const isSuccessionRunning = successionIndex >= 0;
   const isSuccessionRunningRef = useRef(false);
   isSuccessionRunningRef.current = isSuccessionRunning;
+  const successionTerminalGateRef = useRef(0);
   const successionCompleted = !isSuccessionRunning && successionResults.length > 0 && successionQueue.length > 0;
   const showSuccessionPanel = isSuccessionRunning || successionCompleted;
 
@@ -768,10 +769,30 @@ export default function AdminImport() {
         }
 
         if (isTerminalComplete) {
-          try {
-            setActiveStatus((prev) => (prev === "running" ? "done" : prev));
-          } catch {}
-          return { shouldStop: true, body };
+          // During succession, delay terminal completion until at least one
+          // resume-worker cycle finishes — logo, reviews, and geocoding are
+          // populated by the worker, not by import-start.  Time-limited so
+          // the succession doesn't stall if the worker never triggers.
+          if (isSuccessionRunningRef.current && resumeCycleCount < 1) {
+            if (!successionTerminalGateRef.current) successionTerminalGateRef.current = Date.now();
+            const waited = Date.now() - successionTerminalGateRef.current;
+            if (waited < 180_000) {
+              // Continue polling — fall through to shouldStop: false below
+            } else {
+              // 3-minute timeout — advance anyway
+              successionTerminalGateRef.current = 0;
+              try {
+                setActiveStatus((prev) => (prev === "running" ? "done" : prev));
+              } catch {}
+              return { shouldStop: true, body };
+            }
+          } else {
+            successionTerminalGateRef.current = 0;
+            try {
+              setActiveStatus((prev) => (prev === "running" ? "done" : prev));
+            } catch {}
+            return { shouldStop: true, body };
+          }
         }
 
         return { shouldStop: timedOut || stopped, body, shouldBackoff: shouldBackoffForResume };
@@ -3368,6 +3389,7 @@ export default function AdminImport() {
     if (!successionTriggerRef.current) return;
 
     successionTriggerRef.current = false;
+    successionTerminalGateRef.current = 0;
     handleStartImportStaged();
   }, [successionIndex, query, companyUrl, handleStartImportStaged, successionQueue]);
 

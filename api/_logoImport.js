@@ -1183,7 +1183,10 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
           return { ok: false, reason: "unknown_svg_dimensions" };
         }
       }
-      if (Math.max(width, height) < 64 || (width * height) < 2048) {
+      // SVG viewBox dimensions are suggestive, not binding — exempt high-confidence
+      // candidates (strong_signal, header logos, URLs with "/logo") from the minimum
+      // area check while still rejecting tiny icons (max dim < 64).
+      if (Math.max(width, height) < 64 || ((width * height) < 2048 && !isHighConfidence)) {
         return { ok: false, reason: `too_small_dimensions_${width}x${height}` };
       }
       if (!isReasonableLogoAspectRatio({ width, height }) && !candidate?.strong_signal) {
