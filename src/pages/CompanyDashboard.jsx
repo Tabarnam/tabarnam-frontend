@@ -513,6 +513,7 @@ function StarNotesEditor({ star, onChange }) {
   );
 }
 const REFRESHABLE_FIELDS = [
+  { key: "logo_url", label: "Logo", missingKey: "logo" },
   { key: "tagline", label: "Tagline", missingKey: "tagline" },
   { key: "headquarters_location", label: "HQ location", missingKey: "HQ location" },
   { key: "manufacturing_locations", label: "Manufacturing", missingKey: "manufacturing" },
@@ -522,6 +523,7 @@ const REFRESHABLE_FIELDS = [
 ];
 
 const REFRESH_FIELD_STATUS = {
+  logo_url: "Fetching logo\u2026",
   tagline: "Searching for tagline\u2026",
   headquarters_location: "Looking up HQ location\u2026",
   manufacturing_locations: "Researching manufacturing locations\u2026",
@@ -565,6 +567,7 @@ export default function CompanyDashboard() {
   const [refreshApplied, setRefreshApplied] = useState(false);
   const [refreshFieldsOpen, setRefreshFieldsOpen] = useState(false);
   const [refreshFieldChecks, setRefreshFieldChecks] = useState({
+    logo_url: true,
     tagline: true,
     headquarters_location: true,
     manufacturing_locations: true,
@@ -3228,6 +3231,7 @@ export default function CompanyDashboard() {
     const score = getProfileCompleteness(editorDraft);
     const label = getProfileCompletenessLabel(score);
     const missing = [];
+    if (!asString(editorDraft.logo_url).trim()) missing.push("logo");
     if (!asString(editorDraft.tagline).trim()) missing.push("tagline");
     const industries = Array.isArray(editorDraft.industries) ? editorDraft.industries.filter(Boolean) : [];
     if (industries.length === 0) missing.push("industries");
