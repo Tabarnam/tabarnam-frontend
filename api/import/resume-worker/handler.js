@@ -1317,6 +1317,7 @@ async function resumeWorkerHandler(req, context) {
     return gracefulExit("stopped");
   }
 
+  const msgCycleCount = Number.isFinite(Number(body?.cycle_count)) ? Number(body.cycle_count) : null;
   const nextAllowedMs = Date.parse(String(resumeDoc?.next_allowed_run_at || "")) || 0;
   const isDirectInvocation = msgCycleCount === null; // import-status direct calls don't include cycle_count
   if (!isDirectInvocation && nextAllowedMs && Date.now() < nextAllowedMs) {
@@ -1406,7 +1407,6 @@ async function resumeWorkerHandler(req, context) {
 
   // Queue idempotency: if a message is for a different cycle than the current resume doc,
   // treat it as stale/duplicate to avoid duplicate work storms.
-  const msgCycleCount = Number.isFinite(Number(body?.cycle_count)) ? Number(body.cycle_count) : null;
   const docCycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : null;
   if (msgCycleCount !== null && docCycleCount !== null && msgCycleCount !== docCycleCount) {
     return gracefulExit(msgCycleCount < docCycleCount ? "duplicate" : "future_message");
