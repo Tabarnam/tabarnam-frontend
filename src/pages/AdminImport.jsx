@@ -744,7 +744,7 @@ export default function AdminImport() {
                 : terminalOnlyFlag && isTerminalComplete
                   ? "Completed (terminal-only): remaining missing fields were marked Not disclosed / Exhausted."
                   : shouldBackoffForResume
-                    ? `Resume ${resumeStatusLabel || "queued"}, waiting for worker. Polling will slow down.`
+                    ? `Enriching in background\u2026`
                     : r.progress_notice,
               updatedAt: new Date().toISOString(),
             };
@@ -809,7 +809,7 @@ export default function AdminImport() {
   const DEFAULT_POLL_INTERVAL_MS = 2500;
   const RESUME_POLL_RUNNING_MS = 15_000;
   // When resume worker is actively running in background (fire-and-forget), poll more aggressively.
-  const RESUME_POLL_IN_PROGRESS_MS = [5_000, 5_000, 10_000, 10_000, 15_000, 15_000, 30_000];
+  const RESUME_POLL_IN_PROGRESS_MS = [3_000, 5_000, 5_000, 10_000, 10_000];
   // When resume is queued but worker not yet triggered, use slower backoff.
   const RESUME_POLL_QUEUED_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000];
   const STATUS_POLL_TIMEOUT_MS = 180_000; // 3 min — generous for inline worker, short enough to recover from hung connections
