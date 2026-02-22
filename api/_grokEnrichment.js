@@ -2053,8 +2053,8 @@ Return STRICT JSON only:
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: budgetMs,
-      minMs: 60_000,
-      maxMs: 300_000,
+      minMs: 30_000,
+      maxMs: 120_000,
       safetyMarginMs: 5_000,
     }),
     maxTokens: 4000,

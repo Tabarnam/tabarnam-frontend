@@ -8,6 +8,8 @@ const {
 const { runDirectEnrichment, applyEnrichmentToCompany } = require("../_directEnrichment");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
+const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
+const { buildInternalFetchRequest } = require("../_internalJobAuth");
 
 // ── From extracted sibling modules ────────────────────────────────────────────
 const {
@@ -1026,7 +1028,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       // Phase 1 fetches everything, Phase 2 verifies URLs & caps reviews.
       // ═══════════════════════════════════════════════════════════════
       const ALL_CORE_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"];
-      const ENRICHMENT_BUDGET_MS = 240000;  // 4 min: unified + verify + dedicated review deepening
+      const ENRICHMENT_BUDGET_MS = 150000;  // 2.5 min: unified + verify (Phase 3 skipped in import-start)
 
       // ── PASS1a: Unified + verify + selective Phase 3 (reviews only) ──
       // Reviews rarely survive Phase 1+2 intact (the unified prompt returns few URLs,
@@ -1039,9 +1041,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         sessionId,
         budgetMs: ENRICHMENT_BUDGET_MS,
         fieldsToEnrich: [...ALL_CORE_FIELDS],
-        skipDedicatedDeepening: false,
-        dedicatedFieldsOnly: ["reviews"],
-        phase3BudgetCapMs: 90000,         // Cap Phase 3 at 90s — enough for one search, not 3+ min waste on timeout
+        skipDedicatedDeepening: true,       // Skip Phase 3 in import-start — reviews always timeout here. Resume-worker handles them with 8-min budget.
         // Save Phase 1+2 results to Cosmos immediately after verification so
         // the resume-worker sees populated fields even if Azure DrainMode kills
         // Phase 3 (review deepening). Without this, a DrainMode event loses all
@@ -1280,6 +1280,26 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       // Queue failure is non-fatal; the resume-worker may still pick it up via polling.
       console.warn(`[maybeQueueAndInvokeMandatoryEnrichment] partial retry queue failed: ${qErr?.message || qErr}`);
     }
+
+    // ── Fire-and-forget: invoke resume-worker in-process as fallback ──
+    // The queue trigger may be inactive (NoOpListener), so also invoke
+    // the worker directly using the same pattern as import-status.
+    // No await — runs in background after the HTTP response is sent.
+    try {
+      const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
+      invokeResumeWorkerInProcess({
+        session_id: sessionId,
+        context,
+        workerRequest,
+      }).then((res) => {
+        const ok = Boolean(res?.ok);
+        console.log(`[maybeQueueAndInvokeMandatoryEnrichment] resume-worker in-process fallback completed`, {
+          session_id: sessionId,
+          ok,
+          status: res?.status ?? null,
+        });
+      }).catch(() => {}); // Fire-and-forget
+    } catch {}
   }
 
   return {

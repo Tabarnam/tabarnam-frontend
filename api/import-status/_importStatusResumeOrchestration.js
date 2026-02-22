@@ -238,7 +238,7 @@ async function runWatchdogStuckDetection(ctx, opts) {
 
   // Cooldown: prevent trigger spam when status is polled repeatedly.
   if (ctx.canTrigger && (ctx.resumeStatus === "queued" || ctx.resumeStatus === "blocked") && !ctx.forceResume) {
-    const cooldownMs = 60_000;
+    const cooldownMs = 15_000;
     let lastTriggeredTs = 0;
 
     try {
