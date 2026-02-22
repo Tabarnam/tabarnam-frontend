@@ -584,13 +584,52 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
       const sessionDocId = `_import_session_${sessionId}`;
       const sessionDocAfterBg = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
       if (sessionDocAfterBg && typeof sessionDocAfterBg === "object") {
-        await upsertDoc(container, {
-          ...sessionDocAfterBg,
+        // ── Consecutive failure detection ──
+        // Track how many times the background resume worker has failed with status=0
+        // (unhandled exception). After 3 consecutive failures, force-clear the resume
+        // control doc to break stuck loops (e.g. after Azure DrainMode kills enrichment).
+        const prevFailures = Number(sessionDocAfterBg.resume_worker_consecutive_failures) || 0;
+        const isZeroStatusFailure = !bgOk && bgStatus === 0;
+        const consecutiveFailures = isZeroStatusFailure ? prevFailures + 1 : 0;
+
+        const sessionPatch = {
           resume_worker_last_trigger_result: bgTriggerResult,
           resume_worker_last_trigger_ok: bgTriggerResult.ok,
           resume_worker_last_trigger_http_status: bgStatus,
           resume_worker_last_finished_at: nowIso(),
+          resume_worker_consecutive_failures: consecutiveFailures,
           updated_at: nowIso(),
+        };
+
+        if (consecutiveFailures >= 3) {
+          console.warn(`[import-status] session=${sessionId} resume worker failed ${consecutiveFailures} consecutive times (status=0), force-clearing resume doc`);
+
+          // Force-clear the resume control doc to give the worker a fresh start.
+          const resumeDocId = `_import_resume_${sessionId}`;
+          const staleResumeDoc = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+          if (staleResumeDoc && typeof staleResumeDoc === "object") {
+            await upsertDoc(container, {
+              ...staleResumeDoc,
+              status: "queued",
+              invocation_mode: "resume_worker",
+              lock_expires_at: null,
+              resume_error: null,
+              resume_error_details: null,
+              stale_cleared_reason: `consecutive_failures_${consecutiveFailures}`,
+              stale_cleared_at: nowIso(),
+              updated_at: nowIso(),
+            }).catch(() => null);
+          }
+
+          // Ensure resume_needed is explicitly true so the next poll retries.
+          sessionPatch.resume_needed = true;
+          sessionPatch.resume_updated_at = nowIso();
+          sessionPatch.resume_worker_consecutive_failures = 0; // reset after clearing
+        }
+
+        await upsertDoc(container, {
+          ...sessionDocAfterBg,
+          ...sessionPatch,
         }).catch(() => null);
       }
     } catch {}

@@ -1038,6 +1038,12 @@ async function resumeWorkerHandler(req, context) {
     });
   } catch {}
 
+  // ── TOP-LEVEL ERROR BOUNDARY ──
+  // Wraps the entire handler body so that any unhandled exception produces a
+  // diagnostic JSON response (status 500) instead of propagating to the
+  // invokeResumeWorkerInProcess catch, which returns a silent { ok: false, status: 0 }.
+  try {
+
   let cosmosContainer = null;
   if (cosmosEnabled) {
     try {
@@ -1248,6 +1254,31 @@ async function resumeWorkerHandler(req, context) {
     if (resumeInvocationMode === "direct_http" && resumeStatus === "in_progress" && enrichmentAgeMs < 420000) {
       console.log(`[resume-worker] SKIPPING: direct_http enrichment in progress for session=${sessionId} (age=${Math.round(enrichmentAgeMs / 1000)}s)`);
       return gracefulExit("direct_http_in_progress");
+    }
+
+    // ── Stale direct_http recovery ──
+    // If enrichment_started_at is > 420s old but the resume doc still says
+    // direct_http + in_progress, the enrichment was killed (e.g. by DrainMode)
+    // without updating the doc. Clear the stale state so the resume worker can
+    // proceed on this invocation instead of waiting for a state that will never change.
+    if (resumeInvocationMode === "direct_http" && resumeStatus === "in_progress" && enrichmentAgeMs >= 420000) {
+      console.warn(`[resume-worker] stale direct_http enrichment detected for session=${sessionId} (age=${Math.round(enrichmentAgeMs / 1000)}s), clearing in_progress state`);
+      try {
+        await upsertDoc(container, {
+          ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+          id: resumeDocId,
+          session_id: sessionId,
+          normalized_domain: "import",
+          partition_key: "import",
+          type: "import_control",
+          status: "queued",
+          invocation_mode: "resume_worker",
+          stale_direct_http_cleared_at: nowIso(),
+          updated_at: nowIso(),
+        }).catch(() => null);
+        // Refresh resumeDoc so downstream logic sees the cleared state.
+        resumeDoc = (await readControlDoc(container, resumeDocId, sessionId).catch(() => null)) || resumeDoc;
+      } catch {}
     }
   }
 
@@ -4332,6 +4363,52 @@ async function resumeWorkerHandler(req, context) {
     200,
     req
   );
+
+  } catch (topLevelErr) {
+    // ── TOP-LEVEL ERROR BOUNDARY (catch) ──
+    // Ensures the handler NEVER throws — always returns a diagnosable response.
+    const errMsg = safeErrorMessage(topLevelErr, 500);
+    const errStack = String(topLevelErr?.stack || "").slice(0, 1000);
+    console.error(`[${HANDLER_ID}] UNHANDLED EXCEPTION for session=${sessionId}:`, errMsg, errStack);
+
+    // Best-effort: persist error details on the session doc so the next poll can diagnose.
+    try {
+      const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+      const dbKey = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+      if (endpoint && dbKey && CosmosClient) {
+        const errContainer = new CosmosClient({ endpoint, key: dbKey }).database(databaseId).container(containerId);
+        await bestEffortPatchSessionDoc({
+          container: errContainer,
+          sessionId,
+          patch: {
+            resume_worker_last_error: errMsg,
+            resume_worker_last_error_stack: errStack,
+            resume_worker_last_finished_at: nowIso(),
+            resume_worker_last_result: "unhandled_exception",
+            updated_at: nowIso(),
+          },
+        }).catch(() => null);
+      }
+    } catch {}
+
+    return json(
+      {
+        ok: false,
+        session_id: sessionId,
+        handler_entered_at,
+        did_work: false,
+        did_work_reason: "unhandled_exception",
+        error: errMsg,
+        error_stack: errStack,
+        root_cause: "unhandled_exception",
+        retryable: true,
+      },
+      500,
+      req
+    );
+  }
 }
 
 async function invokeResumeWorkerInProcess({
@@ -4395,10 +4472,16 @@ async function invokeResumeWorkerInProcess({
   try {
     res = await resumeWorkerHandler(internalReq, context);
   } catch (e) {
+    // Serialize the error into bodyText so downstream logging (import-status
+    // orchestration) can extract the message and stack — Error objects don't
+    // survive JSON.stringify and previously resulted in empty bodyText.
+    const errMsg = e?.message || String(e);
+    const errStack = String(e?.stack || "").slice(0, 500);
+    console.error(`[invokeResumeWorkerInProcess] resumeWorkerHandler threw for session=${sid}:`, errMsg);
     return {
       ok: false,
       status: 0,
-      bodyText: "",
+      bodyText: JSON.stringify({ ok: false, error: errMsg, stack: errStack, root_cause: "handler_exception" }),
       error: e,
       gateway_key_attached: Boolean(reqMeta.gateway_key_attached),
       request_id: reqMeta.request_id || null,
