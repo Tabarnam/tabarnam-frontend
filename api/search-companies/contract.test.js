@@ -409,6 +409,33 @@ test("CONTAINS fallback includes synonym variant params (company → co)", async
   );
 });
 
+test("CONTAINS fallback includes per-word params for multi-word queries", async () => {
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=monster+beverage&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.ok(specs.length > 0, "at least one query should be issued");
+  const params = specs[0].parameters || [];
+  // Per-word params should include individual words "monster" and "beverage"
+  const wordValues = params.filter((p) => p.name.startsWith("@q_w")).map((p) => p.value);
+  assert.ok(
+    wordValues.includes("monster"),
+    `Per-word params should include "monster" but got: ${JSON.stringify(wordValues)}`
+  );
+  assert.ok(
+    wordValues.includes("beverage"),
+    `Per-word params should include "beverage" but got: ${JSON.stringify(wordValues)}`
+  );
+});
+
 // ── fuzzy fallback integration ───────────────────────────────────────────
 
 test("search-companies triggers fuzzy fallback when primary search returns 0 results", async () => {

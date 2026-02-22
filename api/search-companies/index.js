@@ -393,11 +393,14 @@ function buildLegacySearchFilter() {
 }
 
 /**
- * Build extra CONTAINS clauses for synonym-expanded phrase variants.
+ * Build extra CONTAINS clauses for synonym-expanded phrase variants AND per-word matching.
  *
- * When FTS is disabled, the legacy CONTAINS filter only checks the raw query (@q).
- * This function adds OR'd CONTAINS checks on `search_text_norm` for each expanded
- * phrase variant (e.g., "rocky mountain soda co" from "rocky mountain soda company").
+ * When FTS is disabled, the legacy CONTAINS filter only checks the raw query (@q)
+ * as an exact substring. This function adds two layers of additional matching:
+ *
+ * 1. Synonym phrase variants — e.g., "rocky mountain soda co" from "company" → "co"
+ * 2. Per-word matching — e.g., "monster" and "beverage" checked individually so that
+ *    "monster beverage" finds "Monster Energy" (matched on "monster" word)
  *
  * @param {string[]} phrases - Expanded phrase variants from expandQueryTermsForFTS()
  * @param {string} q_norm - The original normalized query (already covered by @q)
@@ -407,6 +410,8 @@ function buildLegacySearchFilter() {
  */
 function buildVariantContainsClauses(phrases, q_norm, params) {
   const variantClauses = [];
+
+  // 1. Synonym phrase variants (e.g., "rocky mountain soda co")
   phrases.forEach((phrase, i) => {
     if (phrase === q_norm) return; // already covered by @q in the legacy filter
     const paramName = `@q_v${i}`;
@@ -420,6 +425,20 @@ function buildVariantContainsClauses(phrases, q_norm, params) {
       variantClauses.push(`CONTAINS(c.search_text_compact, ${compactParam})`);
     }
   });
+
+  // 2. Per-word matching for multi-word queries.
+  //    "monster beverage" → check "monster" and "beverage" individually.
+  //    This ensures "Monster Energy" is found even though the full phrase
+  //    "monster beverage" doesn't appear in the document.
+  const words = q_norm.split(/\s+/).filter((w) => w.length >= 3);
+  if (words.length >= 2) {
+    words.forEach((word, i) => {
+      const paramName = `@q_w${i}`;
+      params.push({ name: paramName, value: word });
+      variantClauses.push(`CONTAINS(c.search_text_norm, ${paramName})`);
+    });
+  }
+
   if (variantClauses.length === 0) return "";
   return ` OR (IS_DEFINED(c.search_text_norm) AND (${variantClauses.join(" OR ")}))`;
 }
