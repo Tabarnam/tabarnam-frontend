@@ -3886,7 +3886,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           // When company_url_hint was provided, ensure the result set includes a company
           // with the hinted URL. If the primary search found it by name, patch its website_url
           // to match the hint. If not found, inject a seed with the real name + URL.
-          if (xaiPayload.company_url_hint) {
+          if (xaiPayload.company_url_hint && /[a-z0-9]\.[a-z]{2,}/i.test(xaiPayload.company_url_hint)) {
             const hintDomain = String(xaiPayload.company_url_hint || "")
               .replace(/^https?:\/\//i, "").replace(/^www\./, "").split("/")[0].toLowerCase().trim();
 

@@ -1729,7 +1729,10 @@ export default function AdminImport() {
         session_id: uiSessionIdBefore,
         query: q,
         queryTypes: selectedTypes,
-        company_url_hint: asString(companyUrl).trim() || undefined,
+        company_url_hint:
+          asString(companyUrl).trim() && looksLikeUrlOrDomain(asString(companyUrl).trim())
+            ? asString(companyUrl).trim()
+            : undefined,
         location: asString(location).trim() || undefined,
         limit: normalizedLimit,
         expand_if_few: true,
