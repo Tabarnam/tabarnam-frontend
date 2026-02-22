@@ -2057,6 +2057,7 @@ Return STRICT JSON only:
       maxMs: 120_000,
       safetyMarginMs: 5_000,
     }),
+    maxAttempts: 1, // No retry — retrying doubles Phase 1 (110s×2=220s)
     maxTokens: 4000,
     model: resolveSearchModel(model),
     xaiUrl,

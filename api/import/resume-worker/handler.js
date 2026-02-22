@@ -1287,7 +1287,8 @@ async function resumeWorkerHandler(req, context) {
   }
 
   const nextAllowedMs = Date.parse(String(resumeDoc?.next_allowed_run_at || "")) || 0;
-  if (nextAllowedMs && Date.now() < nextAllowedMs) {
+  const isDirectInvocation = msgCycleCount === null; // import-status direct calls don't include cycle_count
+  if (!isDirectInvocation && nextAllowedMs && Date.now() < nextAllowedMs) {
     const delayMs = Math.max(0, nextAllowedMs - Date.now());
     const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
 
