@@ -839,7 +839,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
       // Helper: run a Cosmos query with a timeout to prevent hanging when FTS index is building.
       // Returns { resources } on success, throws on timeout or error.
-      const FTS_TIMEOUT_MS = 15000;
+      const FTS_TIMEOUT_MS = 5000;
       function queryWithTimeout(sql, parameters) {
         return new Promise((resolve, reject) => {
           const timer = setTimeout(() => reject(new Error("FTS query timeout")), FTS_TIMEOUT_MS);
