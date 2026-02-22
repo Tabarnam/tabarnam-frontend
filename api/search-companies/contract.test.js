@@ -365,7 +365,7 @@ test("search-companies response includes _relevanceScore and _matchType", async 
 
 // ── FTS query in SQL filter ──────────────────────────────────────────────
 
-test("search SQL uses FullTextContains for text matching", async () => {
+test("search SQL uses CONTAINS fallback while FTS is disabled", async () => {
   const specs = [];
   const companiesContainer = makeContainer(async (spec) => {
     specs.push(spec);
@@ -379,9 +379,9 @@ test("search SQL uses FullTextContains for text matching", async () => {
   );
 
   assert.ok(specs.length > 0, "at least one query should be issued");
-  // The first query should use FTS (fuzzy fallback may follow)
+  // While USE_FTS is false, the handler should fall back to CONTAINS-based search
   const primarySql = String(specs[0].query || "");
-  assert.ok(primarySql.includes("FullTextContains"), "Primary SQL should use FullTextContains for FTS search");
+  assert.ok(primarySql.includes("CONTAINS"), "Primary SQL should use CONTAINS while FTS is disabled");
 });
 
 // ── fuzzy fallback integration ───────────────────────────────────────────

@@ -837,6 +837,13 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         ftsPhrases = expansion.phrases;
       }
 
+      // TEMPORARY: Disable FTS queries while the full-text index is still building.
+      // Multi-word FTS queries (FullTextContainsAll) hang indefinitely and
+      // the Cosmos SDK silently ignores AbortController/abortSignal.
+      // Set to true once the index is confirmed ready via Azure Portal
+      // (Container → Indexing → Index Transformation Progress = 100%).
+      const USE_FTS = false;
+
       // Helper: run a Cosmos query with a timeout to prevent hanging when FTS index is building.
       // Uses AbortController to properly cancel the underlying HTTP request on timeout,
       // freeing the connection so the CONTAINS fallback can run cleanly.
@@ -867,6 +874,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
 
         try {
+          if (!USE_FTS && ftsPhrases.length > 0) throw new Error("FTS disabled — index still building");
           const sqlA = `
               SELECT TOP @take ${SELECT_FIELDS}
               FROM c
@@ -950,6 +958,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
         if (ftsPhrases.length > 0) {
           try {
+            if (!USE_FTS) throw new Error("FTS disabled — index still building");
             const fts = buildFTSQuery(ftsPhrases);
             ftsWhere = fts.ftsWhere;
             ftsOrderBy = fts.ftsOrderBy;
