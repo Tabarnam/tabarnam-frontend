@@ -838,17 +838,17 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       }
 
       // Helper: run a Cosmos query with a timeout to prevent hanging when FTS index is building.
-      // Returns { resources } on success, throws on timeout or error.
+      // Uses AbortController to properly cancel the underlying HTTP request on timeout,
+      // freeing the connection so the CONTAINS fallback can run cleanly.
       const FTS_TIMEOUT_MS = 5000;
       function queryWithTimeout(sql, parameters) {
-        return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error("FTS query timeout")), FTS_TIMEOUT_MS);
-          container.items
-            .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
-            .fetchAll()
-            .then((res) => { clearTimeout(timer); resolve(res); })
-            .catch((err) => { clearTimeout(timer); reject(err); });
-        });
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FTS_TIMEOUT_MS);
+        return container.items
+          .query({ query: sql, parameters }, { enableCrossPartitionQuery: true, abortSignal: controller.signal })
+          .fetchAll()
+          .then((res) => { clearTimeout(timer); return res; })
+          .catch((err) => { clearTimeout(timer); throw err; });
       }
 
       // Try FTS first; if FTS query fails or times out (e.g. index still building),
