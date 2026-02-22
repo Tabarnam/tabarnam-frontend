@@ -384,6 +384,31 @@ test("search SQL uses CONTAINS fallback while FTS is disabled", async () => {
   assert.ok(primarySql.includes("CONTAINS"), "Primary SQL should use CONTAINS while FTS is disabled");
 });
 
+test("CONTAINS fallback includes synonym variant params (company → co)", async () => {
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=acme+company&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.ok(specs.length > 0, "at least one query should be issued");
+  const primarySql = String(specs[0].query || "");
+  assert.ok(primarySql.includes("CONTAINS"), "Should use CONTAINS fallback");
+  // The synonym expansion should produce "acme co" as a variant
+  const params = specs[0].parameters || [];
+  const variantValues = params.filter((p) => p.name.startsWith("@q_v")).map((p) => p.value);
+  assert.ok(
+    variantValues.some((v) => v.includes("acme co")),
+    `Variant params should include "acme co" but got: ${JSON.stringify(variantValues)}`
+  );
+});
+
 // ── fuzzy fallback integration ───────────────────────────────────────────
 
 test("search-companies triggers fuzzy fallback when primary search returns 0 results", async () => {

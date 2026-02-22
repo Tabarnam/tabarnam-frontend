@@ -393,10 +393,37 @@ function buildLegacySearchFilter() {
 }
 
 /**
- * Build a normalized search filter for Cosmos SQL
- * Uses word boundary matching on search_text_norm and contains matching on search_text_compact
- * Returns SQL fragment and updates params array
+ * Build extra CONTAINS clauses for synonym-expanded phrase variants.
+ *
+ * When FTS is disabled, the legacy CONTAINS filter only checks the raw query (@q).
+ * This function adds OR'd CONTAINS checks on `search_text_norm` for each expanded
+ * phrase variant (e.g., "rocky mountain soda co" from "rocky mountain soda company").
+ *
+ * @param {string[]} phrases - Expanded phrase variants from expandQueryTermsForFTS()
+ * @param {string} q_norm - The original normalized query (already covered by @q)
+ * @param {Array} params - Mutable params array to push new parameters into
+ * @returns {string} SQL fragment like " OR (CONTAINS(c.search_text_norm, @q_v0) OR ...)"
+ *                   or empty string if no extra variants
  */
+function buildVariantContainsClauses(phrases, q_norm, params) {
+  const variantClauses = [];
+  phrases.forEach((phrase, i) => {
+    if (phrase === q_norm) return; // already covered by @q in the legacy filter
+    const paramName = `@q_v${i}`;
+    params.push({ name: paramName, value: phrase });
+    variantClauses.push(`CONTAINS(c.search_text_norm, ${paramName})`);
+    // Also check compact form (no spaces) for concatenated domain/name matches
+    const compact = phrase.replace(/\s+/g, "");
+    if (compact !== phrase) {
+      const compactParam = `@q_vc${i}`;
+      params.push({ name: compactParam, value: compact });
+      variantClauses.push(`CONTAINS(c.search_text_compact, ${compactParam})`);
+    }
+  });
+  if (variantClauses.length === 0) return "";
+  return ` OR (IS_DEFINED(c.search_text_norm) AND (${variantClauses.join(" OR ")}))`;
+}
+
 /**
  * Sanitize a search token for safe inline use in Cosmos DB FTS SQL.
  *
@@ -908,18 +935,20 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             items = items.concat(partB.resources || []);
           }
         } catch (ftsErr) {
-          // FTS failed (index not ready, timeout, etc.) — fall back to CONTAINS
+          // FTS failed (index not ready, timeout, etc.) — fall back to CONTAINS with synonym variants
           context.log("[search-companies] FTS failed, falling back to CONTAINS:", ftsErr?.message);
           usedFallback = true;
           const legacyFilter = q_norm ? buildLegacySearchFilter() : "";
-          const legacyWhere = q_norm
-            ? `AND (${legacyFilter}) AND ${softDeleteFilter}`
-            : `AND ${softDeleteFilter}`;
           const legacyParams = [{ name: "@take", value: limit }];
           if (q_norm) {
             legacyParams.push({ name: "@q", value: q_norm });
             legacyParams.push({ name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") });
           }
+          // Add synonym variant CONTAINS clauses (e.g., "company" → "co")
+          const variantFilter = q_norm ? buildVariantContainsClauses(ftsPhrases, q_norm, legacyParams) : "";
+          const legacyWhere = q_norm
+            ? `AND (${legacyFilter}${variantFilter}) AND ${softDeleteFilter}`
+            : `AND ${softDeleteFilter}`;
 
           const sqlA = `
               SELECT TOP @take ${SELECT_FIELDS}
@@ -981,7 +1010,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             const res = await queryWithTimeout(sql, queryParams);
             items = res.resources || [];
           } catch (ftsErr) {
-            // FTS failed — fall back to CONTAINS
+            // FTS failed — fall back to CONTAINS with synonym variant expansion
             context.log("[search-companies] FTS failed, falling back to CONTAINS:", ftsErr?.message);
             usedFallback = true;
             const legacyFilter = buildLegacySearchFilter();
@@ -990,13 +1019,15 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               { name: "@q", value: q_norm },
               { name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") },
             ];
+            // Add synonym variant CONTAINS clauses (e.g., "company" → "co")
+            const variantFilter = buildVariantContainsClauses(ftsPhrases, q_norm, legacyParams);
             const orderBy =
               sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
 
             const sql = `
                 SELECT TOP @take ${SELECT_FIELDS}
                 FROM c
-                WHERE (${legacyFilter}) AND ${softDeleteFilter}
+                WHERE (${legacyFilter}${variantFilter}) AND ${softDeleteFilter}
                 ${orderBy}
               `;
             const res = await container.items
