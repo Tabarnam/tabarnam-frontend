@@ -837,6 +837,24 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         ftsPhrases = expansion.phrases;
       }
 
+      // Helper: run a Cosmos query with a timeout to prevent hanging when FTS index is building.
+      // Returns { resources } on success, throws on timeout or error.
+      const FTS_TIMEOUT_MS = 15000;
+      function queryWithTimeout(sql, parameters) {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("FTS query timeout")), FTS_TIMEOUT_MS);
+          container.items
+            .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
+            .fetchAll()
+            .then((res) => { clearTimeout(timer); resolve(res); })
+            .catch((err) => { clearTimeout(timer); reject(err); });
+        });
+      }
+
+      // Try FTS first; if FTS query fails or times out (e.g. index still building),
+      // fall back to legacy CONTAINS-based search so the site stays functional.
+      let usedFallback = false;
+
       if (sort === "manu") {
         // Manufacturing sort: two-stage query — companies WITH mfg locations first
         let searchFilter = "";
@@ -848,66 +866,135 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           searchFilter = `AND ${softDeleteFilter}`;
         }
 
-        const sqlA = `
-            SELECT TOP @take ${SELECT_FIELDS}
-            FROM c
-            WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
-            ${searchFilter}
-            ORDER BY c._ts DESC
-          `;
-
-        const partA = await container.items
-          .query({ query: sqlA, parameters: [...sqlParams] }, { enableCrossPartitionQuery: true })
-          .fetchAll();
-        items = partA.resources || [];
-
-        const remaining = Math.max(0, limit - items.length);
-        if (remaining > 0) {
-          const sqlParamsB = [
-            { name: "@take2", value: remaining },
-            ...sqlParams.filter((p) => p.name !== "@take"),
-          ];
-          const sqlB = `
-              SELECT TOP @take2 ${SELECT_FIELDS}
+        try {
+          const sqlA = `
+              SELECT TOP @take ${SELECT_FIELDS}
               FROM c
-              WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+              WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
               ${searchFilter}
               ORDER BY c._ts DESC
             `;
 
-          const partB = await container.items
-            .query({ query: sqlB, parameters: sqlParamsB }, { enableCrossPartitionQuery: true })
+          const partA = ftsPhrases.length > 0
+            ? await queryWithTimeout(sqlA, [...sqlParams])
+            : await container.items.query({ query: sqlA, parameters: [...sqlParams] }, { enableCrossPartitionQuery: true }).fetchAll();
+          items = partA.resources || [];
+
+          const remaining = Math.max(0, limit - items.length);
+          if (remaining > 0) {
+            const sqlParamsB = [
+              { name: "@take2", value: remaining },
+              ...sqlParams.filter((p) => p.name !== "@take"),
+            ];
+            const sqlB = `
+                SELECT TOP @take2 ${SELECT_FIELDS}
+                FROM c
+                WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+                ${searchFilter}
+                ORDER BY c._ts DESC
+              `;
+
+            const partB = ftsPhrases.length > 0
+              ? await queryWithTimeout(sqlB, sqlParamsB)
+              : await container.items.query({ query: sqlB, parameters: sqlParamsB }, { enableCrossPartitionQuery: true }).fetchAll();
+            items = items.concat(partB.resources || []);
+          }
+        } catch (ftsErr) {
+          // FTS failed (index not ready, timeout, etc.) — fall back to CONTAINS
+          context.log("[search-companies] FTS failed, falling back to CONTAINS:", ftsErr?.message);
+          usedFallback = true;
+          const legacyFilter = q_norm ? buildLegacySearchFilter() : "";
+          const legacyWhere = q_norm
+            ? `AND (${legacyFilter}) AND ${softDeleteFilter}`
+            : `AND ${softDeleteFilter}`;
+          const legacyParams = [{ name: "@take", value: limit }];
+          if (q_norm) {
+            legacyParams.push({ name: "@q", value: q_norm });
+            legacyParams.push({ name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") });
+          }
+
+          const sqlA = `
+              SELECT TOP @take ${SELECT_FIELDS}
+              FROM c
+              WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
+              ${legacyWhere}
+              ORDER BY c._ts DESC
+            `;
+          const partA = await container.items
+            .query({ query: sqlA, parameters: [...legacyParams] }, { enableCrossPartitionQuery: true })
             .fetchAll();
-          items = items.concat(partB.resources || []);
+          items = partA.resources || [];
+
+          const remaining = Math.max(0, limit - items.length);
+          if (remaining > 0) {
+            const legacyParamsB = [
+              { name: "@take2", value: remaining },
+              ...legacyParams.filter((p) => p.name !== "@take"),
+            ];
+            const sqlB = `
+                SELECT TOP @take2 ${SELECT_FIELDS}
+                FROM c
+                WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+                ${legacyWhere}
+                ORDER BY c._ts DESC
+              `;
+            const partB = await container.items
+              .query({ query: sqlB, parameters: legacyParamsB }, { enableCrossPartitionQuery: true })
+              .fetchAll();
+            items = items.concat(partB.resources || []);
+          }
         }
       } else {
         // Standard query — use FTS for text matching
         let queryParams = [{ name: "@take", value: limit }];
 
         if (ftsPhrases.length > 0) {
-          const fts = buildFTSQuery(ftsPhrases);
-          ftsWhere = fts.ftsWhere;
-          ftsOrderBy = fts.ftsOrderBy;
+          try {
+            const fts = buildFTSQuery(ftsPhrases);
+            ftsWhere = fts.ftsWhere;
+            ftsOrderBy = fts.ftsOrderBy;
 
-          // Determine ordering strategy:
-          // - "name" sort: alphabetical by company name
-          // - Default (recent/stars/etc.): BM25 relevance ranking
-          const orderBy =
-            sort === "name"
-              ? "ORDER BY c.company_name ASC"
-              : ftsOrderBy; // BM25 relevance
+            // Determine ordering strategy:
+            // - "name" sort: alphabetical by company name
+            // - Default (recent/stars/etc.): BM25 relevance ranking
+            const orderBy =
+              sort === "name"
+                ? "ORDER BY c.company_name ASC"
+                : ftsOrderBy; // BM25 relevance
 
-          const sql = `
-              SELECT TOP @take ${SELECT_FIELDS}
-              FROM c
-              WHERE ${ftsWhere} AND ${softDeleteFilter}
-              ${orderBy}
-            `;
+            const sql = `
+                SELECT TOP @take ${SELECT_FIELDS}
+                FROM c
+                WHERE ${ftsWhere} AND ${softDeleteFilter}
+                ${orderBy}
+              `;
 
-          const res = await container.items
-            .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
-            .fetchAll();
-          items = res.resources || [];
+            const res = await queryWithTimeout(sql, queryParams);
+            items = res.resources || [];
+          } catch (ftsErr) {
+            // FTS failed — fall back to CONTAINS
+            context.log("[search-companies] FTS failed, falling back to CONTAINS:", ftsErr?.message);
+            usedFallback = true;
+            const legacyFilter = buildLegacySearchFilter();
+            const legacyParams = [
+              { name: "@take", value: limit },
+              { name: "@q", value: q_norm },
+              { name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") },
+            ];
+            const orderBy =
+              sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
+
+            const sql = `
+                SELECT TOP @take ${SELECT_FIELDS}
+                FROM c
+                WHERE (${legacyFilter}) AND ${softDeleteFilter}
+                ${orderBy}
+              `;
+            const res = await container.items
+              .query({ query: sql, parameters: legacyParams }, { enableCrossPartitionQuery: true })
+              .fetchAll();
+            items = res.resources || [];
+          }
         } else {
           // No search query — return all results
           const orderBy =
@@ -1035,7 +1122,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           ...(cosmosTarget ? cosmosTarget : {}),
           items: paged,
           count: deduped.length,
-          meta: { q: q_raw, sort, skip, take, user_location },
+          meta: { q: q_raw, sort, skip, take, user_location, _searchMode: usedFallback ? "contains" : "fts" },
         },
         200,
         req
