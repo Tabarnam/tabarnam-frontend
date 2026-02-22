@@ -398,22 +398,41 @@ function buildLegacySearchFilter() {
  * Returns SQL fragment and updates params array
  */
 /**
+ * Sanitize a search token for safe inline use in Cosmos DB FTS SQL.
+ *
+ * Cosmos DB FTS functions (FullTextContains, FullTextContainsAll, FullTextScore)
+ * require string literals — parameterized values (@param) are a known gap that
+ * causes 500 errors on cross-partition queries.  Because tokens are inlined we
+ * strip everything except alphanumerics, spaces, and hyphens to prevent any
+ * injection risk.
+ */
+function sanitizeFTSToken(token) {
+  if (!token || typeof token !== "string") return "";
+  return token.replace(/[^a-zA-Z0-9\s\-]/g, "").trim();
+}
+
+/**
  * Build a Cosmos DB Full-Text Search query from expanded phrase variants.
  *
  * Each phrase is tokenized into words. For each phrase, a FullTextContainsAll
  * clause is built requiring ALL words to be present. Phrases are OR'd together
  * so that matching ANY synonym variant returns results.
  *
+ * IMPORTANT: FTS functions use inline string literals, NOT parameterized values.
+ * This is a known limitation of Cosmos DB FTS (confirmed by Azure team).
+ *
  * @param {string[]} phrases - Expanded phrase variants (e.g., ["rocky mountain soda company", "rocky mountain soda co"])
- * @param {Array} params - SQL parameters array (mutated in place)
  * @returns {{ ftsWhere: string, ftsOrderBy: string }}
  */
-function buildFTSQuery(phrases, params) {
+function buildFTSQuery(phrases) {
   const allTokens = new Set();
   const phraseGroups = [];
 
   for (const phrase of phrases) {
-    const tokens = phrase.split(/\s+/).filter((t) => t.length > 0);
+    const tokens = phrase
+      .split(/\s+/)
+      .map(sanitizeFTSToken)
+      .filter((t) => t.length > 0);
     if (tokens.length === 0) continue;
     tokens.forEach((t) => allTokens.add(t));
     phraseGroups.push(tokens);
@@ -421,27 +440,17 @@ function buildFTSQuery(phrases, params) {
 
   if (allTokens.size === 0) return { ftsWhere: "", ftsOrderBy: "" };
 
-  // Assign a parameterized name for each unique token
-  const tokenParams = {};
-  let idx = 0;
-  for (const token of allTokens) {
-    const paramName = `@fts${idx}`;
-    params.push({ name: paramName, value: token });
-    tokenParams[token] = paramName;
-    idx++;
-  }
-
-  // Build FullTextContainsAll clause for each phrase variant
+  // Build FullTextContainsAll clause for each phrase variant using inline literals
   const whereClauses = [];
   for (const tokens of phraseGroups) {
-    const paramRefs = tokens.map((t) => tokenParams[t]).join(", ");
+    const literals = tokens.map((t) => `"${t}"`).join(", ");
     if (tokens.length === 1) {
       whereClauses.push(
-        `FullTextContains(c.search_text_norm, ${paramRefs})`
+        `FullTextContains(c.search_text_norm, ${literals})`
       );
     } else {
       whereClauses.push(
-        `FullTextContainsAll(c.search_text_norm, ${paramRefs})`
+        `FullTextContainsAll(c.search_text_norm, ${literals})`
       );
     }
   }
@@ -452,10 +461,10 @@ function buildFTSQuery(phrases, params) {
       : `(${whereClauses.join(" OR ")})`;
 
   // Build ORDER BY RANK with all unique tokens for BM25 scoring
-  const allParamRefs = Array.from(allTokens)
-    .map((t) => tokenParams[t])
+  const allLiterals = Array.from(allTokens)
+    .map((t) => `"${t}"`)
     .join(", ");
-  const ftsOrderBy = `ORDER BY RANK FullTextScore(c.search_text_norm, ${allParamRefs})`;
+  const ftsOrderBy = `ORDER BY RANK FullTextScore(c.search_text_norm, ${allLiterals})`;
 
   return { ftsWhere, ftsOrderBy };
 }
@@ -833,7 +842,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         let searchFilter = "";
         let sqlParams = [{ name: "@take", value: limit }];
         if (ftsPhrases.length > 0) {
-          const fts = buildFTSQuery(ftsPhrases, sqlParams);
+          const fts = buildFTSQuery(ftsPhrases);
           searchFilter = `AND (${fts.ftsWhere}) AND ${softDeleteFilter}`;
         } else {
           searchFilter = `AND ${softDeleteFilter}`;
@@ -876,7 +885,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         let queryParams = [{ name: "@take", value: limit }];
 
         if (ftsPhrases.length > 0) {
-          const fts = buildFTSQuery(ftsPhrases, queryParams);
+          const fts = buildFTSQuery(ftsPhrases);
           ftsWhere = fts.ftsWhere;
           ftsOrderBy = fts.ftsOrderBy;
 
