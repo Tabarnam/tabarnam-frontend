@@ -1172,6 +1172,14 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         deduped.sort((a, b) => compareCompanies(sortField, sortDir, a, b));
       }
 
+      // When there's a search query and no explicit sort field, re-sort by relevance
+      // so that strong name/keyword matches (e.g., "Red Bull" for query "red bull")
+      // rank above weak per-word matches. This compensates for the CONTAINS fallback's
+      // ORDER BY _ts DESC which sorts by recency, not relevance.
+      if (q_norm && !sortField && sort !== "name") {
+        deduped.sort((a, b) => (b._relevanceScore || 0) - (a._relevanceScore || 0));
+      }
+
       const paged = deduped.slice(skip, skip + take);
 
       return json(
