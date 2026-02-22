@@ -363,12 +363,12 @@ test("search-companies response includes _relevanceScore and _matchType", async 
   assert.equal(item._matchType, "exact");
 });
 
-// ── stemmed query in SQL filter ──────────────────────────────────────────
+// ── FTS query in SQL filter ──────────────────────────────────────────────
 
-test("search SQL includes stemmed field conditions", async () => {
-  let lastSpec = null;
+test("search SQL uses FullTextContains for text matching", async () => {
+  const specs = [];
   const companiesContainer = makeContainer(async (spec) => {
-    lastSpec = spec;
+    specs.push(spec);
     return [];
   });
 
@@ -378,9 +378,10 @@ test("search SQL includes stemmed field conditions", async () => {
     { companiesContainer }
   );
 
-  assert.ok(lastSpec);
-  const sql = String(lastSpec.query || "");
-  assert.ok(sql.includes("search_text_stemmed"), "SQL should reference search_text_stemmed");
+  assert.ok(specs.length > 0, "at least one query should be issued");
+  // The first query should use FTS (fuzzy fallback may follow)
+  const primarySql = String(specs[0].query || "");
+  assert.ok(primarySql.includes("FullTextContains"), "Primary SQL should use FullTextContains for FTS search");
 });
 
 // ── fuzzy fallback integration ───────────────────────────────────────────

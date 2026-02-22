@@ -7,6 +7,76 @@ const { BlobServiceClient } = require("@azure/storage-blob");
 const { stemWords } = require("./_stemmer");
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Common business name abbreviations (bidirectional).
+ * Maps full word → abbreviation. Reverse mapping is built automatically.
+ */
+const BUSINESS_ABBREVIATIONS = {
+  "company": "co",
+  "corporation": "corp",
+  "incorporated": "inc",
+  "limited": "ltd",
+  "manufacturing": "mfg",
+  "laboratories": "labs",
+  "laboratory": "lab",
+  "international": "intl",
+  "industries": "ind",
+  "enterprise": "ent",
+  "enterprises": "ent",
+  "associates": "assoc",
+  "brothers": "bros",
+  "department": "dept",
+  "services": "svc",
+  "solutions": "sol",
+  "technologies": "tech",
+  "technology": "tech",
+  "distribution": "dist",
+  "distributors": "dist",
+  "products": "prod",
+  "national": "natl",
+};
+
+// Build reverse map: abbreviation → [full words]
+const ABBREV_TO_FULL = {};
+for (const [full, abbrev] of Object.entries(BUSINESS_ABBREVIATIONS)) {
+  if (!ABBREV_TO_FULL[abbrev]) ABBREV_TO_FULL[abbrev] = [];
+  ABBREV_TO_FULL[abbrev].push(full);
+}
+
+/**
+ * Generate variants of a phrase by swapping business abbreviations.
+ * "rocky mountain soda company" → ["rocky mountain soda co"]
+ * "rocky mountain soda co" → ["rocky mountain soda company"]
+ */
+function expandBusinessAbbreviations(phrase) {
+  if (!phrase) return [];
+  const words = phrase.split(/\s+/);
+  const variants = [];
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+
+    // Full → abbreviation
+    if (BUSINESS_ABBREVIATIONS[word]) {
+      const variant = [...words];
+      variant[i] = BUSINESS_ABBREVIATIONS[word];
+      variants.push(variant.join(" "));
+    }
+
+    // Abbreviation → full word(s)
+    if (ABBREV_TO_FULL[word]) {
+      for (const full of ABBREV_TO_FULL[word]) {
+        const variant = [...words];
+        variant[i] = full;
+        variants.push(variant.join(" "));
+      }
+    }
+  }
+
+  return variants;
+}
+
 let synonymCache = null;
 let cacheExpiresAt = 0;
 
@@ -121,6 +191,16 @@ async function expandQueryTerms(q_norm, q_compact) {
     }
   }
 
+  // Expand business abbreviations in both directions
+  // "rocky mountain soda company" → also search "rocky mountain soda co" (and vice versa)
+  for (const term of [...terms_norm]) {
+    for (const variant of expandBusinessAbbreviations(term)) {
+      terms_norm.add(variant);
+      const compact = variant.replace(/\s+/g, "");
+      if (compact) terms_compact.add(compact);
+    }
+  }
+
   // Built-in common transformation: if query has no spaces, try adding space variants
   // This handles "bodywash" → also search for "body wash"
   if (q_norm && !q_norm.includes(" ") && q_norm.length > 4) {
@@ -227,7 +307,70 @@ function buildCommonWordSplits(word) {
   return splits;
 }
 
+/**
+ * Expand query terms for Cosmos DB Full-Text Search.
+ *
+ * Unlike expandQueryTerms(), this returns only normalized phrases (no compact,
+ * no stemmed variants) because FTS handles tokenization and stemming natively.
+ * Each returned phrase represents an alternative search — the caller should
+ * build FullTextContainsAll for each phrase and OR them together.
+ *
+ * Returns: { phrases: string[] }
+ * Example: { phrases: ["rocky mountain soda company", "rocky mountain soda co"] }
+ */
+async function expandQueryTermsForFTS(q_norm, q_compact) {
+  const synonyms = await loadSynonyms();
+  const phrases = new Set();
+
+  // Always include the original normalized form
+  if (q_norm) phrases.add(q_norm);
+
+  // Synonym lookup on normalized form
+  if (q_norm && synonyms[q_norm]) {
+    const mapped = synonyms[q_norm];
+    if (Array.isArray(mapped)) {
+      for (const s of mapped) {
+        if (s && typeof s === "string") phrases.add(s.toLowerCase().trim());
+      }
+    }
+  }
+
+  // Synonym lookup on compact form
+  if (q_compact && q_compact !== q_norm && synonyms[q_compact]) {
+    const mapped = synonyms[q_compact];
+    if (Array.isArray(mapped)) {
+      for (const s of mapped) {
+        if (s && typeof s === "string") phrases.add(s.toLowerCase().trim());
+      }
+    }
+  }
+
+  // Business abbreviation expansion
+  for (const phrase of [...phrases]) {
+    for (const variant of expandBusinessAbbreviations(phrase)) {
+      phrases.add(variant);
+    }
+  }
+
+  // Compound word splits (only for single-word queries)
+  if (q_norm && !q_norm.includes(" ") && q_norm.length > 4) {
+    const splits = buildCommonWordSplits(q_norm);
+    for (let i = 0; i < Math.min(3, splits.length); i++) {
+      phrases.add(splits[i]);
+    }
+  }
+
+  // No stemming — FTS handles it natively
+  // No compact forms — FTS tokenizes by whitespace
+
+  return {
+    phrases: Array.from(phrases).slice(0, 10),
+  };
+}
+
 module.exports = {
   loadSynonyms,
   expandQueryTerms,
+  expandQueryTermsForFTS,
+  expandBusinessAbbreviations,
 };

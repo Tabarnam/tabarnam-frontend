@@ -9,7 +9,7 @@ const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
 const { parseQuery } = require("../_queryNormalizer");
-const { expandQueryTerms } = require("../_searchSynonyms");
+const { expandQueryTermsForFTS } = require("../_searchSynonyms");
 const { isFuzzyNameMatch, fuzzyScore } = require("../_fuzzyMatch");
 
 let cosmosTargetPromise;
@@ -397,109 +397,67 @@ function buildLegacySearchFilter() {
  * Uses word boundary matching on search_text_norm and contains matching on search_text_compact
  * Returns SQL fragment and updates params array
  */
-function buildNormalizedSearchFilter(terms_norm, terms_compact, params) {
-  if (!terms_norm.length && !terms_compact.length) {
-    return "";
-  }
-
-  const conditions = [];
-  let paramIndex = 1;
-
-  // For each normalized term, add a boundary-matched condition
-  for (const term of terms_norm) {
-    if (term) {
-      const paramName = `@norm${paramIndex}`;
-      // Store with leading and trailing spaces for word boundary matching
-      params.push({ name: paramName, value: ` ${term} ` });
-      conditions.push(`(IS_DEFINED(c.search_text_norm) AND IS_STRING(c.search_text_norm) AND CONTAINS(c.search_text_norm, ${paramName}))`);
-      paramIndex++;
-    }
-  }
-
-  // For each compact term, add a contains condition
-  for (const term of terms_compact) {
-    if (term) {
-      const paramName = `@comp${paramIndex}`;
-      params.push({ name: paramName, value: term });
-      conditions.push(`(IS_DEFINED(c.search_text_compact) AND IS_STRING(c.search_text_compact) AND CONTAINS(c.search_text_compact, ${paramName}))`);
-      paramIndex++;
-    }
-  }
-
-  // Also search original terms against stemmed document fields for cross-matching
-  // (e.g., query "icebreakers" stemmed to "icebreaker" already added above,
-  //  but also check unstemmed query against stemmed document text)
-  for (const term of terms_norm) {
-    if (term) {
-      const paramName = `@stm${paramIndex}`;
-      params.push({ name: paramName, value: ` ${term} ` });
-      conditions.push(`(IS_DEFINED(c.search_text_stemmed) AND IS_STRING(c.search_text_stemmed) AND CONTAINS(c.search_text_stemmed, ${paramName}))`);
-      paramIndex++;
-    }
-  }
-  for (const term of terms_compact) {
-    if (term) {
-      const paramName = `@stmc${paramIndex}`;
-      params.push({ name: paramName, value: term });
-      conditions.push(`(IS_DEFINED(c.search_text_stemmed_compact) AND IS_STRING(c.search_text_stemmed_compact) AND CONTAINS(c.search_text_stemmed_compact, ${paramName}))`);
-      paramIndex++;
-    }
-  }
-
-  // Join all conditions with OR
-  if (conditions.length === 0) return "";
-  return conditions.length === 1 ? conditions[0] : `(${conditions.join(" OR ")})`;
-}
-
 /**
- * Build a legacy search filter using expanded terms
- * This allows multiple CONTAINS checks for different term variations
+ * Build a Cosmos DB Full-Text Search query from expanded phrase variants.
+ *
+ * Each phrase is tokenized into words. For each phrase, a FullTextContainsAll
+ * clause is built requiring ALL words to be present. Phrases are OR'd together
+ * so that matching ANY synonym variant returns results.
+ *
+ * @param {string[]} phrases - Expanded phrase variants (e.g., ["rocky mountain soda company", "rocky mountain soda co"])
+ * @param {Array} params - SQL parameters array (mutated in place)
+ * @returns {{ ftsWhere: string, ftsOrderBy: string }}
  */
-function buildLegacySearchFilterWithTerms(terms_norm, terms_compact, params) {
-  if (!terms_norm.length && !terms_compact.length) {
-    return "";
+function buildFTSQuery(phrases, params) {
+  const allTokens = new Set();
+  const phraseGroups = [];
+
+  for (const phrase of phrases) {
+    const tokens = phrase.split(/\s+/).filter((t) => t.length > 0);
+    if (tokens.length === 0) continue;
+    tokens.forEach((t) => allTokens.add(t));
+    phraseGroups.push(tokens);
   }
 
-  const conditions = [];
-  // Strip special characters from DB values to match normalizeQuery behavior.
-  // normalizeQuery removes [^\w\s] (e.g. &, +, ', ., etc.) so the DB values
-  // must be cleaned the same way for CONTAINS to find matches.
-  const stripSpecial = (expr) =>
-    `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(${expr}), "&", ""), "+", ""), "'", ""), ".", ""), ",", ""), "-", " "), "_", " "), "/", "")`;
-  const fieldChecker = (fieldName, paramName) =>
-    `(IS_DEFINED(c.${fieldName}) AND IS_STRING(c.${fieldName}) AND CONTAINS(${stripSpecial(`c.${fieldName}`)}, ${paramName}))`;
-  const fieldArrayChecker = (arrayField, paramName) =>
-    `(IS_ARRAY(c.${arrayField}) AND ARRAY_LENGTH(ARRAY(SELECT VALUE item FROM item IN c.${arrayField} WHERE IS_STRING(item) AND CONTAINS(${stripSpecial("item")}, ${paramName}))) > 0)`;
+  if (allTokens.size === 0) return { ftsWhere: "", ftsOrderBy: "" };
 
-  const stringFields = ["company_name", "display_name", "name", "normalized_domain", "amazon_url", "product_keywords", "keywords", "industries", "tagline"];
-  const arrayFields = ["product_keywords", "keywords", "industries"];
-  let paramIndex = 1;
+  // Assign a parameterized name for each unique token
+  const tokenParams = {};
+  let idx = 0;
+  for (const token of allTokens) {
+    const paramName = `@fts${idx}`;
+    params.push({ name: paramName, value: token });
+    tokenParams[token] = paramName;
+    idx++;
+  }
 
-  // For each term, add conditions for all fields
-  const allTerms = [...new Set([...terms_norm, ...terms_compact])];
-
-  for (const term of allTerms) {
-    if (term) {
-      const paramName = `@term${paramIndex}`;
-      params.push({ name: paramName, value: term.toLowerCase() });
-
-      // Add conditions for each string field
-      for (const field of stringFields) {
-        conditions.push(fieldChecker(field, paramName));
-      }
-
-      // Add array field conditions (these handle when fields are arrays)
-      for (const field of arrayFields) {
-        conditions.push(fieldArrayChecker(field, paramName));
-      }
-
-      paramIndex++;
+  // Build FullTextContainsAll clause for each phrase variant
+  const whereClauses = [];
+  for (const tokens of phraseGroups) {
+    const paramRefs = tokens.map((t) => tokenParams[t]).join(", ");
+    if (tokens.length === 1) {
+      whereClauses.push(
+        `FullTextContains(c.search_text_norm, ${paramRefs})`
+      );
+    } else {
+      whereClauses.push(
+        `FullTextContainsAll(c.search_text_norm, ${paramRefs})`
+      );
     }
   }
 
-  // Join all conditions with OR
-  if (conditions.length === 0) return "";
-  return conditions.length === 1 ? conditions[0] : `(${conditions.join(" OR ")})`;
+  const ftsWhere =
+    whereClauses.length === 1
+      ? whereClauses[0]
+      : `(${whereClauses.join(" OR ")})`;
+
+  // Build ORDER BY RANK with all unique tokens for BM25 scoring
+  const allParamRefs = Array.from(allTokens)
+    .map((t) => tokenParams[t])
+    .join(", ");
+  const ftsOrderBy = `ORDER BY RANK FullTextScore(c.search_text_norm, ${allParamRefs})`;
+
+  return { ftsWhere, ftsOrderBy };
 }
 
 const SELECT_FIELDS = [
@@ -528,11 +486,8 @@ const SELECT_FIELDS = [
   "c.updated_at",
   "c._ts",
 
-  // Normalized search fields (for normalized query matching)
+  // Full-text search field (indexed for BM25 search)
   "c.search_text_norm",
-  "c.search_text_compact",
-  "c.search_text_stemmed",
-  "c.search_text_stemmed_compact",
 
   // Location (used for completeness + admin UX)
   "c.manufacturing_locations",
@@ -861,37 +816,25 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   if (container) {
     try {
       let items = [];
-      const params = [{ name: "@take", value: limit }];
-
-      // Expand query terms using synonyms
-      let terms_norm = [], terms_compact = [];
-      let whereTextFilter = "";
-      if (q_norm) {
-        const expansion = await expandQueryTerms(q_norm, q_compact);
-        terms_norm = expansion.terms_norm;
-        terms_compact = expansion.terms_compact;
-
-        // Build WHERE clause for normalized and compact term matching
-        whereTextFilter = buildNormalizedSearchFilter(terms_norm, terms_compact, params);
-      }
 
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
 
+      // Expand query into phrase variants using synonyms + business abbreviations
+      let ftsWhere = "";
+      let ftsOrderBy = "";
+      let ftsPhrases = [];
+      if (q_norm) {
+        const expansion = await expandQueryTermsForFTS(q_norm, q_compact);
+        ftsPhrases = expansion.phrases;
+      }
+
       if (sort === "manu") {
-        // Build search filter using expanded terms
+        // Manufacturing sort: two-stage query — companies WITH mfg locations first
         let searchFilter = "";
         let sqlParams = [{ name: "@take", value: limit }];
-        if (q_norm) {
-          // Build legacy filter with expanded terms
-          const legacyFilter = buildLegacySearchFilterWithTerms(terms_norm, terms_compact, sqlParams);
-          searchFilter = whereTextFilter
-            ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
-            : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
-
-          // Add normalized search parameters
-          if (whereTextFilter) {
-            sqlParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
-          }
+        if (ftsPhrases.length > 0) {
+          const fts = buildFTSQuery(ftsPhrases, sqlParams);
+          searchFilter = `AND (${fts.ftsWhere}) AND ${softDeleteFilter}`;
         } else {
           searchFilter = `AND ${softDeleteFilter}`;
         }
@@ -903,15 +846,18 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ${searchFilter}
             ORDER BY c._ts DESC
           `;
-        const paramsA = [...sqlParams];
 
         const partA = await container.items
-          .query({ query: sqlA, parameters: paramsA }, { enableCrossPartitionQuery: true })
+          .query({ query: sqlA, parameters: [...sqlParams] }, { enableCrossPartitionQuery: true })
           .fetchAll();
         items = partA.resources || [];
 
         const remaining = Math.max(0, limit - items.length);
         if (remaining > 0) {
+          const sqlParamsB = [
+            { name: "@take2", value: remaining },
+            ...sqlParams.filter((p) => p.name !== "@take"),
+          ];
           const sqlB = `
               SELECT TOP @take2 ${SELECT_FIELDS}
               FROM c
@@ -919,83 +865,80 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               ${searchFilter}
               ORDER BY c._ts DESC
             `;
-          const paramsB = sqlParams.map(p => p.name === "@take" ? { name: "@take2", value: remaining } : p);
 
           const partB = await container.items
-            .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
+            .query({ query: sqlB, parameters: sqlParamsB }, { enableCrossPartitionQuery: true })
             .fetchAll();
           items = items.concat(partB.resources || []);
         }
       } else {
-        const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-        let searchFilter = "";
+        // Standard query — use FTS for text matching
         let queryParams = [{ name: "@take", value: limit }];
-        if (q_norm) {
-          // Build legacy filter with expanded terms
-          const legacyFilter = buildLegacySearchFilterWithTerms(terms_norm, terms_compact, queryParams);
-          searchFilter = whereTextFilter
-            ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
-            : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
 
-          // Add normalized search parameters
-          if (whereTextFilter) {
-            queryParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
-          }
+        if (ftsPhrases.length > 0) {
+          const fts = buildFTSQuery(ftsPhrases, queryParams);
+          ftsWhere = fts.ftsWhere;
+          ftsOrderBy = fts.ftsOrderBy;
+
+          // Determine ordering strategy:
+          // - "name" sort: alphabetical by company name
+          // - Default (recent/stars/etc.): BM25 relevance ranking
+          const orderBy =
+            sort === "name"
+              ? "ORDER BY c.company_name ASC"
+              : ftsOrderBy; // BM25 relevance
+
+          const sql = `
+              SELECT TOP @take ${SELECT_FIELDS}
+              FROM c
+              WHERE ${ftsWhere} AND ${softDeleteFilter}
+              ${orderBy}
+            `;
+
+          const res = await container.items
+            .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
+            .fetchAll();
+          items = res.resources || [];
         } else {
-          searchFilter = `AND ${softDeleteFilter}`;
+          // No search query — return all results
+          const orderBy =
+            sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
+
+          const sql = `
+              SELECT TOP @take ${SELECT_FIELDS}
+              FROM c
+              WHERE ${softDeleteFilter}
+              ${orderBy}
+            `;
+
+          const res = await container.items
+            .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
+            .fetchAll();
+          items = res.resources || [];
         }
-
-        const sql = `
-            SELECT TOP @take ${SELECT_FIELDS}
-            FROM c
-            WHERE 1=1
-            ${searchFilter}
-            ${orderBy}
-          `;
-
-        const res = await container.items
-          .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
-          .fetchAll();
-        items = res.resources || [];
       }
 
-      // Fuzzy fallback: when exact search yields < 3 results and query is long enough,
-      // try a prefix-based search then post-filter with Damerau-Levenshtein distance.
-      // Generate transposed prefix variants so that "fair" also tries "fari", "afir", "fiar"
-      // — catches transposition typos at the prefix boundary (e.g. "fairbuilt" → "faribault").
+      // Fuzzy fallback: when FTS yields < 3 results and query is long enough,
+      // fall back to prefix-based search with Levenshtein post-filter.
+      // FTS built-in stemming handles many cases, but this catches edge cases
+      // like typos in the first few characters.
       if (items.length < 3 && q_norm && q_norm.length >= 4) {
         try {
           const basePrefix = q_norm.substring(0, Math.min(4, q_norm.length));
-          const prefixVariants = [basePrefix];
-          for (let i = 0; i < basePrefix.length - 1; i++) {
-            const chars = basePrefix.split("");
-            [chars[i], chars[i + 1]] = [chars[i + 1], chars[i]];
-            const transposed = chars.join("");
-            if (!prefixVariants.includes(transposed)) prefixVariants.push(transposed);
-          }
-
-          const fuzzyParams = [{ name: "@fuzzyTake", value: limit }];
-          prefixVariants.forEach((v, idx) => {
-            fuzzyParams.push({ name: `@prefix${idx}`, value: v });
-          });
-
-          // Build STARTSWITH OR clauses for each prefix variant
-          const prefixClauses = prefixVariants
-            .map((_, idx) => {
-              const p = `@prefix${idx}`;
-              return `(
-                (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), ${p})) OR
-                (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND STARTSWITH(LOWER(c.display_name), ${p})) OR
-                (IS_DEFINED(c.name) AND IS_STRING(c.name) AND STARTSWITH(LOWER(c.name), ${p})) OR
-                (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND STARTSWITH(LOWER(c.normalized_domain), ${p}))
-              )`;
-            })
-            .join(" OR ");
+          const fuzzyParams = [
+            { name: "@fuzzyTake", value: limit },
+            { name: "@prefix", value: basePrefix },
+          ];
 
           const fuzzySql = `
             SELECT TOP @fuzzyTake ${SELECT_FIELDS}
             FROM c
-            WHERE (${prefixClauses}) AND ${softDeleteFilter}
+            WHERE (
+              (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), @prefix)) OR
+              (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND STARTSWITH(LOWER(c.display_name), @prefix)) OR
+              (IS_DEFINED(c.name) AND IS_STRING(c.name) AND STARTSWITH(LOWER(c.name), @prefix)) OR
+              (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND STARTSWITH(LOWER(c.normalized_domain), @prefix))
+            ) AND ${softDeleteFilter}
             ORDER BY c._ts DESC
           `;
           const fuzzyRes = await container.items

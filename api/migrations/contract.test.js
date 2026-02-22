@@ -136,6 +136,15 @@ test("runMigrations applies pending migrations to mock database", async () => {
         return { resource: doc };
       },
     },
+    // Support container-level read/replace for migrations that modify container config
+    read: async () => ({
+      resource: {
+        id: "companies",
+        partitionKey: { paths: ["/normalized_domain"] },
+        indexingPolicy: { indexingMode: "consistent", automatic: true, includedPaths: [{ path: "/*" }], excludedPaths: [] },
+      },
+    }),
+    replace: async (def) => ({ resource: def }),
   };
 
   const mockDatabase = {
@@ -224,6 +233,15 @@ test("runMigrations dry-run does not write state", async () => {
         return { resource: doc };
       },
     },
+    // Support container-level read/replace for migrations that modify container config
+    read: async () => ({
+      resource: {
+        id: "companies",
+        partitionKey: { paths: ["/normalized_domain"] },
+        indexingPolicy: { indexingMode: "consistent", automatic: true, includedPaths: [{ path: "/*" }], excludedPaths: [] },
+      },
+    }),
+    replace: async (def) => ({ resource: def }),
   };
 
   const mockDatabase = {
