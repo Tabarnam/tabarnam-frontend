@@ -511,8 +511,12 @@ async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 50_000
 
     // Skip soft-404 detection for trusted blog domains (they often have complex pages)
     const isTrustedBlog = TRUSTED_BLOG_DOMAINS.some((d) => attempted.toLowerCase().includes(d));
+    // Skip for YouTube — their pages contain "no longer available" in JS bundles even for
+    // valid videos; YouTube URLs are verified by verifyYouTubeVideoAvailable() oEmbed check instead.
+    const isYT = isYouTubeUrl(attempted);
     const soft404 =
       !isTrustedBlog &&
+      !isYT &&
       ((title &&
         /\b(404|not found|page not found|invalid|no longer available|doesn'?t exist|has been removed)\b/i.test(
           title
@@ -1006,7 +1010,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
-    if (cacheKey && curated_reviews.length > 0) writeStageCache(cacheKey, value);
+    // Do NOT cache incomplete results — let resume-worker retry get a fresh API call
     logResult("incomplete", `verified=${curated_reviews.length}, candidates=${candidates.length}`);
     return value;
   }

@@ -5,5 +5,13 @@
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
     "version": "[4.0.0, 6.0.0)"
   },
-  "extensions": { "http": { "routePrefix": "api" } }
+  "extensions": {
+    "http": { "routePrefix": "api" },
+    "queues": {
+      "maxPollingInterval": "00:00:05",
+      "maxDequeueCount": 8,
+      "batchSize": 1,
+      "visibilityTimeout": "00:05:00"
+    }
+  }
 }

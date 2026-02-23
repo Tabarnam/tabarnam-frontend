@@ -58,6 +58,23 @@ if (IS_DEDICATED_WORKER) {
         message_keys: queueBody && typeof queueBody === "object" ? Object.keys(queueBody) : [],
       });
 
+      // Stale message detection — flag messages that sat in the queue much longer than expected
+      if (!parseError && queueBody?.enqueue_at) {
+        const enqueueAtMs = new Date(queueBody.enqueue_at).getTime();
+        if (Number.isFinite(enqueueAtMs)) {
+          const ageMs = Date.now() - enqueueAtMs;
+          if (ageMs > 5 * 60 * 1000) {
+            console.log("[import-resume-worker-queue] STALE_MESSAGE", {
+              session_id: sessionId || null,
+              invocation_id: invocationId,
+              enqueue_at: queueBody.enqueue_at,
+              message_age_seconds: Math.round(ageMs / 1000),
+              expected_max_seconds: 60,
+            });
+          }
+        }
+      }
+
       if (parseError) {
         console.log("[import-resume-worker-queue] handler_finished", {
           handler_finished_at: new Date().toISOString(),
