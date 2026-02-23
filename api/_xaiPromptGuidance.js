@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.1.0";
+const PROMPT_GUIDANCE_VERSION = "3.2.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -134,10 +134,20 @@ FORMAT RULES:
   },
 
   keywords: {
-    rules: `- STEP 1: Use browse_page on the company URL. Navigate to product/shop/collections pages. Read ALL product names, product lines, flavors, varieties, and SKUs.
-- STEP 2: Use web_search "[Company Name] products" or "[Company Name] product line" to find comprehensive product listings from retailers, distributors, or press releases.
+    rules: `- STEP 1: Use browse_page on the company URL. Navigate to product, shop, or collections pages.
+  Also try these URL paths: /shop, /collections/all, /products, /all-products, /our-products.
+  Read ALL product names, product lines, flavors, varieties, and SKUs from every page.
+  If the catalog is organized into categories, browse EACH category page to capture all items.
+- STEP 2: Use web_search with at least 2 different queries:
+  Run web_search: "[Company Name] full product list"
+  Run web_search: "[Company Name] products catalog"
+  Also try: "[Company Name] flavors" or "[Company Name] all varieties" for food/beverage companies.
+  Use browse_page on retailer or distributor listings to find products not on the main site.
 - STEP 3: If the company has named product lines (e.g., brand names, model names, series names), list EACH named product separately. Include both the product line name AND individual product variants.
   Example: "Vellux Original Blanket", "Vellux Plush Blanket", "Martex 225 Thread Count Sheet Set" — NOT just "blankets", "sheets".
+- STEP 4: VERIFY COMPLETENESS. Compare your list against what you saw on the shop/products pages.
+  If you found category pages with products you haven't listed, go back and add them.
+  If your list has fewer than 15 items for a company with a full product catalog, you are likely missing products — search harder.
 - Keywords should be exhaustive, complete and all-inclusive of all products the company produces.
 - If a customer could search for it and find this company's product, include it.
 - Return ONLY actual products/product lines. Do NOT include:
@@ -147,7 +157,7 @@ FORMAT RULES:
   Bundle/pack descriptors unless they are a named product (e.g. "Starter Kit" is OK if it's a real product name)
 - The list must be materially more complete than what appears in the site's top navigation.
 - If you are uncertain about completeness, expand your search. Check category pages, seasonal items, discontinued-but-listed products.
-- Do NOT return a short/partial list without marking it incomplete.
+- Set "completeness" to "incomplete" if you know there are more products you couldn't extract. Set to "complete" only if you are confident the list covers the full catalog.
 - No guessing or hallucinating. Only report verified product information.`,
     jsonSchema: `"product_keywords": "comma-separated string"`,
     jsonSchemaArray: `"product_keywords": ["Product 1", "Product 2", "..."]`,

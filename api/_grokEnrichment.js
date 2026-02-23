@@ -2278,7 +2278,7 @@ Return STRICT JSON only:
   ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources},
   ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources},
   ${FIELD_GUIDANCE.industries.jsonSchema},
-  ${FIELD_GUIDANCE.keywords.jsonSchemaArray},
+  ${FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness},
   ${FIELD_GUIDANCE.logo.jsonSchema},
   "logo_source": "header" | "nav" | "footer" | "meta" | null
 }`.trim();
@@ -2423,12 +2423,20 @@ function parseStructuredResponse(parsed) {
   ));
   field_statuses.keywords = kw_cleaned.length > 0 ? "ok" : "empty";
 
+  // Check self-reported completeness for keywords
+  const kw_completeness = asString(parsed.completeness || "").trim().toLowerCase();
+  if (kw_cleaned.length > 0 && kw_completeness === "incomplete") {
+    field_statuses.keywords = "incomplete";
+  }
+
   const parsed_fields = {
     tagline,
     headquarters_location: hq_normalized,
     manufacturing_locations: mfg_cleaned,
     industries: industries_cleaned,
     product_keywords: kw_cleaned,
+    keywords_completeness: kw_completeness || null,
+    keywords_incomplete_reason: asString(parsed.incomplete_reason || "").trim() || null,
   };
 
   // Infer HQ country
@@ -2501,7 +2509,7 @@ async function retryMissingStructuredFields({
         break;
       case "keywords":
         sections.push(`PRODUCT KEYWORDS:\n${FIELD_GUIDANCE.keywords.rules}`);
-        jsonParts.push(FIELD_GUIDANCE.keywords.jsonSchemaArray);
+        jsonParts.push(FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness);
         break;
     }
   }
