@@ -291,7 +291,7 @@ Rules:
   - Exclude amazon.* domains, amzn.to
   - Exclude google.* domains, g.co, goo.gl
   - YouTube is allowed.
-- Strongly prefer magazines, YouTube, and blogs as review sources. Other sources (news sites, X/Twitter, Facebook) are acceptable fallbacks only.
+- Strongly prefer magazines, YouTube, blogs, and X (Twitter) as review sources. Other sources (news sites, Facebook) are acceptable fallbacks only.
 - Each review must be an object with keys:
   - source_name (string, optional)
   - source_url (string, REQUIRED) \u2014 direct link to the specific article/video/post
