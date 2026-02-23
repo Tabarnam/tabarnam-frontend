@@ -310,9 +310,14 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     if (enriched.headquarters_location.location_source_urls?.hq_source_urls) {
       updated.hq_source_urls = enriched.headquarters_location.location_source_urls.hq_source_urls;
     }
-    // Clear stale _unknown flag — enrichment provided real data
-    updated.hq_unknown = false;
-    updated.hq_unknown_reason = null;
+    // Set _unknown flag based on enrichment outcome
+    if (updated.headquarters_location_status === "not_disclosed") {
+      updated.hq_unknown = true;
+      updated.hq_unknown_reason = "not_disclosed";
+    } else {
+      updated.hq_unknown = false;
+      updated.hq_unknown_reason = null;
+    }
 
     // Geocode HQ location for distance calculations
     try {
@@ -338,9 +343,14 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     if (enriched.manufacturing_locations.location_source_urls?.mfg_source_urls) {
       updated.mfg_source_urls = enriched.manufacturing_locations.location_source_urls.mfg_source_urls;
     }
-    // Clear stale _unknown flag — enrichment provided real data
-    updated.mfg_unknown = false;
-    updated.mfg_unknown_reason = null;
+    // Set _unknown flag based on enrichment outcome
+    if (updated.manufacturing_locations_status === "not_disclosed") {
+      updated.mfg_unknown = true;
+      updated.mfg_unknown_reason = "not_disclosed";
+    } else {
+      updated.mfg_unknown = false;
+      updated.mfg_unknown_reason = null;
+    }
 
     // Geocode manufacturing locations for distance calculations
     try {

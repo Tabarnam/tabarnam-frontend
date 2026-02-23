@@ -5,6 +5,7 @@ const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch"
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE } = require("./_xaiPromptGuidance");
+const { SENTINEL_STRINGS, PLACEHOLDER_STRINGS } = require("./_requiredFields");
 
 // ============================================================================
 // Module-level bypass flag for admin refresh
@@ -2370,6 +2371,12 @@ Return STRICT JSON only:
   };
 }
 
+/** Returns true if the string is a sentinel or placeholder that should not count as real data. */
+function isSentinelOrPlaceholder(s) {
+  const key = asString(s).trim().toLowerCase().replace(/\s+/g, " ");
+  return !key || SENTINEL_STRINGS.has(key) || PLACEHOLDER_STRINGS.has(key);
+}
+
 /**
  * Shared field extraction/normalization for structured responses.
  * Used by both fetchStructuredFields() and retryMissingStructuredFields().
@@ -2377,23 +2384,33 @@ Return STRICT JSON only:
 function parseStructuredResponse(parsed) {
   const field_statuses = {};
 
-  const tagline = asString(parsed.tagline || parsed.slogan || "").trim();
+  const tagline_raw = asString(parsed.tagline || parsed.slogan || "").trim();
+  const tagline = isSentinelOrPlaceholder(tagline_raw) ? "" : tagline_raw;
   field_statuses.tagline = tagline ? "ok" : "empty";
 
   const hq_raw = asString(parsed.headquarters_location || parsed.hq || "").trim();
-  const hq_normalized = hq_raw ? normalizeCountryInLocation(normalizeLocationWithStateAbbrev(hq_raw)) : "";
+  let hq_normalized = hq_raw ? normalizeCountryInLocation(normalizeLocationWithStateAbbrev(hq_raw)) : "";
+  if (isSentinelOrPlaceholder(hq_normalized)) hq_normalized = "";
   field_statuses.headquarters = hq_normalized ? "ok" : "empty";
 
   const mfg_raw = Array.isArray(parsed.manufacturing_locations) ? parsed.manufacturing_locations : [];
-  const mfg_cleaned = mfg_raw
+  const mfg_all = mfg_raw
     .map((x) => asString(x).trim())
     .filter(Boolean)
     .map(normalizeLocationWithStateAbbrev)
     .map(normalizeCountryInLocation);
-  field_statuses.manufacturing = mfg_cleaned.length > 0 ? "ok" : "empty";
+  const mfg_cleaned = mfg_all.filter((loc) => !isSentinelOrPlaceholder(loc));
+  const mfg_had_sentinel = mfg_all.length > 0 && mfg_cleaned.length === 0;
+  field_statuses.manufacturing = mfg_cleaned.length > 0
+    ? "ok"
+    : mfg_had_sentinel ? "not_disclosed" : "empty";
 
   const industries_raw = Array.isArray(parsed.industries) ? parsed.industries : [];
-  const industries_cleaned = industries_raw.map((x) => asString(x).trim()).filter(Boolean).slice(0, 3);
+  const industries_cleaned = industries_raw
+    .map((x) => asString(x).trim())
+    .filter(Boolean)
+    .filter((x) => !isSentinelOrPlaceholder(x))
+    .slice(0, 3);
   field_statuses.industries = industries_cleaned.length > 0 ? "ok" : "empty";
 
   const kw_raw = Array.isArray(parsed.product_keywords)
@@ -2401,7 +2418,9 @@ function parseStructuredResponse(parsed) {
     : Array.isArray(parsed.keywords)
       ? parsed.keywords
       : [];
-  const kw_cleaned = Array.from(new Set(kw_raw.map((x) => asString(x).trim()).filter(Boolean)));
+  const kw_cleaned = Array.from(new Set(
+    kw_raw.map((x) => asString(x).trim()).filter(Boolean).filter((x) => !isSentinelOrPlaceholder(x))
+  ));
   field_statuses.keywords = kw_cleaned.length > 0 ? "ok" : "empty";
 
   const parsed_fields = {
