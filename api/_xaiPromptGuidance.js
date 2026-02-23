@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.0.0";
+const PROMPT_GUIDANCE_VERSION = "3.1.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -40,33 +40,36 @@ const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url
 // ---------------------------------------------------------------------------
 const FIELD_GUIDANCE = {
   headquarters: {
-    rules: `STEP 1 — BROWSE THE COMPANY WEBSITE. This is mandatory and the most authoritative source.
-- Use browse_page on the company URL. Read the About page, Contact page, Footer, and any legal/privacy pages.
-- Extract any physical address, city name, or "headquartered in..." statement.
+    rules: `STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
+- Use browse_page on the company URL. Also try /about, /about-us, /contact, /our-story.
+- Look for: physical addresses, "headquartered in..." statements, footer addresses, legal/privacy page addresses.
 - If the website states a location, that is the PRIMARY source of truth.
 
-STEP 2 — USE WEB SEARCH FOR CROSS-REFERENCING.
-- Run web_search: "[Company Name] headquarters location site:linkedin.com OR site:crunchbase.com OR site:bloomberg.com"
-- Also try: "[Company Name] headquarters address" for broader results.
-- Use browse_page on the most promising results to extract and verify the city.
+STEP 2 — WEB SEARCH FOR CROSS-REFERENCING.
+- Run web_search: "[Company Name] headquarters location"
+- Run web_search: "[Company Name] company profile site:linkedin.com OR site:crunchbase.com OR site:bloomberg.com"
+- Use browse_page on the top 2-3 results to extract and verify the city.
+- If the company may have been acquired, renamed, or operates as a subsidiary, also search: "[Company Name] parent company headquarters" or "[Previous Name] headquarters".
 
 STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
-- If the company website and an external source agree, report that location.
-- If they conflict, trust the company website over third-party data.
-- If the website has no location info, require at least 2 external sources that agree on the city.
-- For vague US locations (e.g., just a state), browse LinkedIn company profile or state business registrations to confirm the actual city.
+- Website + external source agree → report that location.
+- Conflict → trust the company website over third-party data.
+- Website has no location info → require at least 2 external sources that agree on the city.
+- If only a US state is found, search "[Company Name] address [State]" or check the LinkedIn company page to pin down the city.
+- Beware of outdated addresses — if sources show different cities, prefer the company website or the most recent source.
 
 STEP 4 — HANDLE EDGE CASES.
-- Small companies with limited info: search "[Company Name] founder interview location" or check social media.
-- Always verify with sources. No hallucinations. Do NOT rely on training data — you MUST verify by actually visiting pages.
+- Small/private companies: search "[Company Name] [founder name] location" or "[Company Name] business registration [state]".
+- Subsidiaries or rebrands: search the parent company name if the brand itself has no disclosed HQ.
+- Always verify with sources. Do NOT rely on training data — you MUST verify by actually visiting pages.
 
 FORMAT RULES:
-- Having the actual city is crucial — do not return just the state or country if city-level data exists.
-- Use initials for state or province (e.g., "Austin, TX" not "Austin, Texas").
-- Format: "City, ST, USA" for US, "City, ST, Canada" for Canada, "City, Country" for international.
+- City-level precision is crucial — do not return just a state or country if city-level data exists.
+- Use state/province abbreviations (e.g., "Austin, TX" not "Austin, Texas").
+- Format: "City, ST, USA" for US; "City, ST, Canada" for Canada; "City, Country" for international.
 - Always append the country. Use "USA" (not "United States" or "U.S.A.").
-- If only country is known, return "Country" (e.g., "USA").
-- No explanatory info – just the location.`,
+- If only country is known, return just the country (e.g., "USA").
+- No explanatory text — just the location string.`,
     jsonSchema: `"headquarters_location": "City, ST, USA"`,
     jsonSchemaWithSources: `{
   "headquarters_location": "...",
@@ -75,38 +78,44 @@ FORMAT RULES:
   },
 
   manufacturing: {
-    rules: `STEP 1 — BROWSE THE COMPANY WEBSITE. This is mandatory and the most authoritative source.
-- Use browse_page on the company URL. Read the About page, Our Story, FAQ, product pages, and any facility or "Made in..." pages.
-- Extract any manufacturing addresses, "manufactured in...", "produced at our facility in...", or similar statements.
-- If the website states a manufacturing location, that is the PRIMARY source of truth.
+    rules: `STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
+- Use browse_page on the company URL. Also try /about, /about-us, /our-story, /faq, /sustainability.
+- Look for: "manufactured in...", "produced at our facility in...", "Made in...", facility addresses, supply chain or sustainability pages.
+- Check product pages and packaging images for "Made in [Country]" labels.
+- If the website states manufacturing locations, that is the PRIMARY source of truth.
 
-STEP 2 — USE WEB SEARCH TO FIND ALL FACILITIES.
-- Run web_search: "[Company Name] manufacturing facilities locations OR factories"
-- Also try: "[Company Name] supply chain report" or "[Company Name] factory tour" to uncover lesser-known sites.
-- For US companies, try: "[Company Name] manufacturing site:sec.gov OR site:fda.gov" (regulatory filings often list facility addresses).
-- Use browse_page on the most promising results to extract and verify cities.
+STEP 2 — WEB SEARCH TO FIND ALL FACILITIES.
+- Run web_search: "[Company Name] manufacturing facilities locations"
+- Run web_search: "[Company Name] factory OR plant OR production facility"
+- For US companies, try: "[Company Name] manufacturing site:sec.gov OR site:fda.gov" (regulatory filings list facility addresses).
+- Also try: "[Company Name] supply chain report" or "[Company Name] where is it made" for lesser-known sites.
+- Search for contract/co-pack arrangements: "[Company Name] co-manufacturer OR co-packer OR contract manufacturer".
+- Use browse_page on the top 2-3 results to extract and verify cities.
 
 STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
-- If the company website and an external source agree, report that location.
-- If they conflict, trust the company website over third-party data.
-- If the website has no manufacturing info, require at least 2 external sources that agree on the city.
-- For vague US locations (e.g., just a state), browse LinkedIn, Glassdoor, or SEC 10-K filings for exact addresses.
-- Search for "[Company Name] co-manufacturing locations" to capture contract/partner facilities.
+- Website + external source agree → report that location.
+- Conflict → trust the company website over third-party data.
+- Website has no manufacturing info → require at least 2 external sources that agree.
+- For vague US locations (just a state), check SEC 10-K filings, LinkedIn, or Glassdoor job postings for exact city.
+- If the company was acquired or rebranded, search the parent company's manufacturing footprint too.
 
-STEP 4 — HANDLE EDGE CASES.
-- Small companies: search "[Company Name] where is it made" or check product labels shown on the website.
-- Always verify with sources. No hallucinations. Do NOT rely on training data — you MUST verify by actually visiting pages.
+STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
+- Do NOT return an empty result after only one search. Try at least 3 different search queries.
+- Check: "[Company Name] made in USA", "[Company Name] production location", "[Company Name] where are products made".
+- Look for news articles about factory openings, expansions, or closures.
+- For international companies, try "[Company Name] manufacturing [country]" for key markets.
+- If ONLY country-level info exists (e.g., "Made in USA"), that is acceptable — include it.
+- If nothing is found after exhaustive searching, return an empty array [].
 
 FORMAT RULES:
-- Identify ALL known manufacturing locations worldwide. List them exhaustively.
-- Having the actual cities within the USA is crucial. Be accurate.
-- Use initials for state or province (e.g., "Los Angeles, CA" not "Los Angeles, California").
-- Format: "City, ST, USA" for US, "City, ST, Canada" for Canada, "City, Country" for international.
+- List ALL known manufacturing locations worldwide. Be exhaustive.
+- City-level precision within the USA is crucial.
+- Use state/province abbreviations (e.g., "Los Angeles, CA" not "Los Angeles, California").
+- Format: "City, ST, USA" for US; "City, ST, Canada" for Canada; "City, Country" for international.
 - Always append the country. Use "USA" (not "United States" or "U.S.A.").
-- Return an array of one or more locations. Include multiple cities when applicable.
-- If only country-level is available, country-only entries are acceptable (e.g., "USA").
-- No explanatory info – just locations.
-- If manufacturing is not publicly disclosed after thorough searching, return ["Not disclosed"].
+- Return an array of locations. Include multiple entries when applicable.
+- Country-only entries are acceptable when city-level data is unavailable (e.g., "China").
+- No explanatory text — just location strings.
 - Provide the supporting URLs you used for the manufacturing determination.`,
     jsonSchema: `"manufacturing_locations": ["City, ST, USA", "City, Country"]`,
     jsonSchemaWithSources: `{
