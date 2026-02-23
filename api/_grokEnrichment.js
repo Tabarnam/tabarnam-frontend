@@ -2308,6 +2308,7 @@ Return STRICT JSON only:
 
   if (!r.ok) {
     const failure = classifyXaiFailure(r);
+    console.log(`[fetchStructuredFields] Failed: ${failure}, company="${name}", elapsed=${elapsedMs}ms`);
     return {
       ok: false,
       method: "structured",
@@ -2933,6 +2934,7 @@ async function enrichCompanyFields({
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
+  const runId = Math.random().toString(36).slice(2, 8); // unique marker per invocation — distinguishes real runs from Azure log stream replays
 
   // Map long MANDATORY_ENRICH_FIELDS names → short findMissingFields names
   const FIELD_SHORT_TO_LONG = {
@@ -3024,7 +3026,7 @@ async function enrichCompanyFields({
 
   const wantReviews = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("reviews");
 
-  console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantReviews=${wantReviews}`);
+  console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantReviews=${wantReviews}, run=${runId}`);
 
   const structuredPromise = fetchStructuredFields({
     companyName, websiteUrl, normalizedDomain: domain,
@@ -3091,7 +3093,7 @@ async function enrichCompanyFields({
   const filteredMissing = filterMissingByTarget(missingStructured);
 
   if (filteredMissing.length > 0 && getRemainingMs() > 30_000) {
-    console.log(`[enrichCompanyFields] Retry for missing fields: [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms`);
+    console.log(`[enrichCompanyFields] Retry for missing fields: [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms, run=${runId}`);
     const retryResult = await retryMissingStructuredFields({
       companyName, websiteUrl, normalizedDomain: domain,
       missingFields: filteredMissing,
@@ -3109,11 +3111,11 @@ async function enrichCompanyFields({
       }
     }
   } else if (filteredMissing.length > 0) {
-    console.warn(`[enrichCompanyFields] Retry SKIPPED — remaining=${getRemainingMs()}ms < 30000ms, fields=[${filteredMissing.join(", ")}]`);
+    console.warn(`[enrichCompanyFields] Retry SKIPPED — remaining=${getRemainingMs()}ms < 30000ms, fields=[${filteredMissing.join(", ")}], run=${runId}`);
   }
 
   const totalElapsed = Date.now() - started;
-  console.log(`[enrichCompanyFields] Done (two_call_split). field_statuses=${JSON.stringify(field_statuses)}, reviews_in_proposed=${Array.isArray(proposed.reviews) ? proposed.reviews.length : 0}, elapsed=${totalElapsed}ms`);
+  console.log(`[enrichCompanyFields] Done (two_call_split). field_statuses=${JSON.stringify(field_statuses)}, reviews_in_proposed=${Array.isArray(proposed.reviews) ? proposed.reviews.length : 0}, elapsed=${totalElapsed}ms, run=${runId}`);
 
   return {
     ok: true,
