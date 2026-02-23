@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "2.1.0";
+const PROMPT_GUIDANCE_VERSION = "3.0.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -167,7 +167,8 @@ FORMAT RULES:
       const urlRef = websiteUrl || "(see URL above)";
       return `Find 5 unique, legitimate third-party reviews of ${nameRef} using web_search.
 CRITICAL — BRAND DISAMBIGUATION: Verify each review is actually about ${nameRef} at ${urlRef} — not a similarly-named company, different brand, or unrelated product. Do NOT include reviews of products by other companies that happen to share a word in the name.
-For each candidate, use browse_page to confirm: (1) the URL loads, (2) it contains a substantive review or opinion, (3) it is about this company's products specifically.
+PRIMARY SUBJECT: Each review must be primarily ABOUT ${nameRef}'s products. REJECT articles that merely mention the company in passing, as a partner/sponsor, or in a large roundup. A valid review = a reader would say "this article is ABOUT ${nameRef}."
+For each candidate, use browse_page to confirm: (1) the URL loads, (2) it contains a substantive review or opinion, (3) it is about this company's products specifically, (4) the article's primary subject is ${nameRef}.
 SENTIMENT: Prefer reviews that are positive, neutral, or constructively critical. Do NOT include reviews whose primary message is that the product is bad, disliked, or not recommended.
 Return up to 5 verified reviews. Quality over quantity.`;
     },
@@ -188,6 +189,16 @@ CRITICAL — BRAND DISAMBIGUATION:
 ${companyName} must refer to the company at ${websiteUrl || "(see URL above)"}.
 Before including ANY review, verify it discusses products sold on that website — not a similarly-named company, different division, or unrelated brand.
 For example, if the company is "WestPoint Home" (home textiles), do NOT include reviews of "WestPoint" kitchen appliances (a different company).
+
+PRIMARY SUBJECT RULE — CRITICAL:
+The review must be primarily ABOUT ${companyName}'s products or brand.
+REJECT reviews where:
+- The company is merely mentioned in passing within a broader article
+- The company appears as one item in a roundup of 10+ brands
+- The company is referenced as a partner, sponsor, or collaboration in an article about ANOTHER entity (e.g., a restaurant article that mentions the company's soda as a drink option)
+- The article's headline/title does not reference ${companyName} or its products
+A valid review is one where a reader would say "this article is ABOUT ${companyName}."
+Exception: "top 5"/"best of" lists where the company has a dedicated section with 2+ sentences of substantive commentary are acceptable.
 
 SEARCH STRATEGY — run at least 3 separate searches to build a broad candidate pool:
 1. Video reviews: web_search "${companyName} review site:youtube.com" — product reviews, unboxing, comparison videos
@@ -239,6 +250,16 @@ Date: [Publication date, any format]
 Text: [1-3 sentence excerpt or summary of the review]`,
   },
 
+  logo: {
+    rules: `- Browse the company website. Look for the logo in the header, navigation, footer, or About page.
+- Return the direct URL to the logo image file (PNG, SVG, JPG, WebP).
+- Do NOT return favicon.ico, apple-touch-icon, or generic placeholder images.
+- Do NOT return product images, hero banners, or promotional graphics.
+- If the logo is an inline SVG with no separate image URL, return null for logo_url.
+- If multiple logo variants exist, prefer the main/primary version displayed in the header.`,
+    jsonSchema: `"logo_url": "https://..." | null`,
+  },
+
   contactInfo: {
     jsonSchema: `"company_contact_info": { "contact_page_url": "https://...", "contact_email": "name@example.com" }`,
   },
@@ -253,9 +274,10 @@ Text: [1-3 sentence excerpt or summary of the review]`,
 };
 
 // ---------------------------------------------------------------------------
-// CONDENSED FIELD SUMMARIES — short versions for the unified enrichment
-// prompt where all fields are requested in a single call.  These are kept
-// in sync with the full FIELD_GUIDANCE.*.rules above.
+// DEPRECATED: CONDENSED FIELD SUMMARIES — no longer used by the two-call
+// enrichment pipeline (v3.0).  The new fetchStructuredFields() uses
+// FIELD_GUIDANCE.*.rules directly for higher quality results.
+// Kept for backward compatibility with legacy callers.
 // ---------------------------------------------------------------------------
 const FIELD_SUMMARIES = {
   locations: `MANDATORY PROCESS — follow these steps in order:

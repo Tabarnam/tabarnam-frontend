@@ -1028,20 +1028,19 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       // Phase 1 fetches everything, Phase 2 verifies URLs & caps reviews.
       // ═══════════════════════════════════════════════════════════════
       const ALL_CORE_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"];
-      const ENRICHMENT_BUDGET_MS = 150000;  // 2.5 min: unified + verify (Phase 3 skipped in import-start)
+      const ENRICHMENT_BUDGET_MS = 300000;  // 5 min: two-call split (structured ‖ reviews) + optional retry
 
-      // ── PASS1a: Unified + verify + selective Phase 3 (reviews only) ──
-      // Reviews rarely survive Phase 1+2 intact (the unified prompt returns few URLs,
-      // and verification often rejects them). By running Phase 3 for reviews here instead
-      // of deferring to the resume-worker queue, we avoid 15+ minutes of Azure queue
-      // overhead from multiple resume cycles. If budget runs out, reviews remain
-      // "incomplete" and the resume worker handles them — same fallback as before.
+      // ── Two-call split enrichment (v3.0) ──
+      // Call 1: all structured fields (tagline, HQ, mfg, industries, keywords, logo) — 2-3 min
+      // Call 2: curated reviews with PRIMARY SUBJECT rule — 3-5 min
+      // Both fire in parallel via Promise.allSettled inside enrichCompanyFields().
+      // If structured fields are missing after Call 1, a single retry fires (1-2 min).
+      // Resume-worker handles anything still incomplete with its 8-min budget.
       const enrichResult1a = await runDirectEnrichment({
         company: companyDoc,
         sessionId,
         budgetMs: ENRICHMENT_BUDGET_MS,
         fieldsToEnrich: [...ALL_CORE_FIELDS],
-        skipDedicatedDeepening: true,       // Skip Phase 3 in import-start — reviews always timeout here. Resume-worker handles them with 8-min budget.
         // Save Phase 1+2 results to Cosmos immediately after verification so
         // the resume-worker sees populated fields even if Azure DrainMode kills
         // Phase 3 (review deepening). Without this, a DrainMode event loses all

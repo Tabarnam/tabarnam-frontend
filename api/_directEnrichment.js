@@ -29,7 +29,11 @@ function nowIso() {
 }
 
 /**
- * Enrichment field definitions with fetchers and configuration
+ * Enrichment field definitions with fetchers and configuration.
+ * @deprecated v3.0 — The primary pipeline now uses fetchStructuredFields() (Call 1)
+ * + fetchCuratedReviews() (Call 2) inside enrichCompanyFields(). These individual
+ * fetcher definitions are only used by the legacy fillMissingFieldsIndividually() path
+ * (admin refresh) and may be removed in a future version.
  */
 // minBudgetMs values MUST match XAI_STAGE_TIMEOUTS_MS.min + 1200ms safety margin
 // in _grokEnrichment.js, or fields will be incorrectly deferred.

@@ -191,6 +191,15 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
   light: { min: 30_000, max: 60_000 },         // 30s-1 min for simpler fields (tagline, industries)
 });
 
+// Two-Call Split timeouts (v3.0) — used by the new enrichCompanyFields() pipeline.
+// Call 1 (structured): all non-review fields in a single xAI call with full guidance.
+// Call 2 (reviews): curated reviews in a parallel xAI call with stricter disambiguation.
+const TWO_CALL_TIMEOUTS_MS = Object.freeze({
+  structured: { min: 120_000, max: 180_000 },  // 2-3 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo)
+  reviews:    { min: 180_000, max: 300_000 },  // 3-5 min for Call 2 (curated reviews)
+  retry:      { min: 60_000,  max: 120_000 },  // 1-2 min for retry of missing structured fields
+});
+
 // Absolute minimum budget to attempt an xAI call at all.
 // Resume cycles from import-status have only 15s budget. The ideal stage timeouts above are
 // for fresh seeds with generous budgets. On resume cycles, we should still attempt xAI calls
@@ -711,7 +720,8 @@ async function fetchCuratedReviews({
   const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, excludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)")}
 ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
-  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.reviews;
+  // v3.0: use TWO_CALL_TIMEOUTS_MS for generous review timeout (3-5 min)
+  const stageTimeout = TWO_CALL_TIMEOUTS_MS.reviews;
 
   // Budget clamp: if we can't safely run another upstream call, defer without terminalizing.
   // Skip budget check when test stub is active (allows tests with small budgets).
@@ -1018,6 +1028,8 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   return value;
 }
 
+/** @deprecated v3.0 — subsumed by fetchStructuredFields() Call 1.
+ *  Kept exported for backward compat (admin refresh, ENRICHMENT_FIELDS in _directEnrichment.js). */
 async function fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs = 20000, xaiUrl, xaiKey } = {}) {
   const started = Date.now();
 
@@ -1178,6 +1190,8 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
   return valueOut;
 }
 
+/** @deprecated v3.0 — subsumed by fetchStructuredFields() Call 1.
+ *  Kept exported for backward compat (admin refresh, ENRICHMENT_FIELDS in _directEnrichment.js). */
 async function fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs = 20000, xaiUrl, xaiKey } = {}) {
   const started = Date.now();
 
@@ -1328,6 +1342,8 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
   return valueOut;
 }
 
+/** @deprecated v3.0 — subsumed by fetchStructuredFields() Call 1.
+ *  Kept exported for backward compat (admin refresh, ENRICHMENT_FIELDS in _directEnrichment.js). */
 async function fetchTagline({
   companyName,
   normalizedDomain,
@@ -1455,6 +1471,8 @@ Return:
   return valueOut;
 }
 
+/** @deprecated v3.0 — subsumed by fetchStructuredFields() Call 1.
+ *  Kept exported for backward compat (admin refresh, ENRICHMENT_FIELDS in _directEnrichment.js). */
 async function fetchIndustries({
   companyName,
   normalizedDomain,
@@ -1576,6 +1594,8 @@ Return:
   return valueOut;
 }
 
+/** @deprecated v3.0 — subsumed by fetchStructuredFields() Call 1.
+ *  Kept exported for backward compat (admin refresh, ENRICHMENT_FIELDS in _directEnrichment.js). */
 async function fetchProductKeywords({
   companyName,
   normalizedDomain,
@@ -1735,6 +1755,8 @@ ${FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness}
 /**
  * Grok-based logo detection fallback when HTML parsing fails to find a logo.
  * Uses AI to identify the company's official logo URL from the website.
+ * @deprecated v3.0 — logo_url is now fetched as part of fetchStructuredFields() Call 1.
+ *  This standalone fetcher is kept for backward compat (admin refresh, _logoImport.js fallback).
  */
 async function fetchLogo({
   companyName,
@@ -2005,6 +2027,8 @@ Return logo_url if a direct image URL exists. Return svg_code ONLY when the logo
  * This mirrors the manual Grok prompt that produces accurate results.
  * Returns raw response text + parsed fields for transparency/debugging.
  */
+/** @deprecated v3.0 — replaced by fetchStructuredFields() in the two-call split pipeline.
+ *  Kept exported for backward compat (admin refresh, resume-worker legacy path). */
 async function fetchAllFieldsUnified({
   companyName,
   websiteUrl,
@@ -2196,6 +2220,374 @@ Return STRICT JSON only:
 }
 
 // ============================================================================
+// TWO-CALL SPLIT (v3.0): fetchStructuredFields + retryMissingStructuredFields
+// ============================================================================
+
+/**
+ * Call 1 of the two-call split pipeline.
+ * Fetches ALL structured fields (tagline, HQ, mfg, industries, keywords, logo)
+ * in a single xAI call using FULL FIELD_GUIDANCE rules (not condensed summaries).
+ * Does NOT request reviews (those come from fetchCuratedReviews in parallel).
+ */
+async function fetchStructuredFields({
+  companyName,
+  websiteUrl,
+  normalizedDomain,
+  budgetMs = 180000,
+  xaiUrl,
+  xaiKey,
+  model,
+} = {}) {
+  const started = Date.now();
+
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain || websiteUrl);
+  const websiteUrlForPrompt = websiteUrl
+    ? asString(websiteUrl).trim()
+    : domain
+      ? `https://${domain}`
+      : "";
+
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) please provide the following fields.
+
+TAGLINE:
+${FIELD_GUIDANCE.tagline.rules}
+
+HEADQUARTERS LOCATION:
+${FIELD_GUIDANCE.headquarters.rules}
+
+MANUFACTURING LOCATIONS:
+${FIELD_GUIDANCE.manufacturing.rules}
+
+INDUSTRIES:
+${FIELD_GUIDANCE.industries.rules}
+
+PRODUCT KEYWORDS:
+${FIELD_GUIDANCE.keywords.rules}
+
+LOGO:
+${FIELD_GUIDANCE.logo.rules}
+
+${QUALITY_RULES}
+Return STRICT JSON only:
+{
+  ${FIELD_GUIDANCE.tagline.jsonSchema},
+  ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources},
+  ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources},
+  ${FIELD_GUIDANCE.industries.jsonSchema},
+  ${FIELD_GUIDANCE.keywords.jsonSchemaArray},
+  ${FIELD_GUIDANCE.logo.jsonSchema},
+  "logo_source": "header" | "nav" | "footer" | "meta" | null
+}`.trim();
+
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+
+  const r = await xaiLiveSearchWithRetry({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: budgetMs,
+      minMs: TWO_CALL_TIMEOUTS_MS.structured.min,
+      maxMs: TWO_CALL_TIMEOUTS_MS.structured.max,
+      safetyMarginMs: 5_000,
+    }),
+    maxAttempts: 1,
+    maxTokens: 4000,
+    model: resolveSearchModel(model),
+    xaiUrl,
+    xaiKey,
+    search_parameters: {
+      ...searchBuild.search_parameters,
+      excluded_domains: searchBuild.excluded_domains,
+    },
+    useTools: true,
+  });
+
+  const elapsedMs = Date.now() - started;
+
+  if (!r.ok) {
+    const failure = classifyXaiFailure(r);
+    return {
+      ok: false,
+      method: "structured",
+      raw_response_text: "",
+      parsed_fields: null,
+      field_statuses: {},
+      error: r.error,
+      error_code: failure,
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+      },
+    };
+  }
+
+  const rawText = asString(extractTextFromXaiResponse(r.resp));
+  console.log(`[fetchStructuredFields] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
+  const parsed = parseJsonFromXaiResponse(r.resp);
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.log(`[fetchStructuredFields] Failed to parse JSON from response`);
+    return {
+      ok: false,
+      method: "structured",
+      raw_response_text: rawText,
+      parsed_fields: null,
+      field_statuses: {},
+      error: "invalid_json",
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        reason: "could_not_parse_structured_response",
+        raw_preview: rawText ? rawText.slice(0, 2000) : null,
+      },
+    };
+  }
+
+  // Reuse the same field extraction/normalization as fetchAllFieldsUnified
+  const result = parseStructuredResponse(parsed);
+
+  // Add logo_url extraction
+  const logo_url_raw = asString(parsed.logo_url || "").trim() || null;
+  const logo_source = asString(parsed.logo_source || "").trim() || null;
+  result.field_statuses.logo_url = logo_url_raw ? "ok" : "empty";
+  result.parsed_fields.logo_url = logo_url_raw ? safeUrl(logo_url_raw) : null;
+  result.parsed_fields.logo_source = logo_source;
+
+  console.log(`[fetchStructuredFields] Parsed fields summary: tagline=${result.parsed_fields.tagline ? "yes" : "no"}, hq=${result.parsed_fields.headquarters_location || "none"}, mfg=${result.parsed_fields.manufacturing_locations?.length || 0}, industries=${result.parsed_fields.industries?.length || 0}, keywords=${result.parsed_fields.product_keywords?.length || 0}, logo=${logo_url_raw ? "yes" : "no"}`);
+
+  return {
+    ok: true,
+    method: "structured",
+    raw_response_text: rawText,
+    parsed_fields: result.parsed_fields,
+    field_statuses: result.field_statuses,
+    elapsed_ms: elapsedMs,
+    diagnostics: {
+      ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+    },
+  };
+}
+
+/**
+ * Shared field extraction/normalization for structured responses.
+ * Used by both fetchStructuredFields() and retryMissingStructuredFields().
+ */
+function parseStructuredResponse(parsed) {
+  const field_statuses = {};
+
+  const tagline = asString(parsed.tagline || parsed.slogan || "").trim();
+  field_statuses.tagline = tagline ? "ok" : "empty";
+
+  const hq_raw = asString(parsed.headquarters_location || parsed.hq || "").trim();
+  const hq_normalized = hq_raw ? normalizeCountryInLocation(normalizeLocationWithStateAbbrev(hq_raw)) : "";
+  field_statuses.headquarters = hq_normalized ? "ok" : "empty";
+
+  const mfg_raw = Array.isArray(parsed.manufacturing_locations) ? parsed.manufacturing_locations : [];
+  const mfg_cleaned = mfg_raw
+    .map((x) => asString(x).trim())
+    .filter(Boolean)
+    .map(normalizeLocationWithStateAbbrev)
+    .map(normalizeCountryInLocation);
+  field_statuses.manufacturing = mfg_cleaned.length > 0 ? "ok" : "empty";
+
+  const industries_raw = Array.isArray(parsed.industries) ? parsed.industries : [];
+  const industries_cleaned = industries_raw.map((x) => asString(x).trim()).filter(Boolean).slice(0, 3);
+  field_statuses.industries = industries_cleaned.length > 0 ? "ok" : "empty";
+
+  const kw_raw = Array.isArray(parsed.product_keywords)
+    ? parsed.product_keywords
+    : Array.isArray(parsed.keywords)
+      ? parsed.keywords
+      : [];
+  const kw_cleaned = Array.from(new Set(kw_raw.map((x) => asString(x).trim()).filter(Boolean)));
+  field_statuses.keywords = kw_cleaned.length > 0 ? "ok" : "empty";
+
+  const parsed_fields = {
+    tagline,
+    headquarters_location: hq_normalized,
+    manufacturing_locations: mfg_cleaned,
+    industries: industries_cleaned,
+    product_keywords: kw_cleaned,
+  };
+
+  // Infer HQ country
+  if (hq_normalized) {
+    const inferred = inferCountryFromStateAbbreviation(hq_normalized);
+    if (inferred) {
+      parsed_fields.headquarters_location = inferred.formatted;
+      parsed_fields.headquarters_city = inferred.city;
+      parsed_fields.headquarters_state_code = inferred.state_code;
+      parsed_fields.headquarters_country = inferred.country;
+      parsed_fields.headquarters_country_code = inferred.country_code;
+    }
+  }
+
+  // Extract location source URLs for audit trail
+  if (parsed.location_source_urls && typeof parsed.location_source_urls === "object") {
+    parsed_fields.location_source_urls = parsed.location_source_urls;
+  }
+
+  return { parsed_fields, field_statuses };
+}
+
+/**
+ * Retry for missing structured fields — makes ONE xAI call requesting only
+ * the specific fields that came back empty from fetchStructuredFields().
+ */
+async function retryMissingStructuredFields({
+  companyName,
+  websiteUrl,
+  normalizedDomain,
+  missingFields,
+  budgetMs = 120000,
+  xaiUrl,
+  xaiKey,
+  model,
+} = {}) {
+  if (!Array.isArray(missingFields) || missingFields.length === 0) {
+    return { ok: true, parsed_fields: {}, field_statuses: {}, elapsed_ms: 0 };
+  }
+
+  const started = Date.now();
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain || websiteUrl);
+  const websiteUrlForPrompt = websiteUrl
+    ? asString(websiteUrl).trim()
+    : domain
+      ? `https://${domain}`
+      : "";
+
+  // Build targeted prompt with ONLY the missing field guidance
+  const sections = [];
+  const jsonParts = [];
+  for (const field of missingFields) {
+    switch (field) {
+      case "tagline":
+        sections.push(`TAGLINE:\n${FIELD_GUIDANCE.tagline.rules}`);
+        jsonParts.push(FIELD_GUIDANCE.tagline.jsonSchema);
+        break;
+      case "headquarters":
+        sections.push(`HEADQUARTERS LOCATION:\n${FIELD_GUIDANCE.headquarters.rules}`);
+        jsonParts.push(FIELD_GUIDANCE.headquarters.jsonSchemaWithSources);
+        break;
+      case "manufacturing":
+        sections.push(`MANUFACTURING LOCATIONS:\n${FIELD_GUIDANCE.manufacturing.rules}`);
+        jsonParts.push(FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources);
+        break;
+      case "industries":
+        sections.push(`INDUSTRIES:\n${FIELD_GUIDANCE.industries.rules}`);
+        jsonParts.push(FIELD_GUIDANCE.industries.jsonSchema);
+        break;
+      case "keywords":
+        sections.push(`PRODUCT KEYWORDS:\n${FIELD_GUIDANCE.keywords.rules}`);
+        jsonParts.push(FIELD_GUIDANCE.keywords.jsonSchemaArray);
+        break;
+    }
+  }
+
+  if (sections.length === 0) {
+    return { ok: true, parsed_fields: {}, field_statuses: {}, elapsed_ms: 0 };
+  }
+
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}), the following fields could not be determined in a previous search attempt. Please try harder to find them — use multiple web_search queries and browse_page to verify.
+
+${sections.join("\n\n")}
+
+${QUALITY_RULES}
+Return STRICT JSON only with the requested fields:
+{ ${jsonParts.join(", ")} }`.trim();
+
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+
+  const r = await xaiLiveSearchWithRetry({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: budgetMs,
+      minMs: TWO_CALL_TIMEOUTS_MS.retry.min,
+      maxMs: TWO_CALL_TIMEOUTS_MS.retry.max,
+      safetyMarginMs: 5_000,
+    }),
+    maxAttempts: 1,
+    maxTokens: 2000,
+    model: resolveSearchModel(model),
+    xaiUrl,
+    xaiKey,
+    search_parameters: {
+      ...searchBuild.search_parameters,
+      excluded_domains: searchBuild.excluded_domains,
+    },
+    useTools: true,
+  });
+
+  const elapsedMs = Date.now() - started;
+
+  if (!r.ok) {
+    const failure = classifyXaiFailure(r);
+    console.log(`[retryMissingStructuredFields] Failed: ${failure}, fields=[${missingFields.join(", ")}], elapsed=${elapsedMs}ms`);
+    return {
+      ok: false,
+      parsed_fields: {},
+      field_statuses: Object.fromEntries(missingFields.map((f) => [f, failure])),
+      error: r.error,
+      error_code: failure,
+      elapsed_ms: elapsedMs,
+    };
+  }
+
+  const parsed = parseJsonFromXaiResponse(r.resp);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.log(`[retryMissingStructuredFields] Failed to parse JSON, fields=[${missingFields.join(", ")}]`);
+    return {
+      ok: false,
+      parsed_fields: {},
+      field_statuses: Object.fromEntries(missingFields.map((f) => [f, "invalid_json"])),
+      error: "invalid_json",
+      elapsed_ms: elapsedMs,
+    };
+  }
+
+  const result = parseStructuredResponse(parsed);
+  console.log(`[retryMissingStructuredFields] Success: fields=[${missingFields.join(", ")}], statuses=${JSON.stringify(result.field_statuses)}, elapsed=${elapsedMs}ms`);
+
+  return {
+    ok: true,
+    parsed_fields: result.parsed_fields,
+    field_statuses: result.field_statuses,
+    elapsed_ms: elapsedMs,
+  };
+}
+
+/**
+ * Verify a logo URL is accessible via HEAD request.
+ * Returns { ok, reason, content_type }.
+ */
+async function verifyLogoUrl(logoUrl) {
+  const validUrl = safeUrl(logoUrl);
+  if (!validUrl) return { ok: false, reason: "invalid_url" };
+  try {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), 10_000);
+    const resp = await fetch(validUrl, {
+      method: "HEAD",
+      signal: controller.signal,
+      redirect: "follow",
+      headers: { "User-Agent": "Tabarnam-LogoVerify/1.0" },
+    });
+    clearTimeout(tid);
+    if (!resp.ok) return { ok: false, reason: `http_${resp.status}` };
+    const ct = (resp.headers.get("content-type") || "").toLowerCase();
+    const isImage = ct.startsWith("image/") || ct.includes("svg");
+    if (!isImage) return { ok: false, reason: `not_image_${ct.split(";")[0]}` };
+    return { ok: true, reason: null, content_type: ct };
+  } catch (e) {
+    return { ok: false, reason: e?.name === "AbortError" ? "timeout" : "network_error" };
+  }
+}
+
+// ============================================================================
 // VERIFICATION PIPELINE: Validate fields returned by unified or individual calls
 // ============================================================================
 
@@ -2377,6 +2769,8 @@ function findMissingFields(fields) {
 /**
  * Fill specific missing fields using individual prompt functions.
  */
+/** @deprecated v3.0 — replaced by retryMissingStructuredFields() in the two-call split pipeline.
+ *  Kept exported for backward compat (admin refresh, resume-worker legacy path). */
 async function fillMissingFieldsIndividually(missingFields, {
   companyName,
   normalizedDomain,
@@ -2528,14 +2922,14 @@ async function enrichCompanyFields({
   companyName,
   websiteUrl,
   normalizedDomain,
-  budgetMs = 240000,
+  budgetMs = 480000,
   xaiUrl,
   xaiKey,
   fieldsToEnrich,
-  skipDedicatedDeepening = false,
-  dedicatedFieldsOnly,            // NEW: when set, Phase 3 only zeros out and re-fetches these fields
+  skipDedicatedDeepening = false,   // legacy — ignored by v3.0 pipeline
+  dedicatedFieldsOnly,              // legacy — ignored by v3.0 pipeline
   onIntermediateSave,
-  phase3BudgetCapMs,              // optional cap on Phase 3 budget (e.g. PASS1a uses 90s)
+  phase3BudgetCapMs,                // legacy — ignored by v3.0 pipeline
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -2546,6 +2940,9 @@ async function enrichCompanyFields({
     manufacturing: "manufacturing_locations", industries: "industries",
     keywords: "product_keywords", reviews: "reviews",
   };
+  const LONG_TO_SHORT = {};
+  for (const [short, long] of Object.entries(FIELD_SHORT_TO_LONG)) LONG_TO_SHORT[long] = short;
+
   const filterMissingByTarget = (missingShortNames) =>
     Array.isArray(fieldsToEnrich)
       ? missingShortNames.filter((short) => fieldsToEnrich.includes(FIELD_SHORT_TO_LONG[short] || short))
@@ -2553,49 +2950,61 @@ async function enrichCompanyFields({
 
   const domain = normalizeDomain(normalizedDomain || websiteUrl);
 
-  // When targeting ≤2 specific fields, skip the unified prompt (Phase 1) and
-  // jump straight to dedicated per-field fetchers (Phase 3). This is faster and
-  // cheaper for targeted refreshes.
+  // ── Targeted refresh shortcut (≤2 specific fields) ──────────────────────
+  // When only a few fields need refreshing, skip the full two-call pipeline
+  // and use retryMissingStructuredFields or fetchCuratedReviews directly.
   const skipUnified = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 && fieldsToEnrich.length <= 2;
 
   if (skipUnified) {
-    console.log(`[enrichCompanyFields] Targeted refresh: skipping Phase 1 unified prompt, going direct to Phase 3 for [${fieldsToEnrich.join(", ")}], budget=${budgetMs}ms`);
+    const targetShortNames = fieldsToEnrich.map((f) => LONG_TO_SHORT[f] || f).filter(Boolean);
+    const hasReviews = targetShortNames.includes("reviews");
+    const structuredShort = targetShortNames.filter((f) => f !== "reviews");
 
-    // Map long field names to short names for fillMissingFieldsIndividually
-    const LONG_TO_SHORT = {};
-    for (const [short, long] of Object.entries(FIELD_SHORT_TO_LONG)) LONG_TO_SHORT[long] = short;
-    const targetShortNames = fieldsToEnrich
-      .map((f) => LONG_TO_SHORT[f] || f)
-      .filter(Boolean);
+    console.log(`[enrichCompanyFields] Targeted refresh for [${fieldsToEnrich.join(", ")}], budget=${budgetMs}ms`);
 
-    // Run each field as its own fillMissing call so we can save after each resolves.
-    // This enables incremental recovery: if keywords finish at ~90s, save immediately;
-    // if reviews finish at ~150s, save again with both. SWA drops at ~45s, so the
-    // recovery path returns whatever was last saved when the user retries.
+    const promises = [];
+    if (structuredShort.length > 0) {
+      promises.push(retryMissingStructuredFields({
+        companyName, websiteUrl, normalizedDomain: domain,
+        missingFields: structuredShort,
+        budgetMs: getRemainingMs() - 5000,
+        xaiUrl, xaiKey,
+      }).then((r) => ({ type: "structured", result: r })));
+    }
+    if (hasReviews) {
+      promises.push(fetchCuratedReviews({
+        companyName, normalizedDomain: domain,
+        budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 5000),
+        xaiUrl, xaiKey,
+      }).then((r) => ({ type: "reviews", result: r })));
+    }
+
+    const settled = await Promise.allSettled(promises);
     const filled = {};
     const field_statuses = {};
 
-    const wrappedPromises = targetShortNames.map(async (shortName) => {
-      const result = await fillMissingFieldsIndividually(
-        [shortName],
-        { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey }
-      );
-      Object.assign(filled, result.filled);
-      Object.assign(field_statuses, result.field_statuses);
-      // Save incrementally so recovery path (_pending_refresh_proposal) has partial results
-      if (typeof onIntermediateSave === 'function' && Object.keys(filled).length > 0) {
-        try { await onIntermediateSave(filled); } catch { /* best effort */ }
+    for (const s of settled) {
+      if (s.status !== "fulfilled") continue;
+      const { type, result } = s.value;
+      if (type === "structured" && result.ok && result.parsed_fields) {
+        for (const shortName of structuredShort) {
+          const longName = FIELD_SHORT_TO_LONG[shortName] || shortName;
+          if (result.parsed_fields[longName] !== undefined) {
+            filled[longName] = result.parsed_fields[longName];
+          }
+          if (result.field_statuses[shortName]) {
+            field_statuses[shortName] = result.field_statuses[shortName];
+          }
+        }
+      } else if (type === "reviews" && result.curated_reviews) {
+        filled.reviews = result.curated_reviews;
+        field_statuses.reviews = result.reviews_stage_status || (result.curated_reviews.length > 0 ? "ok" : "empty");
       }
-      return result;
-    });
+    }
 
-    await raceTimeout(
-      Promise.allSettled(wrappedPromises),
-      getRemainingMs() + 10000,
-      "targeted_refresh_allSettled"
-    ).catch((e) => {
-      console.warn(`[enrichCompanyFields] ${e.message} — returning partial targeted results`);
-    });
+    if (typeof onIntermediateSave === "function" && Object.keys(filled).length > 0) {
+      try { await onIntermediateSave(filled); } catch { /* best effort */ }
+    }
 
     console.log(`[enrichCompanyFields] Targeted refresh done: filled=[${Object.keys(filled).join(", ")}], statuses=${JSON.stringify(field_statuses)}, elapsed=${Date.now() - started}ms`);
     return {
@@ -2608,191 +3017,134 @@ async function enrichCompanyFields({
     };
   }
 
-  // Phase 1: Unified prompt
-  console.log(`[enrichCompanyFields] Phase 1: unified prompt for "${companyName}" (${domain}), budget=${budgetMs}ms`);
-  const unified = await fetchAllFieldsUnified({
-    companyName,
-    websiteUrl,
-    normalizedDomain: domain,
-    budgetMs: Math.min(getRemainingMs() - 30000, 300000), // Reserve 30s for verification + fallback
-    xaiUrl,
-    xaiKey,
+  // ── Two-Call Split Pipeline (v3.0) ──────────────────────────────────────
+  // Call 1: fetchStructuredFields (all non-review fields with FULL guidance)
+  // Call 2: fetchCuratedReviews (reviews with PRIMARY SUBJECT disambiguation)
+  // Both fire in parallel via Promise.allSettled.
+
+  const wantReviews = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("reviews");
+
+  console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantReviews=${wantReviews}`);
+
+  const structuredPromise = fetchStructuredFields({
+    companyName, websiteUrl, normalizedDomain: domain,
+    budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.structured.max, getRemainingMs() - 30_000),
+    xaiUrl, xaiKey,
   });
 
-  if (unified.ok && unified.parsed_fields) {
-    // Phase 2: Verify
-    console.log(`[enrichCompanyFields] Phase 2: verifying fields, remaining=${getRemainingMs()}ms`);
-    const { verified, verification_status } = await verifyEnrichmentFields(
-      unified.parsed_fields,
-      { companyName, budgetMs: Math.min(getRemainingMs() - 15000, 120000) }
-    );
+  const reviewsPromise = wantReviews
+    ? fetchCuratedReviews({
+        companyName, normalizedDomain: domain,
+        budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
+        xaiUrl, xaiKey,
+      })
+    : Promise.resolve(null);
 
-    // Intermediate save: persist Phase 1+2 results to Cosmos so the recovery path
-    // (_pending_refresh_proposal) can return them if SWA drops the connection during Phase 3.
-    // SWA gateway timeout is ~45s; Phase 1+2 typically completes in ~36s.
-    if (typeof onIntermediateSave === 'function') {
-      try {
-        await onIntermediateSave(verified, verification_status);
-        console.log(`[enrichCompanyFields] Intermediate save after Phase 2 complete`);
-      } catch (e) {
-        console.warn(`[enrichCompanyFields] Intermediate save failed: ${e?.message}`);
-      }
-    }
+  const [structuredSettled, reviewsSettled] = await Promise.allSettled([
+    structuredPromise,
+    reviewsPromise,
+  ]);
 
-    // Phase 3: Dedicated deepening for keywords, reviews, HQ, and mfg.
-    // skipDedicatedDeepening: when true, return Phase 1+2 results as-is (used by
-    // PASS1a for a fast Cosmos save before Azure kills the process).
-    // dedicatedFieldsOnly: when set (array of long field names), Phase 3 only zeros
-    // out and re-fetches the specified fields, preserving Phase 1+2 results for the rest.
-    // This is used by PASS1a to deepen only reviews without discarding keywords/HQ/MFG.
-    let fallback_statuses = {};
-    let missing = [];
+  // ── Merge results ──
+  const structured = structuredSettled.status === "fulfilled" ? structuredSettled.value : null;
+  const reviews = reviewsSettled.status === "fulfilled" ? reviewsSettled.value : null;
 
-    if (!skipDedicatedDeepening) {
-      // Phase 1 unified prompt produces shallow keywords (nav labels) and unreliable reviews.
-      // Dedicated fetchers have stronger prompts, more tokens, and longer timeouts.
-      // Save Phase 2 verified reviews as fallback before zeroing — if Phase 3
-      // dedicated call returns 0 (XAI hallucinated URLs), we still keep these.
-      const phase2VerifiedReviews = Array.isArray(verified.reviews) ? [...verified.reviews] : [];
-      const phase1Keywords = Array.isArray(verified.product_keywords) ? [...verified.product_keywords] : [];
+  let proposed = {};
+  let field_statuses = {};
 
-      // Helper: should this field be zeroed out and re-fetched by dedicated fetchers?
-      // When dedicatedFieldsOnly is set, only listed fields are deepened.
-      const shouldDeepen = (longName) =>
-        !Array.isArray(dedicatedFieldsOnly) || dedicatedFieldsOnly.includes(longName);
-
-      // Discard Phase 1 results for fields that will be re-fetched.
-      if (shouldDeepen("product_keywords")) verified.product_keywords = [];
-      if (shouldDeepen("reviews")) verified.reviews = [];
-      if (shouldDeepen("headquarters_location")) verified.headquarters_location = "";
-      if (shouldDeepen("manufacturing_locations")) verified.manufacturing_locations = [];
-
-      const missing = findMissingFields(verified);
-      // Force dedicated calls even if findMissingFields doesn't list them.
-      // SHORT_TO_LONG maps short field names (used by findMissingFields/fillMissing) to
-      // the long names used by dedicatedFieldsOnly.
-      const ALWAYS_DEEPEN_SHORT_TO_LONG = {
-        keywords: "product_keywords", reviews: "reviews",
-        headquarters: "headquarters_location", manufacturing: "manufacturing_locations",
-      };
-      for (const [shortName, longName] of Object.entries(ALWAYS_DEEPEN_SHORT_TO_LONG)) {
-        if (!missing.includes(shortName) && shouldDeepen(longName)) missing.push(shortName);
-      }
-      const filteredMissing = filterMissingByTarget(missing);
-
-      if (filteredMissing.length > 0 && getRemainingMs() > 30000) {
-        // Clamp budget to stay safely within Azure function timeout (host.json functionTimeout).
-        // Reserve 15s for response serialization + lock release after enrichment completes.
-        const AZURE_FUNCTION_TIMEOUT_MS = 600_000; // 10 minutes — must match host.json
-        const elapsedSinceStart = Date.now() - started;
-        const azureBudgetRemaining = Math.max(0, AZURE_FUNCTION_TIMEOUT_MS - elapsedSinceStart - 15_000);
-        const phase3Budget = Math.min(
-          getRemainingMs() - 5000,
-          azureBudgetRemaining,
-          ...(Number.isFinite(phase3BudgetCapMs) ? [phase3BudgetCapMs] : [])
-        );
-
-        console.log(`[enrichCompanyFields] Phase 3: dedicated deepening [${filteredMissing.join(", ")}]${Array.isArray(dedicatedFieldsOnly) ? ` (selective: ${dedicatedFieldsOnly.join(", ")})` : ""}, remaining=${getRemainingMs()}ms, phase3Budget=${phase3Budget}ms`);
-        const { filled, field_statuses: fStatuses } = await fillMissingFieldsIndividually(
-          filteredMissing,
-          {
-            companyName, normalizedDomain: domain, budgetMs: phase3Budget, xaiUrl, xaiKey,
-            attempted_urls: verification_status.reviews_attempted_urls || [],
-          }
-        );
-        Object.assign(verified, filled);
-        fallback_statuses = fStatuses;
-      } else if (filteredMissing.length > 0) {
-        console.warn(`[enrichCompanyFields] Phase 3 SKIPPED — remaining=${getRemainingMs()}ms < 30000ms, fields=[${filteredMissing.join(", ")}]`);
-      }
-
-      // If Phase 3 dedicated reviews returned nothing, fall back to Phase 2 verified reviews.
-      // Phase 2 verifies Phase 1 unified-prompt review URLs; Phase 3 makes a fresh XAI call
-      // that may hallucinate different URLs. When Phase 3 finds 0, the Phase 2 results are
-      // still valid and should be preserved rather than discarding everything.
-      if ((!Array.isArray(verified.reviews) || verified.reviews.length === 0) && phase2VerifiedReviews.length > 0) {
-        verified.reviews = phase2VerifiedReviews;
-        fallback_statuses.reviews = phase2VerifiedReviews.length >= 5 ? "ok" : "incomplete";
-        console.log(`[enrichCompanyFields] Phase 3 reviews empty — using ${phase2VerifiedReviews.length} Phase 2 verified review(s) as fallback`);
-      }
-
-      // If Phase 3 dedicated keyword fetcher returned nothing, fall back to Phase 1 keywords.
-      // Phase 1 unified prompt produces reasonable keyword lists; Phase 3 re-fetches with a
-      // stronger prompt but may fail (timeout, not_found). Preserve Phase 1 results rather
-      // than discarding everything — same pattern as the reviews fallback above.
-      if ((!Array.isArray(verified.product_keywords) || verified.product_keywords.length === 0) && phase1Keywords.length > 0) {
-        verified.product_keywords = phase1Keywords;
-        fallback_statuses.keywords = "incomplete";
-        console.log(`[enrichCompanyFields] Phase 3 keywords empty — using ${phase1Keywords.length} Phase 1 keyword(s) as fallback`);
-      }
-    } else {
-      console.log(`[enrichCompanyFields] skipDedicatedDeepening=true — returning Phase 1+2 results, remaining=${getRemainingMs()}ms`);
-    }
-
-    // Merge field statuses (only string values — skip detail objects like reviews_verification_detail)
-    const field_statuses = { ...unified.field_statuses };
-    for (const [k, v] of Object.entries(verification_status)) {
-      if (typeof v === "string") field_statuses[k] = v;
-    }
-    for (const [k, v] of Object.entries(fallback_statuses)) {
-      // Dedicated deepening results always override Phase 1 statuses
-      field_statuses[k] = v;
-    }
-
-    const totalElapsed = Date.now() - started;
-    console.log(`[enrichCompanyFields] Done (unified). field_statuses=${JSON.stringify(field_statuses)}, missing_after_unified=[${missing.join(", ")}], reviews_in_proposed=${Array.isArray(verified.reviews) ? verified.reviews.length : 0}, elapsed=${totalElapsed}ms`);
-
-    return {
-      ok: true,
-      method: "unified",
-      proposed: verified,
-      raw_response: unified.raw_response_text,
-      field_statuses,
-      missing_after_unified: missing,
-      elapsed_ms: totalElapsed,
-      reviews_attempted_urls: verification_status.reviews_attempted_urls || [],
-    };
+  if (structured?.ok && structured.parsed_fields) {
+    proposed = { ...structured.parsed_fields };
+    field_statuses = { ...structured.field_statuses };
   }
 
-  // Unified failed completely - fall back to all individual calls in parallel
-  console.log(`[enrichCompanyFields] Unified failed (${unified.error || "unknown"}), falling back to individual calls, remaining=${getRemainingMs()}ms`);
+  // Merge reviews
+  if (reviews?.curated_reviews?.length > 0) {
+    proposed.reviews = reviews.curated_reviews;
+    field_statuses.reviews = reviews.reviews_stage_status || "ok";
+  } else if (wantReviews) {
+    proposed.reviews = [];
+    field_statuses.reviews = reviews?.reviews_stage_status || "empty";
+  }
 
-  const args = { companyName, normalizedDomain: domain, budgetMs: getRemainingMs() - 5000, xaiUrl, xaiKey };
+  // ── Intermediate save ──
+  if (typeof onIntermediateSave === "function" && Object.keys(proposed).length > 0) {
+    try {
+      await onIntermediateSave(proposed);
+      console.log(`[enrichCompanyFields] Intermediate save after two-call merge complete`);
+    } catch (e) {
+      console.warn(`[enrichCompanyFields] Intermediate save failed: ${e?.message}`);
+    }
+  }
 
-  const allFields = [
-    "tagline", "headquarters", "manufacturing", "industries", "keywords", "reviews",
-  ];
-  const targetFallback = filterMissingByTarget(allFields);
-  const { filled, field_statuses } = await fillMissingFieldsIndividually(
-    targetFallback,
-    args
-  );
+  // ── Verify logo URL from Call 1 ──
+  if (proposed.logo_url) {
+    const logoCheck = await verifyLogoUrl(proposed.logo_url);
+    if (!logoCheck.ok) {
+      console.log(`[enrichCompanyFields] Logo URL verification failed: ${logoCheck.reason} — clearing`);
+      proposed.logo_url = null;
+      field_statuses.logo_url = `url_dead_${logoCheck.reason}`;
+    }
+  }
+
+  // ── Retry missing structured fields ──
+  const missingStructured = findMissingFields(proposed).filter((f) => f !== "reviews");
+  const filteredMissing = filterMissingByTarget(missingStructured);
+
+  if (filteredMissing.length > 0 && getRemainingMs() > 30_000) {
+    console.log(`[enrichCompanyFields] Retry for missing fields: [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms`);
+    const retryResult = await retryMissingStructuredFields({
+      companyName, websiteUrl, normalizedDomain: domain,
+      missingFields: filteredMissing,
+      budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.retry.max, getRemainingMs() - 5_000),
+      xaiUrl, xaiKey,
+    });
+
+    if (retryResult?.ok && retryResult.parsed_fields) {
+      for (const shortName of filteredMissing) {
+        const longName = FIELD_SHORT_TO_LONG[shortName] || shortName;
+        if (retryResult.parsed_fields[longName]) {
+          proposed[longName] = retryResult.parsed_fields[longName];
+          field_statuses[shortName] = retryResult.field_statuses?.[shortName] || "ok";
+        }
+      }
+    }
+  } else if (filteredMissing.length > 0) {
+    console.warn(`[enrichCompanyFields] Retry SKIPPED — remaining=${getRemainingMs()}ms < 30000ms, fields=[${filteredMissing.join(", ")}]`);
+  }
 
   const totalElapsed = Date.now() - started;
-  console.log(`[enrichCompanyFields] Done (individual_fallback). field_statuses=${JSON.stringify(field_statuses)}, unified_error=${unified.error || "none"}, elapsed=${totalElapsed}ms`);
+  console.log(`[enrichCompanyFields] Done (two_call_split). field_statuses=${JSON.stringify(field_statuses)}, reviews_in_proposed=${Array.isArray(proposed.reviews) ? proposed.reviews.length : 0}, elapsed=${totalElapsed}ms`);
 
   return {
-    ok: Object.values(field_statuses).some((s) => s === "ok"),
-    method: "individual_fallback",
-    proposed: filled,
-    raw_response: unified.raw_response_text || "",
+    ok: true,
+    method: "two_call_split",
+    proposed,
+    raw_response: structured?.raw_response_text || "",
     field_statuses,
-    unified_error: unified.error || null,
     elapsed_ms: totalElapsed,
+    reviews_attempted_urls: reviews?.attempted_urls || [],
   };
 }
 
 module.exports = {
   DEFAULT_REVIEW_EXCLUDE_DOMAINS,
   fetchCuratedReviews,
+  // @deprecated v3.0 — individual fetchers replaced by fetchStructuredFields()
   fetchHeadquartersLocation,
   fetchManufacturingLocations,
   fetchTagline,
   fetchIndustries,
   fetchProductKeywords,
   fetchLogo,
-  // Unified enrichment engine
+  // @deprecated v3.0 — replaced by fetchStructuredFields() + retryMissingStructuredFields()
   fetchAllFieldsUnified,
+  fillMissingFieldsIndividually,
+  // Two-call split pipeline (v3.0)
+  fetchStructuredFields,
+  retryMissingStructuredFields,
+  parseStructuredResponse,
+  verifyLogoUrl,
+  // Enrichment orchestrator
   verifyEnrichmentFields,
   enrichCompanyFields,
   // Helpers for location normalization
