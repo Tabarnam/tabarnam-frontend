@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.2.0";
+const PROMPT_GUIDANCE_VERSION = "3.2.1";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -188,6 +188,7 @@ FORMAT RULES:
 CRITICAL — BRAND DISAMBIGUATION: Verify each review is actually about ${nameRef} at ${urlRef} — not a similarly-named company, different brand, or unrelated product. Do NOT include reviews of products by other companies that happen to share a word in the name.
 PRIMARY SUBJECT: Each review must be primarily ABOUT ${nameRef}'s products. REJECT articles that merely mention the company in passing, as a partner/sponsor, or in a large roundup. A valid review = a reader would say "this article is ABOUT ${nameRef}."
 For each candidate, use browse_page to confirm: (1) the URL loads, (2) it contains a substantive review or opinion, (3) it is about this company's products specifically, (4) the article's primary subject is ${nameRef}.
+SOURCE PREFERENCE: Strongly prefer reviews from magazines, YouTube, and blogs. Other sources (news sites, social media) are acceptable only if magazine/YouTube/blog coverage is unavailable.
 SENTIMENT: Prefer reviews that are positive, neutral, or constructively critical. Do NOT include reviews whose primary message is that the product is bad, disliked, or not recommended.
 Return up to 5 verified reviews. Quality over quantity.`;
     },
@@ -219,9 +220,9 @@ REJECT reviews where:
 A valid review is one where a reader would say "this article is ABOUT ${companyName}."
 Exception: "top 5"/"best of" lists where the company has a dedicated section with 2+ sentences of substantive commentary are acceptable.
 
-SEARCH STRATEGY — run at least 3 separate searches to build a broad candidate pool:
-1. Video reviews: web_search "${companyName} review site:youtube.com" — product reviews, unboxing, comparison videos
-2. Blog/magazine reviews: web_search "${companyName} review" — lifestyle blogs, magazines, review sites (tastingtable.com, thedailymeal.com, etc.)
+SEARCH STRATEGY — run at least 3 separate searches, prioritizing magazines, YouTube, and blogs:
+1. YouTube reviews: web_search "${companyName} review site:youtube.com" — product reviews, taste tests, unboxing, comparison videos
+2. Magazine/blog reviews: web_search "${companyName} review" — look specifically for lifestyle blogs, food/drink magazines, industry magazines, and independent review blogs (e.g., tastingtable.com, thedailymeal.com, eater.com, bonappetit.com, wirecutter.com)
 3. Product-specific: web_search "${companyName} [flagship product name] review" — target the company's main products by name for more precise results
 4. If those yield fewer than 3: try "${companyName} honest review", "${companyName} [product] comparison", or "${companyName} worth it"
 
@@ -240,7 +241,7 @@ REJECT:
 REVIEW SENTIMENT PREFERENCE:
 Our platform presents these reviews to help consumers discover products. Prefer reviews that highlight product quality, features, or value. Constructive criticism is fine. Do NOT include reviews whose primary message is that the product is bad, disliked, or not recommended — unless that is the ONLY coverage available.
 
-SOURCE MIX: Aim for a mix — ideally 2-3 YouTube videos from different creators plus 2-3 written articles from blogs or magazines. Do not include the same author more than once.
+SOURCE PREFERENCE: Strongly prefer magazines, YouTube, and blogs as review sources. Aim for 2-3 YouTube videos from different creators plus 2-3 written articles from magazines or blogs. Other sources (news sites, social media, forums) are acceptable ONLY as fallbacks when magazine/YouTube/blog coverage is insufficient. Do not include the same author more than once.
 ${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
 Return up to 5 verified reviews. Quality over quantity — 3 strong reviews beat 5 weak ones.
 If you cannot find ANY legitimate third-party reviews after trying multiple search strategies, return an empty reviews array.
