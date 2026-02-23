@@ -579,12 +579,12 @@ export default function ExpandableCompanyRow({
               {websiteUrl ? (
                 <CompanyNameWithUrlTooltip
                   href={withAmazonAffiliate(websiteUrl)}
-                  className="text-blue-700 hover:underline"
+                  className="text-[1.2em] text-blue-700 hover:underline"
                 >
                   {websiteLabel}
                 </CompanyNameWithUrlTooltip>
               ) : (
-                <span className="text-foreground">{displayName}</span>
+                <span className="text-[1.2em] text-foreground">{displayName}</span>
               )}
             </h2>
             {company.tagline && (
@@ -777,13 +777,13 @@ export default function ExpandableCompanyRow({
           {websiteUrl ? (
             <CompanyNameWithUrlTooltip
               href={withAmazonAffiliate(websiteUrl)}
-              className="font-semibold text-sm text-blue-700 hover:underline"
+              className="font-semibold text-[1.2em] text-blue-700 hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
               {websiteLabel}
             </CompanyNameWithUrlTooltip>
           ) : (
-            <span className="font-semibold text-sm">{displayName}</span>
+            <span className="font-semibold text-[1.2em]">{displayName}</span>
           )}
           <span className="inline-flex items-center gap-0 share-button-container">
             <ShareButton company={company} className="!w-7 !h-7 !min-w-0 !min-h-0" />
