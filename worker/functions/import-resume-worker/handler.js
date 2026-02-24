@@ -1724,7 +1724,7 @@ async function resumeWorkerHandler(req, context) {
       reviews: 65_000,                  // 65 seconds min (reviews - multi-step)
     };
 
-    const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
+    let cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
     const isFreshSeed = cycleCount === 0;
 
     // With 5-minute deadline, we can attempt all fields in a single run
@@ -1769,14 +1769,14 @@ async function resumeWorkerHandler(req, context) {
 
     console.log(`[resume-worker] enrichment block entry: deadlineMs=${deadlineMs}, effectiveDeadlineMs=${effectiveDeadlineMs}, startedAtMs=${startedAtMs}, initialBudgetRemaining=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
 
-    const plannedByCompany = Array.isArray(resumeDoc?.missing_by_company)
+    let plannedByCompany = Array.isArray(resumeDoc?.missing_by_company)
       ? resumeDoc.missing_by_company
       : (Array.isArray(resumeDoc?.saved_company_ids) ? resumeDoc.saved_company_ids : []).map((company_id) => ({
           company_id,
           missing_fields: [...ENRICH_FIELDS],
         }));
 
-    const plannedIds = plannedByCompany
+    let plannedIds = plannedByCompany
       .map((e) => String(e?.company_id || "").trim())
       .filter(Boolean)
       .slice(0, 50);
@@ -1834,7 +1834,19 @@ async function resumeWorkerHandler(req, context) {
       } catch {}
     };
 
-    const perDocBudgetMs = effectiveDeadlineMs; // Full budget per company — no splitting; remaining companies deferred to next invocation
+    let internalCycleIdx = 0;
+    const MAX_INTERNAL_CYCLES = 3; // Safety cap: max extra internal retries within same invocation
+
+    // Hoisted from inside the while loop so they're accessible after break
+    let nextMissingByCompany;
+    let attempted_fields;
+    let last_written_fields;
+    let resumeNeeded;
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+    // Recalculate per-doc budget based on CURRENT remaining budget (shrinks on internal retries)
+    const perDocBudgetMs = budgetRemainingMs();
 
     for (const entry of plannedByCompany) {
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
@@ -2355,7 +2367,7 @@ async function resumeWorkerHandler(req, context) {
     const updatedAt = nowIso();
 
     // Compute remaining required fields using the authoritative contract.
-    const nextMissingByCompany = plannedIds
+    nextMissingByCompany = plannedIds
       .map((company_id) => {
         const d = docsById.get(String(company_id || "").trim());
         if (!d) return { company_id, missing_fields: [...ENRICH_FIELDS] };
@@ -2373,10 +2385,51 @@ async function resumeWorkerHandler(req, context) {
       })
       .filter((e) => String(e?.company_id || "").trim());
 
-    const attempted_fields = Array.from(new Set(attemptedFieldsThisRun)).slice(0, 50);
-    const last_written_fields = Array.from(new Set(savedFieldsThisRun)).slice(0, 50);
+    attempted_fields = Array.from(new Set(attemptedFieldsThisRun)).slice(0, 50);
+    last_written_fields = Array.from(new Set(savedFieldsThisRun)).slice(0, 50);
 
-    const resumeNeeded = nextMissingByCompany.some((e) => Array.isArray(e?.missing_fields) && e.missing_fields.length > 0);
+    resumeNeeded = nextMissingByCompany.some((e) => Array.isArray(e?.missing_fields) && e.missing_fields.length > 0);
+
+    // ── Internal retry decision ──
+    // If fields remain, budget allows, and we haven't hit the cap, retry immediately
+    // instead of depending on the queue (which may be unprocessed if worker is down).
+    const canRetryInternally =
+      resumeNeeded &&
+      internalCycleIdx < MAX_INTERNAL_CYCLES &&
+      budgetRemainingMs() > 60_000 &&           // At least 1 min for a meaningful retry
+      cycleCount + 1 < MAX_RESUME_CYCLES;
+
+    if (!canRetryInternally) break; // Exit outer while loop → proceed to enqueue/complete/terminal
+
+    // Prepare for next internal cycle
+    internalCycleIdx++;
+    cycleCount += 1;
+
+    console.log(`[resume-worker] internal_retry`, {
+      session_id: sessionId,
+      cycle: cycleCount,
+      internal_attempt: internalCycleIdx,
+      budget_remaining_ms: budgetRemainingMs(),
+      missing_companies: nextMissingByCompany.filter((e) => e.missing_fields.length > 0).length,
+    });
+
+    // Update planned companies to only those still missing fields
+    plannedByCompany = nextMissingByCompany.filter(
+      (e) => Array.isArray(e?.missing_fields) && e.missing_fields.length > 0
+    );
+    plannedIds = plannedByCompany
+      .map((e) => String(e?.company_id || "").trim())
+      .filter(Boolean);
+
+    // Re-read fresh docs from Cosmos (enrichment may have written partial data)
+    const freshDocs = await fetchCompaniesByIds(container, plannedIds).catch(() => []);
+    for (const d of freshDocs) docsById.set(String(d?.id || "").trim(), d);
+
+    // Short backoff before retrying (respect xAI rate limits)
+    await sleepMs(3000);
+
+    } // end while(true) internal retry loop
+
     const nextCycleCount = cycleCount + 1;
 
     const deriveBackoff = () => {
@@ -2543,6 +2596,7 @@ async function resumeWorkerHandler(req, context) {
         budget_remaining_at_finish: budgetRemainingMs(),
         is_fresh_seed: isFreshSeed,
         cycle_count: cycleCount,
+        internal_cycles: internalCycleIdx,
         planned_ids_count: plannedIds?.length || 0,
       },
     };
