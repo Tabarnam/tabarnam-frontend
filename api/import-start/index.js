@@ -5456,9 +5456,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     requested_by: "import_start",
                     enqueue_at: new Date().toISOString(),
                     cycle_count: 0,
-                    run_after_ms: 180_000, // 3 minutes
+                    run_after_ms: 360_000, // 6 min: 5-min enrichment budget + 1-min buffer
                   }).catch(() => null);
-                  console.log(`[import-start] session=${sessionId} safety-net resume enqueued (180s delay, ${mandatoryCompanyIds.length} companies)`);
+                  console.log(`[import-start] session=${sessionId} safety-net resume enqueued (360s delay, ${mandatoryCompanyIds.length} companies)`);
                 } catch {}
 
                 // Fire-and-forget: run enrichment asynchronously.

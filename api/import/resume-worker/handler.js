@@ -1995,13 +1995,13 @@ async function resumeWorkerHandler(req, context) {
           reason: "pre_enrichment_safety_net",
           requested_by: "resume_worker",
           enqueue_at: nowIso(),
-          cycle_count: cycleCount + 1,
+          cycle_count: cycleCount, // Same cycle — if worker dies, doc still has this cycle; if worker completes, doc increments and safety-net is rejected as "duplicate"
           run_after_ms: safetyNetDelayMs,
         }).catch(() => null);
         console.log(`[resume-worker] pre_enrichment_safety_net enqueued`, {
           session_id: sessionId,
           delay_ms: safetyNetDelayMs,
-          cycle_count: cycleCount + 1,
+          cycle_count: cycleCount,
         });
       } catch {}
     }
@@ -2133,6 +2133,32 @@ async function resumeWorkerHandler(req, context) {
             xaiKey,
             fieldsToEnrich: missingNonLogoFields,
             skipDedicatedDeepening: false, // Allow Phase 3 for reviews/keywords deepening
+            onIntermediateSave: async (verified) => {
+              try {
+                const mapped = { ...verified };
+                if (mapped.product_keywords && !mapped.keywords) {
+                  mapped.keywords = mapped.product_keywords;
+                }
+                if (mapped.reviews && !mapped.curated_reviews) {
+                  mapped.curated_reviews = mapped.reviews;
+                  delete mapped.reviews;
+                }
+                Object.assign(doc, mapped);
+                doc.updated_at = nowIso();
+                await upsertDoc(container, doc);
+                console.log(`[resume-worker] intermediate_save_ok`, {
+                  session_id: sessionId,
+                  company_id: companyId,
+                  fields: Object.keys(mapped).join(", "),
+                });
+              } catch (err) {
+                console.warn(`[resume-worker] intermediate_save_failed`, {
+                  session_id: sessionId,
+                  company_id: companyId,
+                  error: err?.message || String(err),
+                });
+              }
+            },
           });
         } catch (enrichErr) {
           console.error(`[resume-worker] unified_enrichment_error`, {
