@@ -2336,7 +2336,21 @@ async function resumeWorkerHandler(req, context) {
           // Save doc after logo
           doc.import_missing_fields = computeMissingFields(doc);
           doc.updated_at = nowIso();
-          await upsertDoc(container, doc).catch(() => null);
+          const writeOk = await upsertDoc(container, doc).then(() => true).catch((err) => {
+            console.error(`[resume-worker] COMPANY_DOC_WRITE_FAILED`, {
+              session_id: sessionId,
+              company_id: companyId,
+              error: err?.message || String(err),
+            });
+            return false;
+          });
+          if (writeOk) {
+            console.log(`[resume-worker] company_doc_saved`, {
+              session_id: sessionId,
+              company_id: companyId,
+              missing_fields: doc.import_missing_fields?.length || 0,
+            });
+          }
         }
 
         progressRoot.enrichment_progress[companyId]["logo"] = logoFp;
@@ -2500,7 +2514,13 @@ async function resumeWorkerHandler(req, context) {
         if (changed) {
           d.import_missing_fields = computeMissingFields(d);
           d.updated_at = nowIso();
-          await upsertDoc(container, d).catch(() => null);
+          await upsertDoc(container, d).catch((err) => {
+            console.error(`[resume-worker] TERMINALIZE_WRITE_FAILED`, {
+              session_id: sessionId,
+              company_id: companyId,
+              error: err?.message || String(err),
+            });
+          });
         }
       }
     } else {
@@ -2645,7 +2665,12 @@ async function resumeWorkerHandler(req, context) {
         saved_ids: savedIds,
         saved_company_ids_verified: savedIds,
         saved_verified_count: savedIds.length,
-      }).catch(() => null);
+      }).catch((err) => {
+        console.error(`[resume-worker] COMPLETION_DOC_WRITE_FAILED`, {
+          session_id: sessionId,
+          error: err?.message || String(err),
+        });
+      });
     }
 
     return json(

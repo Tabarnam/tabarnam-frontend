@@ -93,6 +93,12 @@ function isFieldComplete(fieldKey, value, status) {
   // "incomplete" means the field has partial data but didn't meet its target
   // (e.g. 2 of 5 reviews found). Treat as NOT complete so resume worker retries.
   if (status === "incomplete") {
+    // Keywords: "incomplete" just means xAI could find more, but existing data is
+    // sufficient — the downstream isRealValue() / sanitizeKeywords() quality gate
+    // in the resume-worker already treats keywords-with-data as present.
+    if (fieldKey === "product_keywords") {
+      return Array.isArray(value) && value.length > 0;
+    }
     return false;
   }
 
