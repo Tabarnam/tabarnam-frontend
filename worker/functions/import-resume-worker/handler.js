@@ -1760,9 +1760,14 @@ async function resumeWorkerHandler(req, context) {
         ? progressRoot.enrichment_progress
         : {};
 
-    const budgetRemainingMs = () => Math.max(0, deadlineMs - (Date.now() - startedAtMs));
+    // Hard timeout guard: leave 1 min buffer before Azure Function timeout (10 min max)
+    const HANDLER_HARD_TIMEOUT_MS = 9 * 60 * 1000; // 9 minutes
+    const handlerStartedAt = startedAtMs;
+    const effectiveDeadlineMs = Math.min(deadlineMs, HANDLER_HARD_TIMEOUT_MS - 60_000);
 
-    console.log(`[resume-worker] enrichment block entry: deadlineMs=${deadlineMs}, startedAtMs=${startedAtMs}, initialBudgetRemaining=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
+    const budgetRemainingMs = () => Math.max(0, effectiveDeadlineMs - (Date.now() - startedAtMs));
+
+    console.log(`[resume-worker] enrichment block entry: deadlineMs=${deadlineMs}, effectiveDeadlineMs=${effectiveDeadlineMs}, startedAtMs=${startedAtMs}, initialBudgetRemaining=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
 
     const plannedByCompany = Array.isArray(resumeDoc?.missing_by_company)
       ? resumeDoc.missing_by_company
@@ -1829,10 +1834,6 @@ async function resumeWorkerHandler(req, context) {
       } catch {}
     };
 
-    // Hard timeout guard: leave 1 min buffer before Azure Function timeout (10 min max)
-    const HANDLER_HARD_TIMEOUT_MS = 9 * 60 * 1000; // 9 minutes
-    const handlerStartedAt = startedAtMs;
-
     for (const entry of plannedByCompany) {
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
 
@@ -1848,6 +1849,19 @@ async function resumeWorkerHandler(req, context) {
         break; // Exit enrichment loop gracefully, let next invocation continue
       }
 
+      // Full-budget check: each company deserves near-full enrichment budget.
+      // If remaining budget is < half the per-doc budget, defer remaining
+      // companies to the next invocation (which starts fresh with full budget).
+      if (budgetRemainingMs() < perDocBudgetMs * 0.5) {
+        console.log(`[resume-worker] deferring_remaining_companies`, {
+          session_id: sessionId,
+          budget_remaining_ms: budgetRemainingMs(),
+          per_doc_budget_ms: perDocBudgetMs,
+          companies_deferred: plannedByCompany.length - plannedByCompany.indexOf(entry),
+        });
+        break;
+      }
+
       // Write heartbeat to session doc periodically to signal progress
       await maybeWriteHeartbeat();
 
@@ -1860,8 +1874,8 @@ async function resumeWorkerHandler(req, context) {
       const companyName = String(doc.company_name || doc.name || "").trim();
       const normalizedDomain = String(doc.normalized_domain || "").trim();
 
-      const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, plannedIds.length || 1)));
-      console.log(`[resume-worker] enrichment loop start: companyId=${companyId}, companyName=${companyName}, normalizedDomain=${normalizedDomain}, deadlineMs=${deadlineMs}, plannedIds.length=${plannedIds.length}, perDocBudgetMs=${perDocBudgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
+      const perDocBudgetMs = effectiveDeadlineMs; // Full budget per company — no splitting; remaining companies deferred to next invocation
+      console.log(`[resume-worker] enrichment loop start: companyId=${companyId}, companyName=${companyName}, normalizedDomain=${normalizedDomain}, effectiveDeadlineMs=${effectiveDeadlineMs}, plannedIds.length=${plannedIds.length}, perDocBudgetMs=${perDocBudgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
 
       // Use shared XAI config resolution for consistent endpoint/key handling
       const xaiEndpointRaw = getXAIEndpoint();
@@ -2522,6 +2536,7 @@ async function resumeWorkerHandler(req, context) {
       // Debug: track budget values to diagnose deferred fields
       _budget_debug: {
         deadlineMs,
+        effectiveDeadlineMs,
         startedAtMs,
         elapsed_at_finish: Date.now() - startedAtMs,
         budget_remaining_at_finish: budgetRemainingMs(),
