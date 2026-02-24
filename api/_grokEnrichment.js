@@ -391,6 +391,11 @@ function isYouTubeUrl(raw) {
   return host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be";
 }
 
+function isXUrl(raw) {
+  const host = normalizeHostForDedupe(urlHost(raw));
+  return host === "x.com" || host === "twitter.com" || host === "mobile.twitter.com";
+}
+
 /**
  * Check if two hosts belong to the same domain family (same root domain or subdomain relationship).
  * Used to detect cross-domain redirects that likely indicate URL recycling or content migration.
@@ -614,6 +619,32 @@ async function verifyYouTubeVideoAvailable(url, { timeoutMs = 5000 } = {}) {
     return { ok: false, reason: `youtube_oembed_http_${status}` };
   } catch (e) {
     return { ok: false, reason: asString(e?.message || e || "youtube_check_failed") };
+  }
+}
+
+/**
+ * Check if an X/Twitter tweet is available using the public oEmbed endpoint.
+ * x.com returns 401/403 to unauthenticated GETs, so standard HTTP verification fails.
+ * The oEmbed endpoint works without auth: 200 = valid tweet, 404 = deleted/non-existent.
+ */
+async function verifyXTweetAvailable(url, { timeoutMs = 5000 } = {}) {
+  try {
+    const oEmbedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const res = await fetchWithTimeout(oEmbedUrl, {
+      method: "GET",
+      timeoutMs,
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+    const status = Number(res.status || 0) || 0;
+    if (status === 404 || status === 400) {
+      return { ok: false, reason: "tweet_not_found" };
+    }
+    if (status >= 200 && status < 300) {
+      return { ok: true };
+    }
+    return { ok: false, reason: `x_oembed_http_${status}` };
+  } catch (e) {
+    return { ok: false, reason: "x_oembed_fetch_failed" };
   }
 }
 
@@ -890,7 +921,15 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       };
     })
     .filter((x) => x.source_url)
-    .filter((x) => !excludeDomains.some((d) => x.source_url.includes(d)));
+    .filter((x) => !excludeDomains.some((d) => x.source_url.includes(d)))
+    .filter((x) => {
+      const len = (x.excerpt || "").length;
+      if (len < 120) {
+        console.log(`[grokEnrichment] reviews: excerpt_too_short (${len} chars < 120): ${x.source_url}`);
+        return false;
+      }
+      return true;
+    });
 
   if (candidates.length === 0) {
     const value = {
@@ -930,8 +969,10 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     // videos from different creators on youtube.com are all valid unique reviews).
     const host = normalizeHostForDedupe(urlHost(c.source_url));
     const isYT = c.category === "youtube" || isYouTubeUrl(c.source_url);
+    const isX = isXUrl(c.source_url);
     if (
       !isYT &&
+      !isX &&
       host &&
       usedHosts.has(host) &&
       deduped.some((x) => normalizeHostForDedupe(urlHost(x.source_url)) !== host)
@@ -940,6 +981,30 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     }
 
     this_attempt_urls.push(c.source_url);
+
+    // X/Twitter-specific: use oEmbed endpoint (x.com returns 401 to unauthenticated GETs)
+    if (isX) {
+      const xCheck = await verifyXTweetAvailable(c.source_url, { timeoutMs: 5000 });
+      if (!xCheck.ok) {
+        console.log(`[grokEnrichment] reviews: X tweet unavailable: ${c.source_url} (${xCheck.reason})`);
+        continue;
+      }
+      verified_reviews.push({
+        source_name: "X",
+        author: c.author || null,
+        source_url: c.source_url,
+        title: c.title || null,
+        date: c.date || null,
+        excerpt: c.excerpt || null,
+        link_status: "ok",
+        match_confidence: 1.0,
+        show_to_users: true,
+        is_public: true,
+      });
+      if (host) usedHosts.add(host);
+      continue;
+    }
+
     let verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
 
     // Retry once if first attempt failed (but not soft-404)
@@ -983,7 +1048,8 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
   const curated_reviews = verified_reviews.slice(0, 5);
   const youtubeCount = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length;
-  const blogCount = curated_reviews.length - youtubeCount;
+  const xCount = curated_reviews.filter((r) => isXUrl(r?.source_url)).length;
+  const blogCount = curated_reviews.length - youtubeCount - xCount;
 
   // Lowered from 5 to 3: aligns with resume-worker threshold (handler.js line 2436)
   const ok = curated_reviews.length >= 3;
@@ -1004,6 +1070,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
         candidate_count: candidates.length,
         verified_count: curated_reviews.length,
         youtube_verified: youtubeCount,
+        x_verified: xCount,
         blog_verified: blogCount,
         exhausted: isExhausted,
       },
@@ -1022,6 +1089,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       candidate_count: candidates.length,
       verified_count: curated_reviews.length,
       youtube_verified: youtubeCount,
+      x_verified: xCount,
       blog_verified: blogCount,
     },
     attempted_urls: this_attempt_urls,
@@ -1029,7 +1097,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     excluded_hosts: searchBuild.excluded_hosts,
   };
   if (cacheKey) writeStageCache(cacheKey, value);
-  logResult("ok", `verified=${curated_reviews.length}, youtube=${youtubeCount}, blog=${blogCount}`);
+  logResult("ok", `verified=${curated_reviews.length}, youtube=${youtubeCount}, x=${xCount}, blog=${blogCount}`);
   return value;
 }
 
