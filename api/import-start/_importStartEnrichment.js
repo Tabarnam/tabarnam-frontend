@@ -1263,12 +1263,22 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     .map((r) => r.company_id)
     .filter(Boolean);
 
-  if (failedCompanyIds.length > 0) {
+  // Also trigger for "ok but incomplete" companies — fields like logo/tagline
+  // may still be missing even when the enrichment call succeeded (ok=true,
+  // fields_failed=[]). When triggered by anyNeedsResume (not failures), pass
+  // ALL company IDs — the resume-worker reads actual state from Cosmos and
+  // handles whichever fields still need work.
+  const resumeCompanyIds = failedCompanyIds.length > 0
+    ? failedCompanyIds
+    : (anyNeedsResume ? enrichmentResults.map((r) => r.company_id).filter(Boolean) : []);
+
+  if (resumeCompanyIds.length > 0) {
+    const resumeReason = failedCompanyIds.length > 0 ? "partial_enrichment_retry" : "resume_missing_fields";
     try {
       await enqueueResumeRun({
         session_id: sessionId,
-        company_ids: failedCompanyIds,
-        reason: "partial_enrichment_retry",
+        company_ids: resumeCompanyIds,
+        reason: resumeReason,
         requested_by: "direct_enrichment",
         run_after_ms: 30000, // 30-second delay for transient failures
       });
@@ -1276,6 +1286,8 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         event: "partial_enrichment_retry_queued",
         session_id: sessionId,
         failed_company_ids: failedCompanyIds,
+        resume_company_ids: resumeCompanyIds,
+        reason: resumeReason,
         delay_ms: 30000,
       });
     } catch (qErr) {
