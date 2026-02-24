@@ -5444,6 +5444,23 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   `[import-start] session=${sessionId} FAST PATH 202: returning 202 Accepted, firing enrichment async for ${mandatoryCompanyIds.length} companies`
                 );
 
+                // Safety net: queue a delayed resume-worker message so enrichment recovers
+                // even if the fire-and-forget call below is killed by Azure host recycling.
+                // Delay = 3 minutes — enough for inline enrichment (150s budget) to finish.
+                // If it does finish, the resume-worker finds all fields present and exits (no-op).
+                try {
+                  await enqueueResumeRun({
+                    session_id: sessionId,
+                    company_ids: mandatoryCompanyIds,
+                    reason: "fast_path_202_safety_net",
+                    requested_by: "import_start",
+                    enqueue_at: new Date().toISOString(),
+                    cycle_count: 0,
+                    run_after_ms: 180_000, // 3 minutes
+                  }).catch(() => null);
+                  console.log(`[import-start] session=${sessionId} safety-net resume enqueued (180s delay, ${mandatoryCompanyIds.length} companies)`);
+                } catch {}
+
                 // Fire-and-forget: run enrichment asynchronously.
                 // The Azure Function runtime keeps the execution context alive after
                 // returning the HTTP response. Don't await â€” let it run in background.

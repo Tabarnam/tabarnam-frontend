@@ -1982,6 +1982,30 @@ async function resumeWorkerHandler(req, context) {
     const HANDLER_HARD_TIMEOUT_MS = 9 * 60 * 1000; // 9 minutes
     const handlerStartedAt = startedAtMs;
 
+    // Safety net: enqueue a delayed retry BEFORE the enrichment loop.
+    // If Azure kills this worker during enrichment (host recycle, OOM, etc.),
+    // this message ensures recovery. Delay = deadline budget + 60s so it fires
+    // only after the current worker should have finished. If the worker completes
+    // normally, the safety-net fires and finds all fields present (no-op).
+    if (plannedIds.length > 0 && cycleCount + 1 < MAX_RESUME_CYCLES) {
+      try {
+        const safetyNetDelayMs = Math.max(60_000, deadlineMs + 60_000);
+        await enqueueResumeRun({
+          session_id: sessionId,
+          reason: "pre_enrichment_safety_net",
+          requested_by: "resume_worker",
+          enqueue_at: nowIso(),
+          cycle_count: cycleCount + 1,
+          run_after_ms: safetyNetDelayMs,
+        }).catch(() => null);
+        console.log(`[resume-worker] pre_enrichment_safety_net enqueued`, {
+          session_id: sessionId,
+          delay_ms: safetyNetDelayMs,
+          cycle_count: cycleCount + 1,
+        });
+      } catch {}
+    }
+
     for (const entry of plannedByCompany) {
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
 

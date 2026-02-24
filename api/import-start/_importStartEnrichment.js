@@ -866,6 +866,9 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       session_id: sessionId,
       created_at: now,
       updated_at: now,
+      // Include company IDs early so the safety-net resume-worker can find them
+      // even if the host dies before the full missing_by_company write at line 920.
+      saved_company_ids: ids,
     };
     await upsertItemWithPkCandidates(earlyContainer, earlyResumeDoc).catch((err) => {
       console.warn(`[import-start] session=${sessionId} early resume lock write failed: ${err?.message || err}`);
