@@ -2007,6 +2007,8 @@ async function resumeWorkerHandler(req, context) {
       } catch {}
     }
 
+    const perDocBudgetMs = effectiveDeadlineMs; // Full budget per company — no splitting; remaining companies deferred to next invocation
+
     for (const entry of plannedByCompany) {
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
 
@@ -2047,7 +2049,6 @@ async function resumeWorkerHandler(req, context) {
       const companyName = String(doc.company_name || doc.name || "").trim();
       const normalizedDomain = String(doc.normalized_domain || "").trim();
 
-      const perDocBudgetMs = effectiveDeadlineMs; // Full budget per company — no splitting; remaining companies deferred to next invocation
       console.log(`[resume-worker] enrichment loop start: companyId=${companyId}, companyName=${companyName}, normalizedDomain=${normalizedDomain}, effectiveDeadlineMs=${effectiveDeadlineMs}, plannedIds.length=${plannedIds.length}, perDocBudgetMs=${perDocBudgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
 
       // Use shared XAI config resolution for consistent endpoint/key handling
