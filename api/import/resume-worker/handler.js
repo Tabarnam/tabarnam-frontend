@@ -106,6 +106,8 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+
 function looksLikeUuid(value) {
   const s = String(value || "").trim();
   if (!s) return false;
@@ -2015,6 +2017,7 @@ async function resumeWorkerHandler(req, context) {
     let attempted_fields;
     let last_written_fields;
     let resumeNeeded;
+    let updatedAt;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -2459,7 +2462,7 @@ async function resumeWorkerHandler(req, context) {
       }
     } catch {}
 
-    const updatedAt = nowIso();
+    updatedAt = nowIso();
 
     // Compute remaining required fields using the authoritative contract.
     nextMissingByCompany = plannedIds
