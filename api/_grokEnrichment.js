@@ -3120,7 +3120,12 @@ async function enrichCompanyFields({
   // ── Targeted refresh shortcut (≤2 specific fields) ──────────────────────
   // When only a few fields need refreshing, skip the full two-call pipeline
   // and use retryMissingStructuredFields or fetchCuratedReviews directly.
-  const skipUnified = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 && fieldsToEnrich.length <= 2;
+  // EXCEPTION: location fields (manufacturing, headquarters) require deep research
+  // with multiple web searches — they need the full pipeline's 210s primary call
+  // plus up to 2 retry rounds (150s each) to reliably return results.
+  const DEEP_RESEARCH_LONG_NAMES = ["manufacturing_locations", "headquarters_location"];
+  const hasDeepResearchField = Array.isArray(fieldsToEnrich) && fieldsToEnrich.some((f) => DEEP_RESEARCH_LONG_NAMES.includes(f));
+  const skipUnified = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 && fieldsToEnrich.length <= 2 && !hasDeepResearchField;
 
   if (skipUnified) {
     const targetShortNames = fieldsToEnrich.map((f) => LONG_TO_SHORT[f] || f).filter(Boolean);
