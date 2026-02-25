@@ -2929,20 +2929,21 @@ export default function CompanyDashboard() {
         },
         sortable: true,
         wrap: true,
+        width: "180px",
         cell: (row) => {
           const hqList = normalizeStructuredLocationList(
             row?.headquarters_locations || row?.headquarters || row?.headquarters_location
           );
           const items = hqList.map((l) => formatStructuredLocation(l)).filter(Boolean);
           if (items.length === 0) return null;
-          const visible = items.slice(0, 4);
-          const hasMore = items.length > 4;
+          const visible = items.slice(0, 2);
+          const hasMore = items.length > 2;
           return (
             <div className="py-1 text-xs">
               {visible.map((loc, i) => (
                 <div key={i}>{loc}</div>
               ))}
-              {hasMore && <div className="opacity-50">+{items.length - 4} more…</div>}
+              {hasMore && <div className="opacity-50">+{items.length - 2} more…</div>}
             </div>
           );
         },
@@ -2959,6 +2960,7 @@ export default function CompanyDashboard() {
         },
         sortable: true,
         wrap: true,
+        width: "180px",
         cell: (row) => {
           const manuBase =
             Array.isArray(row?.manufacturing_geocodes) && row.manufacturing_geocodes.length > 0
@@ -2968,24 +2970,24 @@ export default function CompanyDashboard() {
             .map((l) => formatStructuredLocation(l))
             .filter(Boolean);
           if (items.length === 0) return null;
-          const visible = items.slice(0, 4);
-          const hasMore = items.length > 4;
+          const visible = items.slice(0, 2);
+          const hasMore = items.length > 2;
           return (
             <div className="py-1 text-xs">
               {visible.map((loc, i) => (
                 <div key={i}>{loc}</div>
               ))}
-              {hasMore && <div className="opacity-50">+{items.length - 4} more…</div>}
+              {hasMore && <div className="opacity-50">+{items.length - 2} more…</div>}
             </div>
           );
         },
       },
       {
-        name: "Stars",
+        name: "★s",
         selector: (row) => getQQScore(row),
         sortable: true,
         right: true,
-        width: "80px",
+        width: "55px",
         cell: (row) => {
           const val = getQQScore(row);
           if (!val) return <span className="text-xs opacity-40">—</span>;
@@ -2997,7 +2999,7 @@ export default function CompanyDashboard() {
         selector: (row) => getComputedReviewCount(row),
         sortable: true,
         right: true,
-        width: "110px",
+        width: "70px",
       },
       {
         name: "Profile",
