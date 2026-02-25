@@ -570,13 +570,11 @@ export default function AdminImport() {
         // populate before we move on.  The resume-worker continues enriching in the
         // background after advancement.
         const resumeCycleCount = Number(body?.resume_cycle_count ?? body?.resume?.cycle_count ?? 0);
-        const isSuccessionAdvanceReady =
-          isSuccessionRunningRef.current &&
-          !isTerminalComplete &&
-          !isTerminalError &&
-          saved > 0 &&
-          shouldBackoffForResume &&
-          resumeCycleCount >= 1;
+        // Disabled: succession now waits for full enrichment (isTerminalComplete).
+        // Previously this advanced after a single resume-worker cycle (~3s), causing
+        // the next company to start before enrichment even began.  The user requires
+        // each company to be fully enriched before the next one starts.
+        const isSuccessionAdvanceReady = false;
 
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
