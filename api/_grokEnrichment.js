@@ -2396,6 +2396,7 @@ Return STRICT JSON only:
       excluded_domains: searchBuild.excluded_domains,
     },
     useTools: true,
+    enableImageUnderstanding: true,  // Grok can verify logo images found during search
   });
 
   const elapsedMs = Date.now() - started;
@@ -2656,6 +2657,8 @@ Return STRICT JSON only with the requested fields:
 
   const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
 
+  const needsImageUnderstanding = missingFields.includes("logo_url");
+
   const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
@@ -2674,6 +2677,7 @@ Return STRICT JSON only with the requested fields:
       excluded_domains: searchBuild.excluded_domains,
     },
     useTools: true,
+    enableImageUnderstanding: needsImageUnderstanding,
   });
 
   const elapsedMs = Date.now() - started;

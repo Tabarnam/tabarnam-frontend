@@ -302,6 +302,7 @@ STEP 4 — SOCIAL MEDIA PROFILE IMAGES (last resort).
 
 STEP 5 — VERIFY THE URL BEFORE RETURNING (critical).
 - Use browse_page on the candidate logo URL to confirm it loads (is not a 404 or error page).
+- If view_image is available, use it to confirm the image is an actual company logo (matches brand name/colors, not a hero banner or product image).
 - If the URL returns an error, go back to Step 1-4 and try a different candidate.
 - Do NOT return a URL you have not verified. Dead URLs waste processing time.
 

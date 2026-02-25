@@ -33,7 +33,7 @@ function isResponsesEndpoint(rawUrl) {
  * Uses xAI's agentic web_search tool instead of deprecated search parameter.
  * See: https://docs.x.ai/docs/guides/tools/search-tools
  */
-function buildToolsArray(search_parameters) {
+function buildToolsArray(search_parameters, { enableImageUnderstanding = false } = {}) {
   const tool = { type: "web_search" };
 
   if (search_parameters && typeof search_parameters === "object") {
@@ -46,6 +46,14 @@ function buildToolsArray(search_parameters) {
     if (excluded.length > 0) {
       tool.filters = { excluded_domains: excluded };
     }
+  }
+
+  // Enable Grok's image understanding for logo/image verification.
+  // When active, Grok can use view_image on images found during web search
+  // to confirm they are actual logos (not hero banners, product images, etc.).
+  // See: https://docs.x.ai/docs/guides/tools/search-tools
+  if (enableImageUnderstanding) {
+    tool.enable_image_understanding = true;
   }
 
   return [tool];
@@ -199,6 +207,7 @@ async function xaiLiveSearch({
   xaiKey,
   search_parameters,
   useTools = false,
+  enableImageUnderstanding = false,
 } = {}) {
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
@@ -302,7 +311,7 @@ async function xaiLiveSearch({
       ? {
           model: resolvedModel,
           input: [{ role: "user", content: asString(prompt) }],
-          ...(shouldEnableTools ? { tools: buildToolsArray(search_parameters) } : {}),
+          ...(shouldEnableTools ? { tools: buildToolsArray(search_parameters, { enableImageUnderstanding }) } : {}),
         }
       : {
           // /v1/chat/completions format
