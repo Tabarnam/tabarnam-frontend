@@ -3127,10 +3127,24 @@ async function enrichCompanyFields({
 
   console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantReviews=${wantReviews}, run=${runId}`);
 
+  // Each promise saves its results to Cosmos immediately via onIntermediateSave,
+  // so that if Azure DrainMode kills the process between Call 1 and Call 2, the
+  // data from whichever call already completed is preserved.  The post-merge save
+  // at the bottom still runs (idempotent upsert via Object.assign).
   const structuredPromise = fetchStructuredFields({
     companyName, websiteUrl, normalizedDomain: domain,
     budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.structured.max, getRemainingMs() - 30_000),
     xaiUrl, xaiKey,
+  }).then(async (result) => {
+    if (result?.ok && result.parsed_fields && typeof onIntermediateSave === "function") {
+      try {
+        await onIntermediateSave(result.parsed_fields);
+        console.log(`[enrichCompanyFields] Early structured save OK, run=${runId}`);
+      } catch (e) {
+        console.warn(`[enrichCompanyFields] Early structured save failed: ${e?.message}, run=${runId}`);
+      }
+    }
+    return result;
   });
 
   const reviewsPromise = wantReviews
@@ -3138,6 +3152,16 @@ async function enrichCompanyFields({
         companyName, normalizedDomain: domain,
         budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey,
+      }).then(async (result) => {
+        if (result?.curated_reviews?.length > 0 && typeof onIntermediateSave === "function") {
+          try {
+            await onIntermediateSave({ reviews: result.curated_reviews });
+            console.log(`[enrichCompanyFields] Early reviews save OK (${result.curated_reviews.length} reviews), run=${runId}`);
+          } catch (e) {
+            console.warn(`[enrichCompanyFields] Early reviews save failed: ${e?.message}, run=${runId}`);
+          }
+        }
+        return result;
       })
     : Promise.resolve(null);
 
