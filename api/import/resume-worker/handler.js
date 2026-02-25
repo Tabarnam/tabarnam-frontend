@@ -197,7 +197,7 @@ const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 1, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
-const MAX_RESUME_CYCLES = envInt("MAX_RESUME_CYCLES", 10, { min: 1, max: 50 });
+const MAX_RESUME_CYCLES = envInt("MAX_RESUME_CYCLES", 3, { min: 1, max: 50 });
 
 function classifyLocationSource({ source_url, normalized_domain }) {
   const urlRaw = String(source_url || "").trim();
@@ -2538,6 +2538,21 @@ async function resumeWorkerHandler(req, context) {
 
     const nextCycleCount = cycleCount + 1;
 
+    // ── Convergence detection ──
+    // If the same fields are missing for 2 consecutive cycles (no improvement),
+    // treat as cap-reached so the session closes instead of looping forever.
+    const serializeMissing = (arr) =>
+      (Array.isArray(arr) ? arr : [])
+        .filter((e) => Array.isArray(e?.missing_fields) && e.missing_fields.length > 0)
+        .map((e) => `${e?.company_id}:${e.missing_fields.slice().sort().join(",")}`)
+        .sort()
+        .join("|");
+
+    const prevMissingKey = serializeMissing(resumeDoc?.missing_by_company);
+    const nextMissingKey = serializeMissing(nextMissingByCompany);
+    const noImprovement = resumeNeeded && prevMissingKey === nextMissingKey && prevMissingKey !== "";
+    const noImprovementStreak = noImprovement ? (Number(resumeDoc?.no_improvement_streak || 0) + 1) : 0;
+
     const deriveBackoff = () => {
       const attemptedProgress = [];
       try {
@@ -2598,7 +2613,14 @@ async function resumeWorkerHandler(req, context) {
     let enqueueRes = null;
     let resume_error = null;
 
-    const capReached = resumeNeeded && nextCycleCount >= MAX_RESUME_CYCLES;
+    const convergenceCap = noImprovementStreak >= 2;
+    const capReached = resumeNeeded && (nextCycleCount >= MAX_RESUME_CYCLES || convergenceCap);
+
+    if (convergenceCap) {
+      console.log(`[resume-worker] convergence_cap: no improvement for ${noImprovementStreak} consecutive cycles`, {
+        session_id: sessionId, cycle_count: cycleCount, missing: nextMissingKey,
+      });
+    }
 
     if (!resumeNeeded) {
       finalStatus = "complete";
@@ -2687,6 +2709,7 @@ async function resumeWorkerHandler(req, context) {
       type: "import_control",
       status: finalStatus,
       cycle_count: nextCycleCount,
+      no_improvement_streak: noImprovementStreak,
       missing_by_company: nextMissingByCompany,
       enrichment_progress: progressRoot.enrichment_progress,
       attempted_fields,
@@ -2908,19 +2931,17 @@ async function resumeWorkerHandler(req, context) {
 
     const remainingRunMs = () => Math.max(0, deadlineMs - (Date.now() - startedEnrichmentAt));
 
-    // Field-level planning:
-    // Minimum time budgets per field - reduced to allow enrichment to proceed.
-    // xAI API calls typically complete within 10-30 seconds.
-    // Minimum required budget per field - set high enough to allow xAI web searches to complete.
-    // xAI searches can take 1-3 minutes, so we need generous minimums.
+    // Field-level planning: minimum budget gates for the priority-loop planner.
+    // These are NOT timeouts — actual xAI call timeouts live in XAI_STAGE_TIMEOUTS_MS.
+    // Gates should be ≤ the actual timeout so fields aren't needlessly deferred.
     const MIN_REQUIRED_MS_BY_FIELD = {
-      reviews: 480_000,          // 8 minutes min (4x - complex web search with URL verification)
-      headquarters_location: 90_000,    // 1.5 minutes min
-      manufacturing_locations: 90_000,  // 1.5 minutes min
-      tagline: 60_000,           // 1 minute min
-      industries: 60_000,        // 1 minute min
-      product_keywords: 180_000, // 3 minutes min (2x - must accumulate all products)
-      logo: 25_000,              // 25 seconds min (logo discovery + download)
+      reviews: 120_000,          // 2 min (xAI reviews timeout: 150-240s)
+      headquarters_location: 45_000,    // 45s (xAI location timeout: 90-150s)
+      manufacturing_locations: 45_000,  // 45s
+      tagline: 25_000,           // 25s (xAI light timeout: 30-60s)
+      industries: 25_000,        // 25s
+      product_keywords: 60_000,  // 1 min (xAI keywords timeout: 90-150s)
+      logo: 20_000,              // 20s (logo discovery + download)
     };
 
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");

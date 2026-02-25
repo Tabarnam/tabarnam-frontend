@@ -17,7 +17,7 @@ const RESUME_WATCHDOG_STALE_MS = Number.isFinite(Number(process.env.RESUME_WATCH
 
 const MAX_RESUME_CYCLES_SINGLE = Number.isFinite(Number(process.env.MAX_RESUME_CYCLES_SINGLE))
   ? Math.max(1, Math.trunc(Number(process.env.MAX_RESUME_CYCLES_SINGLE)))
-  : 10;
+  : 3;
 
 const MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY = 15;
 
