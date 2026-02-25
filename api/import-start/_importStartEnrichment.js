@@ -920,11 +920,15 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     missing_fields: [...MANDATORY_ENRICH_FIELDS],
   }));
 
-  // Update resume doc with full enrichment metadata (enriches the early lock doc)
+  // Update resume doc with full enrichment metadata (enriches the early lock doc).
+  // cycle_count intentionally omitted — upsertResumeDoc preserves the existing
+  // value (defaults to 0 when no doc exists). Resetting to 0 here caused a race
+  // condition where the resume worker's incremented counter was overwritten,
+  // preventing MAX_RESUME_CYCLES from ever triggering.
+  console.log(`[import-start] upsertResumeDoc for session=${sessionId}: cycle_count preserved (not reset to 0)`);
   await upsertResumeDoc({
     session_id: sessionId,
     status: "in_progress",
-    cycle_count: 0,
     missing_by_company,
     created_at: now,
     updated_at: now,
