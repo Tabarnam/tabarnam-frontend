@@ -2929,6 +2929,23 @@ export default function CompanyDashboard() {
         },
         sortable: true,
         wrap: true,
+        cell: (row) => {
+          const hqList = normalizeStructuredLocationList(
+            row?.headquarters_locations || row?.headquarters || row?.headquarters_location
+          );
+          const items = hqList.map((l) => formatStructuredLocation(l)).filter(Boolean);
+          if (items.length === 0) return null;
+          const visible = items.slice(0, 4);
+          const hasMore = items.length > 4;
+          return (
+            <div className="py-1 text-xs">
+              {visible.map((loc, i) => (
+                <div key={i}>{loc}</div>
+              ))}
+              {hasMore && <div className="opacity-50">+{items.length - 4} more…</div>}
+            </div>
+          );
+        },
       },
       {
         name: "MFG",
@@ -2942,6 +2959,26 @@ export default function CompanyDashboard() {
         },
         sortable: true,
         wrap: true,
+        cell: (row) => {
+          const manuBase =
+            Array.isArray(row?.manufacturing_geocodes) && row.manufacturing_geocodes.length > 0
+              ? row.manufacturing_geocodes
+              : row?.manufacturing_locations;
+          const items = normalizeStructuredLocationList(manuBase)
+            .map((l) => formatStructuredLocation(l))
+            .filter(Boolean);
+          if (items.length === 0) return null;
+          const visible = items.slice(0, 4);
+          const hasMore = items.length > 4;
+          return (
+            <div className="py-1 text-xs">
+              {visible.map((loc, i) => (
+                <div key={i}>{loc}</div>
+              ))}
+              {hasMore && <div className="opacity-50">+{items.length - 4} more…</div>}
+            </div>
+          );
+        },
       },
       {
         name: "Stars",
