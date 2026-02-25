@@ -13,6 +13,62 @@ function safeJsonParse(text) {
   }
 }
 
+/**
+ * Repair malformed JSON where Grok wraps fields in orphan { } objects without keys.
+ * Example malformation:
+ *   { "tagline": "...", { "hq": "NYC" }, { "mfg": ["LA"] }, "industries": [...] }
+ * Repaired:
+ *   { "tagline": "...", "hq": "NYC", "mfg": ["LA"], "industries": [...] }
+ *
+ * Walks the string tracking brace depth and string state. Any { at depth >= 1
+ * that is NOT preceded by : is an orphan — remove its { and matching }.
+ */
+function repairOrphanObjects(text) {
+  const raw = typeof text === "string" ? text.trim() : "";
+  if (!raw || raw[0] !== "{") return null;
+
+  const remove = new Set();
+  // Stack tracks each { we encounter: { isOrphan: bool }
+  const braceStack = [];
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (esc) { esc = false; continue; }
+    if (ch === "\\" && inStr) { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+
+    if (ch === "{") {
+      let isOrphan = false;
+      if (depth >= 1) {
+        // Check if preceded by : (skip whitespace) — normal key:value pattern
+        let j = i - 1;
+        while (j >= 0 && /\s/.test(raw[j])) j--;
+        if (j < 0 || raw[j] !== ":") {
+          isOrphan = true;
+          remove.add(i);
+        }
+      }
+      braceStack.push({ isOrphan });
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      const entry = braceStack.pop();
+      if (entry && entry.isOrphan) {
+        remove.add(i);
+      }
+    }
+  }
+
+  if (remove.size === 0) return null;
+
+  const repaired = [...raw].filter((_, idx) => !remove.has(idx)).join("");
+  return safeJsonParse(repaired);
+}
+
 function extractJsonFromText(text) {
   const raw = asString(text).trim();
   if (!raw) return null;
@@ -27,6 +83,14 @@ function extractJsonFromText(text) {
     const slice = raw.slice(objStart, objEnd + 1);
     const parsed = safeJsonParse(slice);
     if (parsed != null) return parsed;
+
+    // Repair: Grok sometimes wraps fields in orphan { } objects without keys.
+    // This is invalid JSON but the data inside is valid — unwrap and retry.
+    const repaired = repairOrphanObjects(slice);
+    if (repaired != null) {
+      console.log(`[extractJsonFromText] Repaired orphan objects in malformed JSON`);
+      return repaired;
+    }
   }
 
   // Fallback: try extracting an array.
