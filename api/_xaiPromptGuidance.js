@@ -280,14 +280,17 @@ Text: [1-3 sentence excerpt or summary of the review]`,
   logo: {
     rules: `STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory first step).
 - Use browse_page on the company URL. Inspect the page source for logo images:
+  - Look for <img> tags with alt text containing "logo" or class/id like "logo", "header-logo", "brand-logo", "site-logo", or "wordmark".
   - Look for <img> tags inside <header>, <nav>, or the first <a> element that links to "/" or the homepage.
   - Check <link rel="icon" type="image/png"> or <link rel="apple-touch-icon"> for high-res icon URLs (NOT favicon.ico — only 180x180+ icons).
   - Check <meta property="og:image"> for a social sharing image that may be the logo.
+  - If the logo appears to be lazy-loaded (data-src, data-lazy, loading="lazy"), extract the data-src or original source URL.
 - If you find an image URL in the header area, that is the PRIMARY logo source.
 
 STEP 2 — CHECK ADDITIONAL PAGES.
 - Browse /about, /about-us, /press, /press-kit, /brand, /media for press kit or brand asset downloads.
 - Some companies provide high-resolution logo files on their press/media pages — prefer these when available.
+- Try web_search: "[Company Name] logo download" or "[Company Name] press kit" for official brand asset pages.
 
 STEP 3 — WEB SEARCH AS FALLBACK.
 - Run web_search: "[Company Name] logo PNG" or "[Company Name] logo SVG".
@@ -296,6 +299,11 @@ STEP 3 — WEB SEARCH AS FALLBACK.
 
 STEP 4 — SOCIAL MEDIA PROFILE IMAGES (last resort).
 - If nothing above works, try the company's Twitter/X profile or Facebook page for profile images.
+
+STEP 5 — VERIFY THE URL BEFORE RETURNING (critical).
+- Use browse_page on the candidate logo URL to confirm it loads (is not a 404 or error page).
+- If the URL returns an error, go back to Step 1-4 and try a different candidate.
+- Do NOT return a URL you have not verified. Dead URLs waste processing time.
 
 FORMAT RULES:
 - Return the direct URL to the logo image file (PNG, SVG, JPG, WebP).

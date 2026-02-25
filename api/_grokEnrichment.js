@@ -6,6 +6,7 @@ const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE } = require("./_xaiPromptGuidance");
 const { SENTINEL_STRINGS, PLACEHOLDER_STRINGS } = require("./_requiredFields");
+const { discoverLogoSourceUrl } = require("./_logoImport");
 
 // ============================================================================
 // Module-level bypass flag for admin refresh
@@ -3279,6 +3280,38 @@ async function enrichCompanyFields({
       console.log(`[enrichCompanyFields] Logo URL verification failed: ${logoCheck.reason} — clearing`);
       proposed.logo_url = null;
       field_statuses.logo_url = `url_dead_${logoCheck.reason}`;
+    }
+  }
+
+  // ── Homepage scraper fallback for logo ──
+  // If Grok returned no logo or a dead URL, try the homepage scraper which
+  // parses live HTML for <img> tags in header/nav, schema.org, og:image, etc.
+  // This is far more reliable than Grok's URL guessing (3/3 logos found by
+  // scraper vs 0/3 from Grok in session 19b3e08f).
+  if (!proposed.logo_url && getRemainingMs() > 15_000) {
+    try {
+      console.log(`[enrichCompanyFields] Logo fallback: trying homepage scraper for "${companyName}", remaining=${getRemainingMs()}ms, run=${runId}`);
+      const scraperResult = await discoverLogoSourceUrl(
+        { domain, websiteUrl, companyName },
+        console,
+        { budgetMs: Math.min(12_000, getRemainingMs() - 5_000) },
+      );
+      if (scraperResult?.ok && scraperResult.logo_source_url) {
+        // Verify the scraped URL before accepting
+        const scraperCheck = await verifyLogoUrl(scraperResult.logo_source_url);
+        if (scraperCheck.ok) {
+          proposed.logo_url = scraperResult.logo_source_url;
+          proposed.logo_source = scraperResult.strategy || "homepage_scraper";
+          field_statuses.logo_url = "ok";
+          console.log(`[enrichCompanyFields] Logo fallback SUCCESS: url=${scraperResult.logo_source_url}, strategy=${scraperResult.strategy}, run=${runId}`);
+        } else {
+          console.log(`[enrichCompanyFields] Logo fallback: scraped URL also dead (${scraperCheck.reason}), run=${runId}`);
+        }
+      } else {
+        console.log(`[enrichCompanyFields] Logo fallback: homepage scraper found nothing, run=${runId}`);
+      }
+    } catch (e) {
+      console.warn(`[enrichCompanyFields] Logo fallback error: ${e?.message || e}, run=${runId}`);
     }
   }
 
