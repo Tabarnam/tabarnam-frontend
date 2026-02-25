@@ -2213,11 +2213,21 @@ Return STRICT JSON only:
   const tagline = asString(parsed.tagline || parsed.slogan || "").trim();
   field_statuses.tagline = tagline ? "ok" : "empty";
 
-  const hq_raw = asString(parsed.headquarters_location || parsed.hq || "").trim();
+  // Unwrap nested object — XAI sometimes returns { headquarters_location: { headquarters_location: "..." } }
+  let hq_val_r = parsed.headquarters_location || parsed.hq || "";
+  if (hq_val_r && typeof hq_val_r === "object" && !Array.isArray(hq_val_r)) {
+    hq_val_r = hq_val_r.headquarters_location || hq_val_r.hq || hq_val_r.location || "";
+  }
+  const hq_raw = asString(hq_val_r).trim();
   const hq_normalized = hq_raw ? normalizeCountryInLocation(normalizeLocationWithStateAbbrev(hq_raw)) : "";
   field_statuses.headquarters = hq_normalized ? "ok" : "empty";
 
-  const mfg_raw = Array.isArray(parsed.manufacturing_locations) ? parsed.manufacturing_locations : [];
+  // Unwrap nested object — XAI sometimes returns { manufacturing_locations: { manufacturing_locations: [...] } }
+  let mfg_val_r = parsed.manufacturing_locations;
+  if (mfg_val_r && typeof mfg_val_r === "object" && !Array.isArray(mfg_val_r) && Array.isArray(mfg_val_r.manufacturing_locations)) {
+    mfg_val_r = mfg_val_r.manufacturing_locations;
+  }
+  const mfg_raw = Array.isArray(mfg_val_r) ? mfg_val_r : [];
   const mfg_cleaned = mfg_raw
     .map((x) => asString(x).trim())
     .filter(Boolean)
@@ -2225,15 +2235,21 @@ Return STRICT JSON only:
     .map(normalizeCountryInLocation);
   field_statuses.manufacturing = mfg_cleaned.length > 0 ? "ok" : "empty";
 
-  const industries_raw = Array.isArray(parsed.industries) ? parsed.industries : [];
+  // Unwrap nested object — XAI sometimes returns { industries: { industries: [...] } }
+  let industries_val_r = parsed.industries;
+  if (industries_val_r && typeof industries_val_r === "object" && !Array.isArray(industries_val_r) && Array.isArray(industries_val_r.industries)) {
+    industries_val_r = industries_val_r.industries;
+  }
+  const industries_raw = Array.isArray(industries_val_r) ? industries_val_r : [];
   const industries_cleaned = industries_raw.map((x) => asString(x).trim()).filter(Boolean).slice(0, 3);
   field_statuses.industries = industries_cleaned.length > 0 ? "ok" : "empty";
 
-  const kw_raw = Array.isArray(parsed.product_keywords)
-    ? parsed.product_keywords
-    : Array.isArray(parsed.keywords)
-      ? parsed.keywords
-      : [];
+  // Unwrap nested object — XAI sometimes returns { product_keywords: { product_keywords: [...] } }
+  let kw_val_r = parsed.product_keywords || parsed.keywords;
+  if (kw_val_r && typeof kw_val_r === "object" && !Array.isArray(kw_val_r)) {
+    kw_val_r = kw_val_r.product_keywords || kw_val_r.keywords || kw_val_r;
+  }
+  const kw_raw = Array.isArray(kw_val_r) ? kw_val_r : [];
   const kw_cleaned = Array.from(new Set(kw_raw.map((x) => asString(x).trim()).filter(Boolean)));
   field_statuses.keywords = kw_cleaned.length > 0 ? "ok" : "empty";
 
@@ -2460,12 +2476,22 @@ function parseStructuredResponse(parsed) {
   const tagline = isSentinelOrPlaceholder(tagline_raw) ? "" : tagline_raw;
   field_statuses.tagline = tagline ? "ok" : "empty";
 
-  const hq_raw = asString(parsed.headquarters_location || parsed.hq || "").trim();
+  // Unwrap nested object — XAI sometimes returns { headquarters_location: { headquarters_location: "..." } }
+  let hq_val = parsed.headquarters_location || parsed.hq || "";
+  if (hq_val && typeof hq_val === "object" && !Array.isArray(hq_val)) {
+    hq_val = hq_val.headquarters_location || hq_val.hq || hq_val.location || "";
+  }
+  const hq_raw = asString(hq_val).trim();
   let hq_normalized = hq_raw ? normalizeCountryInLocation(normalizeLocationWithStateAbbrev(hq_raw)) : "";
   if (isSentinelOrPlaceholder(hq_normalized)) hq_normalized = "";
   field_statuses.headquarters = hq_normalized ? "ok" : "empty";
 
-  const mfg_raw = Array.isArray(parsed.manufacturing_locations) ? parsed.manufacturing_locations : [];
+  // Unwrap nested object — XAI sometimes returns { manufacturing_locations: { manufacturing_locations: [...] } }
+  let mfg_val = parsed.manufacturing_locations;
+  if (mfg_val && typeof mfg_val === "object" && !Array.isArray(mfg_val) && Array.isArray(mfg_val.manufacturing_locations)) {
+    mfg_val = mfg_val.manufacturing_locations;
+  }
+  const mfg_raw = Array.isArray(mfg_val) ? mfg_val : [];
   const mfg_all = mfg_raw
     .map((x) => asString(x).trim())
     .filter(Boolean)
@@ -2477,7 +2503,12 @@ function parseStructuredResponse(parsed) {
     ? "ok"
     : mfg_had_sentinel ? "not_disclosed" : "empty";
 
-  const industries_raw = Array.isArray(parsed.industries) ? parsed.industries : [];
+  // Unwrap nested object — XAI sometimes returns { industries: { industries: [...] } }
+  let industries_val = parsed.industries;
+  if (industries_val && typeof industries_val === "object" && !Array.isArray(industries_val) && Array.isArray(industries_val.industries)) {
+    industries_val = industries_val.industries;
+  }
+  const industries_raw = Array.isArray(industries_val) ? industries_val : [];
   const industries_cleaned = industries_raw
     .map((x) => asString(x).trim())
     .filter(Boolean)
@@ -2485,11 +2516,12 @@ function parseStructuredResponse(parsed) {
     .slice(0, 3);
   field_statuses.industries = industries_cleaned.length > 0 ? "ok" : "empty";
 
-  const kw_raw = Array.isArray(parsed.product_keywords)
-    ? parsed.product_keywords
-    : Array.isArray(parsed.keywords)
-      ? parsed.keywords
-      : [];
+  // Unwrap nested object — XAI sometimes returns { product_keywords: { product_keywords: [...] } }
+  let kw_val = parsed.product_keywords || parsed.keywords;
+  if (kw_val && typeof kw_val === "object" && !Array.isArray(kw_val)) {
+    kw_val = kw_val.product_keywords || kw_val.keywords || kw_val;
+  }
+  const kw_raw = Array.isArray(kw_val) ? kw_val : [];
   const kw_cleaned = Array.from(new Set(
     kw_raw.map((x) => asString(x).trim()).filter(Boolean).filter((x) => !isSentinelOrPlaceholder(x))
   ));

@@ -3213,7 +3213,8 @@ export default function AdminImport() {
 
       const sessionId = body.session_id || uiSessionId;
 
-      if (body.completed) {
+      if (body.completed && !body.resume_needed) {
+        // Fully complete — no enrichment pending
         const isDuplicate = body.save_outcome === "duplicate_detected" ||
           body.stage_beacon === "duplicate_detected" ||
           body.last_error?.code === "DUPLICATE_DETECTED";
@@ -3281,7 +3282,19 @@ export default function AdminImport() {
           setActiveStatus("done");
         }
       } else {
-        // Import still running, start polling
+        // Import still running or enrichment pending — start polling
+        const savedCompanies = Array.isArray(body.saved_companies) ? body.saved_companies : [];
+        const savedVerifiedIds = Array.isArray(body.saved_company_ids_verified) ? body.saved_company_ids_verified : [];
+        const savedUnverifiedIds = Array.isArray(body.saved_company_ids_unverified) ? body.saved_company_ids_unverified : [];
+        const savedIdsTotal = new Set([...savedVerifiedIds, ...savedUnverifiedIds]).size;
+        const computedSaved = Math.max(
+          Number(body.saved_count) || 0,
+          Number(body.saved) || 0,
+          Number(body.saved_verified_count) || 0,
+          savedCompanies.length,
+          savedIdsTotal,
+        );
+
         setRuns((prev) =>
           prev.map((r) =>
             r.session_id === uiSessionId
@@ -3289,12 +3302,25 @@ export default function AdminImport() {
                   ...r,
                   session_id: sessionId,
                   session_id_confirmed: true,
+                  saved: computedSaved,
+                  saved_verified_count: computedSaved,
+                  saved_company_ids_verified: savedVerifiedIds.length > 0 ? savedVerifiedIds : r.saved_company_ids_verified,
+                  saved_companies: savedCompanies.length > 0 ? savedCompanies : r.saved_companies,
+                  resume_needed: Boolean(body.resume_needed),
+                  progress_notice: body.resume_needed
+                    ? `Saved (${computedSaved}). Enrichment in progress\u2026`
+                    : null,
                   updatedAt: new Date().toISOString(),
                 }
               : r
           )
         );
-        toast.info("Import started, polling for completion...");
+
+        if (body.resume_needed && computedSaved > 0) {
+          toast.success(`Saved (${computedSaved}). Enrichment in progress\u2026`);
+        } else {
+          toast.info("Import started, polling for completion...");
+        }
         resetPollAttempts(sessionId);
         schedulePoll({ session_id: sessionId });
       }
