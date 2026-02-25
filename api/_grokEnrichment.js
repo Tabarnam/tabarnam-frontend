@@ -887,10 +887,22 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
   if (!rawCandidates) {
     // Distinguish "xAI searched but found nothing" from "response was unparseable garbage"
+    // or from "all-search-no-answer" (Grok did web searches but never produced a text message)
     const noResultsPattern = /no\s+(verified|third[- ]party)?\s*reviews?\s+(were\s+)?found|could\s+not\s+find|unable\s+to\s+find|no\s+results/i;
     const isEmptySearch = rawText && rawText.length > 10 && noResultsPattern.test(rawText);
-    const status = isEmptySearch ? "empty" : "invalid_response";
-    const reason = isEmptySearch ? "xai_found_no_reviews" : "no_parseable_reviews";
+    const outputTypes = Array.isArray(_respInner.output)
+      ? _respInner.output.map(i => i?.type || "?")
+      : [];
+    const hasSearchCalls = outputTypes.some(t => t === "web_search_call");
+    const hasMessage = outputTypes.some(t => t === "message");
+    const isAllSearchNoAnswer = hasSearchCalls && !hasMessage && (!rawText || rawText.length < 10);
+    const status = isEmptySearch ? "empty" : isAllSearchNoAnswer ? "no_synthesis" : "invalid_response";
+    const reason = isEmptySearch ? "xai_found_no_reviews"
+      : isAllSearchNoAnswer ? `grok_searched_${outputTypes.filter(t => t === "web_search_call").length}_times_but_no_text`
+      : "no_parseable_reviews";
+    if (isAllSearchNoAnswer) {
+      console.warn(`[fetchCuratedReviews] Grok all-search-no-answer: ${outputTypes.length} output items (${outputTypes.filter(t => t === "web_search_call").length} searches), no text message produced`);
+    }
     logResult(status, reason);
     return {
       curated_reviews: [],
@@ -1052,8 +1064,8 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   const xCount = curated_reviews.filter((r) => isXUrl(r?.source_url)).length;
   const blogCount = curated_reviews.length - youtubeCount - xCount;
 
-  // Tiered: love 5, like 3, must have 1. Status = ok when >= 1 review found.
-  const ok = curated_reviews.length >= 1;
+  // Target 3 reviews. 1-2 = incomplete (triggers retry), 3+ = ok (done).
+  const ok = curated_reviews.length >= 3;
 
   if (!ok) {
     const reasonParts = [];
@@ -2424,7 +2436,7 @@ Return STRICT JSON only:
   const parsed = parseJsonFromXaiResponse(r.resp);
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    console.log(`[fetchStructuredFields] Failed to parse JSON from response`);
+    console.log(`[fetchStructuredFields] Failed to parse JSON from response for "${name}"`);
     return {
       ok: false,
       method: "structured",
@@ -2684,7 +2696,7 @@ Return STRICT JSON only with the requested fields:
 
   if (!r.ok) {
     const failure = classifyXaiFailure(r);
-    console.log(`[retryMissingStructuredFields] Failed: ${failure}, fields=[${missingFields.join(", ")}], elapsed=${elapsedMs}ms`);
+    console.log(`[retryMissingStructuredFields] Failed for "${name}": ${failure}, fields=[${missingFields.join(", ")}], elapsed=${elapsedMs}ms`);
     return {
       ok: false,
       parsed_fields: {},
@@ -2697,7 +2709,7 @@ Return STRICT JSON only with the requested fields:
 
   const parsed = parseJsonFromXaiResponse(r.resp);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    console.log(`[retryMissingStructuredFields] Failed to parse JSON, fields=[${missingFields.join(", ")}]`);
+    console.log(`[retryMissingStructuredFields] Failed to parse JSON for "${name}", fields=[${missingFields.join(", ")}]`);
     return {
       ok: false,
       parsed_fields: {},
@@ -2718,7 +2730,7 @@ Return STRICT JSON only with the requested fields:
     result.parsed_fields.logo_source = logo_source;
   }
 
-  console.log(`[retryMissingStructuredFields] Success: fields=[${missingFields.join(", ")}], statuses=${JSON.stringify(result.field_statuses)}, elapsed=${elapsedMs}ms`);
+  console.log(`[retryMissingStructuredFields] Success for "${name}": fields=[${missingFields.join(", ")}], statuses=${JSON.stringify(result.field_statuses)}, elapsed=${elapsedMs}ms`);
 
   return {
     ok: true,
@@ -3183,7 +3195,7 @@ async function enrichCompanyFields({
       try { await onIntermediateSave(filled); } catch { /* best effort */ }
     }
 
-    console.log(`[enrichCompanyFields] Targeted refresh done: filled=[${Object.keys(filled).join(", ")}], statuses=${JSON.stringify(field_statuses)}, elapsed=${Date.now() - started}ms`);
+    console.log(`[enrichCompanyFields] Targeted refresh done for "${companyName}": filled=[${Object.keys(filled).join(", ")}], statuses=${JSON.stringify(field_statuses)}, elapsed=${Date.now() - started}ms`);
     return {
       ok: true,
       method: "targeted_direct",
@@ -3265,6 +3277,8 @@ async function enrichCompanyFields({
   } else if (wantReviews) {
     proposed.reviews = [];
     field_statuses.reviews = reviews?.reviews_stage_status || "empty";
+    const reviewReason = reviews?.diagnostics?.reason || reviews?.reviews_stage_status || "unknown";
+    console.log(`[enrichCompanyFields] Reviews empty for "${companyName}": status=${field_statuses.reviews}, reason=${reviewReason}, run=${runId}`);
   }
 
   // ── Intermediate save ──
@@ -3278,10 +3292,13 @@ async function enrichCompanyFields({
   }
 
   // ── Verify logo URL from Call 1 ──
+  if (!proposed.logo_url) {
+    console.log(`[enrichCompanyFields] Logo extraction: Grok returned no logo URL for "${companyName}", will try homepage scraper, run=${runId}`);
+  }
   if (proposed.logo_url) {
     const logoCheck = await verifyLogoUrl(proposed.logo_url);
     if (!logoCheck.ok) {
-      console.log(`[enrichCompanyFields] Logo URL verification failed: ${logoCheck.reason} — clearing`);
+      console.log(`[enrichCompanyFields] Logo URL verification failed for "${companyName}": ${logoCheck.reason} — clearing, run=${runId}`);
       proposed.logo_url = null;
       field_statuses.logo_url = `url_dead_${logoCheck.reason}`;
     }
@@ -3367,7 +3384,8 @@ async function enrichCompanyFields({
   }
 
   const totalElapsed = Date.now() - started;
-  console.log(`[enrichCompanyFields] Done (two_call_split). field_statuses=${JSON.stringify(field_statuses)}, reviews_in_proposed=${Array.isArray(proposed.reviews) ? proposed.reviews.length : 0}, elapsed=${totalElapsed}ms, run=${runId}`);
+  const missingAtEnd = Object.entries(field_statuses).filter(([, v]) => v !== "ok").map(([k, v]) => `${k}=${v}`);
+  console.log(`[enrichCompanyFields] Done for "${companyName}" (${domain}). reviews=${Array.isArray(proposed.reviews) ? proposed.reviews.length : 0}, logo=${field_statuses.logo_url || "n/a"}, missing=[${missingAtEnd.join(", ")}], elapsed=${totalElapsed}ms, run=${runId}`);
 
   return {
     ok: true,

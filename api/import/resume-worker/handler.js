@@ -2457,7 +2457,7 @@ async function resumeWorkerHandler(req, context) {
           requested_by: "resume_worker",
           enqueue_at: nowIso(),
           cycle_count: cycleCount + 1,
-          run_after_ms: 15_000,
+          run_after_ms: 20_000,
         }).catch(() => null);
       }
     } catch {}
@@ -2472,10 +2472,10 @@ async function resumeWorkerHandler(req, context) {
 
         const missing = ENRICH_FIELDS.filter((f) => {
           if (f === "reviews") {
-            // Reviews need at least REVIEWS_MIN_VIABLE verified entries to be
-            // considered "present enough" to stop retrying.  A single review
-            // with status=incomplete should keep retrying.
-            const REVIEWS_MIN_VIABLE_NEXT = 2;
+            // Reviews need at least 3 verified entries to be considered "done".
+            // 1-2 reviews triggers retry; convergence detection (no_improvement_streak)
+            // stops retrying if subsequent cycles can't find more.
+            const REVIEWS_MIN_VIABLE_NEXT = 3;
             const curatedCount = Array.isArray(d.curated_reviews)
               ? d.curated_reviews.filter(r => r && typeof r === "object").length : 0;
             const stageStatus = d.reviews_stage_status || d.review_cursor?.reviews_stage_status;
@@ -2580,14 +2580,14 @@ async function resumeWorkerHandler(req, context) {
 
       const hasTimeout = attemptedProgress.some((p) => String(p?.last_error || "") === "upstream_timeout");
       if (hasTimeout) {
-        const schedule = [15_000, 30_000, 60_000];
+        const schedule = [20_000, 40_000, 60_000];
         const idx = Math.min(schedule.length - 1, Math.max(0, nextCycleCount - 1));
         return { reason: "timeout", backoff_ms: schedule[idx] };
       }
 
       const hasNetwork = attemptedProgress.some((p) => String(p?.last_error || "") === "upstream_unreachable");
       if (hasNetwork) {
-        const schedule = [15_000, 30_000, 60_000];
+        const schedule = [20_000, 40_000, 60_000];
         const idx = Math.min(schedule.length - 1, Math.max(0, nextCycleCount - 1));
         return { reason: "network", backoff_ms: schedule[idx] };
       }
@@ -2599,10 +2599,10 @@ async function resumeWorkerHandler(req, context) {
 
       const hasBudget = attemptedProgress.some((p) => String(p?.last_error || "") === "budget_exhausted");
       if (hasBudget) {
-        return { reason: "budget_exhausted", backoff_ms: 15_000 };
+        return { reason: "budget_exhausted", backoff_ms: 20_000 };
       }
 
-      return { reason: "default", backoff_ms: 10_000 };
+      return { reason: "default", backoff_ms: 20_000 };
     };
 
     let finalStatus = null;
