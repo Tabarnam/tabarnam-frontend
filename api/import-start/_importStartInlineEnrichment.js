@@ -258,7 +258,7 @@ async function tryUnifiedEnrichment(company, enrichCtx) {
     if (Array.isArray(proposed.product_keywords) && proposed.product_keywords.length > 0) {
       const stats = sanitizeKeywords({ product_keywords: proposed.product_keywords.join(", "), keywords: [] });
       const sanitized = Array.isArray(stats?.sanitized) ? stats.sanitized : proposed.product_keywords;
-      company.keywords = sanitized.slice(0, 25);
+      company.keywords = sanitized.slice(0, 30);
       company.product_keywords = keywordListToString(sanitized);
       company.keywords_source = "grok_unified";
       company.product_keywords_source = "grok_unified";
@@ -306,6 +306,25 @@ async function tryUnifiedEnrichment(company, enrichCtx) {
     if (Array.isArray(proposed.reviews) && proposed.reviews.length > 0) {
       company._unified_reviews = proposed.reviews;
       company._unified_reviews_status = statuses.reviews || "ok";
+    }
+
+    if (typeof proposed.logo_url === "string" && proposed.logo_url.trim()) {
+      company.logo_url = proposed.logo_url.trim();
+      if (proposed.logo_source) {
+        company.logo_source = proposed.logo_source;
+      }
+      company.enrichment_debug.logo_url = {
+        source: "unified",
+        stage_status: statuses.logo_url || "ok",
+      };
+    }
+
+    if (typeof proposed.amazon_store_url === "string" && proposed.amazon_store_url.trim()) {
+      company.amazon_store_url = proposed.amazon_store_url.trim();
+      company.enrichment_debug.amazon_store_url = {
+        source: "unified",
+        stage_status: statuses.amazon_store_url || "ok",
+      };
     }
 
     company.enrichment_method = ecf.method || "unified";

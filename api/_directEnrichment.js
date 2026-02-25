@@ -211,7 +211,7 @@ async function runDirectEnrichment({
     const fieldStatuses = ecf.field_statuses || {};
 
     // All possible enrichment fields
-    const ALL_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"];
+    const ALL_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews", "logo_url", "amazon_store_url"];
 
     // Determine which fields we were asked to enrich
     const targetFields = fieldsToEnrich
@@ -236,6 +236,11 @@ async function runDirectEnrichment({
       }
       if (fieldKey === "manufacturing_locations" && proposed.mfg_source_urls) {
         fieldResult.location_source_urls = { mfg_source_urls: proposed.mfg_source_urls };
+      }
+
+      // Attach logo_source metadata if present
+      if (fieldKey === "logo_url" && proposed.logo_source) {
+        fieldResult.logo_source = proposed.logo_source;
       }
 
       // Attach attempted review URLs so applyEnrichmentToCompany can persist
@@ -263,7 +268,7 @@ async function runDirectEnrichment({
     const errorMsg = asString(err?.message || err) || "enrichment_orchestrator_failed";
     console.error(`[runDirectEnrichment] enrichCompanyFields threw: ${errorMsg}`);
 
-    const ALL_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"];
+    const ALL_FIELDS = ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews", "logo_url", "amazon_store_url"];
     const targetFields = fieldsToEnrich
       ? ALL_FIELDS.filter((f) => fieldsToEnrich.includes(f))
       : ALL_FIELDS;
@@ -383,6 +388,23 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     if (Array.isArray(enriched.product_keywords.product_keywords) && enriched.product_keywords.product_keywords.length > 0) {
       updated.keywords = enriched.product_keywords.product_keywords;
     }
+  }
+
+  // Apply logo_url
+  if (enriched.logo_url?.logo_url) {
+    updated.logo_url = enriched.logo_url.logo_url;
+    updated.logo_status = enriched.logo_url.logo_url_status || "ok";
+    updated.logo_searched_at = enriched.logo_url.searched_at;
+    if (enriched.logo_url.logo_source) {
+      updated.logo_source = enriched.logo_url.logo_source;
+    }
+  }
+
+  // Apply amazon_store_url
+  if (enriched.amazon_store_url?.amazon_store_url) {
+    updated.amazon_store_url = enriched.amazon_store_url.amazon_store_url;
+    updated.amazon_store_url_status = enriched.amazon_store_url.amazon_store_url_status || "ok";
+    updated.amazon_store_url_searched_at = enriched.amazon_store_url.searched_at;
   }
 
   // Apply reviews — write to curated_reviews (the persisted schema field)
@@ -523,6 +545,10 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
   if (!updated.logo_url && updated.logo_status !== "not_found_on_site") {
     refreshedMissing.push("logo");
     refreshedReasons.logo = updated.logo_status || "missing";
+  }
+  if (!updated.amazon_store_url && updated.amazon_store_url_status && updated.amazon_store_url_status !== "empty") {
+    refreshedMissing.push("amazon_store_url");
+    refreshedReasons.amazon_store_url = updated.amazon_store_url_status || "missing";
   }
 
   updated.import_missing_fields = refreshedMissing;

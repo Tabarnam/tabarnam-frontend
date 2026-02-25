@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.2.1";
+const PROMPT_GUIDANCE_VERSION = "3.3.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -40,7 +40,9 @@ const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url
 // ---------------------------------------------------------------------------
 const FIELD_GUIDANCE = {
   headquarters: {
-    rules: `STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
+    rules: `Conduct thorough research using web_search and browse_page tools to identify the HQ location. Having the actual cities within the United States is crucial. Be accurate. No guessing or hallucinating.
+
+STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
 - Use browse_page on the company URL. Also try /about, /about-us, /contact, /our-story.
 - Look for: physical addresses, "headquartered in..." statements, footer addresses, legal/privacy page addresses.
 - If the website states a location, that is the PRIMARY source of truth.
@@ -58,9 +60,10 @@ STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - If only a US state is found, search "[Company Name] address [State]" or check the LinkedIn company page to pin down the city.
 - Beware of outdated addresses — if sources show different cities, prefer the company website or the most recent source.
 
-STEP 4 — HANDLE EDGE CASES.
+STEP 4 — HANDLE EDGE CASES. Do NOT give up easily.
 - Small/private companies: search "[Company Name] [founder name] location" or "[Company Name] business registration [state]".
 - Subsidiaries or rebrands: search the parent company name if the brand itself has no disclosed HQ.
+- Try WHOIS or domain registration data: "[domain] WHOIS registrant" for last-resort city identification.
 - Always verify with sources. Do NOT rely on training data — you MUST verify by actually visiting pages.
 
 FORMAT RULES:
@@ -78,7 +81,9 @@ FORMAT RULES:
   },
 
   manufacturing: {
-    rules: `STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
+    rules: `Conduct thorough research using web_search and browse_page tools to identify ALL known manufacturing locations worldwide. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Be accurate. No guessing or hallucinating.
+
+STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
 - Use browse_page on the company URL. Also try /about, /about-us, /our-story, /faq, /sustainability.
 - Look for: "manufactured in...", "produced at our facility in...", "Made in...", facility addresses, supply chain or sustainability pages.
 - Check product pages and packaging images for "Made in [Country]" labels.
@@ -104,6 +109,7 @@ STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
 - Check: "[Company Name] made in USA", "[Company Name] production location", "[Company Name] where are products made".
 - Look for news articles about factory openings, expansions, or closures.
 - For international companies, try "[Company Name] manufacturing [country]" for key markets.
+- Check government buyer guides, B2B directories, and trade databases for facility listings.
 - If ONLY country-level info exists (e.g., "Made in USA"), that is acceptable — include it.
 - If nothing is found after exhaustive searching, return an empty array [].
 
@@ -149,6 +155,7 @@ FORMAT RULES:
   If you found category pages with products you haven't listed, go back and add them.
   If your list has fewer than 15 items for a company with a full product catalog, you are likely missing products — search harder.
 - Keywords should be exhaustive, complete and all-inclusive of all products the company produces.
+- Return up to 30 of the company's most important products and product lines. Stop when you reach 30 or when you cannot find any more.
 - If a customer could search for it and find this company's product, include it.
 - Return ONLY actual products/product lines. Do NOT include:
   Navigation labels: Shop All, Collections, New, Best Sellers, Sale, Limited Edition, All
@@ -271,13 +278,44 @@ Text: [1-3 sentence excerpt or summary of the review]`,
   },
 
   logo: {
-    rules: `- Browse the company website. Look for the logo in the header, navigation, footer, or About page.
+    rules: `STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory first step).
+- Use browse_page on the company URL. Inspect the page source for logo images:
+  - Look for <img> tags inside <header>, <nav>, or the first <a> element that links to "/" or the homepage.
+  - Check <link rel="icon" type="image/png"> or <link rel="apple-touch-icon"> for high-res icon URLs (NOT favicon.ico — only 180x180+ icons).
+  - Check <meta property="og:image"> for a social sharing image that may be the logo.
+- If you find an image URL in the header area, that is the PRIMARY logo source.
+
+STEP 2 — CHECK ADDITIONAL PAGES.
+- Browse /about, /about-us, /press, /press-kit, /brand, /media for press kit or brand asset downloads.
+- Some companies provide high-resolution logo files on their press/media pages — prefer these when available.
+
+STEP 3 — WEB SEARCH AS FALLBACK.
+- Run web_search: "[Company Name] logo PNG" or "[Company Name] logo SVG".
+- Run web_search: "[Company Name] site:linkedin.com" — the company's LinkedIn page often has a square logo image.
+- Use browse_page on results to find direct image URLs.
+
+STEP 4 — SOCIAL MEDIA PROFILE IMAGES (last resort).
+- If nothing above works, try the company's Twitter/X profile or Facebook page for profile images.
+
+FORMAT RULES:
 - Return the direct URL to the logo image file (PNG, SVG, JPG, WebP).
-- Do NOT return favicon.ico, apple-touch-icon, or generic placeholder images.
+- Do NOT return favicon.ico or generic 16x16 favicons.
 - Do NOT return product images, hero banners, or promotional graphics.
 - If the logo is an inline SVG with no separate image URL, return null for logo_url.
-- If multiple logo variants exist, prefer the main/primary version displayed in the header.`,
+- If multiple logo variants exist, prefer the main/primary version displayed in the header.
+- The URL must point directly to an image file, not an HTML page.`,
     jsonSchema: `"logo_url": "https://..." | null`,
+  },
+
+  amazonStoreUrl: {
+    rules: `- Use web_search: "[Company Name] site:amazon.com" and "[Company Name] Amazon store".
+- Browse the top results to find the company's official Amazon storefront or brand page.
+- Look for URLs matching https://www.amazon.com/stores/[BrandName]/... or https://www.amazon.com/[BrandName]/...
+- Verify the store page actually belongs to this company by checking the brand name matches.
+- If the company does not sell on Amazon or has no official store page, return "".
+- Do NOT return individual product listing URLs — only the store/brand landing page.
+- Verify the URL loads and belongs to this company before returning it.`,
+    jsonSchema: `"amazon_store_url": "https://www.amazon.com/stores/..." | ""`,
   },
 
   contactInfo: {

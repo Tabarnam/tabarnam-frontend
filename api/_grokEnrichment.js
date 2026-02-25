@@ -196,9 +196,9 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 // Call 1 (structured): all non-review fields in a single xAI call with full guidance.
 // Call 2 (reviews): curated reviews in a parallel xAI call with stricter disambiguation.
 const TWO_CALL_TIMEOUTS_MS = Object.freeze({
-  structured: { min: 120_000, max: 180_000 },  // 2-3 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo)
-  reviews:    { min: 180_000, max: 300_000 },  // 3-5 min for Call 2 (curated reviews)
-  retry:      { min: 60_000,  max: 120_000 },  // 1-2 min for retry of missing structured fields
+  structured: { min: 120_000, max: 210_000 },  // 2-3.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo+amazon)
+  reviews:    { min: 180_000, max: 360_000 },  // 3-6 min for Call 2 (curated reviews)
+  retry:      { min: 60_000,  max: 150_000 },  // 1-2.5 min for retry of missing structured fields (2 retry rounds for locations)
 });
 
 // Absolute minimum budget to attempt an xAI call at all.
@@ -1051,8 +1051,8 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   const xCount = curated_reviews.filter((r) => isXUrl(r?.source_url)).length;
   const blogCount = curated_reviews.length - youtubeCount - xCount;
 
-  // Lowered from 5 to 3: aligns with resume-worker threshold (handler.js line 2436)
-  const ok = curated_reviews.length >= 3;
+  // Tiered: love 5, like 3, must have 1. Status = ok when >= 1 review found.
+  const ok = curated_reviews.length >= 1;
 
   if (!ok) {
     const reasonParts = [];
@@ -2359,6 +2359,9 @@ ${FIELD_GUIDANCE.keywords.rules}
 LOGO:
 ${FIELD_GUIDANCE.logo.rules}
 
+AMAZON STORE URL:
+${FIELD_GUIDANCE.amazonStoreUrl.rules}
+
 ${QUALITY_RULES}
 Return STRICT JSON only:
 {
@@ -2368,7 +2371,8 @@ Return STRICT JSON only:
   ${FIELD_GUIDANCE.industries.jsonSchema},
   ${FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness},
   ${FIELD_GUIDANCE.logo.jsonSchema},
-  "logo_source": "header" | "nav" | "footer" | "meta" | null
+  "logo_source": "header" | "nav" | "footer" | "meta" | null,
+  ${FIELD_GUIDANCE.amazonStoreUrl.jsonSchema}
 }`.trim();
 
   const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
@@ -2528,8 +2532,11 @@ function parseStructuredResponse(parsed) {
   field_statuses.keywords = kw_cleaned.length > 0 ? "ok" : "empty";
 
   // Check self-reported completeness for keywords
+  // Treat "incomplete" as "ok" when 5+ keywords are present (realistic capture rate)
   const kw_completeness = asString(parsed.completeness || "").trim().toLowerCase();
-  if (kw_cleaned.length > 0 && kw_completeness === "incomplete") {
+  if (kw_cleaned.length >= 5 && kw_completeness === "incomplete") {
+    field_statuses.keywords = "ok";
+  } else if (kw_cleaned.length > 0 && kw_completeness === "incomplete") {
     field_statuses.keywords = "incomplete";
   }
 
@@ -2554,6 +2561,12 @@ function parseStructuredResponse(parsed) {
       parsed_fields.headquarters_country_code = inferred.country_code;
     }
   }
+
+  // Amazon store URL
+  const amazon_raw = asString(parsed.amazon_store_url || "").trim();
+  const amazon_url = amazon_raw && !isSentinelOrPlaceholder(amazon_raw) ? safeUrl(amazon_raw) : null;
+  parsed_fields.amazon_store_url = amazon_url;
+  field_statuses.amazon_store_url = amazon_url ? "ok" : "empty";
 
   // Extract location source URLs for audit trail
   if (parsed.location_source_urls && typeof parsed.location_source_urls === "object") {
@@ -2614,6 +2627,14 @@ async function retryMissingStructuredFields({
       case "keywords":
         sections.push(`PRODUCT KEYWORDS:\n${FIELD_GUIDANCE.keywords.rules}`);
         jsonParts.push(FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness);
+        break;
+      case "logo_url":
+        sections.push(`LOGO:\n${FIELD_GUIDANCE.logo.rules}`);
+        jsonParts.push(`${FIELD_GUIDANCE.logo.jsonSchema}, "logo_source": "header" | "nav" | "footer" | "meta" | null`);
+        break;
+      case "amazon_store_url":
+        sections.push(`AMAZON STORE URL:\n${FIELD_GUIDANCE.amazonStoreUrl.rules}`);
+        jsonParts.push(FIELD_GUIDANCE.amazonStoreUrl.jsonSchema);
         break;
     }
   }
@@ -2682,6 +2703,16 @@ Return STRICT JSON only with the requested fields:
   }
 
   const result = parseStructuredResponse(parsed);
+
+  // Add logo_url extraction (mirrors fetchStructuredFields post-processing)
+  if (missingFields.includes("logo_url")) {
+    const logo_url_raw = asString(parsed.logo_url || "").trim() || null;
+    const logo_source = asString(parsed.logo_source || "").trim() || null;
+    result.field_statuses.logo_url = logo_url_raw ? "ok" : "empty";
+    result.parsed_fields.logo_url = logo_url_raw ? safeUrl(logo_url_raw) : null;
+    result.parsed_fields.logo_source = logo_source;
+  }
+
   console.log(`[retryMissingStructuredFields] Success: fields=[${missingFields.join(", ")}], statuses=${JSON.stringify(result.field_statuses)}, elapsed=${elapsedMs}ms`);
 
   return {
@@ -2895,6 +2926,8 @@ function findMissingFields(fields) {
   if (!Array.isArray(fields.industries) || fields.industries.length === 0) missing.push("industries");
   if (!Array.isArray(fields.product_keywords) || fields.product_keywords.length === 0) missing.push("keywords");
   if (!Array.isArray(fields.reviews) || fields.reviews.length === 0) missing.push("reviews");
+  if (!fields.logo_url) missing.push("logo_url");
+  if (!fields.amazon_store_url) missing.push("amazon_store_url");
   return missing;
 }
 
@@ -3031,8 +3064,8 @@ async function fillMissingFieldsIndividually(missingFields, {
           filled.reviews = val.curated_reviews;
           // Mark "ok" only when 5-review target met; "incomplete" saves partial
           // results while signaling resume worker that more reviews are needed.
-          const reviewTarget = 5;
-          field_statuses.reviews = val.curated_reviews.length >= reviewTarget ? "ok" : "incomplete";
+          // Tiered: love 5, like 3, must have 1
+          field_statuses.reviews = val.curated_reviews.length >= 1 ? "ok" : "incomplete";
         } else {
           field_statuses.reviews = val.reviews_stage_status || "empty";
         }
@@ -3054,7 +3087,7 @@ async function enrichCompanyFields({
   companyName,
   websiteUrl,
   normalizedDomain,
-  budgetMs = 480000,
+  budgetMs = 540000,
   xaiUrl,
   xaiKey,
   fieldsToEnrich,
@@ -3072,6 +3105,7 @@ async function enrichCompanyFields({
     tagline: "tagline", headquarters: "headquarters_location",
     manufacturing: "manufacturing_locations", industries: "industries",
     keywords: "product_keywords", reviews: "reviews",
+    logo_url: "logo_url", amazon_store_url: "amazon_store_url",
   };
   const LONG_TO_SHORT = {};
   for (const [short, long] of Object.entries(FIELD_SHORT_TO_LONG)) LONG_TO_SHORT[long] = short;
@@ -3243,21 +3277,36 @@ async function enrichCompanyFields({
     }
   }
 
-  // ── Retry missing structured fields ──
-  const missingStructured = findMissingFields(proposed).filter((f) => f !== "reviews");
-  const filteredMissing = filterMissingByTarget(missingStructured);
+  // ── Retry missing structured fields (up to 2 rounds for locations) ──
+  const LOCATION_FIELDS = ["headquarters", "manufacturing"];
+  const MAX_RETRY_ROUNDS = 2;
 
-  if (filteredMissing.length > 0 && getRemainingMs() > 30_000) {
-    console.log(`[enrichCompanyFields] Retry for missing fields: [${filteredMissing.join(", ")}], remaining=${getRemainingMs()}ms, run=${runId}`);
+  for (let retryRound = 1; retryRound <= MAX_RETRY_ROUNDS; retryRound++) {
+    const missingStructured = findMissingFields(proposed).filter((f) => f !== "reviews");
+    const filteredMissing = filterMissingByTarget(missingStructured);
+
+    // Round 2 only retries location fields that are still missing
+    const fieldsToRetry = retryRound === 1
+      ? filteredMissing
+      : filteredMissing.filter((f) => LOCATION_FIELDS.includes(f));
+
+    if (fieldsToRetry.length === 0 || getRemainingMs() <= 30_000) {
+      if (fieldsToRetry.length > 0) {
+        console.warn(`[enrichCompanyFields] Retry round ${retryRound} SKIPPED — remaining=${getRemainingMs()}ms < 30000ms, fields=[${fieldsToRetry.join(", ")}], run=${runId}`);
+      }
+      break;
+    }
+
+    console.log(`[enrichCompanyFields] Retry round ${retryRound}/${MAX_RETRY_ROUNDS} for missing fields: [${fieldsToRetry.join(", ")}], remaining=${getRemainingMs()}ms, run=${runId}`);
     const retryResult = await retryMissingStructuredFields({
       companyName, websiteUrl, normalizedDomain: domain,
-      missingFields: filteredMissing,
+      missingFields: fieldsToRetry,
       budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.retry.max, getRemainingMs() - 5_000),
       xaiUrl, xaiKey,
     });
 
     if (retryResult?.ok && retryResult.parsed_fields) {
-      for (const shortName of filteredMissing) {
+      for (const shortName of fieldsToRetry) {
         const longName = FIELD_SHORT_TO_LONG[shortName] || shortName;
         if (retryResult.parsed_fields[longName]) {
           proposed[longName] = retryResult.parsed_fields[longName];
@@ -3265,8 +3314,14 @@ async function enrichCompanyFields({
         }
       }
     }
-  } else if (filteredMissing.length > 0) {
-    console.warn(`[enrichCompanyFields] Retry SKIPPED — remaining=${getRemainingMs()}ms < 30000ms, fields=[${filteredMissing.join(", ")}], run=${runId}`);
+
+    // If no location fields remain missing, no need for another round
+    const stillMissingLocations = LOCATION_FIELDS.filter((f) => {
+      const longName = FIELD_SHORT_TO_LONG[f] || f;
+      if (f === "manufacturing") return !Array.isArray(proposed[longName]) || proposed[longName].length === 0;
+      return !proposed[longName];
+    });
+    if (stillMissingLocations.length === 0) break;
   }
 
   const totalElapsed = Date.now() - started;
