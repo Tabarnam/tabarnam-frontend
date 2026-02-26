@@ -281,32 +281,66 @@ function extractRetryAfterMs(result) {
   return ms > 0 ? Math.min(ms, 120_000) : 0;
 }
 
+// ── Global 429 rate-limit cooldown ──────────────────────────────────────────
+// When one call detects persistent 429s, it sets a cooldown timestamp.
+// Subsequent calls in the same enrichment pipeline (running concurrently or
+// sequentially) will wait until the cooldown expires before making their first
+// xAI call. This prevents N independent calls from each burning through 4
+// retries when the API is globally rate-limited.
+let _rateLimitCooldownUntil = 0;
+
+function setRateLimitCooldown(durationMs) {
+  const until = Date.now() + Math.max(0, Math.trunc(Number(durationMs) || 0));
+  if (until > _rateLimitCooldownUntil) {
+    _rateLimitCooldownUntil = until;
+  }
+}
+
+function getRateLimitCooldownRemaining() {
+  const remaining = _rateLimitCooldownUntil - Date.now();
+  return remaining > 0 ? remaining : 0;
+}
+
 /**
  * xAI live search with retry logic.
  *
- * Two independent retry mechanisms:
+ * Three retry mechanisms:
  *
  * 1. **Normal retries** (controlled by `maxAttempts`): For general retryable failures
  *    (timeouts, 5xx). Callers set maxAttempts=1 to avoid doubling multi-minute waits.
  *
  * 2. **429 rate-limit retries** (controlled by `max429Retries`): Automatic retries
  *    with exponential backoff specifically for HTTP 429. These are independent of
- *    maxAttempts because 429s are instant rejections (<200ms) — waiting 5-15s and
+ *    maxAttempts because 429s are instant rejections (<200ms) — waiting 10-30s and
  *    retrying is cheap and almost always succeeds. Without this, a single rate-limit
  *    spike causes complete enrichment failure ("No fields could be enriched").
+ *
+ * 3. **Global cooldown**: When a call exhausts its 429 retries, it sets a global
+ *    cooldown timestamp. Subsequent calls will wait for the cooldown before their
+ *    first attempt, avoiding N independent calls each wasting retry budget on a
+ *    known rate-limited API.
  */
 async function xaiLiveSearchWithRetry({
   maxAttempts = 2,
   baseBackoffMs = 350,
-  max429Retries = 4,
-  base429BackoffMs = 5000,
+  max429Retries = 5,
+  base429BackoffMs = 10000,
   ...args
 } = {}) {
   const attempts = Math.max(1, Math.min(3, Math.trunc(Number(maxAttempts) || 2)));
-  const maxRlRetries = Math.max(0, Math.min(6, Math.trunc(Number(max429Retries) || 4)));
+  const maxRlRetries = Math.max(0, Math.min(8, Math.trunc(Number(max429Retries) || 5)));
 
   let last = null;
   let rlRetriesUsed = 0;
+
+  // ── Honor global cooldown from previous 429 exhaustion ──
+  const cooldownRemaining = getRateLimitCooldownRemaining();
+  if (cooldownRemaining > 0) {
+    console.log(
+      `[xaiLiveSearchWithRetry] Global 429 cooldown active — waiting ${cooldownRemaining}ms before first attempt`
+    );
+    await sleepMs(cooldownRemaining);
+  }
 
   for (let i = 0; i < attempts; i += 1) {
     last = await xaiLiveSearch({ ...args, attempt: i });
@@ -314,7 +348,7 @@ async function xaiLiveSearchWithRetry({
 
     // ── 429 rate-limit: automatically retry with exponential backoff ──
     // Unlike timeouts (which burn 2-4 min each), 429s are instant rejections.
-    // A 5-15s wait is cheap and usually sufficient for rate-limit recovery.
+    // Backoff schedule: 10s → 15s → 22.5s → 33.75s → 50.6s ≈ 132s total wait.
     while (is429RateLimit(last) && rlRetriesUsed < maxRlRetries) {
       rlRetriesUsed += 1;
       const retryAfter = extractRetryAfterMs(last);
@@ -325,7 +359,21 @@ async function xaiLiveSearchWithRetry({
       );
       await sleepMs(backoff);
       last = await xaiLiveSearch({ ...args, attempt: i });
-      if (last && last.ok) return last;
+      if (last && last.ok) {
+        // Rate limit cleared — reset global cooldown
+        _rateLimitCooldownUntil = 0;
+        return last;
+      }
+    }
+
+    // If we exhausted 429 retries, set a global cooldown so concurrent/subsequent
+    // calls don't each burn through their own retry budget on a known-rate-limited API.
+    if (is429RateLimit(last) && rlRetriesUsed >= maxRlRetries) {
+      setRateLimitCooldown(30_000); // 30s cooldown for the next caller
+      console.log(
+        `[xaiLiveSearchWithRetry] 429 retries exhausted (${rlRetriesUsed}/${maxRlRetries}) — ` +
+        `set 30s global cooldown for subsequent calls`
+      );
     }
 
     // Normal retry logic (for non-429 retryable failures like timeouts/5xx)
