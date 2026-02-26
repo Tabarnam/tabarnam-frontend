@@ -2917,7 +2917,7 @@ async function resumeWorkerHandler(req, context) {
   for (const doc of seedDocs) {
     if (!doc || typeof doc !== "object") continue;
 
-    const missingNow = computeRetryableMissingFields(doc);
+    const missingNow = computeRetryableMissingFields(doc).filter((f) => ENRICH_FIELDS.includes(f));
 
     const companyName = String(doc.company_name || doc.name || "").trim();
     const normalizedDomain = String(doc.normalized_domain || "").trim();

@@ -226,7 +226,7 @@ Output JSON only:
 // ---------------------------------------------------------------------------
 
 async function tryUnifiedEnrichment(company, enrichCtx) {
-  const { xaiUrl, xaiKey, getRemainingMs, timeout } = enrichCtx;
+  const { xaiUrl, xaiKey, getRemainingMs, timeout, fieldsToEnrich } = enrichCtx;
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
   const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
@@ -240,7 +240,7 @@ async function tryUnifiedEnrichment(company, enrichCtx) {
 
   try {
     const ecf = await enrichCompanyFieldsUnified({
-      companyName, websiteUrl, normalizedDomain, budgetMs, xaiUrl, xaiKey,
+      companyName, websiteUrl, normalizedDomain, budgetMs, xaiUrl, xaiKey, fieldsToEnrich,
     });
 
     if (!ecf || !ecf.ok || !ecf.proposed) return false;

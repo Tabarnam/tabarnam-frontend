@@ -290,6 +290,7 @@ async function upsertResumeDoc({
   last_backoff_reason,
   last_backoff_ms,
   invocation_mode,
+  fields_to_enrich,
 }) {
   const sid = String(session_id || "").trim();
   if (!sid) return { ok: false, error: "missing_session_id" };
@@ -339,6 +340,9 @@ async function upsertResumeDoc({
       invocation_mode === undefined
         ? (existing?.invocation_mode ?? null)
         : invocation_mode,
+    fields_to_enrich: Array.isArray(fields_to_enrich)
+      ? fields_to_enrich
+      : Array.isArray(existing?.fields_to_enrich) ? existing.fields_to_enrich : undefined,
   };
 
   const upserted = await upsertItemWithPkCandidates(container, resumeDoc).catch((e) => ({ ok: false, error: e?.message || String(e) }));

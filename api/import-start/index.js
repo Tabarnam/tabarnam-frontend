@@ -4074,7 +4074,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const mapWithConcurrency = _mapWithConcurrency;
           const ensureCompanyKeywords = (company) =>
             _ensureCompanyKeywordsBase(company, {
-              xaiUrl, xaiKey, postXaiJsonWithBudgetRetry, getRemainingMs, timeout, debugOutput,
+              xaiUrl, xaiKey, postXaiJsonWithBudgetRetry, getRemainingMs, timeout, debugOutput, fieldsToEnrich,
             });
 
           if (shouldStopAfterStage("primary")) {
