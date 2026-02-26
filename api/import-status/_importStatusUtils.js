@@ -274,13 +274,13 @@ function isInfraRetryableMissingReason(reason) {
   return false;
 }
 
-function collectInfraRetryableMissing(docs) {
+function collectInfraRetryableMissing(docs, { fieldsToEnrich } = {}) {
   const list = Array.isArray(docs) ? docs : [];
   const out = [];
 
   for (const doc of list) {
-    const missing = Array.isArray(computeEnrichmentHealthContract(doc)?.missing_fields)
-      ? computeEnrichmentHealthContract(doc).missing_fields
+    const missing = Array.isArray(computeEnrichmentHealthContract(doc, { fieldsToEnrich })?.missing_fields)
+      ? computeEnrichmentHealthContract(doc, { fieldsToEnrich }).missing_fields
       : [];
 
     for (const field of missing) {
@@ -613,15 +613,15 @@ function applyTerminalOnlyCompletion(out, reason) {
 
 // ── Enrichment health analysis ─────────────────────────────────────────────────
 
-function computeEnrichmentHealth(company) {
-  return computeEnrichmentHealthContract(company);
+function computeEnrichmentHealth(company, { fieldsToEnrich } = {}) {
+  return computeEnrichmentHealthContract(company, { fieldsToEnrich });
 }
 
-function computeContractEnrichmentHealth(company) {
-  return computeEnrichmentHealthContract(company);
+function computeContractEnrichmentHealth(company, { fieldsToEnrich } = {}) {
+  return computeEnrichmentHealthContract(company, { fieldsToEnrich });
 }
 
-function analyzeMissingFieldsForResume(docs) {
+function analyzeMissingFieldsForResume(docs, { fieldsToEnrich } = {}) {
   const list = Array.isArray(docs) ? docs : [];
 
   let totalMissing = 0;
@@ -629,7 +629,7 @@ function analyzeMissingFieldsForResume(docs) {
   let totalTerminalMissing = 0;
 
   for (const doc of list) {
-    const health = computeContractEnrichmentHealth(doc);
+    const health = computeContractEnrichmentHealth(doc, { fieldsToEnrich });
     const missing = Array.isArray(health?.missing_fields) ? health.missing_fields : [];
 
     for (const field of missing) {
@@ -669,7 +669,7 @@ function summarizeEnrichmentHealth(saved_companies) {
   };
 }
 
-function toSavedCompanies(docs) {
+function toSavedCompanies(docs, { fieldsToEnrich } = {}) {
   const list = Array.isArray(docs) ? docs : [];
   return list
     .map((doc) => {
@@ -684,7 +684,7 @@ function toSavedCompanies(docs) {
         company_name: String(doc?.company_name || doc?.name || "").trim() || "Unknown company",
         canonical_url: canonicalUrl,
         website_url: websiteUrl || canonicalUrl,
-        enrichment_health: computeEnrichmentHealth(doc),
+        enrichment_health: computeEnrichmentHealth(doc, { fieldsToEnrich }),
         import_missing_fields: Array.isArray(doc?.import_missing_fields) ? doc.import_missing_fields : [],
         import_missing_reason:
           doc?.import_missing_reason && typeof doc.import_missing_reason === "object" && !Array.isArray(doc.import_missing_reason)

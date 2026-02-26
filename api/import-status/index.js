@@ -405,6 +405,7 @@ async function handler(req, context) {
     let acceptDoc = null;
     let resumeDoc = null;
     let stopDoc = null;
+    let fieldsToEnrich = undefined;
 
     try {
       const { endpoint, key, databaseId, containerId } = getCosmosConfig();
@@ -422,6 +423,8 @@ async function handler(req, context) {
         ]));
 
         stopped = Boolean(stopDoc);
+        // Extract user field selection from resume doc so completion checks only consider requested fields.
+        fieldsToEnrich = Array.isArray(resumeDoc?.fields_to_enrich) ? resumeDoc.fields_to_enrich : undefined;
         const effectiveResumeMeta = computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc });
         effective_resume_status = effectiveResumeMeta.effective_resume_status;
         progress_notice = effectiveResumeMeta.progress_notice;
@@ -483,7 +486,7 @@ async function handler(req, context) {
           stageBeaconValues.status_fetching_saved_companies = nowIso();
           const savedDocs = await fetchCompaniesByIds(container, completionSavedIds).catch(() => []);
           savedCompanyDocs = savedDocs;
-          saved_companies = toSavedCompanies(savedDocs);
+          saved_companies = toSavedCompanies(savedDocs, { fieldsToEnrich });
           stageBeaconValues.status_fetched_saved_companies = nowIso();
         }
 
@@ -500,7 +503,7 @@ async function handler(req, context) {
 
           if (Array.isArray(fallbackDocs) && fallbackDocs.length > 0) {
             savedCompanyDocs = fallbackDocs;
-            saved_companies = toSavedCompanies(fallbackDocs);
+            saved_companies = toSavedCompanies(fallbackDocs, { fieldsToEnrich });
             stageBeaconValues.status_fetched_saved_companies_fallback = nowIso();
           }
         }
@@ -543,7 +546,7 @@ async function handler(req, context) {
                   const bridgeDocs = await fetchCompaniesByIds(container, bridgeResult.saved_ids).catch(() => []);
                   if (bridgeDocs.length > 0) {
                     savedCompanyDocs = bridgeDocs;
-                    saved_companies = toSavedCompanies(bridgeDocs);
+                    saved_companies = toSavedCompanies(bridgeDocs, { fieldsToEnrich });
                   }
 
                   // Update verified IDs
@@ -605,7 +608,7 @@ async function handler(req, context) {
 
     reconcileLowQualityDocs(savedDocsForHealth, stageBeaconValues);
 
-    saved_companies = toSavedCompanies(savedDocsForHealth);
+    saved_companies = toSavedCompanies(savedDocsForHealth, { fieldsToEnrich });
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
 
     // Always surface "verified save" fields while running so the Admin UI can render
@@ -654,7 +657,7 @@ async function handler(req, context) {
     // Recompute missing fields on every status call, then reconcile terminal-only completion.
     // If the only missing fields are terminal (HQ/MFG "Not disclosed", reviews exhausted, logo not_found_on_site),
     // status must report resume_needed=false so imports do not stall forever.
-    const resumeMissingAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth);
+    const resumeMissingAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth, { fieldsToEnrich });
     const resumeNeededFromHealth = resumeMissingAnalysis.total_retryable_missing > 0;
 
     stageBeaconValues.status_resume_missing_total = resumeMissingAnalysis.total_missing;
@@ -724,9 +727,9 @@ async function handler(req, context) {
                 savedDocsForHealth.length = 0;
                 savedDocsForHealth.push(...freshDocs);
                 reconcileLowQualityDocs(savedDocsForHealth, stageBeaconValues);
-                saved_companies = toSavedCompanies(savedDocsForHealth);
+                saved_companies = toSavedCompanies(savedDocsForHealth, { fieldsToEnrich });
 
-                const freshAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth);
+                const freshAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth, { fieldsToEnrich });
                 resumeMissingAnalysis.total_missing = freshAnalysis.total_missing;
                 resumeMissingAnalysis.total_retryable_missing = freshAnalysis.total_retryable_missing;
                 resumeMissingAnalysis.total_terminal_missing = freshAnalysis.total_terminal_missing;
@@ -1044,9 +1047,9 @@ async function handler(req, context) {
             savedDocsForHealth.length = 0;
             savedDocsForHealth.push(...refreshedDocs);
             reconcileLowQualityDocs(savedDocsForHealth, stageBeaconValues);
-            saved_companies = toSavedCompanies(savedDocsForHealth);
+            saved_companies = toSavedCompanies(savedDocsForHealth, { fieldsToEnrich });
 
-            const refreshedAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth);
+            const refreshedAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth, { fieldsToEnrich });
             resumeMissingAnalysis.total_missing = refreshedAnalysis.total_missing;
             resumeMissingAnalysis.total_retryable_missing = refreshedAnalysis.total_retryable_missing;
             resumeMissingAnalysis.total_terminal_missing = refreshedAnalysis.total_terminal_missing;
@@ -1570,6 +1573,7 @@ async function handler(req, context) {
     const completed = Boolean(completionDoc);
     const completionOverride = Boolean(completionDoc && typeof completionDoc.completed_at === "string" && completionDoc.completed_at.trim());
 
+    const fieldsToEnrich2 = Array.isArray(resumeDoc?.fields_to_enrich) ? resumeDoc.fields_to_enrich : undefined;
     const effectiveResumeMeta = computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc });
     effective_resume_status = effectiveResumeMeta.effective_resume_status;
     progress_notice = effectiveResumeMeta.progress_notice;
@@ -1726,7 +1730,7 @@ async function handler(req, context) {
       }
     }
 
-    let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : [];
+    let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs, { fieldsToEnrich: fieldsToEnrich2 }) : [];
     let completionReason = typeof completionDoc?.reason === "string" ? completionDoc.reason : null;
 
     let reconciled = false;
@@ -1792,7 +1796,7 @@ async function handler(req, context) {
 
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
 
-    const resumeMissingAnalysis = analyzeMissingFieldsForResume(savedDocs);
+    const resumeMissingAnalysis = analyzeMissingFieldsForResume(savedDocs, { fieldsToEnrich: fieldsToEnrich2 });
     const resumeNeededFromHealth = resumeMissingAnalysis.total_retryable_missing > 0;
 
     const sessionStatus = typeof sessionDoc?.status === "string" ? sessionDoc.status.trim() : "";

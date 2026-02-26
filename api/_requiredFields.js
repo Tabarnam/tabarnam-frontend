@@ -667,26 +667,32 @@ function isRealValue(field, value, doc) {
   return Boolean(asMeaningfulString(value));
 }
 
-function computeMissingFields(company, { includeReviews = REVIEWS_ENABLED } = {}) {
+function computeMissingFields(company, { includeReviews = REVIEWS_ENABLED, fieldsToEnrich } = {}) {
   const c = company && typeof company === "object" ? company : {};
   const missing = [];
 
-  if (!isRealValue("industries", c.industries, c)) missing.push("industries");
-  if (!isRealValue("tagline", c.tagline, c)) missing.push("tagline");
-  if (!isRealValue("product_keywords", c.product_keywords, c)) missing.push("product_keywords");
-  if (!isRealValue("headquarters_location", c.headquarters_location, c)) missing.push("headquarters_location");
-  if (!isRealValue("manufacturing_locations", c.manufacturing_locations, c)) missing.push("manufacturing_locations");
-  if (!isRealValue("logo", c.logo_url, c)) missing.push("logo");
+  // When fieldsToEnrich is provided, only check fields the user actually requested.
+  // Normalize "logo_url" → "logo" to match internal field names.
+  const requested = Array.isArray(fieldsToEnrich)
+    ? new Set(fieldsToEnrich.map((f) => f === "logo_url" ? "logo" : f))
+    : null;
 
-  if (includeReviews && !isRealValue("reviews", c.curated_reviews, c)) missing.push("reviews");
+  if ((!requested || requested.has("industries")) && !isRealValue("industries", c.industries, c)) missing.push("industries");
+  if ((!requested || requested.has("tagline")) && !isRealValue("tagline", c.tagline, c)) missing.push("tagline");
+  if ((!requested || requested.has("product_keywords")) && !isRealValue("product_keywords", c.product_keywords, c)) missing.push("product_keywords");
+  if ((!requested || requested.has("headquarters_location")) && !isRealValue("headquarters_location", c.headquarters_location, c)) missing.push("headquarters_location");
+  if ((!requested || requested.has("manufacturing_locations")) && !isRealValue("manufacturing_locations", c.manufacturing_locations, c)) missing.push("manufacturing_locations");
+  if ((!requested || requested.has("logo")) && !isRealValue("logo", c.logo_url, c)) missing.push("logo");
+
+  if ((!requested || requested.has("reviews")) && includeReviews && !isRealValue("reviews", c.curated_reviews, c)) missing.push("reviews");
 
   return missing;
 }
 
-function computeEnrichmentHealth(company) {
+function computeEnrichmentHealth(company, { fieldsToEnrich } = {}) {
   const c = company && typeof company === "object" ? company : {};
 
-  const missing_fields = computeMissingFields(c);
+  const missing_fields = computeMissingFields(c, { fieldsToEnrich });
 
   const hasReviewCount = typeof c.review_count === "number" && Number.isFinite(c.review_count);
   const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");

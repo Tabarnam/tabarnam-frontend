@@ -191,7 +191,7 @@ function envInt(name, fallback, { min = 1, max = 25 } = {}) {
 const MAX_ATTEMPTS_REVIEWS = envInt("MAX_ATTEMPTS_REVIEWS", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_LOCATION = envInt("MAX_ATTEMPTS_LOCATION", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_INDUSTRIES = envInt("MAX_ATTEMPTS_INDUSTRIES", 3, { min: 1, max: 10 });
-const MAX_ATTEMPTS_TAGLINE = envInt("MAX_ATTEMPTS_TAGLINE", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_TAGLINE = envInt("MAX_ATTEMPTS_TAGLINE", 1, { min: 1, max: 10 });
 const MAX_ATTEMPTS_KEYWORDS = envInt("MAX_ATTEMPTS_KEYWORDS", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 1, { min: 1, max: 10 });
 
