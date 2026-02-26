@@ -2297,7 +2297,8 @@ async function resumeWorkerHandler(req, context) {
       // ── Logo fetch (separate from unified enrichment) ──
       // Logo requires HTML scraping (importCompanyLogo) before Grok fallback,
       // which enrichCompanyFields() doesn't handle. Process it independently.
-      {
+      // Only attempt if "logo" is in the user-requested ENRICH_FIELDS.
+      if (ENRICH_FIELDS.includes("logo")) {
         const logoHasValue = isRealValue("logo", doc.logo_url, doc);
         const logoTerminal = isTerminalMissingField(doc, "logo");
         const logoFp = progressRoot.enrichment_progress[companyId]["logo"] || { attempts: 0, last_attempt_at: null, last_error: null, status: null, last_cycle_attempted: null };

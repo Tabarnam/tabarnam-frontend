@@ -438,6 +438,7 @@ async function saveCompaniesToCosmos({
   saveStub = false,
   getRemainingMs,
   allowUpdateExisting = false,
+  fieldsToEnrich,
 }) {
   try {
     const list = Array.isArray(companies) ? companies : [];
@@ -1158,7 +1159,11 @@ async function saveCompaniesToCosmos({
 
             // AFTER successful Cosmos save: process logo (non-blocking, fire-and-forget)
             // This ensures the company document is persisted even if logo processing fails
-            (async () => {
+            const wantLogo = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("logo") || fieldsToEnrich.includes("logo_url");
+            if (!wantLogo) {
+              console.log(`[import-start] Skipping logo fetch for "${companyName}" — logo not in fieldsToEnrich`);
+            }
+            wantLogo && (async () => {
               try {
                 const remainingForLogo =
                   typeof getRemainingMs === "function"

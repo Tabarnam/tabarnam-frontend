@@ -2984,6 +2984,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
                     getRemainingMs,
                     allowUpdateExisting: isExplicitCompanyImport,
+                    fieldsToEnrich,
                   });
 
                   const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
@@ -5261,6 +5262,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
               getRemainingMs,
               allowUpdateExisting: isExplicitCompanyImportMain,
+              fieldsToEnrich,
             });
 
             const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
@@ -6100,6 +6102,7 @@ Return ONLY the JSON array, no other text.`,
                       axiosTimeout: timeout,
                       saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
                       getRemainingMs,
+                      fieldsToEnrich,
                     });
 
                     const expansionVerification = await verifySavedCompaniesReadAfterWrite(expansionRaw).catch(() => ({

@@ -3323,8 +3323,9 @@ async function enrichCompanyFields({
   // Both fire in parallel via Promise.allSettled.
 
   const wantReviews = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("reviews");
+  const wantLogo = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("logo") || fieldsToEnrich.includes("logo_url");
 
-  console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantReviews=${wantReviews}, run=${runId}`);
+  console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantReviews=${wantReviews}, wantLogo=${wantLogo}, run=${runId}`);
 
   // Each promise saves its results to Cosmos immediately via onIntermediateSave,
   // so that if Azure DrainMode kills the process between Call 1 and Call 2, the
@@ -3403,48 +3404,54 @@ async function enrichCompanyFields({
   }
 
   // ── Verify logo URL from Call 1 ──
-  if (!proposed.logo_url) {
-    console.log(`[enrichCompanyFields] Logo extraction: Grok returned no logo URL for "${companyName}", will try homepage scraper, run=${runId}`);
-  }
-  if (proposed.logo_url) {
-    const logoCheck = await verifyLogoUrl(proposed.logo_url);
-    if (!logoCheck.ok) {
-      console.log(`[enrichCompanyFields] Logo URL verification failed for "${companyName}": ${logoCheck.reason} — clearing, run=${runId}`);
-      proposed.logo_url = null;
-      field_statuses.logo_url = `url_dead_${logoCheck.reason}`;
+  if (wantLogo) {
+    if (!proposed.logo_url) {
+      console.log(`[enrichCompanyFields] Logo extraction: Grok returned no logo URL for "${companyName}", will try homepage scraper, run=${runId}`);
     }
-  }
-
-  // ── Homepage scraper fallback for logo ──
-  // If Grok returned no logo or a dead URL, try the homepage scraper which
-  // parses live HTML for <img> tags in header/nav, schema.org, og:image, etc.
-  // This is far more reliable than Grok's URL guessing (3/3 logos found by
-  // scraper vs 0/3 from Grok in session 19b3e08f).
-  if (!proposed.logo_url && getRemainingMs() > 15_000) {
-    try {
-      console.log(`[enrichCompanyFields] Logo fallback: trying homepage scraper for "${companyName}", remaining=${getRemainingMs()}ms, run=${runId}`);
-      const scraperResult = await discoverLogoSourceUrl(
-        { domain, websiteUrl, companyName },
-        console,
-        { budgetMs: Math.min(12_000, getRemainingMs() - 5_000) },
-      );
-      if (scraperResult?.ok && scraperResult.logo_source_url) {
-        // Verify the scraped URL before accepting
-        const scraperCheck = await verifyLogoUrl(scraperResult.logo_source_url);
-        if (scraperCheck.ok) {
-          proposed.logo_url = scraperResult.logo_source_url;
-          proposed.logo_source = scraperResult.strategy || "homepage_scraper";
-          field_statuses.logo_url = "ok";
-          console.log(`[enrichCompanyFields] Logo fallback SUCCESS: url=${scraperResult.logo_source_url}, strategy=${scraperResult.strategy}, run=${runId}`);
-        } else {
-          console.log(`[enrichCompanyFields] Logo fallback: scraped URL also dead (${scraperCheck.reason}), run=${runId}`);
-        }
-      } else {
-        console.log(`[enrichCompanyFields] Logo fallback: homepage scraper found nothing, run=${runId}`);
+    if (proposed.logo_url) {
+      const logoCheck = await verifyLogoUrl(proposed.logo_url);
+      if (!logoCheck.ok) {
+        console.log(`[enrichCompanyFields] Logo URL verification failed for "${companyName}": ${logoCheck.reason} — clearing, run=${runId}`);
+        proposed.logo_url = null;
+        field_statuses.logo_url = `url_dead_${logoCheck.reason}`;
       }
-    } catch (e) {
-      console.warn(`[enrichCompanyFields] Logo fallback error: ${e?.message || e}, run=${runId}`);
     }
+
+    // ── Homepage scraper fallback for logo ──
+    // If Grok returned no logo or a dead URL, try the homepage scraper which
+    // parses live HTML for <img> tags in header/nav, schema.org, og:image, etc.
+    // This is far more reliable than Grok's URL guessing (3/3 logos found by
+    // scraper vs 0/3 from Grok in session 19b3e08f).
+    if (!proposed.logo_url && getRemainingMs() > 15_000) {
+      try {
+        console.log(`[enrichCompanyFields] Logo fallback: trying homepage scraper for "${companyName}", remaining=${getRemainingMs()}ms, run=${runId}`);
+        const scraperResult = await discoverLogoSourceUrl(
+          { domain, websiteUrl, companyName },
+          console,
+          { budgetMs: Math.min(12_000, getRemainingMs() - 5_000) },
+        );
+        if (scraperResult?.ok && scraperResult.logo_source_url) {
+          // Verify the scraped URL before accepting
+          const scraperCheck = await verifyLogoUrl(scraperResult.logo_source_url);
+          if (scraperCheck.ok) {
+            proposed.logo_url = scraperResult.logo_source_url;
+            proposed.logo_source = scraperResult.strategy || "homepage_scraper";
+            field_statuses.logo_url = "ok";
+            console.log(`[enrichCompanyFields] Logo fallback SUCCESS: url=${scraperResult.logo_source_url}, strategy=${scraperResult.strategy}, run=${runId}`);
+          } else {
+            console.log(`[enrichCompanyFields] Logo fallback: scraped URL also dead (${scraperCheck.reason}), run=${runId}`);
+          }
+        } else {
+          console.log(`[enrichCompanyFields] Logo fallback: homepage scraper found nothing, run=${runId}`);
+        }
+      } catch (e) {
+        console.warn(`[enrichCompanyFields] Logo fallback error: ${e?.message || e}, run=${runId}`);
+      }
+    }
+  } else {
+    // Logo not requested — strip any logo data Grok may have returned
+    delete proposed.logo_url;
+    delete proposed.logo_source;
   }
 
   // ── Retry missing structured fields (up to 2 rounds for locations) ──
