@@ -47,7 +47,7 @@ function toNormalizedDomain(urlStr) {
 }
 
 // Seed a single company to Cosmos companies container
-async function seedCompanyToCosmos({ company, sessionId, container }) {
+async function seedCompanyToCosmos({ company, sessionId, container, fieldsToEnrich }) {
   if (!container || !company) return { ok: false, error: "missing_args" };
 
   const companyName = String(company.company_name || company.name || "").trim();
@@ -79,16 +79,13 @@ async function seedCompanyToCosmos({ company, sessionId, container }) {
     source: "import-one",
     source_stage: "seed",
 
-    // Fields that need enrichment
-    import_missing_fields: [
-      "industries",
-      "product_keywords",
-      "headquarters_location",
-      "manufacturing_locations",
-      "reviews",
-      "logo_url",
-      "tagline",
-    ],
+    // Fields that need enrichment — filtered by user selection if provided
+    import_missing_fields: (() => {
+      const allFields = ["industries", "product_keywords", "headquarters_location", "manufacturing_locations", "reviews", "logo_url", "tagline"];
+      return Array.isArray(fieldsToEnrich)
+        ? allFields.filter((f) => fieldsToEnrich.includes(f))
+        : allFields;
+    })(),
 
     // Timestamps
     created_at: nowIso,
@@ -295,6 +292,12 @@ async function handleImportOne(req, context) {
     if (!body || typeof body !== "object") {
       return json({ ok: false, error: { message: "Invalid request body", code: "invalid_body" }, build_id: BUILD_STAMP }, 400);
     }
+
+    // Parse optional field selection — when provided, only these fields are enriched.
+    const rawFieldsToEnrich = Array.isArray(body.fields_to_enrich) ? body.fields_to_enrich : undefined;
+    const fieldsToEnrich = rawFieldsToEnrich
+      ? rawFieldsToEnrich.map((f) => String(f || "").trim()).filter(Boolean)
+      : undefined;
 
     const url = String(body.url || "").trim();
     if (!url || !looksLikeUrl(url)) {
@@ -578,7 +581,7 @@ async function handleImportOne(req, context) {
             });
 
             for (const company of companiesFromJob.slice(0, 5)) {
-              const seedResult = await seedCompanyToCosmos({ company, sessionId, container });
+              const seedResult = await seedCompanyToCosmos({ company, sessionId, container, fieldsToEnrich });
               if (seedResult.ok) {
                 seededCompanyIds.push(seedResult.company_id);
                 console.log("[import-one] company_seeded", {
@@ -601,17 +604,18 @@ async function handleImportOne(req, context) {
               const nowIso = new Date().toISOString();
 
               // Create the missing_by_company array that resume-worker needs
+              // Respect user field selection if provided
+              // Resume-worker uses "logo" (not "logo_url"), so normalize the user selection
+              const allResumeFields = ["industries", "tagline", "product_keywords", "headquarters_location", "manufacturing_locations", "logo", "reviews"];
+              const normalizedFields = Array.isArray(fieldsToEnrich)
+                ? fieldsToEnrich.map((f) => f === "logo_url" ? "logo" : f)
+                : null;
+              const effectiveResumeFields = normalizedFields
+                ? allResumeFields.filter((f) => normalizedFields.includes(f))
+                : allResumeFields;
               const missingByCompany = seededCompanyIds.map((company_id) => ({
                 company_id,
-                missing_fields: [
-                  "industries",
-                  "tagline",
-                  "product_keywords",
-                  "headquarters_location",
-                  "manufacturing_locations",
-                  "logo",
-                  "reviews",
-                ],
+                missing_fields: effectiveResumeFields,
               }));
 
               try {
@@ -655,6 +659,7 @@ async function handleImportOne(req, context) {
                   doc_created: true,
                   saved_company_ids: seededCompanyIds,
                   missing_by_company: missingByCompany,
+                  fields_to_enrich: fieldsToEnrich,  // persisted so resume-worker respects user selection
                   cycle_count: 0,
                   attempt: 0,
                 };

@@ -27,6 +27,7 @@ async function processQueueMessage(message, context) {
   const jobId = asString(message?.job_id).trim();
   const url = asString(message?.url).trim();
   const batchId = asString(message?.batch_id).trim();
+  const fieldsToEnrich = Array.isArray(message?.fields_to_enrich) ? message.fields_to_enrich : undefined;
   const invocationId = context?.invocationId || "unknown";
 
   if (!jobId) {
@@ -72,6 +73,7 @@ async function processQueueMessage(message, context) {
         source: "bulk_import",
         bulk_import_job_id: jobId,
         bulk_import_batch_id: batchId,
+        fields_to_enrich: fieldsToEnrich,
       },
       json: async () => ({
         query: url,
@@ -80,6 +82,7 @@ async function processQueueMessage(message, context) {
         source: "bulk_import",
         bulk_import_job_id: jobId,
         bulk_import_batch_id: batchId,
+        fields_to_enrich: fieldsToEnrich,
       }),
       query: {},
       __in_process: true, // Trust as internal call

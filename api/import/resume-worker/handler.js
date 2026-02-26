@@ -1823,7 +1823,7 @@ async function resumeWorkerHandler(req, context) {
   // Mandatory ordered enrichment pass for required fields.
   // Resume-worker is authoritative; status must never orchestrate.
   {
-    const ENRICH_FIELDS = [
+    const ALL_ENRICH_FIELDS = [
       "tagline",
       "headquarters_location",
       "manufacturing_locations",
@@ -1832,6 +1832,16 @@ async function resumeWorkerHandler(req, context) {
       "logo",       // Added before reviews - lighter field that should run before heavy reviews
       "reviews",
     ];
+
+    // Respect user field selection from the resume doc (set by import-start or import-one).
+    // The UI sends "logo_url" but the resume-worker uses "logo" internally — normalize.
+    const userFieldsToEnrich = Array.isArray(resumeDoc?.fields_to_enrich) ? resumeDoc.fields_to_enrich : null;
+    const normalizedUserFields = userFieldsToEnrich
+      ? userFieldsToEnrich.map((f) => f === "logo_url" ? "logo" : f)
+      : null;
+    const ENRICH_FIELDS = normalizedUserFields
+      ? ALL_ENRICH_FIELDS.filter((f) => normalizedUserFields.includes(f))
+      : ALL_ENRICH_FIELDS;
 
     // Minimum time budgets per field - realistic values based on actual xAI response times.
     // xAI API calls typically complete within 10-60 seconds.

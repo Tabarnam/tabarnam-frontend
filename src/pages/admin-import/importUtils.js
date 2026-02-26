@@ -351,6 +351,21 @@ export const ENRICH_FIELD_TO_DISPLAY = Object.freeze({
   reviews: "Searching for reviews",
 });
 
+// Enrichment field options for the field selection UI in admin import.
+// cost tiers: "low" (shared in Call 1, minimal search), "medium" (moderate browsing),
+// "high" (heavy browsing + retry rounds), "highest" (dedicated xAI call)
+export const ENRICH_FIELDS_OPTIONS = Object.freeze([
+  { key: "tagline",                 label: "Tagline",                 cost: "low"     },
+  { key: "headquarters_location",   label: "Headquarters",            cost: "high"    },
+  { key: "manufacturing_locations", label: "Manufacturing locations", cost: "high"    },
+  { key: "industries",              label: "Industries",              cost: "low"     },
+  { key: "product_keywords",        label: "Product keywords",        cost: "high"    },
+  { key: "reviews",                 label: "Reviews",                 cost: "highest" },
+  { key: "logo_url",                label: "Logo",                    cost: "medium"  },
+]);
+
+export const ALL_ENRICH_FIELD_KEYS = ENRICH_FIELDS_OPTIONS.map((f) => f.key);
+
 export function humanizeImportCode(raw) {
   const input = asString(raw).trim();
   if (!input) return "";

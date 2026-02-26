@@ -834,6 +834,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   companyDomainMap,
   reason,
   cosmosEnabled,
+  fieldsToEnrich,
 }) {
   if (!cosmosEnabled) return { queued: false, invoked: false, invocation_mode: null };
 
@@ -915,9 +916,14 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     // Dedup check failure is non-fatal; proceed with enrichment.
   }
 
+  // Filter enrichment fields to user selection (if provided)
+  const effectiveEnrichFields = Array.isArray(fieldsToEnrich)
+    ? MANDATORY_ENRICH_FIELDS.filter((f) => fieldsToEnrich.includes(f))
+    : [...MANDATORY_ENRICH_FIELDS];
+
   const missing_by_company = ids.map((company_id) => ({
     company_id,
-    missing_fields: [...MANDATORY_ENRICH_FIELDS],
+    missing_fields: effectiveEnrichFields,
   }));
 
   // Update resume doc with full enrichment metadata (enriches the early lock doc).
@@ -925,11 +931,12 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   // value (defaults to 0 when no doc exists). Resetting to 0 here caused a race
   // condition where the resume worker's incremented counter was overwritten,
   // preventing MAX_RESUME_CYCLES from ever triggering.
-  console.log(`[import-start] upsertResumeDoc for session=${sessionId}: cycle_count preserved (not reset to 0)`);
+  console.log(`[import-start] upsertResumeDoc for session=${sessionId}: cycle_count preserved (not reset to 0), fields_to_enrich=${fieldsToEnrich ? JSON.stringify(fieldsToEnrich) : "all"}`);
   await upsertResumeDoc({
     session_id: sessionId,
     status: "in_progress",
     missing_by_company,
+    fields_to_enrich: fieldsToEnrich,  // persisted so resume-worker respects user selection
     created_at: now,
     updated_at: now,
     enrichment_started_at: now,
@@ -1047,7 +1054,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
         company: companyDoc,
         sessionId,
         budgetMs: ENRICHMENT_BUDGET_MS,
-        fieldsToEnrich: [...ALL_CORE_FIELDS],
+        fieldsToEnrich: effectiveEnrichFields,
         // Save Phase 1+2 results to Cosmos immediately after verification so
         // the resume-worker sees populated fields even if Azure DrainMode kills
         // Phase 3 (review deepening). Without this, a DrainMode event loses all

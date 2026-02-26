@@ -803,6 +803,14 @@ const importStartHandlerInner = async (req, context) => {
       bodyObj.queryType = normalizedQueryType;
       bodyObj.queryTypes = queryTypes.length > 0 ? queryTypes : [normalizedQueryType];
 
+      // Parse optional field selection — when provided, only these fields are enriched.
+      // Omitted or empty → all fields (backward compatible).
+      const rawFieldsToEnrich = Array.isArray(bodyObj.fields_to_enrich) ? bodyObj.fields_to_enrich : undefined;
+      const fieldsToEnrich = rawFieldsToEnrich
+        ? rawFieldsToEnrich.map((f) => String(f || "").trim()).filter(Boolean)
+        : undefined;
+      bodyObj.fields_to_enrich = fieldsToEnrich;
+
       const existingRequestId = String(bodyObj.request_id || bodyObj.requestId || "").trim();
       bodyObj.request_id = existingRequestId || requestId;
       bodyObj.requestId = bodyObj.request_id;
@@ -3225,6 +3233,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 companyDomainMap: seedDomainMap,
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
+                fieldsToEnrich,
               }).catch((err) => {
                 console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
                 return { queued: false, invoked: false, error: err?.message };
@@ -5472,6 +5481,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   companyDomainMap: mainDomainMap,
                   reason: "seed_complete_auto_enrich",
                   cosmosEnabled,
+                  fieldsToEnrich,
                 }).catch((enrichErr) => {
                   console.error(`[import-start] async enrichment failed: ${enrichErr?.message || enrichErr}`);
                 });
@@ -5511,6 +5521,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 companyDomainMap: mainDomainMap,
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
+                fieldsToEnrich,
               }).catch((err) => {
                 console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
                 return { queued: false, invoked: false, error: err?.message };
@@ -5554,11 +5565,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                         : null;
                       if (!doc) continue;
 
+                      const effectiveFieldsInline = Array.isArray(fieldsToEnrich)
+                        ? MANDATORY_ENRICH_FIELDS.filter((f) => fieldsToEnrich.includes(f))
+                        : [...MANDATORY_ENRICH_FIELDS];
                       const enrichResult = await runDirectEnrichment({
                         company: doc,
                         sessionId,
                         budgetMs: 240000,
-                        fieldsToEnrich: [...MANDATORY_ENRICH_FIELDS],
+                        fieldsToEnrich: effectiveFieldsInline,
                       });
 
                       if (enrichResult?.enriched && Object.keys(enrichResult.enriched).length > 0) {
@@ -6484,6 +6498,7 @@ Return ONLY the JSON array, no other text.`,
                   companyDomainMap: lateDomainMap,
                   reason: "seed_complete_auto_enrich",
                   cosmosEnabled,
+                  fieldsToEnrich,
                 }).catch((err) => {
                   console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
                   return { queued: false, invoked: false, error: err?.message };

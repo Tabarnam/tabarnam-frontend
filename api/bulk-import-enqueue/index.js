@@ -145,6 +145,12 @@ async function handler(context, req) {
     const requestedBy = asString(body.requested_by).trim() || "admin_ui";
     const enqueuedAt = nowIso();
 
+    // Optional field selection — passed through queue messages to worker → import-start
+    const rawFieldsToEnrich = Array.isArray(body.fields_to_enrich) ? body.fields_to_enrich : undefined;
+    const fieldsToEnrich = rawFieldsToEnrich
+      ? rawFieldsToEnrich.map((f) => String(f || "").trim()).filter(Boolean)
+      : undefined;
+
     // Create job records
     const jobs = validUrls.map((v, idx) => ({
       job_id: uuidv4(),
@@ -183,6 +189,7 @@ async function handler(context, req) {
         requested_by: requestedBy,
         enqueued_at: enqueuedAt,
         run_after_ms: 0, // Immediate visibility
+        fields_to_enrich: fieldsToEnrich,
       });
       queueResults.push({
         job_id: job.job_id,

@@ -55,6 +55,8 @@ import {
   STAGE_BEACON_PROGRESS_OR_SUCCESS,
   IMPORT_ERROR_CODE_TO_REASON,
   ENRICH_FIELD_TO_DISPLAY,
+  ENRICH_FIELDS_OPTIONS,
+  ALL_ENRICH_FIELD_KEYS,
   humanizeImportCode,
   toEnglishImportStage,
   toEnglishImportStopReason,
@@ -97,6 +99,7 @@ export default function AdminImport() {
   const [query, setQuery] = useState("");
   const [companyUrl, setCompanyUrl] = useState("");
   const [queryTypes, setQueryTypes] = useState(["product_keyword"]);
+  const [enrichFields, setEnrichFields] = useState([...ALL_ENRICH_FIELD_KEYS]);
   const [location, setLocation] = useState("");
 
   // Succession import state
@@ -1735,6 +1738,7 @@ export default function AdminImport() {
         limit: normalizedLimit,
         expand_if_few: true,
         dry_run: dryRun,
+        fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
       };
 
       // Pre-warm: fire a lightweight request to wake up the Function App before the heavy import.
@@ -3174,7 +3178,10 @@ export default function AdminImport() {
       const res = await apiFetch("/import-one", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({
+          url,
+          fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
+        }),
       });
 
       const body = await readJsonOrText(res);
@@ -3473,7 +3480,10 @@ export default function AdminImport() {
       const res = await fetch(`${API_BASE}/bulk-import/enqueue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls }),
+        body: JSON.stringify({
+          urls,
+          fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
+        }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -3734,6 +3744,72 @@ export default function AdminImport() {
               ) : (
                 <div className="text-xs text-slate-600 dark:text-muted-foreground">If you provide a location, results that match it are ranked higher.</div>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Fields to enrich</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {ENRICH_FIELDS_OPTIONS.map((opt) => {
+                  const costColor =
+                    opt.cost === "highest" ? "text-red-500" :
+                    opt.cost === "high" ? "text-orange-500" :
+                    opt.cost === "medium" ? "text-yellow-500" :
+                    "text-emerald-500";
+                  const costDots =
+                    opt.cost === "highest" ? 4 :
+                    opt.cost === "high" ? 3 :
+                    opt.cost === "medium" ? 2 : 1;
+                  return (
+                    <label
+                      key={opt.key}
+                      className="flex items-center gap-2 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-sm text-slate-800 dark:text-foreground"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={enrichFields.includes(opt.key)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEnrichFields((prev) => {
+                            const list = Array.isArray(prev) ? prev : [];
+                            if (checked) return Array.from(new Set([...list, opt.key]));
+                            const next = list.filter((v) => v !== opt.key);
+                            return next.length > 0 ? next : [opt.key]; // prevent empty
+                          });
+                        }}
+                      />
+                      <span className="flex-1">{opt.label}</span>
+                      <span className={`${costColor} text-xs leading-none`} title={`xAI cost: ${opt.cost}`}>
+                        {"●".repeat(costDots)}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-muted-foreground">
+                <button
+                  type="button"
+                  className="underline hover:text-slate-700 dark:hover:text-foreground"
+                  onClick={() => setEnrichFields([...ALL_ENRICH_FIELD_KEYS])}
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  className="underline hover:text-slate-700 dark:hover:text-foreground"
+                  onClick={() => setEnrichFields((prev) => {
+                    const without = prev.filter((k) => k !== "reviews");
+                    return without.length > 0 ? without : prev;
+                  })}
+                >
+                  Deselect reviews
+                </button>
+                <span className="ml-auto flex items-center gap-1.5">
+                  <span className="text-emerald-500">●</span>low
+                  <span className="text-yellow-500">●●</span>med
+                  <span className="text-orange-500">●●●</span>high
+                  <span className="text-red-500">●●●●</span>highest
+                </span>
+              </div>
             </div>
 
             <details className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
