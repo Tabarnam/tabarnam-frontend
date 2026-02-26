@@ -63,6 +63,31 @@ function normalizeHeaderKey(key) {
   return asString(key).trim().toLowerCase();
 }
 
+/**
+ * Extract Retry-After header value as milliseconds.
+ * xAI sends this as seconds on 429 responses.
+ * Returns 0 if not present or invalid.
+ */
+function pickRetryAfterMs(headers) {
+  if (!headers) return 0;
+  try {
+    let raw = null;
+    if (typeof headers.get === "function") {
+      raw = headers.get("retry-after");
+    } else if (headers && typeof headers === "object") {
+      const entries = Object.entries(headers);
+      const hit = entries.find(([k]) => normalizeHeaderKey(k) === "retry-after");
+      if (hit) raw = hit[1];
+    }
+    if (raw == null) return 0;
+    const secs = Number(raw);
+    if (Number.isFinite(secs) && secs > 0) return Math.min(Math.ceil(secs * 1000), 120_000);
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
 function pickUpstreamRequestId(headers) {
   if (!headers) return null;
 
@@ -376,6 +401,7 @@ async function xaiLiveSearch({
             abort_timer_fired: abortTimerFired,
             upstream_http_status: Number(res.status || 0) || 0,
             upstream_request_id: upstreamRequestId,
+            retry_after_ms: pickRetryAfterMs(res.headers),
           },
         };
       }
@@ -431,6 +457,7 @@ async function xaiLiveSearch({
           abort_timer_fired: abortTimerFired,
           upstream_http_status: status,
           upstream_request_id: upstreamRequestId,
+          retry_after_ms: pickRetryAfterMs(resp?.headers),
         },
       };
     }

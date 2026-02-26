@@ -258,14 +258,77 @@ function isRetryableUpstreamFailure(result) {
   return false;
 }
 
-async function xaiLiveSearchWithRetry({ maxAttempts = 2, baseBackoffMs = 350, ...args } = {}) {
+/**
+ * Check if a failure is specifically a 429 rate limit (not a timeout or 5xx).
+ * 429s are instant rejections (<200ms) — retrying with a short backoff is cheap
+ * and usually sufficient, unlike timeouts which burn 2-4 minutes each.
+ */
+function is429RateLimit(result) {
+  if (!result || typeof result !== "object") return false;
+  const http = Number(result?.diagnostics?.upstream_http_status || 0) || 0;
+  if (http === 429) return true;
+  const err = String(result.error || "").toLowerCase();
+  return err === "upstream_http_429";
+}
+
+/**
+ * Extract Retry-After value from xaiLiveSearch diagnostics (set by _xaiLiveSearch.js).
+ * Returns milliseconds to wait, or 0 if not available.
+ */
+function extractRetryAfterMs(result) {
+  if (!result || typeof result !== "object") return 0;
+  const ms = Number(result?.diagnostics?.retry_after_ms || 0) || 0;
+  return ms > 0 ? Math.min(ms, 120_000) : 0;
+}
+
+/**
+ * xAI live search with retry logic.
+ *
+ * Two independent retry mechanisms:
+ *
+ * 1. **Normal retries** (controlled by `maxAttempts`): For general retryable failures
+ *    (timeouts, 5xx). Callers set maxAttempts=1 to avoid doubling multi-minute waits.
+ *
+ * 2. **429 rate-limit retries** (controlled by `max429Retries`): Automatic retries
+ *    with exponential backoff specifically for HTTP 429. These are independent of
+ *    maxAttempts because 429s are instant rejections (<200ms) — waiting 5-15s and
+ *    retrying is cheap and almost always succeeds. Without this, a single rate-limit
+ *    spike causes complete enrichment failure ("No fields could be enriched").
+ */
+async function xaiLiveSearchWithRetry({
+  maxAttempts = 2,
+  baseBackoffMs = 350,
+  max429Retries = 4,
+  base429BackoffMs = 5000,
+  ...args
+} = {}) {
   const attempts = Math.max(1, Math.min(3, Math.trunc(Number(maxAttempts) || 2)));
+  const maxRlRetries = Math.max(0, Math.min(6, Math.trunc(Number(max429Retries) || 4)));
 
   let last = null;
+  let rlRetriesUsed = 0;
+
   for (let i = 0; i < attempts; i += 1) {
     last = await xaiLiveSearch({ ...args, attempt: i });
     if (last && last.ok) return last;
 
+    // ── 429 rate-limit: automatically retry with exponential backoff ──
+    // Unlike timeouts (which burn 2-4 min each), 429s are instant rejections.
+    // A 5-15s wait is cheap and usually sufficient for rate-limit recovery.
+    while (is429RateLimit(last) && rlRetriesUsed < maxRlRetries) {
+      rlRetriesUsed += 1;
+      const retryAfter = extractRetryAfterMs(last);
+      const backoff = retryAfter || Math.round(base429BackoffMs * Math.pow(1.5, rlRetriesUsed - 1));
+      console.log(
+        `[xaiLiveSearchWithRetry] 429 rate limit — waiting ${backoff}ms ` +
+        `(429-retry ${rlRetriesUsed}/${maxRlRetries})`
+      );
+      await sleepMs(backoff);
+      last = await xaiLiveSearch({ ...args, attempt: i });
+      if (last && last.ok) return last;
+    }
+
+    // Normal retry logic (for non-429 retryable failures like timeouts/5xx)
     if (i < attempts - 1 && isRetryableUpstreamFailure(last)) {
       await sleepMs(baseBackoffMs * Math.pow(2, i));
       continue;
