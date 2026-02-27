@@ -499,7 +499,6 @@ async function saveCompaniesToCosmos({
               company.website_url ||
                 company.canonical_url ||
                 company.url ||
-                company.amazon_url ||
                 company.normalized_domain ||
                 ""
             );
@@ -793,7 +792,6 @@ async function saveCompaniesToCosmos({
               red_flag_reason: company.red_flag_reason || "",
               location_confidence: company.location_confidence || "medium",
               social: company.social || {},
-              amazon_url: company.amazon_url || "",
               rating_icon_type: "star",
               reviews_star_value: reviewsStarState.next_value,
               reviews_star_source: reviewsStarState.next_source,

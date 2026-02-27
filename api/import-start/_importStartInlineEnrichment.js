@@ -319,14 +319,6 @@ async function tryUnifiedEnrichment(company, enrichCtx) {
       };
     }
 
-    if (typeof proposed.amazon_store_url === "string" && proposed.amazon_store_url.trim()) {
-      company.amazon_store_url = proposed.amazon_store_url.trim();
-      company.enrichment_debug.amazon_store_url = {
-        source: "unified",
-        stage_status: statuses.amazon_store_url || "ok",
-      };
-    }
-
     company.enrichment_method = ecf.method || "unified";
     company.last_enrichment_raw_response = ecf.raw_response || null;
     company.last_enrichment_at = new Date().toISOString();

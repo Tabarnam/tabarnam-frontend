@@ -316,17 +316,6 @@ FORMAT RULES:
     jsonSchema: `"logo_url": "https://..." | null`,
   },
 
-  amazonStoreUrl: {
-    rules: `- Use web_search: "[Company Name] site:amazon.com" and "[Company Name] Amazon store".
-- Browse the top results to find the company's official Amazon storefront or brand page.
-- Look for URLs matching https://www.amazon.com/stores/[BrandName]/... or https://www.amazon.com/[BrandName]/...
-- Verify the store page actually belongs to this company by checking the brand name matches.
-- If the company does not sell on Amazon or has no official store page, return "".
-- Do NOT return individual product listing URLs — only the store/brand landing page.
-- Verify the URL loads and belongs to this company before returning it.`,
-    jsonSchema: `"amazon_store_url": "https://www.amazon.com/stores/..." | ""`,
-  },
-
   contactInfo: {
     jsonSchema: `"company_contact_info": { "contact_page_url": "https://...", "contact_email": "name@example.com" }`,
   },

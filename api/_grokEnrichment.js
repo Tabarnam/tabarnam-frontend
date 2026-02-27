@@ -197,7 +197,7 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 // Call 1 (structured): all non-review fields in a single xAI call with full guidance.
 // Call 2 (reviews): curated reviews in a parallel xAI call with stricter disambiguation.
 const TWO_CALL_TIMEOUTS_MS = Object.freeze({
-  structured: { min: 120_000, max: 210_000 },  // 2-3.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo+amazon)
+  structured: { min: 120_000, max: 210_000 },  // 2-3.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo)
   reviews:    { min: 180_000, max: 360_000 },  // 3-6 min for Call 2 (curated reviews)
   retry:      { min: 60_000,  max: 150_000 },  // 1-2.5 min for retry of missing structured fields (2 retry rounds for locations)
 });
@@ -2483,9 +2483,6 @@ ${FIELD_GUIDANCE.keywords.rules}
 LOGO:
 ${FIELD_GUIDANCE.logo.rules}
 
-AMAZON STORE URL:
-${FIELD_GUIDANCE.amazonStoreUrl.rules}
-
 ${QUALITY_RULES}
 Return STRICT JSON only:
 {
@@ -2495,8 +2492,7 @@ Return STRICT JSON only:
   ${FIELD_GUIDANCE.industries.jsonSchema},
   ${FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness},
   ${FIELD_GUIDANCE.logo.jsonSchema},
-  "logo_source": "header" | "nav" | "footer" | "meta" | null,
-  ${FIELD_GUIDANCE.amazonStoreUrl.jsonSchema}
+  "logo_source": "header" | "nav" | "footer" | "meta" | null
 }`.trim();
 
   const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
@@ -2687,12 +2683,6 @@ function parseStructuredResponse(parsed) {
     }
   }
 
-  // Amazon store URL
-  const amazon_raw = asString(parsed.amazon_store_url || "").trim();
-  const amazon_url = amazon_raw && !isSentinelOrPlaceholder(amazon_raw) ? safeUrl(amazon_raw) : null;
-  parsed_fields.amazon_store_url = amazon_url;
-  field_statuses.amazon_store_url = amazon_url ? "ok" : "empty";
-
   // Extract location source URLs for audit trail
   if (parsed.location_source_urls && typeof parsed.location_source_urls === "object") {
     parsed_fields.location_source_urls = parsed.location_source_urls;
@@ -2756,10 +2746,6 @@ async function retryMissingStructuredFields({
       case "logo_url":
         sections.push(`LOGO:\n${FIELD_GUIDANCE.logo.rules}`);
         jsonParts.push(`${FIELD_GUIDANCE.logo.jsonSchema}, "logo_source": "header" | "nav" | "footer" | "meta" | null`);
-        break;
-      case "amazon_store_url":
-        sections.push(`AMAZON STORE URL:\n${FIELD_GUIDANCE.amazonStoreUrl.rules}`);
-        jsonParts.push(FIELD_GUIDANCE.amazonStoreUrl.jsonSchema);
         break;
     }
   }
@@ -3064,7 +3050,6 @@ function findMissingFields(fields) {
   if (!Array.isArray(fields.product_keywords) || fields.product_keywords.length === 0) missing.push("keywords");
   if (!Array.isArray(fields.reviews) || fields.reviews.length === 0) missing.push("reviews");
   if (!fields.logo_url) missing.push("logo_url");
-  if (!fields.amazon_store_url) missing.push("amazon_store_url");
   return missing;
 }
 
@@ -3242,7 +3227,7 @@ async function enrichCompanyFields({
     tagline: "tagline", headquarters: "headquarters_location",
     manufacturing: "manufacturing_locations", industries: "industries",
     keywords: "product_keywords", reviews: "reviews",
-    logo_url: "logo_url", amazon_store_url: "amazon_store_url",
+    logo_url: "logo_url",
   };
   const LONG_TO_SHORT = {};
   for (const [short, long] of Object.entries(FIELD_SHORT_TO_LONG)) LONG_TO_SHORT[long] = short;
