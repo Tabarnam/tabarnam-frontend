@@ -1044,6 +1044,9 @@ function buildSearchWhereClause(variantClauses = []) {
   const clauses = [
     sqlContainsStringCompact("c.company_name"),
     sqlContainsStringCompact("c.name"),
+    sqlContainsStringCompact("c.display_name"),
+    sqlContainsString("c.search_text_norm"),
+    sqlContainsStringCompact("c.search_text_compact"),
     sqlContainsStringCompact("c.company_id"),
     sqlContainsStringCompact("c.id"),
     sqlContainsStringCompact("c.normalized_domain"),
