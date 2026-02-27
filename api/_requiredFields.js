@@ -743,6 +743,8 @@ function isTerminalMissingReason(reason) {
     "exhausted",
     "low_quality_terminal",
     "not_found_terminal",
+    "no_synthesis",     // Grok searched but produced no reviews text — definitively empty
+    "empty",            // Grok explicitly found no reviews — definitively empty
   ]).has(normalizeKey(reason));
 }
 
@@ -772,6 +774,14 @@ function deriveMissingReason(doc, field) {
   }
 
   if (f === "reviews") {
+    // Check for definitive-empty reason first — these are terminal immediately
+    const directReviewReason = normalizeKey(
+      (d.import_missing_reason && typeof d.import_missing_reason === "object" ? d.import_missing_reason.reviews : "") || ""
+    );
+    if (directReviewReason === "no_synthesis" || directReviewReason === "empty") {
+      return directReviewReason; // terminal via isTerminalMissingReason
+    }
+
     const stage = normalizeKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
     const cursorExhausted = Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true);
     if (stage === "exhausted" || cursorExhausted) {

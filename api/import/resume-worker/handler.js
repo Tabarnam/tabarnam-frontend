@@ -652,7 +652,9 @@ function reconcileGrokTerminalState(doc) {
       : 0;
     if (verifiedReviewCount === 0) {
       const attempts = attemptsFor(doc, "reviews");
-      if (attempts < MAX_ATTEMPTS_REVIEWS) {
+      const reason = normalizeKey(doc?.import_missing_reason?.reviews || "");
+      const definitivelyEmptyReviews = reason === "no_synthesis" || reason === "empty";
+      if (attempts < MAX_ATTEMPTS_REVIEWS && !definitivelyEmptyReviews) {
         const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
         cursor.exhausted = false;
         delete cursor.exhausted_at;
@@ -2342,6 +2344,7 @@ async function resumeWorkerHandler(req, context) {
           console.log(`[resume-worker] logo_fetch_start`, { session_id: sessionId, company_id: companyId, budget_ms: budgetRemainingMs() });
 
           let logoStatus = "not_found";
+          const priorLogoUrls = Array.isArray(doc.logo_attempted_urls) ? doc.logo_attempted_urls : [];
           try {
             const logoBudgetMs = Math.min(30_000, budgetRemainingMs() - 5_000);
             const logoResult = await importCompanyLogo({
@@ -2350,7 +2353,14 @@ async function resumeWorkerHandler(req, context) {
               websiteUrl: doc.website_url || doc.url,
               companyName: companyName,
               logoSourceUrl: null,
+              attemptedUrls: priorLogoUrls,
             }, console, { budgetMs: logoBudgetMs });
+
+            // Merge new attempted URLs for cross-cycle deduplication
+            const newLogoUrls = Array.isArray(logoResult?.logo_telemetry?.attempted_urls) ? logoResult.logo_telemetry.attempted_urls : [];
+            if (newLogoUrls.length > 0) {
+              doc.logo_attempted_urls = [...new Set([...priorLogoUrls, ...newLogoUrls])];
+            }
 
             if (logoResult?.logo_url) {
               doc.logo_url = logoResult.logo_url;
@@ -3625,7 +3635,11 @@ async function resumeWorkerHandler(req, context) {
         markFieldSuccess(doc, "reviews");
         changed = true;
       } else {
-        const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
+        const definitivelyEmpty = (status === "no_synthesis" || status === "empty") && curated.length === 0;
+        const terminal = definitivelyEmpty || attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
+        if (definitivelyEmpty) {
+          console.log(`[resume-worker] reviews_definitively_empty: status=${status}, company=${doc.id || companyId}, terminalizing immediately`);
+        }
 
         // Persist partial results if we got any (e.g., status=incomplete).
         if (curated.length > 0) {
@@ -3644,7 +3658,11 @@ async function resumeWorkerHandler(req, context) {
         doc.reviews_stage_status = "incomplete";
         doc.review_cursor.reviews_stage_status = "incomplete";
         doc.import_missing_reason ||= {};
-        doc.import_missing_reason.reviews = terminal ? "exhausted" : upstreamFailure ? status : "incomplete";
+        doc.import_missing_reason.reviews = definitivelyEmpty
+          ? status // preserves "no_synthesis" or "empty" — terminal via isTerminalMissingReason
+          : terminal ? "exhausted"
+          : upstreamFailure ? status
+          : "incomplete";
 
         doc.review_cursor.incomplete_reason = incompleteReason;
         // Merge new attempted URLs with prior ones for cross-attempt tracking
@@ -3694,7 +3712,7 @@ async function resumeWorkerHandler(req, context) {
         }
 
         if (terminal) {
-          terminalizeGrokField(doc, "reviews", "exhausted");
+          terminalizeGrokField(doc, "reviews", definitivelyEmpty ? status : "exhausted");
         }
 
         changed = true;

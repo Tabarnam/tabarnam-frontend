@@ -1006,6 +1006,7 @@ async function handler(req, context) {
           resume_gateway_key_attached, resume_trigger_request_id,
           canTrigger: !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil),
           saved_company_ids_verified, saved_verified_count,
+          sessionStageBeacon: typeof sessionDoc !== "undefined" && sessionDoc ? String(sessionDoc.stage_beacon || "").trim() : "",
         };
 
         await runBlockedStateAutoRetry(resumeCtx, { currentResume, resumeDoc });
@@ -2058,6 +2059,7 @@ async function handler(req, context) {
           resume_gateway_key_attached, resume_trigger_request_id,
           canTrigger: !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil),
           saved_company_ids_verified, saved_verified_count,
+          sessionStageBeacon: typeof sessionDoc !== "undefined" && sessionDoc ? String(sessionDoc.stage_beacon || "").trim() : "",
         };
 
         await runBlockedStateAutoRetry(resumeCtx, { currentResume, resumeDoc });

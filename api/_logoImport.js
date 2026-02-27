@@ -2012,7 +2012,7 @@ function sortCandidatesStrict(a, b) {
   return (Number(b?.score) || 0) - (Number(a?.score) || 0);
 }
 
-async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, logoSourceUrl }, logger = console, options = {}) {
+async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, logoSourceUrl, attemptedUrls }, logger = console, options = {}) {
   // Early exit if sharp is unavailable
   if (!sharp) {
     logger?.warn?.(`[logoImport] Sharp module unavailable (${sharpLoadError}). Skipping logo processing.`);
@@ -2062,6 +2062,7 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
     } catch {
       telemetry.elapsed_ms = telemetry.elapsed_ms || 0;
     }
+    telemetry.attempted_urls = allAttemptedLogoUrls;
     return telemetry;
   };
 
@@ -2069,6 +2070,12 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
     const key = String(reason || "unknown").slice(0, 120);
     telemetry.rejection_reasons[key] = (telemetry.rejection_reasons[key] || 0) + 1;
   };
+
+  // Cross-cycle deduplication: skip candidates already evaluated in prior import cycles
+  const skipLogoUrls = new Set(
+    (Array.isArray(attemptedUrls) ? attemptedUrls : []).map((u) => String(u || "").toLowerCase().replace(/\/$/, ""))
+  );
+  const allAttemptedLogoUrls = [];
 
   if (!companyId) {
     return {
@@ -2193,6 +2200,15 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
 
     for (let i = 0; i < limit; i += 1) {
       const candidate = tierCandidates[i];
+      const candidateNorm = String(candidate?.url || "").toLowerCase().replace(/\/$/, "");
+
+      // Skip candidates already evaluated in prior import cycles
+      if (candidateNorm && skipLogoUrls.has(candidateNorm)) {
+        tierTelemetry.skipped_prior = (tierTelemetry.skipped_prior || 0) + 1;
+        continue;
+      }
+
+      allAttemptedLogoUrls.push(String(candidate?.url || ""));
 
       if (isBudgetExhausted(budget, { minRemainingMs: 1200 })) {
         telemetry.time_budget_exhausted = true;

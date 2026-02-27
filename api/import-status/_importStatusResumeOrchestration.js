@@ -502,6 +502,17 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
   if (STATUS_NO_ORCHESTRATION) return;
   if (!ctx.canTrigger) return;
 
+  // Guard: don't fire resume-worker before seed is saved — it would be a wasted invocation.
+  // The queue message after seed_save will trigger the worker at the right time.
+  const beacon = String(ctx.sessionStageBeacon || "").toLowerCase();
+  const readyForResume = beacon.startsWith("seed_saved") ||
+    beacon === "enrichment_queued" || beacon === "enriching" || beacon === "enrichment_done" ||
+    beacon.startsWith("enrichment_") || beacon === "complete";
+  if (beacon && !readyForResume) {
+    ctx.stageBeaconValues.status_resume_trigger_skipped_premature = beacon;
+    return;
+  }
+
   const triggerable = ctx.resumeStatus === "queued" || ctx.resumeStatus === "blocked" || ctx.resumeStatus === "error" || ctx.resumeStatus === "stalled" || (ctx.forceResume && ctx.resumeStatus !== "running");
   if (!triggerable) return;
 

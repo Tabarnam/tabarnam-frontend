@@ -2841,10 +2841,19 @@ Return STRICT JSON only with the requested fields:
     result.parsed_fields.logo_source = logo_source;
   }
 
-  console.log(`[retryMissingStructuredFields] Success for "${name}": fields=[${missingFields.join(", ")}], statuses=${JSON.stringify(result.field_statuses)}, elapsed=${elapsedMs}ms`);
+  // Strip empty/falsy values so they don't get saved as "filled" and trigger another retry cycle
+  for (const [key, val] of Object.entries(result.parsed_fields)) {
+    if (val === "" || val === null || val === undefined ||
+        (Array.isArray(val) && val.length === 0)) {
+      delete result.parsed_fields[key];
+    }
+  }
+
+  const filledCount = Object.keys(result.parsed_fields).length;
+  console.log(`[retryMissingStructuredFields] ${filledCount > 0 ? "Success" : "Complete (all empty)"} for "${name}": fields=[${missingFields.join(", ")}], filled=${filledCount}, statuses=${JSON.stringify(result.field_statuses)}, elapsed=${elapsedMs}ms`);
 
   return {
-    ok: true,
+    ok: filledCount > 0,
     parsed_fields: result.parsed_fields,
     field_statuses: result.field_statuses,
     elapsed_ms: elapsedMs,
@@ -3365,10 +3374,17 @@ async function enrichCompanyFields({
       })
     : Promise.resolve(null);
 
-  const [structuredSettled, reviewsSettled] = await Promise.allSettled([
-    structuredPromise,
-    reviewsPromise,
-  ]);
+  const [structuredSettled, reviewsSettled] = await raceTimeout(
+    Promise.allSettled([structuredPromise, reviewsPromise]),
+    budgetMs + 10_000,
+    `enrichCompanyFields_two_call_split[${runId}]`
+  ).catch((e) => {
+    console.warn(`[enrichCompanyFields] Two-call split watchdog fired (${budgetMs + 10000}ms): ${e.message}, run=${runId}`);
+    return [
+      { status: "rejected", reason: e },
+      { status: "rejected", reason: e },
+    ];
+  });
 
   // ── Merge results ──
   const structured = structuredSettled.status === "fulfilled" ? structuredSettled.value : null;
@@ -3480,12 +3496,20 @@ async function enrichCompanyFields({
       break;
     }
 
+    const retryBudgetMs = Math.min(TWO_CALL_TIMEOUTS_MS.retry.max, getRemainingMs() - 5_000);
     console.log(`[enrichCompanyFields] Retry round ${retryRound}/${MAX_RETRY_ROUNDS} for missing fields: [${fieldsToRetry.join(", ")}], remaining=${getRemainingMs()}ms, run=${runId}`);
-    const retryResult = await retryMissingStructuredFields({
-      companyName, websiteUrl, normalizedDomain: domain,
-      missingFields: fieldsToRetry,
-      budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.retry.max, getRemainingMs() - 5_000),
-      xaiUrl, xaiKey,
+    const retryResult = await raceTimeout(
+      retryMissingStructuredFields({
+        companyName, websiteUrl, normalizedDomain: domain,
+        missingFields: fieldsToRetry,
+        budgetMs: retryBudgetMs,
+        xaiUrl, xaiKey,
+      }),
+      retryBudgetMs + 5_000,
+      `retryMissingStructuredFields_round${retryRound}[${runId}]`
+    ).catch((e) => {
+      console.warn(`[enrichCompanyFields] Retry round ${retryRound} watchdog fired: ${e.message}, run=${runId}`);
+      return { ok: false, parsed_fields: {}, field_statuses: {} };
     });
 
     if (retryResult?.ok && retryResult.parsed_fields) {
