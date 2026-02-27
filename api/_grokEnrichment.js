@@ -3462,9 +3462,15 @@ async function enrichCompanyFields({
     const missingStructured = findMissingFields(proposed).filter((f) => f !== "reviews");
     const filteredMissing = filterMissingByTarget(missingStructured);
 
-    // Round 2 only retries location fields that are still missing
+    // Round 1: retry all missing EXCEPT tagline when Grok explicitly returned empty
+    //          (it searched and found nothing — repeating the same prompt is futile).
+    //          Only retry tagline on timeout/error where the attempt was interrupted.
+    // Round 2: only retry location fields that are still missing.
     const fieldsToRetry = retryRound === 1
-      ? filteredMissing
+      ? filteredMissing.filter((f) => {
+          if (f === "tagline" && field_statuses.tagline === "empty") return false;
+          return true;
+        })
       : filteredMissing.filter((f) => LOCATION_FIELDS.includes(f));
 
     if (fieldsToRetry.length === 0 || getRemainingMs() <= 30_000) {

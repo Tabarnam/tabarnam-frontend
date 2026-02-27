@@ -193,7 +193,7 @@ const MAX_ATTEMPTS_LOCATION = envInt("MAX_ATTEMPTS_LOCATION", 3, { min: 1, max: 
 const MAX_ATTEMPTS_INDUSTRIES = envInt("MAX_ATTEMPTS_INDUSTRIES", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_TAGLINE = envInt("MAX_ATTEMPTS_TAGLINE", 1, { min: 1, max: 10 });
 const MAX_ATTEMPTS_KEYWORDS = envInt("MAX_ATTEMPTS_KEYWORDS", 3, { min: 1, max: 10 });
-const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 1, { min: 1, max: 10 });
+const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 3, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
@@ -2121,6 +2121,21 @@ async function resumeWorkerHandler(req, context) {
           progressRoot.enrichment_progress[companyId][f] = fp;
           return false;
         }
+        // Tagline retry cap: stop retrying after 2 failed attempts across cycles.
+        // Grok genuinely can't find a tagline for some companies — no point burning
+        // API time on repeated futile searches.
+        if (f === "tagline") {
+          const tfp = progressRoot.enrichment_progress[companyId][f] || {};
+          const taglineAttempts = tfp.total_attempts || 0;
+          const TAGLINE_MAX_CROSS_CYCLE_ATTEMPTS = 2;
+          if (taglineAttempts >= TAGLINE_MAX_CROSS_CYCLE_ATTEMPTS) {
+            tfp.status = "confirmed_empty";
+            tfp.last_error = `gave_up_after_${taglineAttempts}_attempts`;
+            progressRoot.enrichment_progress[companyId][f] = tfp;
+            console.log(`[resume-worker] tagline_gave_up company=${companyId}, attempts=${taglineAttempts}`);
+            return false;
+          }
+        }
         // Per-cycle idempotency
         const fp = progressRoot.enrichment_progress[companyId][f] || {};
         if (fp.last_cycle_attempted === cycleCount) {
@@ -2152,6 +2167,7 @@ async function resumeWorkerHandler(req, context) {
           bumpFieldAttempt(doc, f, requestId);
           const fp = progressRoot.enrichment_progress[companyId][f] || { attempts: 0, last_attempt_at: null, last_error: null, status: null, last_cycle_attempted: null };
           fp.attempts = (fp.attempts || 0) + 1;
+          fp.total_attempts = (fp.total_attempts || 0) + 1; // cross-cycle counter (survives cycle resets)
           fp.last_attempt_at = attemptAt;
           fp.last_error = null;
           fp.last_cycle_attempted = cycleCount;
@@ -4479,8 +4495,14 @@ async function resumeWorkerHandler(req, context) {
 
     // grokErrorSummary + derivedResult computed above (used for both resume + session heartbeat).
 
+    // Track consecutive no-work results for exponential backoff in import-status cooldown.
+    // Reset to 0 when worker does productive work; increment otherwise.
+    const prevConsecutiveNoWork = Number(sessionDoc.resume_worker_consecutive_no_work || 0);
+    const nextConsecutiveNoWork = did_work ? 0 : prevConsecutiveNoWork + 1;
+
     await upsertDoc(container, {
       ...sessionDoc,
+      resume_worker_consecutive_no_work: nextConsecutiveNoWork,
       resume_worker_upstream_calls_made: upstreamCallsMade,
       resume_worker_upstream_calls_made_this_run: upstreamCallsMadeThisRun,
       resume_worker_last_invoked_at: invokedAt,

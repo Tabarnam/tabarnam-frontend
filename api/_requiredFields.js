@@ -735,12 +735,14 @@ function computeEnrichmentHealth(company, { fieldsToEnrich } = {}) {
 function isTerminalMissingReason(reason) {
   // Terminal reasons are non-retryable, even if the field still counts as "missing" under the required-fields contract.
   // NOTE: "low_quality" stays retryable; status/resume-worker convert it to "low_quality_terminal" via attempt caps.
+  // NOTE: "not_found_on_site" removed — it only means the HTML scraper couldn't find a logo,
+  //       NOT that all options are exhausted.  The resume-worker's Grok fallback and
+  //       MAX_ATTEMPTS_LOGO cap (default 3) now govern logo retry termination.
   return new Set([
     "not_disclosed",
     "exhausted",
     "low_quality_terminal",
     "not_found_terminal",
-    "not_found_on_site",
   ]).has(normalizeKey(reason));
 }
 

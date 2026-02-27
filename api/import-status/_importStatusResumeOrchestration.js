@@ -237,20 +237,31 @@ async function runWatchdogStuckDetection(ctx, opts) {
   } catch {}
 
   // Cooldown: prevent trigger spam when status is polled repeatedly.
+  // Uses exponential backoff: when the worker repeatedly returns did_work=false,
+  // the cooldown grows (30s → 60s → 120s → 240s → 480s max) to avoid
+  // hammering Cosmos with 50+ no-op reads per session.
   if (ctx.canTrigger && (ctx.resumeStatus === "queued" || ctx.resumeStatus === "blocked") && !ctx.forceResume) {
-    const cooldownMs = 15_000;
+    const BASE_COOLDOWN_MS = 30_000;
+    const MAX_COOLDOWN_MS = 480_000;
     let lastTriggeredTs = 0;
+    let consecutiveNoWork = 0;
 
     try {
       const sessionDocId = `_import_session_${ctx.sessionId}`;
       const sessionDocForTrigger = await readControlDoc(ctx.container, sessionDocId, ctx.sessionId).catch(() => null);
       lastTriggeredTs = Date.parse(String(sessionDocForTrigger?.resume_worker_last_triggered_at || "")) || 0;
+      consecutiveNoWork = Number(sessionDocForTrigger?.resume_worker_consecutive_no_work || 0);
     } catch {}
 
-    if (lastTriggeredTs && Date.now() - lastTriggeredTs < cooldownMs) {
+    const effectiveCooldownMs = Math.min(
+      BASE_COOLDOWN_MS * Math.pow(2, Math.min(consecutiveNoWork, 4)),
+      MAX_COOLDOWN_MS
+    );
+
+    if (lastTriggeredTs && Date.now() - lastTriggeredTs < effectiveCooldownMs) {
       ctx.canTrigger = false;
       ctx.stageBeaconValues.status_resume_trigger_cooldown = nowIso();
-      ctx.stageBeaconValues.status_resume_next_allowed_at = new Date(lastTriggeredTs + cooldownMs).toISOString();
+      ctx.stageBeaconValues.status_resume_next_allowed_at = new Date(lastTriggeredTs + effectiveCooldownMs).toISOString();
     }
   }
 

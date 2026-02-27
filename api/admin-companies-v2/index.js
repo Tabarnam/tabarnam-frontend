@@ -12,6 +12,7 @@ const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { computeEnrichmentHealth, isRealValue } = require("../_requiredFields");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
+const { expandBusinessAbbreviations } = require("../_searchSynonyms");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -175,6 +176,78 @@ function slugifyCompanyId(value) {
 
 function sqlContainsString(fieldExpr) {
   return `(IS_DEFINED(${fieldExpr}) AND IS_STRING(${fieldExpr}) AND CONTAINS(LOWER(${fieldExpr}), @q))`;
+}
+
+// Compact-aware: also matches with spaces stripped from both field and query.
+// "Bamboo Boxer Co." → "bambooboxerco" matches stored "Bambooboxerco" → "bambooboxerco".
+function sqlContainsStringCompact(fieldExpr) {
+  return `(IS_DEFINED(${fieldExpr}) AND IS_STRING(${fieldExpr}) AND (CONTAINS(LOWER(${fieldExpr}), @q) OR CONTAINS(REPLACE(LOWER(${fieldExpr}), " ", ""), @q_compact)))`;
+}
+
+/**
+ * Build additional search clauses for synonym expansion and per-word matching.
+ * Mirrors the frontend's buildVariantContainsClauses() approach.
+ *
+ * 1. Business abbreviation expansion (bidirectional):
+ *    "bamboo boxer co" → also search "bamboo boxer company"
+ *    "office solutions corporation" → also search "office solutions corp"
+ *
+ * 2. Per-word matching for multi-word queries:
+ *    "bamboo boxer co" → check "bamboo" and "boxer" individually
+ *    This finds "Bambooboxerco" because "bamboo" is contained in "bambooboxerco".
+ *
+ * @param {string} search - The raw lowercase search string
+ * @param {Array} params - Mutable params array to push new parameters into
+ * @returns {string[]} Array of SQL clause strings to be OR'd with base clauses
+ */
+function buildVariantSearchClauses(search, params) {
+  const extraClauses = [];
+
+  // Normalize: lowercase, normalize punctuation to spaces, strip remaining, collapse spaces
+  const q_norm = search
+    .replace(/[_\-.,/\\]+/g, " ")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!q_norm) return extraClauses;
+
+  // 1. Business abbreviation expansion (bidirectional)
+  const abbrevVariants = expandBusinessAbbreviations(q_norm);
+  abbrevVariants.forEach((variant, i) => {
+    if (variant === q_norm) return;
+    const paramName = `@q_v${i}`;
+    params.push({ name: paramName, value: variant });
+    // Check against pre-computed search_text_norm (same as frontend)
+    extraClauses.push(`(IS_DEFINED(c.search_text_norm) AND CONTAINS(c.search_text_norm, ${paramName}))`);
+    // Check raw company_name/name fields directly for broader coverage
+    extraClauses.push(`(IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), ${paramName}))`);
+    extraClauses.push(`(IS_DEFINED(c.name) AND IS_STRING(c.name) AND CONTAINS(LOWER(c.name), ${paramName}))`);
+    // Compact form for concatenated names (e.g., "bambooboxercompany")
+    const compact = variant.replace(/\s+/g, "");
+    if (compact !== variant) {
+      const cparam = `@q_vc${i}`;
+      params.push({ name: cparam, value: compact });
+      extraClauses.push(`(IS_DEFINED(c.search_text_compact) AND CONTAINS(c.search_text_compact, ${cparam}))`);
+      extraClauses.push(`(IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND CONTAINS(REPLACE(LOWER(c.company_name), " ", ""), ${cparam}))`);
+    }
+  });
+
+  // 2. Per-word matching for multi-word queries
+  //    "bamboo boxer co" → ["bamboo", "boxer"] (words >= 3 chars)
+  //    Each word checked individually against name fields
+  const words = q_norm.split(/\s+/).filter(w => w.length >= 3);
+  if (words.length >= 2) {
+    words.forEach((word, i) => {
+      const paramName = `@q_w${i}`;
+      params.push({ name: paramName, value: word });
+      extraClauses.push(`(IS_DEFINED(c.search_text_norm) AND CONTAINS(c.search_text_norm, ${paramName}))`);
+      extraClauses.push(`(IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), ${paramName}))`);
+      extraClauses.push(`(IS_DEFINED(c.name) AND IS_STRING(c.name) AND CONTAINS(LOWER(c.name), ${paramName}))`);
+    });
+  }
+
+  return extraClauses;
 }
 
 function isPlainObject(value) {
@@ -967,17 +1040,17 @@ function sqlContainsRatingNotes() {
   return `(IS_DEFINED(c.rating) AND IS_OBJECT(c.rating) AND (${clauses.join(" OR ")}))`;
 }
 
-function buildSearchWhereClause() {
+function buildSearchWhereClause(variantClauses = []) {
   const clauses = [
-    sqlContainsString("c.company_name"),
-    sqlContainsString("c.name"),
-    sqlContainsString("c.company_id"),
-    sqlContainsString("c.id"),
-    sqlContainsString("c.normalized_domain"),
-    sqlContainsString("c.website_url"),
-    sqlContainsString("c.url"),
-    sqlContainsString("c.canonical_url"),
-    sqlContainsString("c.website"),
+    sqlContainsStringCompact("c.company_name"),
+    sqlContainsStringCompact("c.name"),
+    sqlContainsStringCompact("c.company_id"),
+    sqlContainsStringCompact("c.id"),
+    sqlContainsStringCompact("c.normalized_domain"),
+    sqlContainsStringCompact("c.website_url"),
+    sqlContainsStringCompact("c.url"),
+    sqlContainsStringCompact("c.canonical_url"),
+    sqlContainsStringCompact("c.website"),
     sqlContainsStringOrArray("c.product_keywords"),
     sqlContainsStringOrArray("c.keywords"),
     `(
@@ -995,6 +1068,7 @@ function buildSearchWhereClause() {
     sqlContainsNotesArray("c.star_notes"),
     sqlContainsStructuredNotesArray("c.notes_entries"),
     sqlContainsRatingNotes(),
+    ...variantClauses,
   ];
 
   return `(${clauses.join(" OR ")})`;
@@ -1092,6 +1166,8 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         }
 
         const search = (req.query?.search || req.query?.q || "").toString().toLowerCase().trim();
+        // Compact form: strip spaces and punctuation so "Bamboo Boxer Co." matches "Bambooboxerco"
+        const searchCompact = search.replace(/[^a-z0-9]/g, "");
         const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
 
         const parameters = [{ name: "@take", value: take }];
@@ -1104,7 +1180,9 @@ async function adminCompaniesHandler(req, context, deps = {}) {
 
         if (search) {
           parameters.push({ name: "@q", value: search });
-          whereClauses.push(buildSearchWhereClause());
+          parameters.push({ name: "@q_compact", value: searchCompact });
+          const variantClauses = buildVariantSearchClauses(search, parameters);
+          whereClauses.push(buildSearchWhereClause(variantClauses));
         }
 
         const whereClause = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
