@@ -184,6 +184,16 @@ function sqlContainsStringCompact(fieldExpr) {
   return `(IS_DEFINED(${fieldExpr}) AND IS_STRING(${fieldExpr}) AND (CONTAINS(LOWER(${fieldExpr}), @q) OR CONTAINS(REPLACE(LOWER(${fieldExpr}), " ", ""), @q_compact)))`;
 }
 
+// Stopwords excluded from per-word matching to avoid matching nearly every record
+const SEARCH_STOPWORDS = new Set([
+  "the", "and", "for", "with", "from", "that", "this", "not", "are", "but",
+  "was", "all", "has", "her", "his", "how", "its", "may", "our", "out",
+  "she", "too", "use", "who", "you", "get", "had", "him", "own", "say",
+  "been", "each", "have", "into", "just", "like", "made", "make", "many",
+  "more", "most", "much", "must", "only", "some", "such", "than", "them",
+  "then", "they", "very", "well", "what", "when", "will", "your",
+]);
+
 /**
  * Build additional search clauses for synonym expansion and per-word matching.
  * Mirrors the frontend's buildVariantContainsClauses() approach.
@@ -192,9 +202,10 @@ function sqlContainsStringCompact(fieldExpr) {
  *    "bamboo boxer co" → also search "bamboo boxer company"
  *    "office solutions corporation" → also search "office solutions corp"
  *
- * 2. Per-word matching for multi-word queries:
- *    "bamboo boxer co" → check "bamboo" and "boxer" individually
- *    This finds "Bambooboxerco" because "bamboo" is contained in "bambooboxerco".
+ * 2. Per-word matching for multi-word queries (AND logic):
+ *    "mate the label" → filter stopwords → ["mate", "label"]
+ *    ALL remaining words must appear in search_text_norm for it to match.
+ *    Individual words also checked against name fields (OR — any word in a name is relevant).
  *
  * @param {string} search - The raw lowercase search string
  * @param {Array} params - Mutable params array to push new parameters into
@@ -220,9 +231,10 @@ function buildVariantSearchClauses(search, params) {
     params.push({ name: paramName, value: variant });
     // Check against pre-computed search_text_norm (same as frontend)
     extraClauses.push(`(IS_DEFINED(c.search_text_norm) AND CONTAINS(c.search_text_norm, ${paramName}))`);
-    // Check raw company_name/name fields directly for broader coverage
+    // Check raw company_name/name/display_name fields directly
     extraClauses.push(`(IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), ${paramName}))`);
     extraClauses.push(`(IS_DEFINED(c.name) AND IS_STRING(c.name) AND CONTAINS(LOWER(c.name), ${paramName}))`);
+    extraClauses.push(`(IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND CONTAINS(LOWER(c.display_name), ${paramName}))`);
     // Compact form for concatenated names (e.g., "bambooboxercompany")
     const compact = variant.replace(/\s+/g, "");
     if (compact !== variant) {
@@ -234,20 +246,97 @@ function buildVariantSearchClauses(search, params) {
   });
 
   // 2. Per-word matching for multi-word queries
-  //    "bamboo boxer co" → ["bamboo", "boxer"] (words >= 3 chars)
-  //    Each word checked individually against name fields
-  const words = q_norm.split(/\s+/).filter(w => w.length >= 3);
+  //    "mate the label" → filter stopwords → ["mate", "label"]
+  //    search_text_norm: ALL words must match (AND) to reduce false positives
+  //    name fields: each word checked individually (OR) for partial name matches
+  const words = q_norm.split(/\s+/).filter(w => w.length >= 3 && !SEARCH_STOPWORDS.has(w));
   if (words.length >= 2) {
+    // AND clause for search_text_norm: all content words must be present
+    const andParts = [];
     words.forEach((word, i) => {
       const paramName = `@q_w${i}`;
       params.push({ name: paramName, value: word });
-      extraClauses.push(`(IS_DEFINED(c.search_text_norm) AND CONTAINS(c.search_text_norm, ${paramName}))`);
+      andParts.push(`CONTAINS(c.search_text_norm, ${paramName})`);
+      // Individual word checks against name/display_name (OR — any word match is useful)
       extraClauses.push(`(IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), ${paramName}))`);
       extraClauses.push(`(IS_DEFINED(c.name) AND IS_STRING(c.name) AND CONTAINS(LOWER(c.name), ${paramName}))`);
+      extraClauses.push(`(IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND CONTAINS(LOWER(c.display_name), ${paramName}))`);
     });
+    // Single AND clause: company must contain ALL content words in search_text_norm
+    extraClauses.push(`(IS_DEFINED(c.search_text_norm) AND ${andParts.join(" AND ")})`);
   }
 
   return extraClauses;
+}
+
+/**
+ * Compute a relevance score for admin search results so exact/partial name
+ * matches surface above weak keyword/search_text hits.
+ *
+ * Scoring tiers (name component — 70% weight):
+ *   100 = exact name match
+ *    80 = name starts with query
+ *    60 = query at word boundary in name
+ *    40 = name contains query as substring
+ *
+ * Keyword component (30% weight):
+ *   100 = exact keyword match
+ *    70 = keyword starts with query
+ *    40 = keyword contains query
+ *
+ * Domain bonus: +20 if normalized_domain contains the compact query
+ */
+function computeAdminSearchRelevance(company, searchLower, searchCompact) {
+  if (!company || !searchLower) return 0;
+
+  // --- Name score ---
+  let nameScore = 0;
+  const names = [
+    (company.company_name || ""),
+    (company.display_name || ""),
+    (company.name || ""),
+  ].map(n => typeof n === "string" ? n.trim() : "").filter(Boolean);
+
+  for (const rawName of names) {
+    const nameLower = rawName.toLowerCase();
+    const nameCompact = nameLower.replace(/\s+/g, "");
+    if (nameLower === searchLower || nameCompact === searchCompact) {
+      nameScore = Math.max(nameScore, 100);
+    } else if (nameLower.startsWith(searchLower) || nameCompact.startsWith(searchCompact)) {
+      nameScore = Math.max(nameScore, 80);
+    } else {
+      const escaped = searchLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`(?:^|[\\s\\-_])${escaped}`).test(nameLower)) {
+        nameScore = Math.max(nameScore, 60);
+      } else if (nameLower.includes(searchLower) || nameCompact.includes(searchCompact)) {
+        nameScore = Math.max(nameScore, 40);
+      }
+    }
+  }
+
+  // --- Keyword score ---
+  let keywordScore = 0;
+  const kwArrays = [company.product_keywords, company.keywords, company.industries];
+  for (const raw of kwArrays) {
+    const arr = Array.isArray(raw) ? raw : (typeof raw === "string" && raw ? [raw] : []);
+    for (const kw of arr) {
+      if (typeof kw !== "string") continue;
+      const kwLower = kw.toLowerCase().trim();
+      if (!kwLower) continue;
+      if (kwLower === searchLower) { keywordScore = Math.max(keywordScore, 100); }
+      else if (kwLower.startsWith(searchLower) || searchLower.startsWith(kwLower)) { keywordScore = Math.max(keywordScore, 70); }
+      else if (kwLower.includes(searchLower)) { keywordScore = Math.max(keywordScore, 40); }
+    }
+  }
+
+  // --- Domain bonus ---
+  let domainBonus = 0;
+  const domain = typeof company.normalized_domain === "string" ? company.normalized_domain.toLowerCase() : "";
+  if (searchCompact && domain && domain.includes(searchCompact)) {
+    domainBonus = 20;
+  }
+
+  return Math.round(nameScore * 0.7 + keywordScore * 0.3) + domainBonus;
 }
 
 function isPlainObject(value) {
@@ -1203,6 +1292,15 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         // Deduplicate by normalized_domain — keep the best record per domain,
         // and attach _duplicates_count so the admin UI can show a badge.
         const items = deduplicateByDomainAdmin(allItems);
+
+        // When searching, re-sort by relevance so exact/partial name matches
+        // surface above weak keyword/search_text hits (Cosmos returns _ts DESC).
+        if (search) {
+          for (const item of items) {
+            item._searchRelevance = computeAdminSearchRelevance(item, search, searchCompact);
+          }
+          items.sort((a, b) => (b._searchRelevance || 0) - (a._searchRelevance || 0));
+        }
 
         context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length);
         return json({ items, count: items.length, ...(cosmosTarget ? cosmosTarget : {}) }, 200);
