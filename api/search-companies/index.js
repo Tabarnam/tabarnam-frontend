@@ -388,7 +388,8 @@ function buildLegacySearchFilter() {
       ) > 0
     ) OR
     (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND (CONTAINS(LOWER(c.normalized_domain), @q) OR CONTAINS(REPLACE(LOWER(c.normalized_domain), " ", ""), @q_compact))) OR
-    (IS_DEFINED(c.amazon_url) AND IS_STRING(c.amazon_url) AND (CONTAINS(LOWER(c.amazon_url), @q) OR CONTAINS(REPLACE(LOWER(c.amazon_url), " ", ""), @q_compact)))
+    (IS_DEFINED(c.amazon_url) AND IS_STRING(c.amazon_url) AND (CONTAINS(LOWER(c.amazon_url), @q) OR CONTAINS(REPLACE(LOWER(c.amazon_url), " ", ""), @q_compact))) OR
+    (IS_DEFINED(c.search_text_norm) AND IS_STRING(c.search_text_norm) AND CONTAINS(c.search_text_norm, @q))
   `;
 }
 
