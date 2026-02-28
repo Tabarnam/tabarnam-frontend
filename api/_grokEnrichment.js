@@ -909,6 +909,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     }),
     maxAttempts: 1,   // No retry — review timeout is already generous (150-240s); retrying doubles it
     maxTokens: 4000,  // Increased — browse_page responses include page content in tool chain
+    maxToolCalls: 5,  // Cap Grok's autonomous web searches — prevents 10-17 search spirals on niche companies
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,

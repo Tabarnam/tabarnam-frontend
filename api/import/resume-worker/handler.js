@@ -644,17 +644,15 @@ function reconcileGrokTerminalState(doc) {
   const reviewsStage = normalizeKey(doc.reviews_stage_status || doc.review_cursor?.reviews_stage_status);
   const cursorExhausted = Boolean(doc.review_cursor && typeof doc.review_cursor === "object" && doc.review_cursor.exhausted === true);
 
-  // If exhausted with 0 verified reviews and under max attempts, RESET exhaustion so reviews stay retryable.
-  // XAI may return different candidate URLs on next attempt.
+  // Reviews with 0 curated results are always terminal — no retry.
+  // Only reset exhaustion for reviews that have SOME results but not enough (1-2 out of 3 target).
   if (cursorExhausted) {
     const verifiedReviewCount = Array.isArray(doc.curated_reviews)
       ? doc.curated_reviews.filter((r) => r && typeof r === "object").length
       : 0;
-    if (verifiedReviewCount === 0) {
+    if (verifiedReviewCount > 0 && verifiedReviewCount < 3) {
       const attempts = attemptsFor(doc, "reviews");
-      const reason = normalizeKey(doc?.import_missing_reason?.reviews || "");
-      const definitivelyEmptyReviews = reason === "no_synthesis" || reason === "empty";
-      if (attempts < MAX_ATTEMPTS_REVIEWS && !definitivelyEmptyReviews) {
+      if (attempts < MAX_ATTEMPTS_REVIEWS) {
         const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
         cursor.exhausted = false;
         delete cursor.exhausted_at;
@@ -662,7 +660,6 @@ function reconcileGrokTerminalState(doc) {
         doc.review_cursor = cursor;
         doc.import_missing_reason.reviews = "incomplete";
         changed = true;
-        // Skip terminal logic below — reviews stay retryable for next cycle
       }
     }
   }
@@ -3635,10 +3632,10 @@ async function resumeWorkerHandler(req, context) {
         markFieldSuccess(doc, "reviews");
         changed = true;
       } else {
-        const definitivelyEmpty = (status === "no_synthesis" || status === "empty") && curated.length === 0;
+        const definitivelyEmpty = curated.length === 0;
         const terminal = definitivelyEmpty || attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
         if (definitivelyEmpty) {
-          console.log(`[resume-worker] reviews_definitively_empty: status=${status}, company=${doc.id || companyId}, terminalizing immediately`);
+          console.log(`[resume-worker] reviews_definitively_empty: status=${status}, company=${doc.id || companyId}, terminalizing immediately (0 curated reviews — no retry)`);
         }
 
         // Persist partial results if we got any (e.g., status=incomplete).
@@ -3659,7 +3656,7 @@ async function resumeWorkerHandler(req, context) {
         doc.review_cursor.reviews_stage_status = "incomplete";
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.reviews = definitivelyEmpty
-          ? status // preserves "no_synthesis" or "empty" — terminal via isTerminalMissingReason
+          ? "no_synthesis" // 0 curated reviews — terminal, no retry regardless of upstream status
           : terminal ? "exhausted"
           : upstreamFailure ? status
           : "incomplete";

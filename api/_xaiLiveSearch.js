@@ -233,6 +233,7 @@ async function xaiLiveSearch({
   search_parameters,
   useTools = false,
   enableImageUnderstanding = false,
+  maxToolCalls,
 } = {}) {
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
@@ -332,11 +333,16 @@ async function xaiLiveSearch({
       (search_parameters.mode === "on" || Object.keys(search_parameters).length > 0)
     );
 
+    const resolvedMaxToolCalls = Number.isFinite(Number(maxToolCalls)) && Number(maxToolCalls) > 0
+      ? Math.trunc(Number(maxToolCalls))
+      : undefined;
+
     const payload = useResponsesFormat
       ? {
           model: resolvedModel,
           input: [{ role: "user", content: asString(prompt) }],
           ...(shouldEnableTools ? { tools: buildToolsArray(search_parameters, { enableImageUnderstanding }) } : {}),
+          ...(resolvedMaxToolCalls ? { max_tool_calls: resolvedMaxToolCalls } : {}),
         }
       : {
           // /v1/chat/completions format
