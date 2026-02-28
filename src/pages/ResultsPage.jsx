@@ -1,5 +1,5 @@
 // src/pages/ResultsPage.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { geocode } from "@/lib/google";
@@ -97,8 +97,15 @@ export default function ResultsPage() {
     return enriched;
   }
 
+  // Skip-flag: when handleInlineSearch fires doSearch directly, skip the URL-watching effect
+  const skipUrlEffectRef = useRef(false);
+
   // Resolve a center location (from lat/lng or geocoding) and run the search
   useEffect(() => {
+    if (skipUrlEffectRef.current) {
+      skipUrlEffectRef.current = false;
+      return;
+    }
     let cancelled = false;
 
     (async () => {
@@ -162,6 +169,7 @@ export default function ResultsPage() {
     if (country) next.set("country", country);
     if (state) next.set("state", state);
     if (city) next.set("city", city);
+    skipUrlEffectRef.current = true;
     setSearchParams(next, { replace: true });
 
     // Resolve typed location if present

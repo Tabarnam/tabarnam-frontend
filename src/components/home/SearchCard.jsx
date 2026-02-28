@@ -51,6 +51,9 @@ export default function SearchCard({
   const inputRef = useRef(null);
   const cityInputRef = useRef(null);
   const stateInputRef = useRef(null);
+  const handleSubmitRef = useRef(null);
+  const debounceSearchRef = useRef(null);
+  const lastSearchedQRef = useRef('');
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -69,7 +72,11 @@ export default function SearchCard({
   // Hydrate from URL
   useEffect(() => {
     const p = new URLSearchParams(search);
-    if (p.has('q')) setQ(p.get('q') || '');
+    if (p.has('q')) {
+      const urlQ = p.get('q') || '';
+      setQ(urlQ);
+      lastSearchedQRef.current = urlQ.trim();
+    }
     if (p.has('country')) setCountry(p.get('country') || '');
     if (p.has('state')) setStateCode(p.get('state') || '');
     if (p.has('city')) setCity(p.get('city') || '');
@@ -108,6 +115,34 @@ export default function SearchCard({
     }, 250);
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
+
+  // Search-as-you-type: only on results page (when onSubmitParams is provided)
+  useEffect(() => {
+    if (!onSubmitParams) return;
+
+    if (debounceSearchRef.current) {
+      clearTimeout(debounceSearchRef.current);
+      debounceSearchRef.current = null;
+    }
+
+    const trimmed = q.trim();
+    if (trimmed.length < 2) return;
+
+    // Skip if this query was already searched (initial hydration or after a submit)
+    if (trimmed === lastSearchedQRef.current) return;
+
+    debounceSearchRef.current = setTimeout(() => {
+      lastSearchedQRef.current = trimmed;
+      handleSubmitRef.current();
+    }, 400);
+
+    return () => {
+      if (debounceSearchRef.current) {
+        clearTimeout(debounceSearchRef.current);
+        debounceSearchRef.current = null;
+      }
+    };
+  }, [q, onSubmitParams]);
 
   // Check if input might be a postal code and auto-fill country
   useEffect(() => {
@@ -218,14 +253,26 @@ export default function SearchCard({
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = (overrideQ) => {
+    // Cancel any pending auto-search debounce
+    if (debounceSearchRef.current) {
+      clearTimeout(debounceSearchRef.current);
+      debounceSearchRef.current = null;
+    }
+
+    const rawQ = (overrideQ !== undefined ? overrideQ : q).trim();
     // If the user pasted a URL, extract the brand name so search works
-    const extracted = extractSearchTermFromUrl(q.trim());
-    if (extracted !== q.trim()) setQ(extracted); // update input so user sees what was searched
+    const extracted = extractSearchTermFromUrl(rawQ);
+    if (extracted !== rawQ) setQ(extracted); // update input so user sees what was searched
+    else if (overrideQ !== undefined) setQ(overrideQ); // sync input for suggestion clicks
+
+    lastSearchedQRef.current = extracted;
+
     const params = { q: extracted, sort: sortBy, country, state: stateCode, city };
     if (onSubmitParams) onSubmitParams(params);
     else nav(`/results?${toQs(params)}`);
   };
+  handleSubmitRef.current = handleSubmit;
 
   return (
     <div
@@ -277,7 +324,7 @@ export default function SearchCard({
                     key={`${s.value}-${i}`}
                     className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent flex items-center justify-between"
                     onMouseDown={(e)=>e.preventDefault()}
-                    onClick={()=>{ setQ(s.value); }}
+                    onClick={()=>{ setQ(s.value); if (onSubmitParams) handleSubmit(s.value); }}
                   >
                     <span>{s.value}</span>
                     <span className={`text-xs px-1.5 py-0.5 rounded-sm font-medium ${badgeClass}`}>{s.type}</span>
