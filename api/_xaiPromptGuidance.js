@@ -176,13 +176,14 @@ FORMAT RULES:
   },
 
   tagline: {
-    rules: `- STEP 1: Use browse_page on the company URL. Look for the tagline in: the homepage hero section, meta description, og:description, the header/nav area near the logo, and the footer.
-- STEP 2: Use web_search "[Company Name] tagline" or "[Company Name] slogan" to cross-reference.
-- If the website displays a tagline prominently (hero, header, footer), use that. If multiple taglines exist, prefer the one displayed most prominently on the homepage.
+    rules: `Provide the company's tagline, slogan, or motto — the short phrase they use to describe their brand.
+- Browse the company homepage and look for: hero section text, header/nav area near the logo, footer, meta description, og:description, and <title> tag.
+- Also web_search "[Company Name] tagline" or "[Company Name] slogan" to cross-reference.
+- Accept a tagline, slogan, motto, or brand promise — whichever appears most prominently on the company's website.
+- Return the EXACT text as displayed on the website. Do not paraphrase or embellish.
 - A sentence fragment is acceptable.
-- Do NOT return: navigation labels, promotional text, legal disclaimers, or page titles.
-- Do NOT hallucinate or embellish. Accuracy is paramount.
-- If no tagline is found, return empty string.`,
+- Do NOT return: navigation menu labels, promotional sale text, legal disclaimers, or page titles that are just the company name.
+- If no tagline/slogan/motto is found anywhere, return empty string.`,
     jsonSchema: `"tagline": "..."`,
   },
 

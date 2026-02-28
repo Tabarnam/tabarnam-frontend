@@ -2470,7 +2470,8 @@ async function fetchStructuredFields({
 
   const prompt = `${SEARCH_PREAMBLE}
 
-For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) please provide the following fields.
+For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, provide the following fields.
+IMPORTANT: When browsing the homepage, identify the tagline FIRST — it is the short phrase in the hero section, near the logo, or in the site's meta description. Return the exact text.
 
 TAGLINE:
 ${FIELD_GUIDANCE.tagline.rules}
@@ -2763,7 +2764,7 @@ async function retryMissingStructuredFields({
 
   const prompt = `${SEARCH_PREAMBLE}
 
-For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}), the following fields could not be determined in a previous search attempt. Please try harder to find them — use multiple web_search queries and browse_page to verify.
+For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, the following fields could not be determined in a previous search attempt. Please try harder to find them — use multiple web_search queries and browse_page to verify.
 
 ${sections.join("\n\n")}
 
