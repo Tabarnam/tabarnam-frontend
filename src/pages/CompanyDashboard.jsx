@@ -580,11 +580,19 @@ export default function CompanyDashboard() {
   const [refreshActiveField, setRefreshActiveField] = useState(null);
   const refreshPollTimerRef = useRef(null);
 
+  // Confirmation gate — prevents accidental refresh clicks
+  const [refreshConfirmPending, setRefreshConfirmPending] = useState(false);
+  const refreshConfirmTimerRef = useRef(null);
+
   useEffect(() => {
     return () => {
       if (refreshPollTimerRef.current) {
         clearTimeout(refreshPollTimerRef.current);
         refreshPollTimerRef.current = null;
+      }
+      if (refreshConfirmTimerRef.current) {
+        clearTimeout(refreshConfirmTimerRef.current);
+        refreshConfirmTimerRef.current = null;
       }
     };
   }, []);
@@ -2871,7 +2879,7 @@ export default function CompanyDashboard() {
               {name && (
                 <button
                   type="button"
-                  className="opacity-0 group-hover/name:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:bg-muted"
+                  className="opacity-40 hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:hover:bg-muted"
                   onClick={(e) => {
                     e.stopPropagation();
                     navigator.clipboard.writeText(name);
@@ -2879,7 +2887,7 @@ export default function CompanyDashboard() {
                   }}
                   title="Copy name"
                 >
-                  <Copy className="h-3 w-3 opacity-50" />
+                  <Copy className="h-3 w-3" />
                 </button>
               )}
               {isDeletedCompany(row) ? (
@@ -2904,7 +2912,7 @@ export default function CompanyDashboard() {
               {domain && (
                 <button
                   type="button"
-                  className="opacity-0 group-hover/domain:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:bg-muted"
+                  className="opacity-40 hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:hover:bg-muted"
                   onClick={(e) => {
                     e.stopPropagation();
                     navigator.clipboard.writeText(domain);
@@ -2912,7 +2920,7 @@ export default function CompanyDashboard() {
                   }}
                   title="Copy domain"
                 >
-                  <Copy className="h-3 w-3 text-slate-500 dark:text-muted-foreground" />
+                  <Copy className="h-3 w-3" />
                 </button>
               )}
             </div>
@@ -3521,73 +3529,116 @@ export default function CompanyDashboard() {
 
                               {editorOriginalId ? (
                                 <div className="flex-none flex items-stretch">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="rounded-r-none border-r-0"
-                                    onClick={() => refreshCompany()}
-                                    disabled={refreshLoading || editorSaving}
-                                    title="Refresh all fields"
-                                  >
-                                    <RefreshCcw className="h-4 w-4 mr-2" />
-                                    {refreshLoading ? "Refreshing…" : "Refresh search"}
-                                  </Button>
-                                  <Popover open={refreshFieldsOpen} onOpenChange={setRefreshFieldsOpen}>
-                                    <PopoverTrigger asChild>
+                                  {refreshConfirmPending && !refreshLoading ? (
+                                    <>
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        className="rounded-l-none px-1.5"
-                                        disabled={refreshLoading || editorSaving}
-                                        title="Choose fields to refresh"
+                                        className="rounded-r-none border-r-0 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/60"
+                                        onClick={() => {
+                                          clearTimeout(refreshConfirmTimerRef.current);
+                                          refreshConfirmTimerRef.current = null;
+                                          setRefreshConfirmPending(false);
+                                          refreshCompany();
+                                        }}
+                                        title="Confirm — start refresh"
                                       >
-                                        <ChevronDown className="h-3.5 w-3.5" />
+                                        <RefreshCcw className="h-4 w-4 mr-2" />
+                                        Confirm?
                                       </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent align="end" className="w-52 p-3 z-[110]">
-                                      <div className="space-y-2">
-                                        <div className="text-xs font-medium text-muted-foreground mb-2">Fields to refresh</div>
-                                        {editorProfileInfo?.missing?.length > 0 && (
-                                          <div className="text-[10px] text-amber-600 dark:text-amber-400 -mt-1 mb-1">
-                                            {editorProfileInfo.missing.length} of {REFRESHABLE_FIELDS.length} empty
-                                          </div>
-                                        )}
-                                        {REFRESHABLE_FIELDS.map((f) => {
-                                          const isEmpty = editorProfileInfo?.missing?.includes(f.missingKey);
-                                          return (
-                                            <label key={f.key} className="flex items-center gap-2 cursor-pointer text-sm">
-                                              <Checkbox
-                                                checked={refreshFieldChecks[f.key]}
-                                                onCheckedChange={(v) =>
-                                                  setRefreshFieldChecks((prev) => ({ ...prev, [f.key]: !!v }))
-                                                }
-                                              />
-                                              <span className="flex items-center gap-1.5">
-                                                {f.label}
-                                                {isEmpty && (
-                                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">(empty)</span>
-                                                )}
-                                              </span>
-                                            </label>
-                                          );
-                                        })}
-                                        <Button
-                                          size="sm"
-                                          className="w-full mt-2"
-                                          disabled={!Object.values(refreshFieldChecks).some(Boolean)}
-                                          onClick={() => {
-                                            const selected = REFRESHABLE_FIELDS
-                                              .filter((f) => refreshFieldChecks[f.key])
-                                              .map((f) => f.key);
-                                            setRefreshFieldsOpen(false);
-                                            refreshCompany(selected.length === REFRESHABLE_FIELDS.length ? null : selected);
-                                          }}
-                                        >
-                                          Refresh selected
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="rounded-l-none border-l-0 px-1.5 border-amber-500 text-muted-foreground hover:text-destructive dark:border-amber-500"
+                                        onClick={() => {
+                                          clearTimeout(refreshConfirmTimerRef.current);
+                                          refreshConfirmTimerRef.current = null;
+                                          setRefreshConfirmPending(false);
+                                        }}
+                                        title="Cancel"
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="rounded-r-none border-r-0"
+                                        onClick={() => {
+                                          if (refreshLoading) return;
+                                          setRefreshConfirmPending(true);
+                                          clearTimeout(refreshConfirmTimerRef.current);
+                                          refreshConfirmTimerRef.current = setTimeout(() => {
+                                            setRefreshConfirmPending(false);
+                                            refreshConfirmTimerRef.current = null;
+                                          }, 4000);
+                                        }}
+                                        disabled={refreshLoading || editorSaving}
+                                        title="Refresh all fields"
+                                      >
+                                        <RefreshCcw className="h-4 w-4 mr-2" />
+                                        {refreshLoading ? "Refreshing…" : "Refresh search"}
+                                      </Button>
+                                      <Popover open={refreshFieldsOpen} onOpenChange={setRefreshFieldsOpen}>
+                                        <PopoverTrigger asChild>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="rounded-l-none px-1.5"
+                                            disabled={refreshLoading || editorSaving}
+                                            title="Choose fields to refresh"
+                                          >
+                                            <ChevronDown className="h-3.5 w-3.5" />
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent align="end" className="w-52 p-3 z-[110]">
+                                          <div className="space-y-2">
+                                            <div className="text-xs font-medium text-muted-foreground mb-2">Fields to refresh</div>
+                                            {editorProfileInfo?.missing?.length > 0 && (
+                                              <div className="text-[10px] text-amber-600 dark:text-amber-400 -mt-1 mb-1">
+                                                {editorProfileInfo.missing.length} of {REFRESHABLE_FIELDS.length} empty
+                                              </div>
+                                            )}
+                                            {REFRESHABLE_FIELDS.map((f) => {
+                                              const isEmpty = editorProfileInfo?.missing?.includes(f.missingKey);
+                                              return (
+                                                <label key={f.key} className="flex items-center gap-2 cursor-pointer text-sm">
+                                                  <Checkbox
+                                                    checked={refreshFieldChecks[f.key]}
+                                                    onCheckedChange={(v) =>
+                                                      setRefreshFieldChecks((prev) => ({ ...prev, [f.key]: !!v }))
+                                                    }
+                                                  />
+                                                  <span className="flex items-center gap-1.5">
+                                                    {f.label}
+                                                    {isEmpty && (
+                                                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">(empty)</span>
+                                                    )}
+                                                  </span>
+                                                </label>
+                                              );
+                                            })}
+                                            <Button
+                                              size="sm"
+                                              className="w-full mt-2"
+                                              disabled={!Object.values(refreshFieldChecks).some(Boolean)}
+                                              onClick={() => {
+                                                const selected = REFRESHABLE_FIELDS
+                                                  .filter((f) => refreshFieldChecks[f.key])
+                                                  .map((f) => f.key);
+                                                setRefreshFieldsOpen(false);
+                                                refreshCompany(selected.length === REFRESHABLE_FIELDS.length ? null : selected);
+                                              }}
+                                            >
+                                              Refresh selected
                                         </Button>
                                       </div>
                                     </PopoverContent>
                                   </Popover>
+                                    </>
+                                  )}
                                 </div>
                               ) : null}
 
