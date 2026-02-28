@@ -828,112 +828,6 @@ function buildReviewMetadataFromHtml(url, html) {
   };
 }
 
-/**
- * Last-resort fallback: when no third-party reviews are found, browse the
- * company's own website (about page, testimonials) and create one contribution.
- * Returns a single review entry or null.
- */
-async function fetchWebsiteTestimonialFallback({
-  companyName,
-  normalizedDomain,
-  remainingBudgetMs,
-  xaiUrl,
-  xaiKey,
-  model = "grok-4-latest",
-} = {}) {
-  const name = asString(companyName).trim();
-  const domain = normalizeDomain(normalizedDomain);
-  if (!name || !domain) return null;
-
-  const MIN_BUDGET_FOR_FALLBACK = 8000;
-  if (!Number.isFinite(remainingBudgetMs) || remainingBudgetMs < MIN_BUDGET_FOR_FALLBACK) {
-    console.log(`[fetchWebsiteTestimonialFallback] skipped for "${name}": budget too low (${Math.round(remainingBudgetMs || 0)}ms)`);
-    return null;
-  }
-
-  console.log(`[fetchWebsiteTestimonialFallback] attempting for "${name}" (${domain}), budget=${Math.round(remainingBudgetMs)}ms`);
-
-  const prompt = `I could not find any third-party reviews for "${name}" (https://${domain}).
-
-As a last resort, browse the company's own website at https://${domain} — specifically look for:
-1. An "About" or "About Us" page
-2. A "Testimonials" or "Reviews" page
-3. Customer quotes or case studies on any page
-
-From whatever you find, create ONE brief summary using ONLY real content from the site.
-Do NOT invent or fabricate any information. If you cannot find an about page or testimonials, say so.
-
-Output in this exact format (no markdown, no bold, no bullets):
-Source: ${name} Website
-Author: [Person quoted, or "Company" if no individual is named]
-URL: [Full URL of the page you found the content on]
-Title: [Page title or section heading]
-Date: Not dated
-Text: [2-4 sentence summary of what the page says about the company, its history, mission, or customer testimonials. Use real quotes from the page if available.]`;
-
-  const timeoutMs = Math.min(remainingBudgetMs - 1200, 60000);
-
-  const r = await xaiLiveSearchWithRetry({
-    prompt,
-    timeoutMs,
-    maxAttempts: 1,
-    maxTokens: 1500,
-    maxToolCalls: 3,
-    model: asString(model).trim() || "grok-4-latest",
-    xaiUrl,
-    xaiKey,
-    search_parameters: {},
-    useTools: true,
-  });
-
-  if (!r.ok) {
-    console.log(`[fetchWebsiteTestimonialFallback] xAI call failed for "${name}": ${r.error || "unknown"}`);
-    return null;
-  }
-
-  const rawText = asString(extractTextFromXaiResponse(r.resp));
-  if (!rawText || rawText.length < 30) {
-    console.log(`[fetchWebsiteTestimonialFallback] empty/short response for "${name}": ${rawText ? rawText.length : 0} chars`);
-    return null;
-  }
-
-  // Check for explicit "not found" signals
-  if (/could\s+not\s+find|unable\s+to\s+find|no\s+(about|testimonial)/i.test(rawText) && rawText.length < 200) {
-    console.log(`[fetchWebsiteTestimonialFallback] site has no about/testimonial content for "${name}"`);
-    return null;
-  }
-
-  // Parse plain-text response
-  const getField = (label) => {
-    const m = rawText.match(new RegExp(`^${label}:\\s*(.+)`, "im"));
-    return m ? m[1].trim() : "";
-  };
-
-  const url = getField("URL") || `https://${domain}/about`;
-  const excerpt = getField("Text");
-  if (!excerpt || excerpt.length < 30) {
-    console.log(`[fetchWebsiteTestimonialFallback] no usable text for "${name}": excerpt=${excerpt ? excerpt.length : 0} chars`);
-    return null;
-  }
-
-  const review = {
-    source_name: `${name} Website`,
-    author: getField("Author") || "Company",
-    source_url: url,
-    title: getField("Title") || "About",
-    date: getField("Date") || null,
-    excerpt,
-    link_status: "ok",
-    match_confidence: 0.5,
-    show_to_users: true,
-    is_public: true,
-    is_website_testimonial: true,
-  };
-
-  console.log(`[fetchWebsiteTestimonialFallback] SUCCESS for "${name}": ${excerpt.length} chars from ${url}`);
-  return review;
-}
-
 async function fetchCuratedReviews({
   companyName,
   normalizedDomain,
@@ -1029,23 +923,6 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   if (!r.ok) {
     const failure = classifyXaiFailure(r);
     logResult(failure, `error=${r.error || "unknown"}`);
-
-    // ── Last-resort fallback: company website about page / testimonials ──
-    const fallback0 = await fetchWebsiteTestimonialFallback({
-      companyName: name, normalizedDomain: domain,
-      remainingBudgetMs: budgetMs - (Date.now() - started),
-      xaiUrl, xaiKey, model,
-    });
-    if (fallback0) {
-      return {
-        curated_reviews: [fallback0],
-        reviews_stage_status: "ok",
-        diagnostics: { error_code: failure, fallback: "website_testimonial" },
-        search_telemetry: searchBuild.telemetry,
-        excluded_hosts: searchBuild.excluded_hosts,
-      };
-    }
-
     return {
       curated_reviews: [],
       reviews_stage_status: failure,
@@ -1139,23 +1016,6 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       console.warn(`[fetchCuratedReviews] Grok all-search-no-answer: ${outputTypes.length} output items (${outputTypes.filter(t => t === "web_search_call").length} searches), no text message produced`);
     }
     logResult(status, reason);
-
-    // ── Last-resort fallback: company website about page / testimonials ──
-    const fallback1 = await fetchWebsiteTestimonialFallback({
-      companyName: name, normalizedDomain: domain,
-      remainingBudgetMs: budgetMs - (Date.now() - started),
-      xaiUrl, xaiKey, model,
-    });
-    if (fallback1) {
-      return {
-        curated_reviews: [fallback1],
-        reviews_stage_status: "ok",
-        diagnostics: { reason, fallback: "website_testimonial" },
-        search_telemetry: searchBuild.telemetry,
-        excluded_hosts: searchBuild.excluded_hosts,
-      };
-    }
-
     return {
       curated_reviews: [],
       reviews_stage_status: status,
@@ -1174,23 +1034,31 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       const url = safeUrl(x.source_url || x.url || x.link);
       const categoryRaw = asString(x.category || x.type || "").trim().toLowerCase();
       const category = categoryRaw === "youtube" || isYouTubeUrl(url) ? "youtube" : "blog";
+      const sourceName = asString(x.source_name || "").trim() || null;
+      // Detect website testimonial entries (strategy 5 last-resort fallback)
+      const isWebsiteTestimonial = Boolean(
+        sourceName && /\bwebsite\b/i.test(sourceName) &&
+        domain && url && url.includes(domain)
+      );
       return {
         source_url: url,
         category,
-        // Capture XAI-provided metadata for fallback
-        source_name: asString(x.source_name || "").trim() || null,
+        source_name: sourceName,
         title: asString(x.title || "").trim() || null,
         date: asString(x.date || "").trim() || null,
         excerpt: asString(x.excerpt || "").trim() || null,
         author: asString(x.author || "").trim() || null,
+        is_website_testimonial: isWebsiteTestimonial,
       };
     })
     .filter((x) => x.source_url)
-    .filter((x) => !excludeDomains.some((d) => x.source_url.includes(d)))
+    // Exclude company's own domain — EXCEPT for website testimonial entries (strategy 5)
+    .filter((x) => x.is_website_testimonial || !excludeDomains.some((d) => x.source_url.includes(d)))
     .filter((x) => {
       const len = (x.excerpt || "").length;
-      if (len < 120) {
-        console.log(`[grokEnrichment] reviews: excerpt_too_short (${len} chars < 120): ${x.source_url}`);
+      const minLen = x.is_website_testimonial ? 30 : 120;
+      if (len < minLen) {
+        console.log(`[grokEnrichment] reviews: excerpt_too_short (${len} chars < ${minLen}): ${x.source_url}`);
         return false;
       }
       return true;
@@ -1198,23 +1066,6 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
   if (candidates.length === 0) {
     logResult("not_found", "0 candidates after filtering");
-
-    // ── Last-resort fallback: company website about page / testimonials ──
-    const fallback2 = await fetchWebsiteTestimonialFallback({
-      companyName: name, normalizedDomain: domain,
-      remainingBudgetMs: budgetMs - (Date.now() - started),
-      xaiUrl, xaiKey, model,
-    });
-    if (fallback2) {
-      return {
-        curated_reviews: [fallback2],
-        reviews_stage_status: "ok",
-        diagnostics: { candidate_count: 0, verified_count: 0, fallback: "website_testimonial" },
-        search_telemetry: searchBuild.telemetry,
-        excluded_hosts: searchBuild.excluded_hosts,
-      };
-    }
-
     return {
       curated_reviews: [],
       reviews_stage_status: "not_found",
@@ -1319,9 +1170,10 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       date: c.date || meta.date || null,
       excerpt: c.excerpt || meta.excerpt || null,
       link_status: "ok",
-      match_confidence: 1.0,
+      match_confidence: c.is_website_testimonial ? 0.5 : 1.0,
       show_to_users: true,
       is_public: true,
+      ...(c.is_website_testimonial ? { is_website_testimonial: true } : {}),
     });
     if (host) usedHosts.add(host);
   }
@@ -1340,26 +1192,6 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     else reasonParts.push("insufficient_verified_reviews");
 
     const isExhausted = this_attempt_urls.length >= deduped.length;
-
-    // ── Last-resort fallback: company website about page / testimonials ──
-    // Only when we have ZERO verified reviews (not 1-2 partial results)
-    if (curated_reviews.length === 0) {
-      const fallback3 = await fetchWebsiteTestimonialFallback({
-        companyName: name, normalizedDomain: domain,
-        remainingBudgetMs: budgetMs - (Date.now() - started),
-        xaiUrl, xaiKey, model,
-      });
-      if (fallback3) {
-        return {
-          curated_reviews: [fallback3],
-          reviews_stage_status: "ok",
-          attempted_urls: this_attempt_urls,
-          diagnostics: { candidate_count: candidates.length, verified_count: 0, fallback: "website_testimonial" },
-          search_telemetry: searchBuild.telemetry,
-          excluded_hosts: searchBuild.excluded_hosts,
-        };
-      }
-    }
 
     const value = {
       curated_reviews,

@@ -232,6 +232,7 @@ SEARCH STRATEGY — run at least 3 separate searches, prioritizing magazines, Yo
 2. Magazine/blog reviews: web_search "${companyName} review" — look specifically for lifestyle blogs, food/drink magazines, industry magazines, and independent review blogs (e.g., tastingtable.com, thedailymeal.com, eater.com, bonappetit.com, wirecutter.com)
 3. Product-specific: web_search "${companyName} [flagship product name] review" — target the company's main products by name for more precise results
 4. If those yield fewer than 3: try "${companyName} honest review", "${companyName} [product] comparison", or "${companyName} worth it"
+5. Website testimonial: Also browse ${websiteUrl || "the company website"} and look for an About page, Testimonials page, or customer quotes. If found, include exactly ONE entry using Source: "${companyName} Website" — this signals it is a company-sourced testimonial, not a third-party review. Include this alongside any third-party reviews found above.
 
 VERIFICATION — for EACH candidate URL, use browse_page to confirm:
 - The page loads without errors (no 404, "page not found", paywall)
@@ -251,7 +252,7 @@ Our platform presents these reviews to help consumers discover products. Prefer 
 SOURCE PREFERENCE: Strongly prefer magazines, YouTube, blogs, and X (Twitter) as review sources. Aim for 2-3 YouTube videos from different creators plus 2-3 written articles from magazines, blogs, or X threads. Other sources (news sites, Facebook, forums) are acceptable ONLY as fallbacks when preferred source coverage is insufficient. Do not include the same author more than once.
 ${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
 Return up to 5 verified reviews. Quality over quantity — 3 strong reviews beat 5 weak ones.
-If you cannot find ANY legitimate third-party reviews after trying multiple search strategies, return an empty reviews array.
+Always include one website testimonial (strategy 5) in addition to any third-party reviews found.
 ${attemptedExclusion}`;
     },
     // JSON shapes
