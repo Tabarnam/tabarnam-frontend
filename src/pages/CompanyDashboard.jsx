@@ -3311,7 +3311,7 @@ export default function CompanyDashboard() {
       <div className="min-h-screen bg-slate-50 dark:bg-background">
         <AdminHeader />
 
-        <main className="container mx-auto py-6 px-4 space-y-4">
+        <main className="max-w-[1800px] mx-auto py-6 px-4 space-y-4">
           <header className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h1 className="text-3xl font-bold text-slate-900 dark:text-foreground">Companies</h1>
