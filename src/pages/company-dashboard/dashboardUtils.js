@@ -1,7 +1,7 @@
 import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
 import { normalizeExternalUrl } from "@/lib/externalUrl";
 
-export const DEFAULT_TAKE = 200;
+export const DEFAULT_TAKE = 1000;
 
 export function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);

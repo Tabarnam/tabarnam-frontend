@@ -1260,7 +1260,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const search = (req.query?.search || req.query?.q || "").toString().toLowerCase().trim();
         // Compact form: strip spaces and punctuation so "Bamboo Boxer Co." matches "Bambooboxerco"
         const searchCompact = search.replace(/[^a-z0-9]/g, "");
-        const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
+        const take = Math.min(1000, Math.max(1, parseInt((req.query?.take || "1000").toString())));
 
         const parameters = [{ name: "@take", value: take }];
         const whereClauses = [
