@@ -2316,6 +2316,11 @@ export default function CompanyDashboard() {
       const industries = normalizeStringList(draftForSave.industries);
       const keywords = normalizeStringList(draftForSave.keywords);
       const rating = normalizeRating(draftForSave.rating);
+
+      // Auto-populate Mfg (star1) and HQ (star2) based on location presence
+      rating.star1 = { ...(rating.star1 || {}), value: manuLocations.length > 0 ? 1.0 : 0.0 };
+      rating.star2 = { ...(rating.star2 || {}), value: hqLocations.length > 0 ? 1.0 : 0.0 };
+
       const notes_entries = normalizeCompanyNotes(draftForSave.notes_entries);
       const location_sources = normalizeLocationSources(draftForSave.location_sources);
       const visibility = normalizeVisibility(draftForSave.visibility);
@@ -4471,14 +4476,26 @@ export default function CompanyDashboard() {
                           <StructuredLocationListEditor
                             label="HQ locations"
                             value={editorDraft.headquarters_locations}
-                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), headquarters_locations: next }))}
+                            onChange={(next) => setEditorDraft((d) => {
+                              const updated = { ...(d || {}), headquarters_locations: next };
+                              const hqList = normalizeStructuredLocationList(next);
+                              const curRating = normalizeRating(d?.rating);
+                              updated.rating = { ...curRating, star2: { ...(curRating.star2 || {}), value: hqList.length > 0 ? 1.0 : 0.0 } };
+                              return updated;
+                            })}
                             LocationStatusBadge={LocationStatusBadge}
                           />
 
                           <StructuredLocationListEditor
                             label="Manufacturing locations"
                             value={editorDraft.manufacturing_locations}
-                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), manufacturing_locations: next }))}
+                            onChange={(next) => setEditorDraft((d) => {
+                              const updated = { ...(d || {}), manufacturing_locations: next };
+                              const mfgList = normalizeStructuredLocationList(next);
+                              const curRating = normalizeRating(d?.rating);
+                              updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: mfgList.length > 0 ? 1.0 : 0.0 } };
+                              return updated;
+                            })}
                             LocationStatusBadge={LocationStatusBadge}
                           />
                           </div>
