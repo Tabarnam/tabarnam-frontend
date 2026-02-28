@@ -3404,7 +3404,7 @@ export default function CompanyDashboard() {
             </div>
           )}
 
-          <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card overflow-hidden">
+          <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card overflow-x-auto">
             <DataTable
               columns={columns}
               data={filteredItems}
