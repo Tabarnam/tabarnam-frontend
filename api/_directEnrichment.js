@@ -150,6 +150,7 @@ async function runDirectEnrichment({
   dedicatedFieldsOnly,            // NEW: when set, Phase 3 only deepens these fields
   onIntermediateSave,             // Optional: fires after Phase 2 with verified fields (survives DrainMode)
   phase3BudgetCapMs,              // Optional: cap Phase 3 budget (e.g. PASS1a uses 90s)
+  retryHints,                     // Optional: { hadStructuredTimeout } — reduces structured timeout on retry cycles
 } = {}) {
   const startedAt = Date.now();
   const resolvedXaiUrl = asString(xaiUrl).trim() || getXAIEndpoint();
@@ -202,6 +203,7 @@ async function runDirectEnrichment({
       dedicatedFieldsOnly,
       onIntermediateSave,
       phase3BudgetCapMs,
+      retryHints,
     });
 
     result.enrichment_method = ecf.method || "unified";

@@ -200,6 +200,10 @@ const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEM
 
 const MAX_RESUME_CYCLES = envInt("MAX_RESUME_CYCLES", 3, { min: 1, max: 50 });
 
+// Per-company wall-clock cap across all cycles.  Prevents one slow company
+// (e.g. chronic XAI timeouts) from stalling the entire batch.
+const MAX_ENRICHMENT_WALL_CLOCK_MS = 480_000; // 8 minutes total across all cycles
+
 function classifyLocationSource({ source_url, normalized_domain }) {
   const urlRaw = String(source_url || "").trim();
   const domain = String(normalized_domain || "").trim().toLowerCase();
@@ -2080,6 +2084,23 @@ async function resumeWorkerHandler(req, context) {
         break; // Exit enrichment loop gracefully, let next invocation continue
       }
 
+      // Per-company wall-clock cap: if total enrichment time across all cycles exceeds
+      // the cap, skip this company to avoid one slow company stalling the entire batch.
+      const enrichmentFirstStarted = Date.parse(String(resumeDoc?.enrichment_started_at || "")) || 0;
+      if (enrichmentFirstStarted && cycleCount > 0) {
+        const totalElapsedMs = Date.now() - enrichmentFirstStarted;
+        if (totalElapsedMs > MAX_ENRICHMENT_WALL_CLOCK_MS) {
+          console.log(`[resume-worker] wall_clock_cap_reached`, {
+            session_id: sessionId,
+            company_id: String(entry?.company_id || "").trim(),
+            total_elapsed_ms: totalElapsedMs,
+            cap_ms: MAX_ENRICHMENT_WALL_CLOCK_MS,
+            cycle_count: cycleCount,
+          });
+          continue;
+        }
+      }
+
       // Full-budget check: each company deserves near-full enrichment budget.
       // If remaining budget is < half the per-doc budget, defer remaining
       // companies to the next invocation (which starts fresh with full budget).
@@ -2211,6 +2232,16 @@ async function resumeWorkerHandler(req, context) {
         currentEnrichmentField = "unified";
         await updateLastXaiAttempt(attemptAt);
 
+        // Detect if previous cycle(s) had structured-fields timeouts — if so,
+        // reduce the timeout on this retry to avoid burning identical wall time.
+        const hadStructuredTimeout = cycleCount > 0 && (() => {
+          const cp = progressRoot.enrichment_progress?.[companyId];
+          if (!cp || typeof cp !== "object") return false;
+          return Object.values(cp).some((p) =>
+            p && typeof p === "object" && String(p.last_error || "") === "upstream_timeout"
+          );
+        })();
+
         let enrichResult;
         try {
           enrichResult = await runDirectEnrichment({
@@ -2220,6 +2251,7 @@ async function resumeWorkerHandler(req, context) {
             xaiUrl,
             xaiKey,
             fieldsToEnrich: missingNonLogoFields,
+            retryHints: hadStructuredTimeout ? { hadStructuredTimeout: true } : undefined,
             skipDedicatedDeepening: false, // Allow Phase 3 for reviews/keywords deepening
             onIntermediateSave: async (verified) => {
               try {

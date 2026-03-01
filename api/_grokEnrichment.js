@@ -3233,6 +3233,7 @@ async function enrichCompanyFields({
   dedicatedFieldsOnly,              // legacy — ignored by v3.0 pipeline
   onIntermediateSave,
   phase3BudgetCapMs,                // legacy — ignored by v3.0 pipeline
+  retryHints,                       // { hadStructuredTimeout: boolean } — reduces structured timeout on retry cycles
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -3274,10 +3275,11 @@ async function enrichCompanyFields({
 
     const promises = [];
     if (structuredShort.length > 0) {
+      const retryMaxMs = retryHints?.hadStructuredTimeout ? 90_000 : (getRemainingMs() - 5000);
       promises.push(retryMissingStructuredFields({
         companyName, websiteUrl, normalizedDomain: domain,
         missingFields: structuredShort,
-        budgetMs: getRemainingMs() - 5000,
+        budgetMs: Math.min(retryMaxMs, getRemainingMs() - 5000),
         xaiUrl, xaiKey,
       }).then((r) => ({ type: "structured", result: r })));
     }
@@ -3335,7 +3337,14 @@ async function enrichCompanyFields({
   const wantReviews = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("reviews");
   const wantLogo = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("logo") || fieldsToEnrich.includes("logo_url");
 
-  console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantReviews=${wantReviews}, wantLogo=${wantLogo}, run=${runId}`);
+  // Reduce structured-fields timeout on retry cycles where the previous cycle timed out.
+  // If Grok couldn't respond in 210s on cycle 0, giving it another 210s on cycle 1
+  // wastes identical wall time for the same failure. Cap at 90s on retries.
+  const structuredMaxMs = retryHints?.hadStructuredTimeout
+    ? 90_000
+    : TWO_CALL_TIMEOUTS_MS.structured.max;
+
+  console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, structuredMax=${structuredMaxMs}ms, wantReviews=${wantReviews}, wantLogo=${wantLogo}, run=${runId}`);
 
   // Each promise saves its results to Cosmos immediately via onIntermediateSave,
   // so that if Azure DrainMode kills the process between Call 1 and Call 2, the
@@ -3343,7 +3352,7 @@ async function enrichCompanyFields({
   // at the bottom still runs (idempotent upsert via Object.assign).
   const structuredPromise = fetchStructuredFields({
     companyName, websiteUrl, normalizedDomain: domain,
-    budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.structured.max, getRemainingMs() - 30_000),
+    budgetMs: Math.min(structuredMaxMs, getRemainingMs() - 30_000),
     xaiUrl, xaiKey,
   }).then(async (result) => {
     if (result?.ok && result.parsed_fields && typeof onIntermediateSave === "function") {
