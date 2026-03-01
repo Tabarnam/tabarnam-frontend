@@ -661,7 +661,7 @@ function sniffIsSvg(contentType, url, buf) {
 
 async function fetchImageBufferWithRetries(
   url,
-  { timeoutMs = 10000, maxBytes = 8 * 1024 * 1024, retries = 2 } = {}
+  { timeoutMs = 10000, maxBytes = 8 * 1024 * 1024, retries = 2, refererUrl = null } = {}
 ) {
   const u = String(url || "").trim();
   if (!u) throw new Error("missing logo_source_url");
@@ -682,6 +682,7 @@ async function fetchImageBufferWithRetries(
           Accept: "image/svg+xml,image/png,image/jpeg,image/webp,image/gif,*/*",
           "User-Agent": userAgent,
           "Accept-Language": "en-US,en;q=0.9",
+          ...(refererUrl ? { Referer: refererUrl } : {}),
         },
       });
 
@@ -913,6 +914,7 @@ async function maybeResolveSvgSpriteReference(svgText, pageUrl, logger, pageHtml
       timeoutMs: 3000,
       maxBytes: 2 * 1024 * 1024,
       retries: 0,
+      refererUrl: pageUrl || null,
     });
     externalSvgText = fetchResult.buf.toString("utf8");
   } catch (e) {
@@ -1144,6 +1146,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
       retries: 1,
       timeoutMs: fetchTimeoutMs,
       maxBytes: 6 * 1024 * 1024,
+      refererUrl: options?.refererUrl || null,
     });
 
     if (!Buffer.isBuffer(buf) || buf.length <= 1024) {
@@ -1856,7 +1859,7 @@ async function discoverLogoSourceUrl({ domain, websiteUrl, companyName, selector
     }
 
     const candidate = candidates[i];
-    const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget, pageHtml });
+    const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget, pageHtml, refererUrl: websiteUrl || null });
     if (evalResult.ok) {
       return {
         ok: true,
@@ -2236,7 +2239,7 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
         // ignore
       }
 
-      const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget, pageHtml });
+      const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget, pageHtml, refererUrl: websiteUrl || null });
 
       if (!evalResult.ok) {
         const reason = String(evalResult.reason || "unknown");

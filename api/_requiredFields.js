@@ -743,8 +743,9 @@ function isTerminalMissingReason(reason) {
     "exhausted",
     "low_quality_terminal",
     "not_found_terminal",
-    "no_synthesis",     // Grok searched but produced no reviews text — definitively empty
-    "empty",            // Grok explicitly found no reviews — definitively empty
+    "no_synthesis",             // Grok searched but produced no reviews text — definitively empty
+    "empty",                    // Grok explicitly found no reviews — definitively empty
+    "upstream_timeout_terminal", // 2+ Grok timeouts with 0 reviews — not worth retrying
   ]).has(normalizeKey(reason));
 }
 
@@ -780,6 +781,17 @@ function deriveMissingReason(doc, field) {
     );
     if (directReviewReason === "no_synthesis" || directReviewReason === "empty") {
       return directReviewReason; // terminal via isTerminalMissingReason
+    }
+
+    // Reviews upstream_timeout: if Grok timed out AND produced zero reviews,
+    // further retries are very unlikely to succeed. Mark terminal after 2+ attempts.
+    if (directReviewReason === "upstream_timeout") {
+      const curatedCount = Array.isArray(d.curated_reviews)
+        ? d.curated_reviews.filter(r => r && typeof r === "object").length : 0;
+      const reviewAttempts = Number(d?.import_attempts?.reviews || 0);
+      if (curatedCount === 0 && reviewAttempts >= 2) {
+        return "upstream_timeout_terminal";
+      }
     }
 
     const stage = normalizeKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);

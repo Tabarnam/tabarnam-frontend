@@ -1281,6 +1281,37 @@ async function resumeWorkerHandler(req, context) {
         resumeDoc = (await readControlDoc(container, resumeDocId, sessionId).catch(() => null)) || resumeDoc;
       } catch {}
     }
+
+    // ── Stale resume_worker recovery ──
+    // If the resume doc says resume_worker + in_progress but the heartbeat is stale
+    // (>90s old), the prior worker was killed (host recycle, OOM, etc.) without
+    // cleaning up.  Clear the state so this safety-net invocation can proceed.
+    if (resumeInvocationMode === "resume_worker" && resumeStatus === "in_progress") {
+      const heartbeatAt = Date.parse(String(resumeDoc?.resume_worker_heartbeat_at || "")) || 0;
+      const heartbeatAgeMs = heartbeatAt ? Date.now() - heartbeatAt : Infinity;
+      const enrichmentStaleMs = 90_000; // 90s = 3× heartbeat interval (30s)
+
+      if (heartbeatAgeMs >= enrichmentStaleMs || (enrichmentAgeMs >= 420_000 && !heartbeatAt)) {
+        console.warn(`[resume-worker] stale resume_worker detected for session=${sessionId}`
+          + ` (heartbeat_age=${heartbeatAt ? Math.round(heartbeatAgeMs / 1000) + "s" : "never"}`
+          + `, enrichment_age=${Math.round(enrichmentAgeMs / 1000)}s), clearing in_progress state`);
+        try {
+          await upsertDoc(container, {
+            ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+            id: resumeDocId,
+            session_id: sessionId,
+            normalized_domain: "import",
+            partition_key: "import",
+            type: "import_control",
+            status: "queued",
+            invocation_mode: "resume_worker",
+            stale_resume_worker_cleared_at: nowIso(),
+            updated_at: nowIso(),
+          }).catch(() => null);
+          resumeDoc = (await readControlDoc(container, resumeDocId, sessionId).catch(() => null)) || resumeDoc;
+        } catch {}
+      }
+    }
   }
 
   // Stop doc is authoritative: if stopped, persist status and exit (no self-scheduling).
@@ -2315,12 +2346,19 @@ async function resumeWorkerHandler(req, context) {
       // Only attempt if "logo" is in the user-requested ENRICH_FIELDS.
       if (ENRICH_FIELDS.includes("logo")) {
         const logoHasValue = isRealValue("logo", doc.logo_url, doc);
+        const logoStageOk = doc.logo_stage_status === "ok" || doc.logo_stage_status === "imported";
         const logoTerminal = isTerminalMissingField(doc, "logo");
         const logoFp = progressRoot.enrichment_progress[companyId]["logo"] || { attempts: 0, last_attempt_at: null, last_error: null, status: null, last_cycle_attempted: null };
 
-        if (logoHasValue) {
+        if (logoHasValue || logoStageOk) {
+          // Logo already saved — don't re-scrape (prevents downgrade to worse candidate)
           logoFp.status = "ok";
           logoFp.last_error = null;
+          if (!logoHasValue && logoStageOk) {
+            console.log(`[resume-worker] logo_guard: stage_status=${doc.logo_stage_status} but logo_url empty — preserving status, skipping re-fetch`, {
+              session_id: sessionId, company_id: companyId,
+            });
+          }
         } else if (logoTerminal) {
           logoFp.status = "terminal";
           logoFp.last_error = String(deriveMissingReason(doc, "logo") || "terminal");
@@ -2521,6 +2559,11 @@ async function resumeWorkerHandler(req, context) {
             const stageStatus = d.reviews_stage_status || d.review_cursor?.reviews_stage_status;
             if (curatedCount >= REVIEWS_MIN_VIABLE_NEXT && stageStatus !== "incomplete") return false;
             if (isRealValue("reviews", d.curated_reviews, d) && stageStatus !== "incomplete") return false;
+          } else if (f === "logo") {
+            // Logo is handled separately from unified enrichment.
+            // Accept either a valid logo_url OR a successful stage status.
+            if (isRealValue(f, d?.[f], d)) return false;
+            if (d?.logo_stage_status === "ok" || d?.logo_stage_status === "imported") return false;
           } else {
             if (isRealValue(f, d?.[f], d)) return false;
           }
