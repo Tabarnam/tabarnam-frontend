@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.3.0";
+const PROMPT_GUIDANCE_VERSION = "3.4.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -40,12 +40,14 @@ const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url
 // ---------------------------------------------------------------------------
 const FIELD_GUIDANCE = {
   headquarters: {
-    rules: `Conduct thorough research using web_search and browse_page tools to identify the HQ location. Having the actual cities within the United States is crucial. Be accurate. No guessing or hallucinating.
+    rules: `Conduct thorough research using web_search and browse_page tools to identify the CURRENT official headquarters location. Companies relocate — you MUST return the active, current address, NOT a previous or registered address. Having the actual cities within the United States is crucial. Be accurate. No guessing or hallucinating.
 
 STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
-- Use browse_page on the company URL. Also try /about, /about-us, /contact, /our-story.
-- Look for: physical addresses, "headquartered in..." statements, footer addresses, legal/privacy page addresses.
-- If the website states a location, that is the PRIMARY source of truth.
+- Use browse_page on the company URL. Prioritize: /contact, /contact-us, then /about, /about-us, /our-story.
+- The CONTACT PAGE is the single most reliable source for the current address. Check it first.
+- Also check: footer addresses, legal/privacy page addresses, ordering/shipping pages.
+- Look for: physical addresses, "headquartered in..." statements, mailing addresses.
+- If the website states a location, that is the PRIMARY source of truth for the CURRENT address.
 
 STEP 2 — WEB SEARCH FOR CROSS-REFERENCING.
 - Run web_search: "[Company Name] headquarters location"
@@ -56,9 +58,10 @@ STEP 2 — WEB SEARCH FOR CROSS-REFERENCING.
 STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - Website + external source agree → report that location.
 - Conflict → trust the company website over third-party data.
-- Website has no location info → require at least 2 external sources that agree on the city.
+- CRITICAL: LinkedIn, business directories, MapQuest, older press releases, and business registration databases FREQUENTLY show PREVIOUS or OUTDATED addresses. If the live company website (especially the contact page) shows a different address than these sources, the website address is the CURRENT one. Do NOT return the directory address.
+- Website has no location info → require at least 2 external sources that agree on the city. Prefer the most recently dated source.
 - If only a US state is found, search "[Company Name] address [State]" or check the LinkedIn company page to pin down the city.
-- Beware of outdated addresses — if sources show different cities, prefer the company website or the most recent source.
+- When sources show different cities, look for dates — the most recently dated source with an address is more likely current. Companies relocate; older filings and directories may lag by years.
 
 STEP 4 — HANDLE EDGE CASES. Do NOT give up easily.
 - Small/private companies: search "[Company Name] [founder name] location" or "[Company Name] business registration [state]".
@@ -67,6 +70,7 @@ STEP 4 — HANDLE EDGE CASES. Do NOT give up easily.
 - Always verify with sources. Do NOT rely on training data — you MUST verify by actually visiting pages.
 
 FORMAT RULES:
+- Return ONLY the current, active headquarters address — never a previous or registered address.
 - City-level precision is crucial — do not return just a state or country if city-level data exists.
 - Use state/province abbreviations (e.g., "Austin, TX" not "Austin, Texas").
 - Format: "City, ST, USA" for US; "City, ST, Canada" for Canada; "City, Country" for international.
@@ -81,10 +85,10 @@ FORMAT RULES:
   },
 
   manufacturing: {
-    rules: `Conduct thorough research using web_search and browse_page tools to identify ALL known manufacturing locations worldwide. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Be accurate. No guessing or hallucinating.
+    rules: `Conduct thorough research using web_search and browse_page tools to identify ALL known CURRENT manufacturing locations worldwide. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Be accurate. No guessing or hallucinating.
 
 STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
-- Use browse_page on the company URL. Also try /about, /about-us, /our-story, /faq, /sustainability.
+- Use browse_page on the company URL. Also try /about, /about-us, /our-story, /faq, /sustainability, /contact, /shipping-policy.
 - Look for: "manufactured in...", "produced at our facility in...", "Made in...", facility addresses, supply chain or sustainability pages.
 - Check product pages and packaging images for "Made in [Country]" labels.
 - If the website states manufacturing locations, that is the PRIMARY source of truth.
@@ -100,9 +104,11 @@ STEP 2 — WEB SEARCH TO FIND ALL FACILITIES.
 STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - Website + external source agree → report that location.
 - Conflict → trust the company website over third-party data.
+- Distinguish between OWNED facilities and CONTRACT manufacturers when evidence is available.
 - Website has no manufacturing info → require at least 2 external sources that agree.
 - For vague US locations (just a state), check SEC 10-K filings, LinkedIn, or Glassdoor job postings for exact city.
 - If the company was acquired or rebranded, search the parent company's manufacturing footprint too.
+- IMPORTANT: Verify locations are current — companies close or relocate facilities. Prefer the most recently dated sources.
 
 STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
 - Do NOT return an empty result after only one search. Try at least 3 different search queries.
@@ -111,16 +117,17 @@ STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
 - For international companies, try "[Company Name] manufacturing [country]" for key markets.
 - Check government buyer guides, B2B directories, and trade databases for facility listings.
 - If ONLY country-level info exists (e.g., "Made in USA"), that is acceptable — include it.
+- If the company only states "Made in USA" with no specific city or facility name, return "USA" — do NOT guess a city.
 - If nothing is found after exhaustive searching, return an empty array [].
 
 FORMAT RULES:
-- List ALL known manufacturing locations worldwide. Be exhaustive.
-- City-level precision within the USA is crucial.
+- List ALL known CURRENT manufacturing locations worldwide. Be exhaustive.
+- City-level precision within the USA is crucial — but only when a specific city is actually disclosed.
 - Use state/province abbreviations (e.g., "Los Angeles, CA" not "Los Angeles, California").
 - Format: "City, ST, USA" for US; "City, ST, Canada" for Canada; "City, Country" for international.
 - Always append the country. Use "USA" (not "United States" or "U.S.A.").
 - Return an array of locations. Include multiple entries when applicable.
-- Country-only entries are acceptable when city-level data is unavailable (e.g., "China").
+- Country-only entries are acceptable when city-level data is unavailable (e.g., "China", "USA").
 - No explanatory text — just location strings.
 - Provide the supporting URLs you used for the manufacturing determination.`,
     jsonSchema: `"manufacturing_locations": ["City, ST, USA", "City, Country"]`,
