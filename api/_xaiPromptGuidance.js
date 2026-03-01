@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.5.0";
+const PROMPT_GUIDANCE_VERSION = "3.6.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -62,6 +62,7 @@ STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - Conflict → trust the company website over third-party data. Do NOT use LinkedIn, old GSA filings, directories, press releases, or any third-party site when they conflict with the live website.
 - CRITICAL: LinkedIn, business directories, MapQuest, older press releases, and business registration databases FREQUENTLY show PREVIOUS or OUTDATED addresses. If the live company website (especially the contact page) shows a different address than these sources, the website address is the CURRENT one. Do NOT return the directory address.
 - CRITICAL — NAME COLLISIONS: Many brand names are shared by unrelated companies in different countries (e.g., "Uplift Desk" in Austin TX vs "Suzhou Uplift Intelligent Technology" in China). Always verify that the entity you are reporting on matches the EXACT website domain provided. If a similarly-named foreign entity appears in search results, explicitly confirm it is NOT the company being researched before including any of its locations.
+- CRITICAL — PARENT COMPANY CONTAMINATION: If the company is a subsidiary or was acquired (e.g., Hekman Furniture under Howard Miller), report ONLY the address that belongs to the specific brand at the given website domain. Do NOT return the parent company's HQ address as the brand's HQ. The parent's address is NOT the brand's address unless the brand's own website confirms it.
 - Website has no location info → require at least 2 external sources that agree on the city. Prefer the most recently dated source.
 - If only a US state is found, search "[Company Name] address [State]" or check the LinkedIn company page to pin down the city.
 - When sources show different cities, look for dates — the most recently dated source with an address is more likely current. Companies relocate; older filings and directories may lag by years.
@@ -109,11 +110,13 @@ STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - Website + external source agree → report that location.
 - Conflict → trust the company website over third-party data.
 - CRITICAL — NAME COLLISIONS: Many brand names are shared by unrelated companies in different countries. For example, "Uplift Desk" (upliftdesk.com, Austin TX) is a completely different entity from "Suzhou Uplift Intelligent Technology Co., Ltd" (a Chinese manufacturer). Always verify that any manufacturing location you report belongs to the EXACT company at the given website domain — NOT a similarly-named foreign entity. If a similarly-named company appears in search results, explicitly confirm it is the same entity before including its locations.
+- CRITICAL — PARENT COMPANY CONTAMINATION: If the company is a subsidiary or was acquired (e.g., Hekman Furniture under Howard Miller), report ONLY manufacturing locations that belong to the specific brand being researched. Do NOT include the parent company's factories, other subsidiaries' plants, or the parent's HQ as a manufacturing site. Only include a parent's facility if the brand's own website confirms that specific facility produces the brand's products.
+- CRITICAL — SHOWROOMS ARE NOT FACTORIES: Trade show locations (e.g., High Point Market NC, Las Vegas Market NV), showrooms, design centers, and sales offices are NOT manufacturing facilities. Do NOT include them as manufacturing locations.
 - Never assume or import a manufacturing city unless the official website itself names it, or you have confirmed the source refers to the exact same entity at the given domain.
 - Distinguish between OWNED facilities and CONTRACT manufacturers when evidence is available.
 - Website has no manufacturing info → require at least 2 external sources that agree, AND confirm they reference the exact same company (same domain/parent company).
 - For vague US locations (just a state), check SEC 10-K filings, LinkedIn, or Glassdoor job postings for exact city.
-- If the company was acquired or rebranded, search the parent company's manufacturing footprint too.
+- If the company was acquired or rebranded, search the parent company's manufacturing footprint ONLY if you can confirm a specific parent facility actually produces the brand's products. Do NOT blindly include all parent company locations.
 - IMPORTANT: Verify locations are current — companies close or relocate facilities. Prefer the most recently dated sources.
 
 STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
