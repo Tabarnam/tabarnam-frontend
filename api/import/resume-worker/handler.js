@@ -2372,52 +2372,58 @@ async function resumeWorkerHandler(req, context) {
               savedFieldsThisRun.push("logo");
               logoStatus = "ok";
             } else {
-              // HTML scraping failed — try Grok fallback
-              console.log(`[resume-worker] HTML logo failed for ${companyId}, trying Grok fallback`);
-              try {
-                const grokLogoResult = await fetchLogo({
-                  companyName,
-                  normalizedDomain,
-                  budgetMs: Math.min(15_000, Math.max(3000, budgetRemainingMs() - 2000)),
-                  xaiUrl: getXAIEndpoint(),
-                  xaiKey: getXAIKey(),
-                });
-                if (grokLogoResult?.logo_svg_buffer && grokLogoResult.logo_status === "ok_svg") {
-                  try {
-                    const { uploadSvgToBlob } = require("../../_logoImport");
-                    const blobUrl = await uploadSvgToBlob({ companyId: doc.id, svgBuffer: grokLogoResult.logo_svg_buffer }, console);
-                    if (blobUrl) {
-                      doc.logo_url = blobUrl;
-                      doc.logo_stage_status = "ok";
-                      doc.import_missing_reason = doc.import_missing_reason || {};
-                      doc.import_missing_reason.logo = "ok";
-                      markFieldSuccess(doc, "logo");
-                      logoFp.status = "ok";
-                      logoFp.last_error = null;
-                      savedFieldsThisRun.push("logo");
-                      logoStatus = "ok";
-                      console.log(`[resume-worker] Logo uploaded from Grok SVG extraction: ${blobUrl}`);
+              // HTML scraping failed — try Grok fallback if budget allows
+              const grokLogoBudgetMs = budgetRemainingMs();
+              if (grokLogoBudgetMs >= 12_000) {
+                console.log(`[resume-worker] HTML logo failed for ${companyId}, trying Grok fallback (budget=${grokLogoBudgetMs}ms)`);
+                try {
+                  const grokLogoResult = await fetchLogo({
+                    companyName,
+                    normalizedDomain,
+                    budgetMs: Math.min(15_000, grokLogoBudgetMs - 2000),
+                    xaiUrl: getXAIEndpoint(),
+                    xaiKey: getXAIKey(),
+                  });
+                  if (grokLogoResult?.logo_svg_buffer && grokLogoResult.logo_status === "ok_svg") {
+                    try {
+                      const { uploadSvgToBlob } = require("../../_logoImport");
+                      const blobUrl = await uploadSvgToBlob({ companyId: doc.id, svgBuffer: grokLogoResult.logo_svg_buffer }, console);
+                      if (blobUrl) {
+                        doc.logo_url = blobUrl;
+                        doc.logo_stage_status = "ok";
+                        doc.import_missing_reason = doc.import_missing_reason || {};
+                        doc.import_missing_reason.logo = "ok";
+                        markFieldSuccess(doc, "logo");
+                        logoFp.status = "ok";
+                        logoFp.last_error = null;
+                        savedFieldsThisRun.push("logo");
+                        logoStatus = "ok";
+                        console.log(`[resume-worker] Logo uploaded from Grok SVG extraction: ${blobUrl}`);
+                      }
+                    } catch (svgErr) {
+                      console.warn(`[resume-worker] SVG blob upload failed: ${svgErr?.message}`);
                     }
-                  } catch (svgErr) {
-                    console.warn(`[resume-worker] SVG blob upload failed: ${svgErr?.message}`);
+                  } else if (grokLogoResult?.logo_url && grokLogoResult.logo_status === "ok") {
+                    doc.logo_url = grokLogoResult.logo_url;
+                    doc.logo_stage_status = "ok";
+                    doc.import_missing_reason = doc.import_missing_reason || {};
+                    doc.import_missing_reason.logo = "ok";
+                    markFieldSuccess(doc, "logo");
+                    logoFp.status = "ok";
+                    logoFp.last_error = null;
+                    savedFieldsThisRun.push("logo");
+                    logoStatus = "ok";
+                    console.log(`[resume-worker] Logo found via Grok fallback: ${grokLogoResult.logo_url}`);
+                  } else {
+                    logoStatus = grokLogoResult?.logo_status || "not_found";
                   }
-                } else if (grokLogoResult?.logo_url && grokLogoResult.logo_status === "ok") {
-                  doc.logo_url = grokLogoResult.logo_url;
-                  doc.logo_stage_status = "ok";
-                  doc.import_missing_reason = doc.import_missing_reason || {};
-                  doc.import_missing_reason.logo = "ok";
-                  markFieldSuccess(doc, "logo");
-                  logoFp.status = "ok";
-                  logoFp.last_error = null;
-                  savedFieldsThisRun.push("logo");
-                  logoStatus = "ok";
-                  console.log(`[resume-worker] Logo found via Grok fallback: ${grokLogoResult.logo_url}`);
-                } else {
-                  logoStatus = grokLogoResult?.logo_status || "not_found";
+                } catch (grokErr) {
+                  console.warn(`[resume-worker] Grok logo fallback error: ${grokErr?.message}`);
+                  logoStatus = "not_found";
                 }
-              } catch (grokErr) {
-                console.warn(`[resume-worker] Grok logo fallback error: ${grokErr?.message}`);
-                logoStatus = "not_found";
+              } else {
+                console.log(`[resume-worker] HTML logo failed for ${companyId}, Grok fallback skipped (budget=${grokLogoBudgetMs}ms < 12000ms)`);
+                logoStatus = "budget_exhausted";
               }
             }
           } catch (logoErr) {
@@ -2573,8 +2579,10 @@ async function resumeWorkerHandler(req, context) {
     const nextCycleCount = cycleCount + 1;
 
     // ── Convergence detection ──
-    // If the same fields are missing for 2 consecutive cycles (no improvement),
-    // treat as cap-reached so the session closes instead of looping forever.
+    // Check whether any previously-missing field was actually FILLED with a real value.
+    // Terminalization (giving up on a field) does NOT count as improvement — only
+    // successfully filling a field resets the streak. This prevents a field like tagline
+    // being terminalized from resetting the streak while HQ/mfg/keywords stay stuck.
     const serializeMissing = (arr) =>
       (Array.isArray(arr) ? arr : [])
         .filter((e) => Array.isArray(e?.missing_fields) && e.missing_fields.length > 0)
@@ -2584,7 +2592,25 @@ async function resumeWorkerHandler(req, context) {
 
     const prevMissingKey = serializeMissing(resumeDoc?.missing_by_company);
     const nextMissingKey = serializeMissing(nextMissingByCompany);
-    const noImprovement = resumeNeeded && prevMissingKey === nextMissingKey && prevMissingKey !== "";
+
+    const prevMissing = Array.isArray(resumeDoc?.missing_by_company) ? resumeDoc.missing_by_company : [];
+    let anyFieldFilled = false;
+    for (const prevEntry of prevMissing) {
+      const cid = String(prevEntry?.company_id || "").trim();
+      if (!cid) continue;
+      const d = docsById.get(cid);
+      if (!d) continue;
+      for (const f of (Array.isArray(prevEntry?.missing_fields) ? prevEntry.missing_fields : [])) {
+        if (f === "reviews") {
+          if (isRealValue("reviews", d.curated_reviews, d)) { anyFieldFilled = true; break; }
+        } else {
+          if (isRealValue(f, d?.[f], d)) { anyFieldFilled = true; break; }
+        }
+      }
+      if (anyFieldFilled) break;
+    }
+    const noImprovement = resumeNeeded && !anyFieldFilled
+      && prevMissing.some((e) => Array.isArray(e?.missing_fields) && e.missing_fields.length > 0);
     const noImprovementStreak = noImprovement ? (Number(resumeDoc?.no_improvement_streak || 0) + 1) : 0;
 
     const deriveBackoff = () => {
