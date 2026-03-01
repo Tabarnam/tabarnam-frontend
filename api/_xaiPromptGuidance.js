@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.4.0";
+const PROMPT_GUIDANCE_VERSION = "3.5.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -43,13 +43,15 @@ const FIELD_GUIDANCE = {
     rules: `Conduct thorough research using web_search and browse_page tools to identify the CURRENT official headquarters location. Companies relocate — you MUST return the active, current address, NOT a previous or registered address. Having the actual cities within the United States is crucial. Be accurate. No guessing or hallucinating.
 
 STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
+- ONLY use text that appears on the company's LIVE official website (contact page, about page, footer, shipping policy, privacy page).
 - Use browse_page on the company URL. Prioritize: /contact, /contact-us, then /about, /about-us, /our-story.
 - The CONTACT PAGE is the single most reliable source for the current address. Check it first.
 - Also check: footer addresses, legal/privacy page addresses, ordering/shipping pages.
 - Look for: physical addresses, "headquartered in..." statements, mailing addresses.
 - If the website states a location, that is the PRIMARY source of truth for the CURRENT address.
+- Re-browse the contact/about page one final time before answering to confirm the address is still live.
 
-STEP 2 — WEB SEARCH FOR CROSS-REFERENCING.
+STEP 2 — WEB SEARCH FOR CROSS-REFERENCING (secondary to the live website).
 - Run web_search: "[Company Name] headquarters location"
 - Run web_search: "[Company Name] company profile site:linkedin.com OR site:crunchbase.com OR site:bloomberg.com"
 - Use browse_page on the top 2-3 results to extract and verify the city.
@@ -57,8 +59,9 @@ STEP 2 — WEB SEARCH FOR CROSS-REFERENCING.
 
 STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - Website + external source agree → report that location.
-- Conflict → trust the company website over third-party data.
+- Conflict → trust the company website over third-party data. Do NOT use LinkedIn, old GSA filings, directories, press releases, or any third-party site when they conflict with the live website.
 - CRITICAL: LinkedIn, business directories, MapQuest, older press releases, and business registration databases FREQUENTLY show PREVIOUS or OUTDATED addresses. If the live company website (especially the contact page) shows a different address than these sources, the website address is the CURRENT one. Do NOT return the directory address.
+- CRITICAL — NAME COLLISIONS: Many brand names are shared by unrelated companies in different countries (e.g., "Uplift Desk" in Austin TX vs "Suzhou Uplift Intelligent Technology" in China). Always verify that the entity you are reporting on matches the EXACT website domain provided. If a similarly-named foreign entity appears in search results, explicitly confirm it is NOT the company being researched before including any of its locations.
 - Website has no location info → require at least 2 external sources that agree on the city. Prefer the most recently dated source.
 - If only a US state is found, search "[Company Name] address [State]" or check the LinkedIn company page to pin down the city.
 - When sources show different cities, look for dates — the most recently dated source with an address is more likely current. Companies relocate; older filings and directories may lag by years.
@@ -88,12 +91,13 @@ FORMAT RULES:
     rules: `Conduct thorough research using web_search and browse_page tools to identify ALL known CURRENT manufacturing locations worldwide. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Be accurate. No guessing or hallucinating.
 
 STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
+- ONLY use text that appears on the company's LIVE official website. Do NOT attribute manufacturing locations from third-party sources unless the official website is silent.
 - Use browse_page on the company URL. Also try /about, /about-us, /our-story, /faq, /sustainability, /contact, /shipping-policy.
 - Look for: "manufactured in...", "produced at our facility in...", "Made in...", facility addresses, supply chain or sustainability pages.
 - Check product pages and packaging images for "Made in [Country]" labels.
 - If the website states manufacturing locations, that is the PRIMARY source of truth.
 
-STEP 2 — WEB SEARCH TO FIND ALL FACILITIES.
+STEP 2 — WEB SEARCH TO FIND ALL FACILITIES (secondary to the live website).
 - Run web_search: "[Company Name] manufacturing facilities locations"
 - Run web_search: "[Company Name] factory OR plant OR production facility"
 - For US companies, try: "[Company Name] manufacturing site:sec.gov OR site:fda.gov" (regulatory filings list facility addresses).
@@ -104,8 +108,10 @@ STEP 2 — WEB SEARCH TO FIND ALL FACILITIES.
 STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - Website + external source agree → report that location.
 - Conflict → trust the company website over third-party data.
+- CRITICAL — NAME COLLISIONS: Many brand names are shared by unrelated companies in different countries. For example, "Uplift Desk" (upliftdesk.com, Austin TX) is a completely different entity from "Suzhou Uplift Intelligent Technology Co., Ltd" (a Chinese manufacturer). Always verify that any manufacturing location you report belongs to the EXACT company at the given website domain — NOT a similarly-named foreign entity. If a similarly-named company appears in search results, explicitly confirm it is the same entity before including its locations.
+- Never assume or import a manufacturing city unless the official website itself names it, or you have confirmed the source refers to the exact same entity at the given domain.
 - Distinguish between OWNED facilities and CONTRACT manufacturers when evidence is available.
-- Website has no manufacturing info → require at least 2 external sources that agree.
+- Website has no manufacturing info → require at least 2 external sources that agree, AND confirm they reference the exact same company (same domain/parent company).
 - For vague US locations (just a state), check SEC 10-K filings, LinkedIn, or Glassdoor job postings for exact city.
 - If the company was acquired or rebranded, search the parent company's manufacturing footprint too.
 - IMPORTANT: Verify locations are current — companies close or relocate facilities. Prefer the most recently dated sources.
@@ -117,12 +123,12 @@ STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
 - For international companies, try "[Company Name] manufacturing [country]" for key markets.
 - Check government buyer guides, B2B directories, and trade databases for facility listings.
 - If ONLY country-level info exists (e.g., "Made in USA"), that is acceptable — include it.
-- If the company only states "Made in USA" with no specific city or facility name, return "USA" — do NOT guess a city.
+- If the company only states "Made in USA" or "assembled in the USA" with no specific city or facility name, return "USA" — do NOT guess a city.
 - If nothing is found after exhaustive searching, return an empty array [].
 
 FORMAT RULES:
 - List ALL known CURRENT manufacturing locations worldwide. Be exhaustive.
-- City-level precision within the USA is crucial — but only when a specific city is actually disclosed.
+- City-level precision within the USA is crucial — but only when a specific city is actually disclosed on the official website or in a confirmed source for the exact same entity.
 - Use state/province abbreviations (e.g., "Los Angeles, CA" not "Los Angeles, California").
 - Format: "City, ST, USA" for US; "City, ST, Canada" for Canada; "City, Country" for international.
 - Always append the country. Use "USA" (not "United States" or "U.S.A.").
