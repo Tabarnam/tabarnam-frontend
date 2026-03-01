@@ -131,8 +131,16 @@ async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
 }
 
 // Determine whether a previously-imported company has completed enrichment
-// (i.e. at least one attempt made AND every missing field has a terminal reason).
+// (i.e. at least one attempt made AND every missing field has a terminal/decided reason).
 // Used by the duplicate-detection gate to avoid re-enriching finished companies.
+//
+// Two tiers:
+//   1. Strict: every missing field has a terminal reason (isTerminalMissingReason, "ok", "confirmed_empty").
+//   2. Lenient: at least one enrichment attempt completed AND every missing field has *some*
+//      non-empty reason.  This handles the common case where the resume-worker finished but
+//      left non-terminal reasons like "not_found", "upstream_timeout", "low_quality".
+//      A company still mid-enrichment will have missing fields with no reason at all, so
+//      requiring a non-empty reason correctly distinguishes "done" from "in progress".
 function isEnrichmentComplete(doc) {
   if (!doc) return false;
   const attempts = doc.import_attempts;
@@ -143,10 +151,20 @@ function isEnrichmentComplete(doc) {
   if (missing.length === 0) return true;
   const reasons = doc.import_missing_reason && typeof doc.import_missing_reason === "object" ? doc.import_missing_reason : {};
   const { isTerminalMissingReason: isTerminal } = require("../_requiredFields");
-  return missing.every((f) => {
+
+  // Tier 1 — strict: every missing field has a terminal/ok/confirmed_empty reason
+  const strictComplete = missing.every((f) => {
     const reason = String(reasons[f] || "").trim();
     return reason && (isTerminal(reason) || reason === "ok" || reason === "confirmed_empty");
   });
+  if (strictComplete) return true;
+
+  // Tier 2 — lenient: every missing field has SOME reason (enrichment ran and decided)
+  const allHaveReason = missing.every((f) => {
+    const reason = String(reasons[f] || "").trim();
+    return reason.length > 0;
+  });
+  return allHaveReason;
 }
 
 // Check if company already exists by normalized domain / company name.
@@ -533,7 +551,13 @@ async function saveCompaniesToCosmos({
             let existingDoc = null;
             let shouldUpdateExisting = false;
 
+            if (!existing || !existing.id) {
+              console.log(`[import-start] dedup_no_match: "${companyName}" (${normalizedDomain}) — no existing company found`);
+            }
+
             if (existing && existing.id) {
+              console.log(`[import-start] dedup_found_existing: "${companyName}" (${normalizedDomain}) matched by ${existing.duplicate_match_key}=${existing.duplicate_match_value}, id=${existing.id}`);
+
               const existingPkCandidate = String(existing.partition_key || existing.normalized_domain || finalNormalizedDomain || "").trim();
 
               existingDoc = await readItemWithPkCandidates(container, existing.id, {
@@ -541,6 +565,10 @@ async function saveCompaniesToCosmos({
                 normalized_domain: existingPkCandidate || finalNormalizedDomain,
                 partition_key: existingPkCandidate || finalNormalizedDomain,
               }).catch(() => null);
+
+              if (!existingDoc) {
+                console.log(`[import-start] dedup_read_failed: "${companyName}" (${normalizedDomain}) — readItemWithPkCandidates returned null for id=${existing.id}`);
+              }
 
               const existingSessionId = String(existingDoc?.import_session_id || existingDoc?.session_id || "").trim();
 
@@ -552,10 +580,21 @@ async function saveCompaniesToCosmos({
 
               const existingIncomplete = existingLooksLikeSeed || existingMissingFields.length > 0;
 
-              // If enrichment already ran to completion (all missing fields are terminal),
+              // If enrichment already ran to completion (all missing fields are terminal/decided),
               // skip re-enrichment even when allowUpdateExisting is true.  This prevents
               // redundant re-imports from overwriting good data (logos, reviews, etc.).
               const enrichmentAlreadyDone = !existingLooksLikeSeed && isEnrichmentComplete(existingDoc);
+
+              // Diagnostic: log the dedup decision factors
+              if (existingDoc) {
+                const missingReasons = existingMissingFields.map((f) => {
+                  const r = existingDoc.import_missing_reason && typeof existingDoc.import_missing_reason === "object"
+                    ? String(existingDoc.import_missing_reason[f] || "").trim()
+                    : "";
+                  return `${f}=${r || "(empty)"}`;
+                }).join(", ");
+                console.log(`[import-start] dedup_check: "${companyName}" (${normalizedDomain}) — seed=${existingLooksLikeSeed}, enrichmentDone=${enrichmentAlreadyDone}, missing=[${existingMissingFields.join(",")}], reasons={${missingReasons}}, attempts=${JSON.stringify(existingDoc.import_attempts || {})}`);
+              }
 
               // Reconcile: if the existing record is incomplete (common for seed_fallback), update it instead of creating
               // or leaving behind additional seed rows. Also allow update when the caller explicitly requests it
@@ -565,7 +604,7 @@ async function saveCompaniesToCosmos({
               );
 
               if (enrichmentAlreadyDone && !shouldUpdateExisting) {
-                console.log(`[import-start] skip_enrichment_complete: ${companyName} (${normalizedDomain}) — enrichment already done, all missing fields terminal`);
+                console.log(`[import-start] skip_enrichment_complete: ${companyName} (${normalizedDomain}) — enrichment already done, all missing fields decided`);
               }
 
               if (!shouldUpdateExisting) {

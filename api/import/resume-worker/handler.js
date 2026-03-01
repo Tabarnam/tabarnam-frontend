@@ -2184,6 +2184,10 @@ async function resumeWorkerHandler(req, context) {
             tfp.status = "confirmed_empty";
             tfp.last_error = `gave_up_after_${taglineAttempts}_attempts`;
             progressRoot.enrichment_progress[companyId][f] = tfp;
+            // Also write terminal reason to the company doc so isEnrichmentComplete()
+            // correctly recognises this field as decided (not still pending).
+            doc.import_missing_reason ||= {};
+            doc.import_missing_reason.tagline = "not_found_terminal";
             console.log(`[resume-worker] tagline_gave_up company=${companyId}, attempts=${taglineAttempts}`);
             return false;
           }
