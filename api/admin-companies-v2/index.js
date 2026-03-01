@@ -10,7 +10,7 @@ const { computeTopLevelDiff, writeCompanyEditHistoryEntry, getCompanyEditHistory
 const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_geocode");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
-const { computeEnrichmentHealth, isRealValue } = require("../_requiredFields");
+const { computeEnrichmentHealth, computeMissingFields, isRealValue } = require("../_requiredFields");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { expandBusinessAbbreviations } = require("../_searchSynonyms");
 
@@ -1545,6 +1545,41 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           patchCompanyWithSearchText(doc);
         } catch (e) {
           context.log("[admin-companies-v2] search_text_patch_failed", {
+            company_id: String(doc.company_id || doc.id || "").trim(),
+            error: e?.message || String(e),
+          });
+        }
+
+        // Keep import_missing_fields / import_missing_reason in sync with actual
+        // data.  Admin edits can fill fields that were previously missing, but the
+        // import pipeline's status fields were never recalculated on admin save.
+        // This caused stale "missing" entries that tricked the duplicate-detection
+        // gate into re-importing already-complete companies.
+        try {
+          const freshMissing = computeMissingFields(doc);
+          const prevMissing = Array.isArray(doc.import_missing_fields) ? doc.import_missing_fields : [];
+
+          // Update import_missing_reason for fields that are no longer missing
+          if (doc.import_missing_reason && typeof doc.import_missing_reason === "object") {
+            const freshSet = new Set(freshMissing);
+            for (const f of prevMissing) {
+              if (!freshSet.has(f)) {
+                doc.import_missing_reason[f] = "ok";
+              }
+            }
+          }
+
+          doc.import_missing_fields = freshMissing;
+
+          // Clear stale seed flags if enrichment has already run
+          const att = doc.import_attempts;
+          const hasAnyAttempt = att && typeof att === "object" && Object.values(att).some((v) => Number(v) > 0);
+          if (hasAnyAttempt) {
+            if (doc.seed_ready) doc.seed_ready = false;
+            if (doc.source_stage === "seed") doc.source_stage = "enriched";
+          }
+        } catch (e) {
+          context.log("[admin-companies-v2] import_status_refresh_failed", {
             company_id: String(doc.company_id || doc.id || "").trim(),
             error: e?.message || String(e),
           });

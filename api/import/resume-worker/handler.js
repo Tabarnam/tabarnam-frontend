@@ -2365,6 +2365,13 @@ async function resumeWorkerHandler(req, context) {
         // Save doc after unified enrichment
         doc.import_missing_fields = computeMissingFields(doc);
         doc.updated_at = nowIso();
+
+        // Clear stale seed flags now that enrichment has run.  These flags are set
+        // at initial import but never cleared, causing the duplicate-detection gate
+        // to misidentify enriched companies as unfinished stubs on re-import.
+        if (doc.seed_ready) doc.seed_ready = false;
+        if (doc.source_stage === "seed") doc.source_stage = "enriched";
+
         if (Array.isArray(doc.headquarters_locations)) {
           doc.headquarters_locations = deduplicateLocationEntries(doc.headquarters_locations);
           doc.headquarters = doc.headquarters_locations;

@@ -573,10 +573,20 @@ async function saveCompaniesToCosmos({
               const existingSessionId = String(existingDoc?.import_session_id || existingDoc?.session_id || "").trim();
 
               const existingMissingFields = Array.isArray(existingDoc?.import_missing_fields) ? existingDoc.import_missing_fields : [];
-              const existingLooksLikeSeed =
+              // A doc "looks like a seed" only if it carries seed markers AND has
+              // never been through enrichment.  The seed_ready / source_stage flags are
+              // set at initial import but never cleared, so a company that WAS enriched
+              // (import_attempts has any field > 0) should no longer be treated as a seed.
+              const hasAnyAttempt = (() => {
+                const att = existingDoc?.import_attempts;
+                if (!att || typeof att !== "object") return false;
+                return Object.values(att).some((v) => Number(v) > 0);
+              })();
+              const existingLooksLikeSeed = !hasAnyAttempt && (
                 Boolean(existingDoc?.seed_ready) ||
                 String(existingDoc?.source || "").trim() === "company_url_shortcut" ||
-                String(existingDoc?.source_stage || "").trim() === "seed";
+                String(existingDoc?.source_stage || "").trim() === "seed"
+              );
 
               const existingIncomplete = existingLooksLikeSeed || existingMissingFields.length > 0;
 
