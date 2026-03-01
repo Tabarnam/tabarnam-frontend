@@ -42,6 +42,7 @@ const { enqueueResumeRun } = require("../../_enrichmentQueue");
 const { runDirectEnrichment, applyEnrichmentToCompany } = require("../../_directEnrichment");
 
 const { importCompanyLogo } = require("../../_logoImport");
+const { PROMPT_GUIDANCE_VERSION } = require("../../_xaiPromptGuidance");
 
 const { geocodeLocationString } = require("../../_geocode");
 
@@ -2157,7 +2158,7 @@ async function resumeWorkerHandler(req, context) {
         if (f === "tagline") {
           const tfp = progressRoot.enrichment_progress[companyId][f] || {};
           const taglineAttempts = tfp.total_attempts || 0;
-          const TAGLINE_MAX_CROSS_CYCLE_ATTEMPTS = 2;
+          const TAGLINE_MAX_CROSS_CYCLE_ATTEMPTS = 1;
           if (taglineAttempts >= TAGLINE_MAX_CROSS_CYCLE_ATTEMPTS) {
             tfp.status = "confirmed_empty";
             tfp.last_error = `gave_up_after_${taglineAttempts}_attempts`;
@@ -2189,6 +2190,7 @@ async function resumeWorkerHandler(req, context) {
           budget_ms: unifiedBudgetMs,
           cycle_count: cycleCount,
           is_fresh_seed: isFreshSeed,
+          prompt_guidance: PROMPT_GUIDANCE_VERSION,
         });
 
         // Bump attempt counts for all fields being attempted

@@ -1051,6 +1051,14 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       };
     })
     .filter((x) => x.source_url)
+    .filter((x) => {
+      const raw = String(x.source_url || "").trim().toLowerCase();
+      if (raw === "n/a" || raw === "na" || raw === "none" || raw === "null" || raw === "undefined" || raw === "-" || raw === "#") {
+        console.log(`[grokEnrichment] reviews: placeholder_url_rejected: "${x.source_url}"`);
+        return false;
+      }
+      return true;
+    })
     // Exclude company's own domain — EXCEPT for website testimonial entries (strategy 5)
     .filter((x) => x.is_website_testimonial || !excludeDomains.some((d) => x.source_url.includes(d)))
     .filter((x) => {

@@ -1052,6 +1052,11 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
       try {
         const b64 = sourceUrl.slice("data:image/svg+xml;base64,".length);
         let buf = Buffer.from(b64, "base64");
+        // Reject trivially small inline SVGs — these are almost always generic icons
+        // (user silhouettes, cart icons, search icons) not company logos.
+        if (buf.length < 200) {
+          return { ok: false, reason: `inline_svg_too_small_${buf.length}_bytes` };
+        }
         if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
 
         // Detect SVG sprites: <use href="..."> or <use xlink:href="...">
@@ -1085,13 +1090,21 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
           && !hasAnyToken(svgLower, ["logo", "wordmark", "logotype", "brand"]);
         if (isIconSvg) return { ok: false, reason: "svg_icon_class" };
 
+        // Reject trivially simple SVGs (generic icons like user/person/cart silhouettes).
+        // Real company logos have more visual complexity than a 1-2 path silhouette.
+        const pathCount = (svgText.match(/<path[\s>]/gi) || []).length;
+        const totalPathDataLen = (svgText.match(/\bd="([^"]*)"/g) || []).reduce((sum, m) => sum + m.length, 0);
+        if (pathCount <= 2 && totalPathDataLen < 150) {
+          return { ok: false, reason: `inline_svg_too_simple_${pathCount}_paths` };
+        }
+
         let { width, height } = parseSvgViewBoxDimensions(buf);
         if (!Number.isFinite(width) || !Number.isFinite(height)) {
           // Inline SVGs in headers are high-confidence — use declared/viewBox dimensions
           width = candidate?.width || 200;
           height = candidate?.height || 80;
         }
-        if (width < 24 || height < 24) return { ok: false, reason: `too_small_dimensions_${width}x${height}` };
+        if (width < 48 || height < 48) return { ok: false, reason: `too_small_dimensions_${width}x${height}` };
         return { ok: true, buf, contentType: "image/svg+xml", finalUrl: candidate?.page_url || "", isSvg: true, width, height };
       } catch (e) {
         return { ok: false, reason: `inline_svg_error_${e?.message || "unknown"}` };
@@ -1906,7 +1919,7 @@ async function rasterizeToPng(buf, { maxSize = 500, isSvg = false } = {}) {
   }
 }
 
-async function uploadBufferToBlob({ companyId, buffer, ext, contentType }, logger = console) {
+async function uploadBufferToBlob({ companyId, buffer, ext, contentType }, logger = console, { force = false } = {}) {
   const { accountName, accountKey } = getStorageCredentials();
   if (!accountName || !accountKey) {
     throw new Error("storage not configured");
@@ -1932,6 +1945,35 @@ async function uploadBufferToBlob({ companyId, buffer, ext, contentType }, logge
   const blobName = `${companyId}/logo.${safeExt}`;
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
+  // Overwrite guard: don't replace a larger existing blob with a smaller one
+  if (!force) {
+    try {
+      const props = await blockBlobClient.getProperties();
+      const existingSize = Number(props.contentLength || 0);
+      if (existingSize > 0 && existingSize >= buffer.length) {
+        logger?.log?.(`[logoImport] blob_overwrite_guard: existing blob (${existingSize} bytes) >= new (${buffer.length} bytes) at ${blobName}, keeping existing`);
+        const sasToken = generateBlobSASQueryParameters(
+          {
+            containerName,
+            blobName,
+            permissions: BlobSASPermissions.parse("r"),
+            expiresOn: new Date(Date.now() + 10 * 365.25 * 24 * 60 * 60 * 1000),
+          },
+          credentials,
+        ).toString();
+        return `${blockBlobClient.url}?${sasToken}`;
+      }
+      if (existingSize > 0) {
+        logger?.log?.(`[logoImport] blob_overwrite: replacing ${existingSize} bytes with ${buffer.length} bytes at ${blobName}`);
+      }
+    } catch (e) {
+      // 404 = no existing blob, proceed with upload
+      if (e?.statusCode !== 404) {
+        logger?.warn?.(`[logoImport] blob_overwrite_guard_error: ${e?.message}`);
+      }
+    }
+  }
+
   await blockBlobClient.upload(buffer, buffer.length, {
     blobHTTPHeaders: { blobContentType: contentType || "application/octet-stream" },
   });
@@ -1956,12 +1998,12 @@ function getStorageCredentials() {
   return { accountName, accountKey };
 }
 
-async function uploadPngToBlob({ companyId, pngBuffer }, logger = console) {
-  return uploadBufferToBlob({ companyId, buffer: pngBuffer, ext: "png", contentType: "image/png" }, logger);
+async function uploadPngToBlob({ companyId, pngBuffer }, logger = console, { force = false } = {}) {
+  return uploadBufferToBlob({ companyId, buffer: pngBuffer, ext: "png", contentType: "image/png" }, logger, { force });
 }
 
-async function uploadSvgToBlob({ companyId, svgBuffer }, logger = console) {
-  return uploadBufferToBlob({ companyId, buffer: svgBuffer, ext: "svg", contentType: "image/svg+xml" }, logger);
+async function uploadSvgToBlob({ companyId, svgBuffer }, logger = console, { force = false } = {}) {
+  return uploadBufferToBlob({ companyId, buffer: svgBuffer, ext: "svg", contentType: "image/svg+xml" }, logger, { force });
 }
 
 function candidateSourceRank(source) {

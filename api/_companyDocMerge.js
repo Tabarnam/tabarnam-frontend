@@ -127,14 +127,32 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
     ? ""
     : preferString(incomingDoc.tagline_unknown_reason, existingDoc.tagline_unknown_reason);
 
-  merged.logo_url = preferString(incomingDoc.logo_url, existingDoc.logo_url) || null;
-  merged.logo_source_url = preferString(incomingDoc.logo_source_url, existingDoc.logo_source_url) || null;
-  merged.logo_source_location = preferString(incomingDoc.logo_source_location, existingDoc.logo_source_location) || null;
-  merged.logo_source_domain = preferString(incomingDoc.logo_source_domain, existingDoc.logo_source_domain) || null;
-  merged.logo_source_type = preferString(incomingDoc.logo_source_type, existingDoc.logo_source_type) || null;
-  merged.logo_status = preferString(incomingDoc.logo_status, existingDoc.logo_status) || "";
-  merged.logo_import_status = preferString(incomingDoc.logo_import_status, existingDoc.logo_import_status) || "";
-  merged.logo_error = preferString(incomingDoc.logo_error, existingDoc.logo_error) || "";
+  // Logo merge guard: preserve existing verified blob logo to prevent overwrite with
+  // a worse candidate (e.g. a tiny generic icon replacing a good logo on re-import).
+  const existingLogoIsBlob = isMeaningfulString(existingDoc.logo_url)
+    && String(existingDoc.logo_url).includes(".blob.core.windows.net")
+    && String(existingDoc.logo_url).includes("/company-logos/");
+  const existingLogoStageOk = existingDoc.logo_stage_status === "ok" || existingDoc.logo_stage_status === "imported";
+
+  if (existingLogoIsBlob && existingLogoStageOk) {
+    merged.logo_url = String(existingDoc.logo_url).trim();
+    merged.logo_source_url = preferString(existingDoc.logo_source_url, incomingDoc.logo_source_url) || null;
+    merged.logo_source_location = preferString(existingDoc.logo_source_location, incomingDoc.logo_source_location) || null;
+    merged.logo_source_domain = preferString(existingDoc.logo_source_domain, incomingDoc.logo_source_domain) || null;
+    merged.logo_source_type = preferString(existingDoc.logo_source_type, incomingDoc.logo_source_type) || null;
+    merged.logo_status = preferString(existingDoc.logo_status, incomingDoc.logo_status) || "";
+    merged.logo_import_status = preferString(existingDoc.logo_import_status, incomingDoc.logo_import_status) || "";
+    merged.logo_error = preferString(existingDoc.logo_error, incomingDoc.logo_error) || "";
+  } else {
+    merged.logo_url = preferString(incomingDoc.logo_url, existingDoc.logo_url) || null;
+    merged.logo_source_url = preferString(incomingDoc.logo_source_url, existingDoc.logo_source_url) || null;
+    merged.logo_source_location = preferString(incomingDoc.logo_source_location, existingDoc.logo_source_location) || null;
+    merged.logo_source_domain = preferString(incomingDoc.logo_source_domain, existingDoc.logo_source_domain) || null;
+    merged.logo_source_type = preferString(incomingDoc.logo_source_type, existingDoc.logo_source_type) || null;
+    merged.logo_status = preferString(incomingDoc.logo_status, existingDoc.logo_status) || "";
+    merged.logo_import_status = preferString(incomingDoc.logo_import_status, existingDoc.logo_import_status) || "";
+    merged.logo_error = preferString(incomingDoc.logo_error, existingDoc.logo_error) || "";
+  }
 
   merged.location_sources = preferArray(incomingDoc.location_sources, existingDoc.location_sources);
   merged.show_location_sources_to_users =

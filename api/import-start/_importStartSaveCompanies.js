@@ -130,6 +130,25 @@ async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
   };
 }
 
+// Determine whether a previously-imported company has completed enrichment
+// (i.e. at least one attempt made AND every missing field has a terminal reason).
+// Used by the duplicate-detection gate to avoid re-enriching finished companies.
+function isEnrichmentComplete(doc) {
+  if (!doc) return false;
+  const attempts = doc.import_attempts;
+  if (!attempts || typeof attempts !== "object") return false;
+  const anyAttempted = Object.values(attempts).some((v) => Number(v) > 0);
+  if (!anyAttempted) return false;
+  const missing = Array.isArray(doc.import_missing_fields) ? doc.import_missing_fields : [];
+  if (missing.length === 0) return true;
+  const reasons = doc.import_missing_reason && typeof doc.import_missing_reason === "object" ? doc.import_missing_reason : {};
+  const { isTerminalMissingReason: isTerminal } = require("../_requiredFields");
+  return missing.every((f) => {
+    const reason = String(reasons[f] || "").trim();
+    return reason && (isTerminal(reason) || reason === "ok" || reason === "confirmed_empty");
+  });
+}
+
 // Check if company already exists by normalized domain / company name.
 // IMPORTANT: Dedupe only against active companies (ignore soft-deleted rows).
 async function findExistingCompany(container, normalizedDomain, companyName, canonicalUrl) {
@@ -143,7 +162,7 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
   try {
     if (domain && domain !== "unknown") {
       const query = `
-        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.seed_ready, c.source, c.source_stage
+        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.import_missing_reason, c.import_attempts, c.logo_stage_status, c.seed_ready, c.source, c.source_stage
         FROM c
         WHERE ${notDeletedClause}
           AND c.normalized_domain = @domain
@@ -195,7 +214,7 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
       const clause = canonicalVariants.map((_, idx) => `@canon${idx}`).join(", ");
 
       const query = `
-        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.seed_ready, c.source, c.source_stage
+        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.import_missing_reason, c.import_attempts, c.logo_stage_status, c.seed_ready, c.source, c.source_stage
         FROM c
         WHERE ${notDeletedClause}
           AND (
@@ -220,7 +239,7 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
 
     if (nameValue) {
       const query = `
-        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.seed_ready, c.source, c.source_stage
+        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.import_missing_reason, c.import_attempts, c.logo_stage_status, c.seed_ready, c.source, c.source_stage
         FROM c
         WHERE ${notDeletedClause}
           AND LOWER(c.company_name) = @name
@@ -533,12 +552,21 @@ async function saveCompaniesToCosmos({
 
               const existingIncomplete = existingLooksLikeSeed || existingMissingFields.length > 0;
 
+              // If enrichment already ran to completion (all missing fields are terminal),
+              // skip re-enrichment even when allowUpdateExisting is true.  This prevents
+              // redundant re-imports from overwriting good data (logos, reviews, etc.).
+              const enrichmentAlreadyDone = !existingLooksLikeSeed && isEnrichmentComplete(existingDoc);
+
               // Reconcile: if the existing record is incomplete (common for seed_fallback), update it instead of creating
               // or leaving behind additional seed rows. Also allow update when the caller explicitly requests it
               // (e.g., company_url imports where the user intentionally re-imports an existing company).
               shouldUpdateExisting = Boolean(
-                (existingSessionId && existingSessionId === sid) || existingIncomplete || allowUpdateExisting
+                (existingSessionId && existingSessionId === sid) || (!enrichmentAlreadyDone && (existingIncomplete || allowUpdateExisting))
               );
+
+              if (enrichmentAlreadyDone && !shouldUpdateExisting) {
+                console.log(`[import-start] skip_enrichment_complete: ${companyName} (${normalizedDomain}) — enrichment already done, all missing fields terminal`);
+              }
 
               if (!shouldUpdateExisting) {
                 console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
