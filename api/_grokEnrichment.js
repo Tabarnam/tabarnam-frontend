@@ -197,9 +197,9 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 // Call 1 (structured): all non-review fields in a single xAI call with full guidance.
 // Call 2 (reviews): curated reviews in a parallel xAI call with stricter disambiguation.
 const TWO_CALL_TIMEOUTS_MS = Object.freeze({
-  structured: { min: 120_000, max: 210_000 },  // 2-3.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo)
-  reviews:    { min: 180_000, max: 360_000 },  // 3-6 min for Call 2 (curated reviews)
-  retry:      { min: 60_000,  max: 150_000 },  // 1-2.5 min for retry of missing structured fields (2 retry rounds for locations)
+  structured: { min: 45_000, max: 90_000 },   // 0.75-1.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo)
+  reviews:    { min: 60_000, max: 120_000 },   // 1-2 min for Call 2 (curated reviews)
+  retry:      { min: 30_000, max: 60_000 },    // 0.5-1 min for retry of missing structured fields
 });
 
 // Absolute minimum budget to attempt an xAI call at all.
@@ -3482,7 +3482,7 @@ async function enrichCompanyFields({
 
   // ── Retry missing structured fields (up to 2 rounds for locations) ──
   const LOCATION_FIELDS = ["headquarters", "manufacturing"];
-  const MAX_RETRY_ROUNDS = 2;
+  const MAX_RETRY_ROUNDS = 1;
 
   for (let retryRound = 1; retryRound <= MAX_RETRY_ROUNDS; retryRound++) {
     const missingStructured = findMissingFields(proposed).filter((f) => f !== "reviews");
