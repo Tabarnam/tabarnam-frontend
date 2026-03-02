@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { X } from "lucide-react";
 import { geocode } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
@@ -11,6 +12,46 @@ import { searchCompanies } from "@/lib/searchCompanies";
 import { API_BASE } from "@/lib/api";
 import { getQQScore } from "@/lib/stars/qqRating";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+
+/** Skeleton placeholder that mirrors the collapsed ExpandableCompanyRow grid */
+function SkeletonRow() {
+  return (
+    <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-border rounded-lg p-2 bg-card mb-3">
+      {/* Col 1: company info */}
+      <div className="col-span-4 lg:col-span-1 space-y-2">
+        <Skeleton className="h-5 w-3/4" />
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-1/2" />
+        <div className="flex gap-2 mt-2">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3 w-20" />
+        </div>
+      </div>
+      {/* Col 2: logo placeholder */}
+      <div className="col-span-2 lg:col-span-1">
+        <Skeleton className="w-full h-28 rounded" />
+      </div>
+      {/* Cols 3-5: manu / hq / qq */}
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="col-span-2 lg:col-span-1 space-y-2">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+      ))}
+      {/* Keywords row */}
+      <div className="col-span-6 lg:col-span-5 mt-2 border-t pt-2">
+        <Skeleton className="h-3 w-16 mb-2" />
+        <div className="flex flex-wrap gap-2">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-4 w-16 rounded-sm" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Countries that use miles (for distance unit inference)
 const milesCountries = new Set([
@@ -321,6 +362,27 @@ export default function ResultsPage() {
     setSearchParams(next, { replace: true });
   }
 
+  const SORT_LABELS = { manu: "Nearest Manufacturing", hq: "Nearest Headquarters", stars: "Highest Rated" };
+
+  function removeFilter(key) {
+    const next = new URLSearchParams(searchParams);
+    if (key === "sort") {
+      next.set("sort", "stars");
+    } else {
+      next.delete(key);
+    }
+    setSearchParams(next, { replace: true });
+  }
+
+  const activeFilters = useMemo(() => {
+    const chips = [];
+    if (countryParam) chips.push({ key: "country", label: countryParam });
+    if (stateParam) chips.push({ key: "state", label: stateParam });
+    if (cityParam) chips.push({ key: "city", label: cityParam });
+    if (sortParam && sortParam !== "stars") chips.push({ key: "sort", label: `Sort: ${SORT_LABELS[sortParam] || sortParam}` });
+    return chips;
+  }, [countryParam, stateParam, cityParam, sortParam]);
+
   const languageSelector = (
     <select
       className="h-11 text-sm border border-input rounded-md px-3 bg-background text-foreground font-medium hover:border-muted-foreground transition-colors"
@@ -362,6 +424,27 @@ export default function ResultsPage() {
         />
       </div>
 
+      {/* Filter chips */}
+      {activeFilters.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-3 px-1">
+          {activeFilters.map(({ key, label }) => (
+            <span
+              key={key}
+              className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20"
+            >
+              {label}
+              <button
+                type="button"
+                onClick={() => removeFilter(key)}
+                className="hover:text-foreground transition-colors"
+                aria-label={`Remove ${label} filter`}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="text-sm mb-3">
         {status && (
@@ -432,7 +515,13 @@ export default function ResultsPage() {
 
       {/* Results List */}
       <div className="mb-4">
-        {sorted.length > 0 ? (
+        {loading && sorted.length === 0 ? (
+          <div className="space-y-0">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonRow key={i} />
+            ))}
+          </div>
+        ) : sorted.length > 0 ? (
           <div className="space-y-0">
             {sorted.map((company) => (
               <ExpandableCompanyRow
@@ -448,21 +537,10 @@ export default function ResultsPage() {
           </div>
         ) : (
           <div className="p-8 text-center">
-            {loading ? (
-              <div className="flex items-center justify-center gap-2">
-                <div className="animate-spin text-tabarnam-blue">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                </div>
-                <span className="text-muted-foreground">Searching…</span>
-              </div>
-            ) : (
-              <div className="text-muted-foreground">
-                <p className="text-lg font-medium mb-1">No companies found</p>
-                <p className="text-sm">Try adjusting your search terms or filters</p>
-              </div>
-            )}
+            <div className="text-muted-foreground">
+              <p className="text-lg font-medium mb-1">No companies found</p>
+              <p className="text-sm">Try adjusting your search terms or filters</p>
+            </div>
           </div>
         )}
       </div>

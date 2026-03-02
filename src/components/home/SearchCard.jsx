@@ -1,7 +1,8 @@
 // src/components/home/SearchCard.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, MapPin, ListFilter, Loader2, X } from 'lucide-react';
+import { Search, MapPin, ListFilter, Loader2, X, Clock } from 'lucide-react';
+import { useSearchCache } from '@/hooks/useSearchCache';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -20,6 +21,27 @@ const SORTS = [
 
 function toQs(o){ return new URLSearchParams(Object.entries(o).filter(([,v]) => v !== undefined && v !== '' && v !== null)).toString(); }
 
+const PLACEHOLDERS = [
+  "Search by product, keyword, company\u2026",
+  'Try "organic soap"',
+  'Try "ceramic mugs"',
+  'Try "robes"',
+  'Try "bamboo toothbrush"',
+  'Try "stainless steel bottles"',
+];
+
+const SUGGESTION_GROUP_ORDER = ["Company", "Keyword", "Industry"];
+const GROUP_HEADERS = {
+  Company: "\uD83C\uDFE2 Companies",
+  Keyword: "\uD83C\uDFF7\uFE0F Keywords",
+  Industry: "\uD83C\uDFED Industries",
+};
+const BADGE_COLORS = {
+  Company: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  Keyword: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  Industry: "bg-primary/15 text-primary dark:bg-primary/20 dark:text-primary",
+};
+
 export default function SearchCard({
   onSubmitParams,
   filtersRightSlot = null,
@@ -28,6 +50,7 @@ export default function SearchCard({
 }) {
   const nav = useNavigate();
   const { search } = useLocation();
+  const { getCachedSearches, addSearchToCache } = useSearchCache();
 
   const [q, setQ] = useState('');
   const [country, setCountry] = useState('');
@@ -40,6 +63,13 @@ export default function SearchCard({
   const [suggestions, setSuggestions] = useState([]);
   const [openSuggest, setOpenSuggest] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Recent searches (Feature E)
+  const [recentSearches, setRecentSearches] = useState([]);
+  const [showRecent, setShowRecent] = useState(false);
+
+  // Rotating placeholder (Feature W)
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
 
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [openCitySuggest, setOpenCitySuggest] = useState(false);
@@ -65,6 +95,15 @@ export default function SearchCard({
     return () => clearTimeout(t);
   }, [autoFocus]);
 
+  // Rotating placeholder (Feature W) — pause when user is typing
+  useEffect(() => {
+    if (q.length > 0) return;
+    const iv = setInterval(() => {
+      setPlaceholderIdx((prev) => (prev + 1) % PLACEHOLDERS.length);
+    }, 4000);
+    return () => clearInterval(iv);
+  }, [q]);
+
   useEffect(() => {
     getCountries().then(setCountries);
   }, []);
@@ -86,7 +125,14 @@ export default function SearchCard({
   useEffect(() => {
     const t = setTimeout(async () => {
       const s = q.trim();
-      if (s.length < 2) { setSuggestions([]); setOpenSuggest(false); return; }
+      if (s.length < 2) {
+        setSuggestions([]);
+        setOpenSuggest(false);
+        return;
+      }
+      // Hide recent searches once user starts typing enough for API suggestions
+      setShowRecent(false);
+
       try {
         // Fetch both company suggestions and keyword/industry refinements
         const [companySuggestions, refinementSuggestions] = await Promise.all([
@@ -268,11 +314,35 @@ export default function SearchCard({
 
     lastSearchedQRef.current = extracted;
 
+    // Save to recent searches (Feature E)
+    if (extracted) addSearchToCache({ term: extracted });
+
+    // Close recent/suggestions dropdowns
+    setShowRecent(false);
+    setRecentSearches([]);
+
     const params = { q: extracted, sort: sortBy, country, state: stateCode, city };
     if (onSubmitParams) onSubmitParams(params);
     else nav(`/results?${toQs(params)}`);
   };
   handleSubmitRef.current = handleSubmit;
+
+  // Show recent searches when input focused and empty (Feature E)
+  const handleInputFocus = () => {
+    if (q.trim().length < 2) {
+      const cached = getCachedSearches();
+      if (cached.length > 0) {
+        setRecentSearches(cached);
+        setShowRecent(true);
+      }
+    }
+  };
+
+  const clearRecentSearches = () => {
+    try { localStorage.removeItem('tabarnam_recent_searches'); } catch { /* ignore */ }
+    setRecentSearches([]);
+    setShowRecent(false);
+  };
 
   return (
     <div
@@ -301,36 +371,82 @@ export default function SearchCard({
             value={q}
             onChange={(e)=>setQ(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search by product, keyword, company…"
+            onFocus={handleInputFocus}
+            onBlur={() => { setTimeout(() => setShowRecent(false), 200); }}
+            placeholder={q ? "" : PLACEHOLDERS[placeholderIdx]}
             className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
             autoComplete="off"
           />
-          {/* lightweight suggestions */}
+          {/* Grouped suggestions (Feature D) */}
           <Popover open={suggestions.length > 0}>
+            <PopoverContent
+              className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1 max-h-80 overflow-y-auto"
+              align="start"
+              onOpenAutoFocus={(e)=>e.preventDefault()}
+            >
+              {(() => {
+                // Group suggestions by type
+                const grouped = {};
+                for (const s of suggestions) {
+                  (grouped[s.type] ??= []).push(s);
+                }
+                return SUGGESTION_GROUP_ORDER.map((type) => {
+                  const items = grouped[type];
+                  if (!items?.length) return null;
+                  return (
+                    <div key={type}>
+                      <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 border-b border-border">
+                        {GROUP_HEADERS[type] || type}
+                      </div>
+                      {items.map((s, i) => {
+                        const badgeClass = BADGE_COLORS[s.type] || "bg-muted text-foreground";
+                        return (
+                          <button
+                            key={`${s.value}-${i}`}
+                            className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent flex items-center justify-between"
+                            onMouseDown={(e)=>e.preventDefault()}
+                            onClick={()=>{ setQ(s.value); if (onSubmitParams) handleSubmit(s.value); }}
+                          >
+                            <span>{s.value}</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-sm font-medium ${badgeClass}`}>{s.type}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                });
+              })()}
+            </PopoverContent>
+          </Popover>
+          {/* Recent searches dropdown (Feature E) */}
+          <Popover open={showRecent && recentSearches.length > 0 && suggestions.length === 0 && q.trim().length < 2}>
             <PopoverContent
               className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1"
               align="start"
               onOpenAutoFocus={(e)=>e.preventDefault()}
             >
-              {suggestions.map((s, i) => {
-                const badgeColors = {
-                  Company: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-                  Keyword: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
-                  Industry: "bg-primary/15 text-primary dark:bg-primary/20 dark:text-primary",
-                };
-                const badgeClass = badgeColors[s.type] || "bg-muted text-foreground";
-                return (
-                  <button
-                    key={`${s.value}-${i}`}
-                    className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent flex items-center justify-between"
-                    onMouseDown={(e)=>e.preventDefault()}
-                    onClick={()=>{ setQ(s.value); if (onSubmitParams) handleSubmit(s.value); }}
-                  >
-                    <span>{s.value}</span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded-sm font-medium ${badgeClass}`}>{s.type}</span>
-                  </button>
-                );
-              })}
+              <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 border-b border-border flex items-center gap-1.5">
+                <Clock size={12} />
+                Recent Searches
+              </div>
+              {recentSearches.map((rs, i) => (
+                <button
+                  key={`recent-${rs.term}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent flex items-center gap-2"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={()=>{ setQ(rs.term); handleSubmit(rs.term); }}
+                >
+                  <Clock size={14} className="text-muted-foreground flex-shrink-0" />
+                  <span>{rs.term}</span>
+                </button>
+              ))}
+              <button
+                className="w-full text-center px-4 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent border-t border-border transition-colors"
+                onMouseDown={(e)=>e.preventDefault()}
+                onClick={clearRecentSearches}
+              >
+                Clear recent searches
+              </button>
             </PopoverContent>
           </Popover>
         </div>
