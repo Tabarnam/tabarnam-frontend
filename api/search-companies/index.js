@@ -11,6 +11,7 @@ const { logInboundRequest } = require("../_diagnostics");
 const { parseQuery } = require("../_queryNormalizer");
 const { expandQueryTermsForFTS } = require("../_searchSynonyms");
 const { isFuzzyNameMatch, fuzzyScore } = require("../_fuzzyMatch");
+const { simpleStem, stemWords } = require("../_stemmer");
 
 let cosmosTargetPromise;
 
@@ -297,9 +298,10 @@ function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
  * Checks product_keywords and industries for match quality.
  *
  *   100 = exact keyword match (query === keyword)
- *    70 = keyword starts with query or query starts with keyword
- *    40 = query is a substring of keyword
- *    30 = keyword is a substring of query
+ *    70 = query appears at a word boundary in a multi-word keyword
+ *    60 = keyword starts with query or query starts with keyword
+ *    35 = query is a non-boundary substring of keyword (e.g., "robes" in "bathrobes")
+ *    25 = keyword is a substring of query
  *     0 = no keyword match
  */
 function computeKeywordMatchScore(company, q_norm, q_compact) {
@@ -318,11 +320,16 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
         if (kw === qt) {
           best = Math.max(best, 100);
         } else if (kw.startsWith(qt) || qt.startsWith(kw)) {
-          best = Math.max(best, 70);
+          best = Math.max(best, 60);
         } else if (kw.includes(qt)) {
-          best = Math.max(best, 40);
+          // Distinguish word-boundary substring from compound substring:
+          // "silk robes" contains "robes" at word boundary → 70
+          // "bathrobes" contains "robes" as non-boundary substring → 35
+          const idx = kw.indexOf(qt);
+          const atWordBoundary = idx === 0 || /\s/.test(kw[idx - 1]);
+          best = Math.max(best, atWordBoundary ? 70 : 35);
         } else if (qt.includes(kw)) {
-          best = Math.max(best, 30);
+          best = Math.max(best, 25);
         }
       }
     }
@@ -337,12 +344,16 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
 
 /**
  * Compute a composite relevance score combining name and keyword match quality.
- * Name matches contribute 70%, keyword matches contribute 30%.
+ * When a name match exists: name 70%, keyword 30%.
+ * When no name match: keyword gets 60% weight to widen the scoring gap
+ * (otherwise all keyword-only matches compress into 0-30 range).
  */
 function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   const nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
   const keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
-  const relevanceScore = Math.round(nameScore * 0.7 + keywordScore * 0.3);
+  const relevanceScore = nameScore > 0
+    ? Math.round(nameScore * 0.7 + keywordScore * 0.3)
+    : Math.round(keywordScore * 0.6);
   return { _nameMatchScore: nameScore, _keywordMatchScore: keywordScore, _relevanceScore: relevanceScore };
 }
 
@@ -391,6 +402,91 @@ function buildLegacySearchFilter() {
     (IS_DEFINED(c.amazon_url) AND IS_STRING(c.amazon_url) AND (CONTAINS(LOWER(c.amazon_url), @q) OR CONTAINS(REPLACE(LOWER(c.amazon_url), " ", ""), @q_compact))) OR
     (IS_DEFINED(c.search_text_norm) AND IS_STRING(c.search_text_norm) AND CONTAINS(c.search_text_norm, @q))
   `;
+}
+
+/**
+ * Build a word-boundary search filter using the space-padded search_text_norm
+ * and search_text_stemmed fields stored in Cosmos DB.
+ *
+ * Because search_text_norm is stored as " word1 word2 word3 " (space-padded),
+ * CONTAINS(field, " robes ") matches only the whole word "robes" and NOT
+ * "bathrobes" or "wardrobes". This provides precise, high-relevance matches.
+ *
+ * @param {string} q_norm - Normalized query (e.g., "robes")
+ * @param {string} q_stemmed - Stemmed query (e.g., "robe")
+ * @param {string} q_compact - Compact query (e.g., "robes")
+ * @param {Array} params - Mutable params array to push new parameters into
+ * @returns {string} SQL WHERE fragment
+ */
+function buildWordBoundaryFilter(q_norm, q_stemmed, q_compact, params) {
+  const clauses = [];
+
+  // 1. Word-boundary match on search_text_norm (space-padded field)
+  //    " robes " matches in " acme corp robes clothing " but NOT " bathrobes "
+  params.push({ name: "@q_wb", value: ` ${q_norm} ` });
+  clauses.push(
+    `(IS_DEFINED(c.search_text_norm) AND IS_STRING(c.search_text_norm) AND CONTAINS(c.search_text_norm, @q_wb))`
+  );
+
+  // 2. Stemmed word-boundary match on search_text_stemmed (space-padded field)
+  //    " robe " matches stemmed text, catching singular/plural variations
+  if (q_stemmed && q_stemmed !== q_norm) {
+    params.push({ name: "@q_stemmed_wb", value: ` ${q_stemmed} ` });
+    clauses.push(
+      `(IS_DEFINED(c.search_text_stemmed) AND IS_STRING(c.search_text_stemmed) AND CONTAINS(c.search_text_stemmed, @q_stemmed_wb))`
+    );
+  }
+
+  // 3. Multi-word queries: each word checked with word boundary (AND logic)
+  //    "silk robes" → " silk " AND " robes " both present as whole words
+  const words = q_norm.split(/\s+/).filter((w) => w.length >= 2);
+  if (words.length >= 2) {
+    const wordClauses = words.map((word, i) => {
+      const paramName = `@q_mw${i}`;
+      params.push({ name: paramName, value: ` ${word} ` });
+      return `CONTAINS(c.search_text_norm, ${paramName})`;
+    });
+    clauses.push(
+      `(IS_DEFINED(c.search_text_norm) AND IS_STRING(c.search_text_norm) AND ${wordClauses.join(" AND ")})`
+    );
+
+    // Also try stemmed per-word matching
+    const stemmedWords = words.map((w) => simpleStem(w));
+    const hasStemmedDiff = stemmedWords.some((sw, i) => sw !== words[i]);
+    if (hasStemmedDiff) {
+      const stemmedWordClauses = stemmedWords.map((word, i) => {
+        const paramName = `@q_msw${i}`;
+        params.push({ name: paramName, value: ` ${word} ` });
+        return `CONTAINS(c.search_text_stemmed, ${paramName})`;
+      });
+      clauses.push(
+        `(IS_DEFINED(c.search_text_stemmed) AND IS_STRING(c.search_text_stemmed) AND ${stemmedWordClauses.join(" AND ")})`
+      );
+    }
+  }
+
+  // 4. Exact company name match (case-insensitive)
+  params.push({ name: "@q_name", value: q_norm });
+  clauses.push(
+    `(IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND LOWER(c.company_name) = @q_name)`
+  );
+  clauses.push(
+    `(IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND LOWER(c.display_name) = @q_name)`
+  );
+
+  // 5. Domain matching (substring OK — domains don't have compound-word issues)
+  params.push({ name: "@q_domain", value: q_norm });
+  clauses.push(
+    `(IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q_domain))`
+  );
+  if (q_compact && q_compact !== q_norm) {
+    params.push({ name: "@q_domain_c", value: q_compact });
+    clauses.push(
+      `(IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q_domain_c))`
+    );
+  }
+
+  return clauses.join(" OR\n    ");
 }
 
 /**
@@ -831,18 +927,20 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const qCompactParam = url.searchParams.get("compact") || "";
 
   // If we get raw/norm/compact from frontend, use them directly; otherwise parse from q
-  let q_raw, q_norm, q_compact;
+  let q_raw, q_norm, q_compact, q_stemmed;
   if (qNormParam || qCompactParam) {
     // New style: frontend provided normalized forms
     q_raw = qRawParam;
     q_norm = qNormParam;
     q_compact = qCompactParam;
+    q_stemmed = q_norm ? stemWords(q_norm) : "";
   } else {
     // Old style or fallback: parse from raw query
     const parsed = parseQuery(qRawParam);
     q_raw = parsed.q_raw;
     q_norm = parsed.q_norm;
     q_compact = parsed.q_compact;
+    q_stemmed = parsed.q_stemmed || (q_norm ? stemWords(q_norm) : "");
   }
 
   const sort = (url.searchParams.get("sort") || "recent").toLowerCase();
@@ -955,50 +1053,79 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             items = items.concat(partB.resources || []);
           }
         } catch (ftsErr) {
-          // FTS failed (index not ready, timeout, etc.) — fall back to CONTAINS with synonym variants
-          context.log("[search-companies] FTS failed, falling back to CONTAINS:", ftsErr?.message);
+          // FTS failed — use hybrid two-pass search: word-boundary first, then substring fill
+          context.log("[search-companies] FTS failed (manu), using hybrid word-boundary + substring search:", ftsErr?.message);
           usedFallback = true;
-          const legacyFilter = q_norm ? buildLegacySearchFilter() : "";
-          const legacyParams = [{ name: "@take", value: limit }];
-          if (q_norm) {
-            legacyParams.push({ name: "@q", value: q_norm });
-            legacyParams.push({ name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") });
-          }
-          // Add synonym variant CONTAINS clauses (e.g., "company" → "co")
-          const variantFilter = q_norm ? buildVariantContainsClauses(ftsPhrases, q_norm, legacyParams) : "";
-          const legacyWhere = q_norm
-            ? `AND (${legacyFilter}${variantFilter}) AND ${softDeleteFilter}`
-            : `AND ${softDeleteFilter}`;
 
-          const sqlA = `
-              SELECT TOP @take ${SELECT_FIELDS}
-              FROM c
-              WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
-              ${legacyWhere}
-              ORDER BY c._ts DESC
-            `;
-          const partA = await container.items
-            .query({ query: sqlA, parameters: [...legacyParams] }, { enableCrossPartitionQuery: true })
-            .fetchAll();
-          items = partA.resources || [];
-
-          const remaining = Math.max(0, limit - items.length);
-          if (remaining > 0) {
-            const legacyParamsB = [
-              { name: "@take2", value: remaining },
-              ...legacyParams.filter((p) => p.name !== "@take"),
-            ];
-            const sqlB = `
-                SELECT TOP @take2 ${SELECT_FIELDS}
+          // Helper to run the two-part manu query (with + without manufacturing locations)
+          async function runManuQuery(whereClause, params) {
+            const sqlA = `
+                SELECT TOP @take ${SELECT_FIELDS}
                 FROM c
-                WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
-                ${legacyWhere}
+                WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
+                ${whereClause}
                 ORDER BY c._ts DESC
               `;
-            const partB = await container.items
-              .query({ query: sqlB, parameters: legacyParamsB }, { enableCrossPartitionQuery: true })
+            const partA = await container.items
+              .query({ query: sqlA, parameters: [...params] }, { enableCrossPartitionQuery: true })
               .fetchAll();
-            items = items.concat(partB.resources || []);
+            const result = partA.resources || [];
+
+            const rem = Math.max(0, limit - result.length);
+            if (rem > 0) {
+              const paramsB = [
+                { name: "@take2", value: rem },
+                ...params.filter((p) => p.name !== "@take"),
+              ];
+              const sqlB = `
+                  SELECT TOP @take2 ${SELECT_FIELDS}
+                  FROM c
+                  WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+                  ${whereClause}
+                  ORDER BY c._ts DESC
+                `;
+              const partB = await container.items
+                .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
+                .fetchAll();
+              result.push(...(partB.resources || []));
+            }
+            return result;
+          }
+
+          // ── Pass 1: Word-boundary matching (precise, high-relevance) ──
+          const MIN_WORD_BOUNDARY_LEN = 3;
+          if (q_norm && q_norm.length >= MIN_WORD_BOUNDARY_LEN) {
+            const wbParams = [{ name: "@take", value: limit }];
+            const wbFilter = buildWordBoundaryFilter(q_norm, q_stemmed, q_compact, wbParams);
+            const wbWhere = `AND (${wbFilter}) AND ${softDeleteFilter}`;
+            items = await runManuQuery(wbWhere, wbParams);
+          }
+
+          // ── Pass 2: Substring matching (broader, fills remaining slots) ──
+          const manuRemaining = Math.max(0, limit - items.length);
+          if (manuRemaining > 0) {
+            const legacyFilter = q_norm ? buildLegacySearchFilter() : "";
+            const legacyParams = [{ name: "@take", value: manuRemaining }];
+            if (q_norm) {
+              legacyParams.push({ name: "@q", value: q_norm });
+              legacyParams.push({ name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") });
+            }
+            const variantFilter = q_norm ? buildVariantContainsClauses(ftsPhrases, q_norm, legacyParams) : "";
+            const legacyWhere = q_norm
+              ? `AND (${legacyFilter}${variantFilter}) AND ${softDeleteFilter}`
+              : `AND ${softDeleteFilter}`;
+
+            const legacyItems = await runManuQuery(legacyWhere, legacyParams);
+
+            // Merge: add Pass 2 results not already in Pass 1, tagged for scoring
+            const existingIds = new Set(items.map((i) => i.id));
+            for (const item of legacyItems) {
+              if (!existingIds.has(item.id)) {
+                item._substringOnly = true;
+                items.push(item);
+                existingIds.add(item.id);
+              }
+            }
           }
         }
       } else {
@@ -1030,30 +1157,61 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             const res = await queryWithTimeout(sql, queryParams);
             items = res.resources || [];
           } catch (ftsErr) {
-            // FTS failed — fall back to CONTAINS with synonym variant expansion
-            context.log("[search-companies] FTS failed, falling back to CONTAINS:", ftsErr?.message);
+            // FTS failed — use hybrid two-pass search: word-boundary first, then substring fill
+            context.log("[search-companies] FTS failed, using hybrid word-boundary + substring search:", ftsErr?.message);
             usedFallback = true;
-            const legacyFilter = buildLegacySearchFilter();
-            const legacyParams = [
-              { name: "@take", value: limit },
-              { name: "@q", value: q_norm },
-              { name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") },
-            ];
-            // Add synonym variant CONTAINS clauses (e.g., "company" → "co")
-            const variantFilter = buildVariantContainsClauses(ftsPhrases, q_norm, legacyParams);
             const orderBy =
               sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
 
-            const sql = `
-                SELECT TOP @take ${SELECT_FIELDS}
-                FROM c
-                WHERE (${legacyFilter}${variantFilter}) AND ${softDeleteFilter}
-                ${orderBy}
-              `;
-            const res = await container.items
-              .query({ query: sql, parameters: legacyParams }, { enableCrossPartitionQuery: true })
-              .fetchAll();
-            items = res.resources || [];
+            // ── Pass 1: Word-boundary matching (precise, high-relevance) ──
+            const MIN_WORD_BOUNDARY_LEN = 3;
+            if (q_norm.length >= MIN_WORD_BOUNDARY_LEN) {
+              const wbParams = [{ name: "@take", value: limit }];
+              const wbFilter = buildWordBoundaryFilter(q_norm, q_stemmed, q_compact, wbParams);
+
+              const wbSql = `
+                  SELECT TOP @take ${SELECT_FIELDS}
+                  FROM c
+                  WHERE (${wbFilter}) AND ${softDeleteFilter}
+                  ${orderBy}
+                `;
+              const wbRes = await container.items
+                .query({ query: wbSql, parameters: wbParams }, { enableCrossPartitionQuery: true })
+                .fetchAll();
+              items = wbRes.resources || [];
+            }
+
+            // ── Pass 2: Substring matching (broader, fills remaining slots) ──
+            const remaining = Math.max(0, limit - items.length);
+            if (remaining > 0) {
+              const legacyFilter = buildLegacySearchFilter();
+              const legacyParams = [
+                { name: "@take", value: remaining },
+                { name: "@q", value: q_norm },
+                { name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") },
+              ];
+              const variantFilter = buildVariantContainsClauses(ftsPhrases, q_norm, legacyParams);
+
+              const legacySql = `
+                  SELECT TOP @take ${SELECT_FIELDS}
+                  FROM c
+                  WHERE (${legacyFilter}${variantFilter}) AND ${softDeleteFilter}
+                  ${orderBy}
+                `;
+              const legacyRes = await container.items
+                .query({ query: legacySql, parameters: legacyParams }, { enableCrossPartitionQuery: true })
+                .fetchAll();
+
+              // Merge: add Pass 2 results not already in Pass 1, tagged for scoring
+              const existingIds = new Set(items.map((i) => i.id));
+              for (const item of (legacyRes.resources || [])) {
+                if (!existingIds.has(item.id)) {
+                  item._substringOnly = true;
+                  items.push(item);
+                  existingIds.add(item.id);
+                }
+              }
+            }
           }
         } else {
           // No search query — return all results
@@ -1135,6 +1293,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         .map((r) => {
           const pub = mapCompanyToPublic(r);
           if (pub && r._fuzzyMatch) pub._fuzzyMatch = true;
+          if (pub && r._substringOnly) pub._substringOnly = true;
           return pub;
         })
         .filter((c) => c && c.id);
@@ -1164,7 +1323,15 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             company._nameMatchScore = scores._nameMatchScore;
             company._keywordMatchScore = scores._keywordMatchScore;
             company._relevanceScore = scores._relevanceScore;
-            company._matchType = "exact";
+
+            // Tier 2 (substring-only) results get a penalty so word-boundary matches rank higher
+            if (company._substringOnly) {
+              company._relevanceScore = Math.max(0, company._relevanceScore - 10);
+              company._matchType = "substring";
+              delete company._substringOnly;
+            } else {
+              company._matchType = "word_boundary";
+            }
           }
         }
       }
@@ -1229,4 +1396,5 @@ module.exports._test = {
   computeNameMatchScore,
   computeKeywordMatchScore,
   computeRelevanceScore,
+  buildWordBoundaryFilter,
 };

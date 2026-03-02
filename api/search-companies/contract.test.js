@@ -288,23 +288,23 @@ test("computeKeywordMatchScore returns 100 for exact keyword match", () => {
   assert.equal(score, 100);
 });
 
-test("computeKeywordMatchScore returns 70 for starts-with keyword match", () => {
+test("computeKeywordMatchScore returns 60 for starts-with keyword match", () => {
   const company = { product_keywords: ["body wash gel", "soap"] };
   const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
-  assert.equal(score, 70);
+  assert.equal(score, 60);
 });
 
-test("computeKeywordMatchScore returns 40 for substring keyword match", () => {
+test("computeKeywordMatchScore returns 70 for word-boundary substring match", () => {
   const company = { product_keywords: ["organic body wash formula"] };
   const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
-  assert.equal(score, 40);
+  assert.equal(score, 70);
 });
 
-test("computeKeywordMatchScore returns 70 when query starts with keyword", () => {
+test("computeKeywordMatchScore returns 60 when query starts with keyword", () => {
   const company = { keywords: ["body"] };
   const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
-  // "body wash" starts with "body" → 70 (starts-with match)
-  assert.equal(score, 70);
+  // "body wash" starts with "body" → 60 (starts-with match)
+  assert.equal(score, 60);
 });
 
 test("computeKeywordMatchScore returns 0 for no match", () => {
@@ -360,7 +360,7 @@ test("search-companies response includes _relevanceScore and _matchType", async 
   assert.ok(typeof item._nameMatchScore === "number");
   assert.ok(typeof item._keywordMatchScore === "number");
   assert.ok(typeof item._relevanceScore === "number");
-  assert.equal(item._matchType, "exact");
+  assert.ok(item._matchType === "word_boundary" || item._matchType === "substring", `Expected word_boundary or substring but got: ${item._matchType}`);
 });
 
 // ── FTS query in SQL filter ──────────────────────────────────────────────
@@ -398,11 +398,9 @@ test("CONTAINS fallback includes synonym variant params (company → co)", async
   );
 
   assert.ok(specs.length > 0, "at least one query should be issued");
-  const primarySql = String(specs[0].query || "");
-  assert.ok(primarySql.includes("CONTAINS"), "Should use CONTAINS fallback");
-  // The synonym expansion should produce "acme co" as a variant
-  const params = specs[0].parameters || [];
-  const variantValues = params.filter((p) => p.name.startsWith("@q_v")).map((p) => p.value);
+  // With two-pass search, synonym variants appear in Pass 2 (substring fallback)
+  const allParams = specs.flatMap((s) => s.parameters || []);
+  const variantValues = allParams.filter((p) => p.name.startsWith("@q_v")).map((p) => p.value);
   assert.ok(
     variantValues.some((v) => v.includes("acme co")),
     `Variant params should include "acme co" but got: ${JSON.stringify(variantValues)}`
@@ -423,9 +421,9 @@ test("CONTAINS fallback includes per-word params for multi-word queries", async 
   );
 
   assert.ok(specs.length > 0, "at least one query should be issued");
-  const params = specs[0].parameters || [];
-  // Per-word params should include individual words "monster" and "beverage"
-  const wordValues = params.filter((p) => p.name.startsWith("@q_w")).map((p) => p.value);
+  // With two-pass search, per-word params appear in Pass 2 (substring fallback)
+  const allParams = specs.flatMap((s) => s.parameters || []);
+  const wordValues = allParams.filter((p) => p.name.startsWith("@q_w")).map((p) => p.value);
   assert.ok(
     wordValues.includes("monster"),
     `Per-word params should include "monster" but got: ${JSON.stringify(wordValues)}`
@@ -434,6 +432,146 @@ test("CONTAINS fallback includes per-word params for multi-word queries", async 
     wordValues.includes("beverage"),
     `Per-word params should include "beverage" but got: ${JSON.stringify(wordValues)}`
   );
+});
+
+// ── fuzzy fallback integration ───────────────────────────────────────────
+
+test("search-companies uses word-boundary CONTAINS in Pass 1", async () => {
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=robes&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.ok(specs.length >= 1, "at least one query should be issued");
+  // First query should be word-boundary (Pass 1)
+  const firstParams = specs[0].parameters || [];
+  const wbParam = firstParams.find((p) => p.name === "@q_wb");
+  assert.ok(wbParam, "Pass 1 should have @q_wb parameter");
+  assert.equal(wbParam.value, " robes ", "Word boundary param should be space-padded");
+});
+
+test("search-companies issues Pass 2 substring query to fill remaining slots", async () => {
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=robes&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  // Should have at least 2 queries: Pass 1 (word-boundary) + Pass 2 (substring)
+  assert.ok(specs.length >= 2, `Should issue Pass 1 + Pass 2 queries, got ${specs.length}`);
+  const pass2Params = specs[1].parameters || [];
+  const qParam = pass2Params.find((p) => p.name === "@q");
+  assert.ok(qParam, "Pass 2 should have @q parameter for substring matching");
+  assert.equal(qParam.value, "robes");
+});
+
+test("search-companies skips word-boundary for short queries (< 3 chars)", async () => {
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=3m&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.ok(specs.length >= 1, "at least one query should be issued");
+  // Short queries should skip word-boundary and go straight to substring
+  const firstParams = specs[0].parameters || [];
+  const wbParam = firstParams.find((p) => p.name === "@q_wb");
+  assert.ok(!wbParam, "Short queries should NOT have word-boundary params");
+  const qParam = firstParams.find((p) => p.name === "@q");
+  assert.ok(qParam, "Short queries should use substring @q param");
+});
+
+// ── word-boundary keyword scoring tests ──────────────────────────────────
+
+test("computeKeywordMatchScore returns 35 for compound substring (robes in bathrobes)", () => {
+  const company = { product_keywords: ["bathrobes"] };
+  const score = _test.computeKeywordMatchScore(company, "robes", "robes");
+  assert.equal(score, 35, "robes inside bathrobes should score 35 (non-boundary substring)");
+});
+
+test("computeKeywordMatchScore returns 70 for word-boundary substring (robes in silk robes)", () => {
+  const company = { product_keywords: ["silk robes collection"] };
+  const score = _test.computeKeywordMatchScore(company, "robes", "robes");
+  assert.equal(score, 70, "robes at word boundary in keyword should score 70");
+});
+
+test("computeKeywordMatchScore still returns 100 for exact match", () => {
+  const company = { product_keywords: ["robes"] };
+  const score = _test.computeKeywordMatchScore(company, "robes", "robes");
+  assert.equal(score, 100, "exact keyword match should score 100");
+});
+
+test("computeRelevanceScore boosts keyword weight when no name match", () => {
+  const company = { company_name: "Acme Corp", product_keywords: ["robes"] };
+  const scores = _test.computeRelevanceScore(company, "robes", "robes", "robes");
+  // No name match (name doesn't contain "robes") → keyword at 60% weight
+  assert.equal(scores._nameMatchScore, 0);
+  assert.equal(scores._keywordMatchScore, 100);
+  assert.equal(scores._relevanceScore, 60, "keyword-only match should use 60% weight");
+});
+
+test("computeRelevanceScore: exact robes keyword ranks above bathrobes compound", () => {
+  const robesCo = { company_name: "Robe Shop", product_keywords: ["robes"] };
+  const bathrobesCo = { company_name: "Hotel Supplies", product_keywords: ["bathrobes"] };
+  const robesScores = _test.computeRelevanceScore(robesCo, "robes", "robes", "robes");
+  const bathrobesScores = _test.computeRelevanceScore(bathrobesCo, "robes", "robes", "robes");
+  assert.ok(
+    robesScores._relevanceScore > bathrobesScores._relevanceScore,
+    `robes co (${robesScores._relevanceScore}) should rank above bathrobes co (${bathrobesScores._relevanceScore})`
+  );
+});
+
+// ── buildWordBoundaryFilter unit tests ───────────────────────────────────
+
+test("buildWordBoundaryFilter includes space-padded query params", () => {
+  const params = [];
+  const filter = _test.buildWordBoundaryFilter("robes", "robe", "robes", params);
+  const wbParam = params.find((p) => p.name === "@q_wb");
+  assert.ok(wbParam, "Should have @q_wb param");
+  assert.equal(wbParam.value, " robes ", "Should be space-padded");
+  const stemmedParam = params.find((p) => p.name === "@q_stemmed_wb");
+  assert.ok(stemmedParam, "Should have stemmed param when stemmed differs");
+  assert.equal(stemmedParam.value, " robe ");
+  assert.ok(filter.includes("CONTAINS"), "Filter should use CONTAINS");
+});
+
+test("buildWordBoundaryFilter skips stemmed when same as norm", () => {
+  const params = [];
+  _test.buildWordBoundaryFilter("robe", "robe", "robe", params);
+  const stemmedParam = params.find((p) => p.name === "@q_stemmed_wb");
+  assert.ok(!stemmedParam, "Should NOT have stemmed param when stemmed equals norm");
+});
+
+test("buildWordBoundaryFilter adds per-word AND for multi-word queries", () => {
+  const params = [];
+  const filter = _test.buildWordBoundaryFilter("silk robes", "silk robe", "silkrobes", params);
+  const mw0 = params.find((p) => p.name === "@q_mw0");
+  const mw1 = params.find((p) => p.name === "@q_mw1");
+  assert.ok(mw0, "Should have per-word param @q_mw0");
+  assert.ok(mw1, "Should have per-word param @q_mw1");
+  assert.equal(mw0.value, " silk ");
+  assert.equal(mw1.value, " robes ");
+  // Filter should include AND logic for multi-word
+  assert.ok(filter.includes("AND"), "Multi-word filter should use AND logic");
 });
 
 // ── fuzzy fallback integration ───────────────────────────────────────────

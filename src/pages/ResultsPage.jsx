@@ -423,6 +423,13 @@ export default function ResultsPage() {
         </div>
       )}
 
+      {/* Result count + query echo */}
+      {sorted.length > 0 && qParam && (
+        <p className="text-sm text-muted-foreground mb-3 px-1">
+          Showing {sorted.length}{totalCount && totalCount > sorted.length ? ` of ${totalCount}` : ""} result{sorted.length !== 1 ? "s" : ""} for <span className="font-medium text-foreground">"{qParam}"</span>
+        </p>
+      )}
+
       {/* Results List */}
       <div className="mb-4">
         {sorted.length > 0 ? (
@@ -435,6 +442,7 @@ export default function ResultsPage() {
                 unit={unit}
                 onKeywordSearch={handleKeywordSearch}
                 rightColsOrder={rightColsOrder}
+                searchQuery={qParam}
               />
             ))}
           </div>
