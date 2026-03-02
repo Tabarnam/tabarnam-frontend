@@ -298,6 +298,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: import-preflight");
+  require("./import-preflight/index.js");
+  console.log("[api] ✓ import-preflight registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load import-preflight:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: import/primary-worker");
   require("./import/primary-worker/index.js");
 } catch (e) {
