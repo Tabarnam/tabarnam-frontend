@@ -221,8 +221,19 @@ async function importPreflightHandler(req, context) {
 
   let body;
   try {
-    body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-    if (body && typeof body.json === "function") body = await body.json();
+    // v4 model: req.json() returns parsed body
+    if (typeof req.json === "function") {
+      body = await req.json();
+    } else if (typeof req.text === "function") {
+      const raw = String(await req.text()).trim();
+      body = raw ? JSON.parse(raw) : {};
+    } else if (typeof req.body === "string" && req.body.trim()) {
+      body = JSON.parse(req.body);
+    } else if (req.body && typeof req.body === "object") {
+      body = req.body;
+    } else {
+      body = {};
+    }
   } catch (e) {
     return json({ ok: false, error: "Invalid JSON" }, 400);
   }
