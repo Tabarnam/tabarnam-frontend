@@ -130,36 +130,42 @@ async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
   };
 }
 
-// Determine whether a previously-imported company has completed enrichment
-// (i.e. at least one attempt made AND every missing field has a terminal/decided reason).
+// Determine whether a previously-imported company has completed enrichment.
 // Used by the duplicate-detection gate to avoid re-enriching finished companies.
 //
-// Two tiers:
-//   1. Strict: every missing field has a terminal reason (isTerminalMissingReason, "ok", "confirmed_empty").
-//   2. Lenient: at least one enrichment attempt completed AND every missing field has *some*
-//      non-empty reason.  This handles the common case where the resume-worker finished but
-//      left non-terminal reasons like "not_found", "upstream_timeout", "low_quality".
-//      A company still mid-enrichment will have missing fields with no reason at all, so
-//      requiring a non-empty reason correctly distinguishes "done" from "in progress".
+// Three tiers (evaluated in order, first match wins):
+//   0. No missing fields at all → complete.
+//   1. Every missing field has a terminal/ok/confirmed_empty reason → complete.
+//      Works even when import_attempts is empty (older companies, manual edits).
+//   2. import_attempts shows at least one attempt AND every missing field has
+//      *some* non-empty reason → complete (lenient: enrichment ran and decided).
+//   3. Otherwise → incomplete.
 function isEnrichmentComplete(doc) {
   if (!doc) return false;
-  const attempts = doc.import_attempts;
-  if (!attempts || typeof attempts !== "object") return false;
-  const anyAttempted = Object.values(attempts).some((v) => Number(v) > 0);
-  if (!anyAttempted) return false;
+
   const missing = Array.isArray(doc.import_missing_fields) ? doc.import_missing_fields : [];
+  // Tier 0 — no missing fields at all
   if (missing.length === 0) return true;
+
   const reasons = doc.import_missing_reason && typeof doc.import_missing_reason === "object" ? doc.import_missing_reason : {};
   const { isTerminalMissingReason: isTerminal } = require("../_requiredFields");
 
-  // Tier 1 — strict: every missing field has a terminal/ok/confirmed_empty reason
+  // Tier 1 — strict: every missing field has a terminal/ok/confirmed_empty reason.
+  // This is definitive regardless of whether import_attempts exists — terminal
+  // reasons are only written after enrichment actually ran.
   const strictComplete = missing.every((f) => {
     const reason = String(reasons[f] || "").trim();
     return reason && (isTerminal(reason) || reason === "ok" || reason === "confirmed_empty");
   });
   if (strictComplete) return true;
 
-  // Tier 2 — lenient: every missing field has SOME reason (enrichment ran and decided)
+  // Tier 2 — lenient: requires proof that enrichment attempted at least one field,
+  // then accepts any non-empty reason as "decided" (handles non-terminal leftovers
+  // like "not_found", "upstream_timeout", "low_quality").
+  const attempts = doc.import_attempts;
+  const anyAttempted = attempts && typeof attempts === "object" && Object.values(attempts).some((v) => Number(v) > 0);
+  if (!anyAttempted) return false;
+
   const allHaveReason = missing.every((f) => {
     const reason = String(reasons[f] || "").trim();
     return reason.length > 0;
