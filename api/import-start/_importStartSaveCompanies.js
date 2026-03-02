@@ -135,11 +135,13 @@ async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
 //
 // Three tiers (evaluated in order, first match wins):
 //   0. No missing fields at all → complete.
-//   1. Every missing field has a terminal/ok/confirmed_empty reason → complete.
-//      Works even when import_attempts is empty (older companies, manual edits).
-//   2. import_attempts shows at least one field was attempted → complete.
-//      The company has been through the pipeline; re-import must not overwrite it.
-//   3. Otherwise → incomplete (genuinely new or never-enriched).
+//   1. Every missing field has a decided reason (terminal, ok, imported, etc.)
+//      → complete.  Works even without import_attempts (older docs, manual edits).
+//   2. Every missing field was either attempted (import_attempts[f] > 0) or has a
+//      non-placeholder reason → complete.  Placeholder reasons ("missing",
+//      "pending", "incomplete") are set at seed time before enrichment runs and
+//      do NOT count as decided unless the field was explicitly attempted.
+//   3. Otherwise → incomplete (has unattempted fields that need enrichment).
 function isEnrichmentComplete(doc) {
   if (!doc) return false;
 
@@ -150,24 +152,33 @@ function isEnrichmentComplete(doc) {
   const reasons = doc.import_missing_reason && typeof doc.import_missing_reason === "object" ? doc.import_missing_reason : {};
   const { isTerminalMissingReason: isTerminal } = require("../_requiredFields");
 
-  // Tier 1 — strict: every missing field has a terminal/ok/confirmed_empty reason.
-  // This is definitive regardless of whether import_attempts exists — terminal
-  // reasons are only written after enrichment actually ran.
+  // Reasons that indicate a real decision was made (not just a seed-time placeholder).
+  const isDecidedReason = (reason) =>
+    isTerminal(reason) || reason === "ok" || reason === "confirmed_empty" || reason === "imported";
+
+  // Tier 1 — strict: every missing field has a decided reason.
+  // Definitive regardless of whether import_attempts exists.
   const strictComplete = missing.every((f) => {
     const reason = String(reasons[f] || "").trim();
-    return reason && (isTerminal(reason) || reason === "ok" || reason === "confirmed_empty");
+    return reason && isDecidedReason(reason);
   });
   if (strictComplete) return true;
 
-  // Tier 2 — lenient: if enrichment ran at all (any field in import_attempts > 0),
-  // treat the company as complete.  Missing fields with placeholder reasons like
-  // "pending" or "missing" simply weren't part of the enrichment plan (e.g. reviews
-  // skipped via skip_stages, logo not found on site).  The user can manually
-  // trigger re-enrichment for specific fields if needed — but re-import must not
-  // overwrite existing data.
-  const attempts = doc.import_attempts;
-  const anyAttempted = attempts && typeof attempts === "object" && Object.values(attempts).some((v) => Number(v) > 0);
-  return anyAttempted;
+  // Tier 2 — per-field: each missing field must be accounted for, either by
+  // having been attempted (import_attempts[f] > 0) or by having a non-placeholder
+  // reason.  Placeholder reasons ("missing", "pending", etc.) are set at seed time
+  // and indicate the field was never enriched — these must NOT block re-enrichment.
+  const attempts = doc.import_attempts && typeof doc.import_attempts === "object" ? doc.import_attempts : {};
+  const PLACEHOLDER_REASONS = new Set(["missing", "pending", "incomplete", "not_disclosed_pending"]);
+
+  const allAccountedFor = missing.every((f) => {
+    // Field was explicitly attempted → decided
+    if (Number(attempts[f] || 0) > 0) return true;
+    // Field has a non-placeholder reason → decided (e.g. "not_found", "upstream_timeout")
+    const reason = String(reasons[f] || "").trim();
+    return reason && !PLACEHOLDER_REASONS.has(reason);
+  });
+  return allAccountedFor;
 }
 
 // Check if company already exists by normalized domain / company name.
