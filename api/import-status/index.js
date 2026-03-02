@@ -848,7 +848,7 @@ async function handler(req, context) {
           const resumeUpdatedTs = Date.parse(String(resumeDoc?.updated_at || "")) || 0;
           const enrichStartedTs = Date.parse(String(resumeDoc?.enrichment_started_at || "")) || 0;
           const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs);
-          const staleThresholdMs = 150_000; // 2.5 minutes
+          const staleThresholdMs = 360_000; // 6 minutes (exceeds 5-min enrichment wall-clock cap)
 
           if (mostRecentTs && Date.now() - mostRecentTs > staleThresholdMs) {
             const reopenedAt = nowIso();
@@ -1970,7 +1970,7 @@ async function handler(req, context) {
           const resumeUpdatedTs = Date.parse(String(currentResume?.updated_at || "")) || 0;
           const enrichStartedTs = Date.parse(String(currentResume?.enrichment_started_at || "")) || 0;
           const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs);
-          const staleThresholdMs = 150_000; // 2.5 minutes
+          const staleThresholdMs = 360_000; // 6 minutes (exceeds 5-min enrichment wall-clock cap)
 
           if (mostRecentTs && Date.now() - mostRecentTs > staleThresholdMs) {
             const reopenedAt = nowIso();

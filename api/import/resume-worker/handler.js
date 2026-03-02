@@ -2761,7 +2761,7 @@ async function resumeWorkerHandler(req, context) {
     let enqueueRes = null;
     let resume_error = null;
 
-    const convergenceCap = noImprovementStreak >= 1;
+    const convergenceCap = noImprovementStreak >= 2;
     const capReached = resumeNeeded && (nextCycleCount >= MAX_RESUME_CYCLES || convergenceCap);
 
     if (convergenceCap) {

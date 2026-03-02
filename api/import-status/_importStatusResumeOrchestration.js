@@ -557,148 +557,26 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
     }
   } catch {}
 
-  // ── Fire-and-forget: invoke the resume worker WITHOUT awaiting ──
-  // The worker runs in the background. import-status responds immediately with
-  // resume_needed=true, resume.status="in_progress". The next poll cycle reads
-  // the updated Cosmos docs to see if the worker completed.
-  const sessionId = ctx.sessionId;
-  const container = ctx.container;
-  const context = ctx.context;
+  // ── Queue-only enrichment: do NOT invoke the worker in-process ──
+  // Enrichment is handled exclusively by the queue-triggered resume-worker,
+  // which runs inside a proper Azure Functions invocation protected by
+  // functionTimeout (10 min). Fire-and-forget floating promises are killed
+  // by Azure DrainMode because they are not tracked invocations.
+  //
+  // The queue message was already enqueued by import-start (5s delay).
+  // Import-status just marks "in_progress" to prevent re-triggering.
 
-  const backgroundPromise = invokeResumeWorkerInProcess({
-    session_id: sessionId,
-    context,
-    workerRequest,
-    deadline_ms: INLINE_RESUME_DEADLINE_MS,
-  }).then(async (invokeRes) => {
-    // Background post-completion: persist trigger result to session doc.
-    // This runs AFTER the HTTP response has already been sent.
-    const bgOk = Boolean(invokeRes?.ok);
-    const bgStatus = Number(invokeRes?.status || 0) || 0;
-    const bgBodyText = String(invokeRes?.bodyText || "");
-
-    let bgJson = null;
-    try { bgJson = bgBodyText ? JSON.parse(bgBodyText) : null; } catch {}
-
-    const bgTriggerResult = {
-      ok: bgOk && bgStatus >= 200 && bgStatus < 300,
-      invocation: "in_process_background",
-      http_status: bgStatus,
-      triggered_at: triggerAttemptAt,
-      request_id: invokeRes?.request_id || workerRequest.request_id,
-      gateway_key_attached: Boolean(invokeRes?.gateway_key_attached),
-      response: bgJson && typeof bgJson === "object"
-        ? {
-            ok: bgJson.ok !== false,
-            stage_beacon: typeof bgJson.stage_beacon === "string" ? bgJson.stage_beacon : null,
-            resume_needed: typeof bgJson.resume_needed === "boolean" ? bgJson.resume_needed : null,
-            session_id: String(bgJson.session_id || bgJson.sessionId || "").trim() || null,
-            handler_entered_at: bgJson.handler_entered_at || null,
-            did_work: typeof bgJson.did_work === "boolean" ? bgJson.did_work : null,
-            did_work_reason: typeof bgJson.did_work_reason === "string" ? bgJson.did_work_reason.trim() : null,
-            error: bgJson.error || bgJson.root_cause || null,
-            _budget_debug: bgJson._budget_debug || null,
-          }
-        : { response_text_preview: bgBodyText?.slice(0, 2000) || null },
-    };
-
-    try {
-      const sessionDocId = `_import_session_${sessionId}`;
-      const sessionDocAfterBg = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
-      if (sessionDocAfterBg && typeof sessionDocAfterBg === "object") {
-        // ── Consecutive failure detection ──
-        // Track how many times the background resume worker has failed with status=0
-        // (unhandled exception). After 3 consecutive failures, force-clear the resume
-        // control doc to break stuck loops (e.g. after Azure DrainMode kills enrichment).
-        const prevFailures = Number(sessionDocAfterBg.resume_worker_consecutive_failures) || 0;
-        const isZeroStatusFailure = !bgOk && bgStatus === 0;
-        const consecutiveFailures = isZeroStatusFailure ? prevFailures + 1 : 0;
-
-        const sessionPatch = {
-          resume_worker_last_trigger_result: bgTriggerResult,
-          resume_worker_last_trigger_ok: bgTriggerResult.ok,
-          resume_worker_last_trigger_http_status: bgStatus,
-          resume_worker_last_finished_at: nowIso(),
-          resume_worker_consecutive_failures: consecutiveFailures,
-          updated_at: nowIso(),
-        };
-
-        if (consecutiveFailures >= 3) {
-          console.warn(`[import-status] session=${sessionId} resume worker failed ${consecutiveFailures} consecutive times (status=0), force-clearing resume doc`);
-
-          // Force-clear the resume control doc to give the worker a fresh start.
-          const resumeDocId = `_import_resume_${sessionId}`;
-          const staleResumeDoc = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
-          if (staleResumeDoc && typeof staleResumeDoc === "object") {
-            await upsertDoc(container, {
-              ...staleResumeDoc,
-              status: "queued",
-              invocation_mode: "resume_worker",
-              lock_expires_at: null,
-              resume_error: null,
-              resume_error_details: null,
-              stale_cleared_reason: `consecutive_failures_${consecutiveFailures}`,
-              stale_cleared_at: nowIso(),
-              updated_at: nowIso(),
-            }).catch(() => null);
-          }
-
-          // Ensure resume_needed is explicitly true so the next poll retries.
-          sessionPatch.resume_needed = true;
-          sessionPatch.resume_updated_at = nowIso();
-          sessionPatch.resume_worker_consecutive_failures = 0; // reset after clearing
-        }
-
-        await upsertDoc(container, {
-          ...sessionDocAfterBg,
-          ...sessionPatch,
-        }).catch(() => null);
-      }
-    } catch {}
-
-    console.log(`[import-status] background resume worker completed for session=${sessionId}: ok=${bgOk} status=${bgStatus} resume_needed=${bgJson?.resume_needed}`);
-  }).catch((bgErr) => {
-    // Background error: persist error state so next poll can diagnose
-    console.error(`[import-status] background resume worker error for session=${sessionId}:`, bgErr?.message || bgErr);
-    (async () => {
-      try {
-        const sessionDocId = `_import_session_${sessionId}`;
-        const sd = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
-        if (sd && typeof sd === "object") {
-          await upsertDoc(container, {
-            ...sd,
-            resume_error: "background_worker_exception",
-            resume_error_details: {
-              message: bgErr?.message || String(bgErr),
-              triggered_at: triggerAttemptAt,
-            },
-            updated_at: nowIso(),
-          }).catch(() => null);
-        }
-      } catch {}
-    })().catch(() => {});
-  });
-
-  // Prevent Node.js from crashing on unhandled rejection (belt-and-suspenders).
-  backgroundPromise.catch(() => {});
-
-  // Set context for immediate HTTP response — worker is running in background.
+  // Set context for immediate HTTP response — queue trigger handles enrichment.
   ctx.resume_triggered = true;
-  ctx.resume_gateway_key_attached = Boolean(workerRequest.gateway_key_attached);
+  ctx.resume_gateway_key_attached = false;
   ctx.resume_trigger_request_id = workerRequest.request_id;
   ctx.resume_status = "in_progress";
   ctx.resumeStatus = "in_progress";
-  // resume_needed stays true — the worker hasn't finished yet.
-  // The next poll will read the Cosmos session doc to see if the worker completed.
 
-  ctx.stageBeaconValues.status_resume_worker_fire_and_forget = triggerAttemptAt;
+  ctx.stageBeaconValues.status_resume_delegated_to_queue = triggerAttemptAt;
   ctx.stageBeaconValues.status_trigger_resume_worker_ok = true;
 
-  console.log(`[import-status] session=${sessionId} resume worker fired in background (fire-and-forget)`);
-
-  // NOTE: The watchdog error escalation (for stuck_queued + trigger failure) is not needed here.
-  // In fire-and-forget mode, we optimistically assume the trigger launched. If the worker crashes,
-  // the 5-minute staleness recovery (index.js:840-877) converts "in_progress" back to "queued".
+  console.log(`[import-status] session=${ctx.sessionId} enrichment delegated to queue trigger (no in-process invocation)`);
 }
 
 // ── runTerminalCycleEnforcement ──────────────────────────────────────────────
