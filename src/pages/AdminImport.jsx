@@ -111,6 +111,12 @@ export default function AdminImport() {
   const successionTriggerRef = useRef(false);
   const successionCount = normalizeSuccessionCount(successionCountInput);
 
+  // Preflight duplicate check state
+  const [preflightResults, setPreflightResults] = useState(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
+  const [preflightError, setPreflightError] = useState(null);
+  const [preflightEnabled, setPreflightEnabled] = useState(true);
+
   // Spreadsheet paste state
   const [spreadsheetPasteOpen, setSpreadsheetPasteOpen] = useState(false);
   const [spreadsheetPasteText, setSpreadsheetPasteText] = useState("");
@@ -227,6 +233,86 @@ export default function AdminImport() {
       if (field === "companyUrl") setCompanyUrl(value);
     }
   }, []);
+
+  // ── Preflight duplicate check (auto-fires on field change) ────────────────
+  const removeSuccessionRow = useCallback((index) => {
+    setSuccessionRows((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0) next.push({ companyName: "", companyUrl: "" });
+      return next;
+    });
+    setSuccessionCountInput((prev) => {
+      const n = Math.max(1, Number(prev) - 1);
+      return String(n);
+    });
+    setPreflightResults((prev) => {
+      if (!prev) return prev;
+      return prev
+        .filter((r) => r.index !== index)
+        .map((r) => (r.index > index ? { ...r, index: r.index - 1 } : r));
+    });
+  }, []);
+
+  // Debounced auto-preflight check
+  useEffect(() => {
+    if (!preflightEnabled || !API_BASE) return;
+
+    const entries =
+      successionCount > 1
+        ? successionRows
+            .filter((r) => r.companyName.trim() || r.companyUrl.trim())
+            .map((r) => ({ company_name: r.companyName.trim(), url: r.companyUrl.trim() }))
+        : [{ company_name: query.trim(), url: companyUrl.trim() }].filter(
+            (e) => e.company_name || e.url,
+          );
+
+    if (entries.length === 0) {
+      setPreflightResults(null);
+      setPreflightError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setPreflightLoading(true);
+      setPreflightError(null);
+      try {
+        const res = await apiFetch("/import-preflight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entries }),
+        });
+        if (cancelled) return;
+        const body = await readJsonOrText(res);
+        if (cancelled) return;
+        if (!res.ok || !body?.ok) {
+          setPreflightError(body?.error || body?.message || `HTTP ${res.status}`);
+        } else {
+          setPreflightResults(body.results || []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPreflightError(err?.message || "Preflight check failed");
+        }
+      } finally {
+        if (!cancelled) setPreflightLoading(false);
+      }
+    }, 800);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [preflightEnabled, successionRows, successionCount, query, companyUrl]);
+
+  // Clear results when toggle is turned off
+  useEffect(() => {
+    if (!preflightEnabled) {
+      setPreflightResults(null);
+      setPreflightError(null);
+    }
+  }, [preflightEnabled]);
+  // ── End preflight ─────────────────────────────────────────────────────────
 
   // Spreadsheet paste: parse tab-separated lines into succession rows
   const handleSpreadsheetPaste = useCallback((text) => {
@@ -3678,31 +3764,186 @@ export default function AdminImport() {
 
             {successionCount > 1 ? (
               <div className="space-y-2">
-                <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Import queue ({successionCount} companies)</div>
-                {successionRows.map((row, i) => (
-                  <div key={i} className="grid grid-cols-[2rem_2fr_1fr] gap-2 items-end">
-                    <div className="text-xs text-slate-500 dark:text-muted-foreground text-right pb-2">{i + 1}.</div>
-                    <div className="space-y-1">
-                      {i === 0 ? <label className="text-xs text-slate-500 dark:text-muted-foreground">Company Name</label> : null}
-                      <Input
-                        value={row.companyName}
-                        onChange={(e) => updateSuccessionRow(i, "companyName", e.target.value)}
-                        placeholder="e.g. Acme Widgets"
-                        disabled={isSuccessionRunning}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      {i === 0 ? <label className="text-xs text-slate-500 dark:text-muted-foreground">Company URL</label> : null}
-                      <Input
-                        value={row.companyUrl}
-                        onChange={(e) => updateSuccessionRow(i, "companyUrl", e.target.value)}
-                        placeholder="e.g. acmewidgets.com"
-                        disabled={isSuccessionRunning}
-                      />
-                    </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Import queue ({successionCount} companies)</div>
+                  <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-muted-foreground select-none">
+                    <input
+                      type="checkbox"
+                      checked={preflightEnabled}
+                      onChange={(e) => setPreflightEnabled(e.target.checked)}
+                      className="rounded"
+                    />
+                    Check for duplicates
+                    {preflightLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  </label>
+                </div>
+                {preflightError ? (
+                  <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-2 text-xs text-red-800 dark:text-red-300">
+                    <AlertTriangle className="h-3 w-3 inline mr-1" />
+                    Preflight check failed: {preflightError}
                   </div>
-                ))}
+                ) : null}
+                {successionRows.map((row, i) => {
+                  const pfResult = preflightResults?.find((r) => r.index === i) || null;
+                  return (
+                    <div key={i} className="grid grid-cols-[2rem_2fr_1fr_auto] gap-2 items-end">
+                      <div className="text-xs text-slate-500 dark:text-muted-foreground text-right pb-2">{i + 1}.</div>
+                      <div className="space-y-1">
+                        {i === 0 ? <label className="text-xs text-slate-500 dark:text-muted-foreground">Company Name</label> : null}
+                        <Input
+                          value={row.companyName}
+                          onChange={(e) => updateSuccessionRow(i, "companyName", e.target.value)}
+                          placeholder="e.g. Acme Widgets"
+                          disabled={isSuccessionRunning}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        {i === 0 ? <label className="text-xs text-slate-500 dark:text-muted-foreground">Company URL</label> : null}
+                        <Input
+                          value={row.companyUrl}
+                          onChange={(e) => updateSuccessionRow(i, "companyUrl", e.target.value)}
+                          placeholder="e.g. acmewidgets.com"
+                          disabled={isSuccessionRunning}
+                        />
+                      </div>
+                      <div className="flex items-end pb-0.5 min-w-[140px]">
+                        {pfResult ? (
+                          pfResult.status === "no_match" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                              Clear
+                            </span>
+                          ) : pfResult.status === "exact_match" ? (
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400 whitespace-nowrap">
+                                <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                                Exact match
+                              </span>
+                              <a
+                                href={`/admin?company_id=${encodeURIComponent(pfResult.match?.id || "")}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[160px]"
+                                title={pfResult.match?.company_name}
+                              >
+                                {pfResult.match?.company_name || pfResult.match?.normalized_domain || "View"}
+                              </a>
+                              <button
+                                type="button"
+                                className="text-xs text-red-600 dark:text-red-400 hover:underline text-left"
+                                onClick={() => removeSuccessionRow(i)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : pfResult.status === "fuzzy_match" ? (
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                Possible match
+                              </span>
+                              <a
+                                href={`/admin?company_id=${encodeURIComponent(pfResult.match?.id || "")}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[160px]"
+                                title={pfResult.match?.company_name}
+                              >
+                                {pfResult.match?.company_name || pfResult.match?.normalized_domain || "View"}
+                              </a>
+                              <span className="text-xs opacity-50">
+                                via {pfResult.match?.match_type === "fuzzy_name" ? "name similarity" : pfResult.match?.match_type === "domain_substring" ? "domain" : pfResult.match?.match_type || "match"}
+                              </span>
+                              <button
+                                type="button"
+                                className="text-xs text-red-600 dark:text-red-400 hover:underline text-left"
+                                onClick={() => removeSuccessionRow(i)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : null
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+            ) : null}
+
+            {/* Single-entry preflight result */}
+            {successionCount <= 1 && preflightEnabled ? (
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-muted-foreground select-none">
+                  <input
+                    type="checkbox"
+                    checked={preflightEnabled}
+                    onChange={(e) => setPreflightEnabled(e.target.checked)}
+                    className="rounded"
+                  />
+                  Check for duplicates
+                  {preflightLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                </label>
+                {preflightError ? (
+                  <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-2 text-xs text-red-800 dark:text-red-300">
+                    <AlertTriangle className="h-3 w-3 inline mr-1" />
+                    Preflight check failed: {preflightError}
+                  </div>
+                ) : null}
+                {preflightResults && preflightResults.length > 0 ? (() => {
+                  const r = preflightResults[0];
+                  if (r.status === "no_match") {
+                    return (
+                      <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 text-sm text-emerald-800 dark:text-emerald-300">
+                        No existing match found — safe to import.
+                      </div>
+                    );
+                  }
+                  if (r.status === "exact_match") {
+                    return (
+                      <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-300">
+                        Exact match found:{" "}
+                        <a
+                          href={`/admin?company_id=${encodeURIComponent(r.match?.id || "")}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium underline"
+                        >
+                          {r.match?.company_name || r.match?.normalized_domain || "View"}
+                        </a>
+                        {" "}(matched by {r.match?.match_type || "unknown"})
+                      </div>
+                    );
+                  }
+                  if (r.status === "fuzzy_match") {
+                    return (
+                      <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300">
+                        Possible match found:{" "}
+                        <a
+                          href={`/admin?company_id=${encodeURIComponent(r.match?.id || "")}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium underline"
+                        >
+                          {r.match?.company_name || r.match?.normalized_domain || "View"}
+                        </a>
+                        {" "}(via {r.match?.match_type === "fuzzy_name" ? "name similarity" : r.match?.match_type === "domain_substring" ? "domain" : r.match?.match_type || "match"})
+                      </div>
+                    );
+                  }
+                  return null;
+                })() : null}
+              </div>
+            ) : successionCount <= 1 && !preflightEnabled ? (
+              <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-muted-foreground select-none">
+                <input
+                  type="checkbox"
+                  checked={preflightEnabled}
+                  onChange={(e) => setPreflightEnabled(e.target.checked)}
+                  className="rounded"
+                />
+                Check for duplicates
+              </label>
             ) : null}
 
             <div className="space-y-2">

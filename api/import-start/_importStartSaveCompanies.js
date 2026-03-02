@@ -194,7 +194,7 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
   try {
     if (domain && domain !== "unknown") {
       const query = `
-        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.import_missing_reason, c.import_attempts, c.logo_stage_status, c.seed_ready, c.source, c.source_stage
+        SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.import_missing_reason, c.import_attempts, c.logo_stage_status, c.seed_ready, c.source, c.source_stage
         FROM c
         WHERE ${notDeletedClause}
           AND c.normalized_domain = @domain
@@ -246,7 +246,7 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
       const clause = canonicalVariants.map((_, idx) => `@canon${idx}`).join(", ");
 
       const query = `
-        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.import_missing_reason, c.import_attempts, c.logo_stage_status, c.seed_ready, c.source, c.source_stage
+        SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.import_missing_reason, c.import_attempts, c.logo_stage_status, c.seed_ready, c.source, c.source_stage
         FROM c
         WHERE ${notDeletedClause}
           AND (
@@ -271,7 +271,7 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
 
     if (nameValue) {
       const query = `
-        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.import_missing_reason, c.import_attempts, c.logo_stage_status, c.seed_ready, c.source, c.source_stage
+        SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.import_missing_reason, c.import_attempts, c.logo_stage_status, c.seed_ready, c.source, c.source_stage
         FROM c
         WHERE ${notDeletedClause}
           AND LOWER(c.company_name) = @name
