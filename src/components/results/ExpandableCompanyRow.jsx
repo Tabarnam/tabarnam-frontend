@@ -188,40 +188,12 @@ function inferAffiliateLabel(link, fallbackPrefix = "Affiliate") {
   }
 }
 
-/**
- * Highlight matching search terms within text by wrapping them in <mark> tags.
- * Returns the original string if no query or no match.
- */
-function HighlightMatch({ text, query }) {
-  if (!query || !text || typeof text !== "string") return text || "";
-  const q = query.trim();
-  if (!q) return text;
-  try {
-    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`(${escaped})`, "gi");
-    const parts = text.split(regex);
-    if (parts.length <= 1) return text;
-    return parts.map((part, i) =>
-      regex.test(part) ? (
-        <mark key={i} className="bg-amber-200/60 dark:bg-amber-500/30 text-inherit rounded-sm px-0.5">
-          {part}
-        </mark>
-      ) : (
-        part
-      )
-    );
-  } catch {
-    return text;
-  }
-}
-
 export default function ExpandableCompanyRow({
   company,
   sortBy,
   unit,
   onKeywordSearch,
   rightColsOrder,
-  searchQuery,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -808,10 +780,10 @@ export default function ExpandableCompanyRow({
               className="font-semibold text-[1.2em] text-blue-700 hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
-              <HighlightMatch text={websiteLabel} query={searchQuery} />
+              {websiteLabel}
             </CompanyNameWithUrlTooltip>
           ) : (
-            <span className="font-semibold text-[1.2em]"><HighlightMatch text={displayName} query={searchQuery} /></span>
+            <span className="font-semibold text-[1.2em]">{displayName}</span>
           )}
           <span className="inline-flex items-center gap-0 share-button-container">
             <ShareButton company={company} className="!w-7 !h-7 !min-w-0 !min-h-0" />
@@ -878,7 +850,7 @@ export default function ExpandableCompanyRow({
                     }}
                     className="text-blue-600 dark:text-blue-400 hover:underline"
                   >
-                    <HighlightMatch text={ind} query={searchQuery} />
+                    {ind}
                   </button>
                 </React.Fragment>
               ))}
@@ -962,7 +934,7 @@ export default function ExpandableCompanyRow({
                   }}
                   className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
                 >
-                  <HighlightMatch text={kw} query={searchQuery} />
+                  {kw}
                 </button>
               ))}
               {hiddenCount > 0 && (

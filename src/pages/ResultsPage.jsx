@@ -531,7 +531,6 @@ export default function ResultsPage() {
                 unit={unit}
                 onKeywordSearch={handleKeywordSearch}
                 rightColsOrder={rightColsOrder}
-                searchQuery={qParam}
               />
             ))}
           </div>
