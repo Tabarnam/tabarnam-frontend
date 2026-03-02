@@ -557,26 +557,48 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
     }
   } catch {}
 
-  // ── Queue-only enrichment: do NOT invoke the worker in-process ──
-  // Enrichment is handled exclusively by the queue-triggered resume-worker,
-  // which runs inside a proper Azure Functions invocation protected by
-  // functionTimeout (10 min). Fire-and-forget floating promises are killed
-  // by Azure DrainMode because they are not tracked invocations.
+  // ── HTTP self-invocation: create a tracked Azure Functions invocation ──
+  // POST to the resume-worker HTTP endpoint on the same app. This creates
+  // a separate invocation tracked by Azure (OutstandingInvocations += 1),
+  // so DrainMode must wait for it (up to functionTimeout: 10 min).
   //
-  // The queue message was already enqueued by import-start (5s delay).
-  // Import-status just marks "in_progress" to prevent re-triggering.
+  // The old fire-and-forget called resumeWorkerHandler() directly as a
+  // floating promise, which Azure never tracked. The queue trigger
+  // (import-resume-worker-queue-trigger) has NoOpListener in SWA-managed
+  // apps and never fires.
 
-  // Set context for immediate HTTP response — queue trigger handles enrichment.
+  const hostname = process.env.WEBSITE_HOSTNAME || "localhost:7071";
+  const protocol = hostname.includes("localhost") ? "http" : "https";
+  const workerUrl = `${protocol}://${hostname}/api/import/resume-worker`;
+
+  const enrichmentBody = {
+    session_id: ctx.sessionId,
+  };
+
+  // Fire-and-forget HTTP POST — creates a tracked invocation
+  fetch(workerUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(workerRequest?.headers || {}),
+    },
+    body: JSON.stringify(enrichmentBody),
+  }).then(res => {
+    console.log(`[import-status] session=${ctx.sessionId} resume-worker HTTP invocation accepted status=${res.status}`);
+  }).catch(err => {
+    console.error(`[import-status] session=${ctx.sessionId} resume-worker HTTP POST failed: ${err?.message || err}`);
+  });
+
   ctx.resume_triggered = true;
-  ctx.resume_gateway_key_attached = false;
+  ctx.resume_gateway_key_attached = Boolean(workerRequest?.gateway_key_attached);
   ctx.resume_trigger_request_id = workerRequest.request_id;
   ctx.resume_status = "in_progress";
   ctx.resumeStatus = "in_progress";
 
-  ctx.stageBeaconValues.status_resume_delegated_to_queue = triggerAttemptAt;
+  ctx.stageBeaconValues.status_resume_http_self_invoke = triggerAttemptAt;
   ctx.stageBeaconValues.status_trigger_resume_worker_ok = true;
 
-  console.log(`[import-status] session=${ctx.sessionId} enrichment delegated to queue trigger (no in-process invocation)`);
+  console.log(`[import-status] session=${ctx.sessionId} enrichment triggered via HTTP self-invocation to ${workerUrl}`);
 }
 
 // ── runTerminalCycleEnforcement ──────────────────────────────────────────────
