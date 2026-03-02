@@ -137,9 +137,9 @@ async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
 //   0. No missing fields at all → complete.
 //   1. Every missing field has a terminal/ok/confirmed_empty reason → complete.
 //      Works even when import_attempts is empty (older companies, manual edits).
-//   2. import_attempts shows at least one attempt AND every missing field has
-//      *some* non-empty reason → complete (lenient: enrichment ran and decided).
-//   3. Otherwise → incomplete.
+//   2. import_attempts shows at least one field was attempted → complete.
+//      The company has been through the pipeline; re-import must not overwrite it.
+//   3. Otherwise → incomplete (genuinely new or never-enriched).
 function isEnrichmentComplete(doc) {
   if (!doc) return false;
 
@@ -159,18 +159,15 @@ function isEnrichmentComplete(doc) {
   });
   if (strictComplete) return true;
 
-  // Tier 2 — lenient: requires proof that enrichment attempted at least one field,
-  // then accepts any non-empty reason as "decided" (handles non-terminal leftovers
-  // like "not_found", "upstream_timeout", "low_quality").
+  // Tier 2 — lenient: if enrichment ran at all (any field in import_attempts > 0),
+  // treat the company as complete.  Missing fields with placeholder reasons like
+  // "pending" or "missing" simply weren't part of the enrichment plan (e.g. reviews
+  // skipped via skip_stages, logo not found on site).  The user can manually
+  // trigger re-enrichment for specific fields if needed — but re-import must not
+  // overwrite existing data.
   const attempts = doc.import_attempts;
   const anyAttempted = attempts && typeof attempts === "object" && Object.values(attempts).some((v) => Number(v) > 0);
-  if (!anyAttempted) return false;
-
-  const allHaveReason = missing.every((f) => {
-    const reason = String(reasons[f] || "").trim();
-    return reason.length > 0;
-  });
-  return allHaveReason;
+  return anyAttempted;
 }
 
 // Check if company already exists by normalized domain / company name.
