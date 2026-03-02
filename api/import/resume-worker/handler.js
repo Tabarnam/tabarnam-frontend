@@ -1929,7 +1929,7 @@ async function resumeWorkerHandler(req, context) {
         : {};
 
     // Hard timeout guard: leave 1 min buffer before Azure Function timeout (10 min max)
-    const HANDLER_HARD_TIMEOUT_MS = 9 * 60 * 1000; // 9 minutes
+    const HANDLER_HARD_TIMEOUT_MS = 9.5 * 60 * 1000; // 9.5 minutes
     const handlerStartedAt = startedAtMs;
     const effectiveDeadlineMs = Math.min(deadlineMs, HANDLER_HARD_TIMEOUT_MS - 60_000);
 
@@ -2071,7 +2071,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     let internalCycleIdx = 0;
-    const MAX_INTERNAL_CYCLES = 3; // Safety cap: max extra internal retries within same invocation
+    const MAX_INTERNAL_CYCLES = 0; // No internal retries — single attempt, if it fails fields go unpopulated
 
     // Hoisted from inside the while loop so they're accessible after break
     let nextMissingByCompany;

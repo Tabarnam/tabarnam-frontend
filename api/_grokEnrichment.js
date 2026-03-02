@@ -202,7 +202,7 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 // Admin reviews each company anyway and can refresh individual missing fields.
 const TWO_CALL_TIMEOUTS_MS = Object.freeze({
   structured: { min: 90_000, max: 150_000 },   // 1.5-2.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo)
-  reviews:    { min: 90_000, max: 180_000 },    // 1.5-3 min for Call 2 (curated reviews)
+  reviews:    { min: 90_000, max: 330_000 },    // 1.5-5.5 min for Call 2 (curated reviews)
 });
 
 // Absolute minimum budget to attempt an xAI call at all.
