@@ -841,14 +841,18 @@ async function handler(req, context) {
           } catch {}
         }
 
-        // Staleness repair: if the resume doc has been "in_progress" for >5 min with no
-        // heartbeat update, the fire-and-forget enrichment promise was likely killed by
-        // Azure worker recycling. Convert to "queued" so the resume trigger can fire.
-        if (!STATUS_NO_ORCHESTRATION && resume_needed && resumeStatus === "in_progress") {
+        // Staleness repair: if the resume doc has been "in_progress" or "running" with no
+        // recent heartbeat, the worker process was likely killed by Azure recycling.
+        // Convert to "queued" so the resume trigger can fire a new worker.
+        // Note: import-status marks status "in_progress", but the handler overwrites to
+        // "running" (handler.js:1501). Both must be checked.
+        if (!STATUS_NO_ORCHESTRATION && resume_needed && (resumeStatus === "in_progress" || resumeStatus === "running")) {
           const resumeUpdatedTs = Date.parse(String(resumeDoc?.updated_at || "")) || 0;
           const enrichStartedTs = Date.parse(String(resumeDoc?.enrichment_started_at || "")) || 0;
-          const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs);
-          const staleThresholdMs = 360_000; // 6 minutes (exceeds 5-min enrichment wall-clock cap)
+          const resumeHeartbeatTs = Date.parse(String(resumeDoc?.resume_worker_heartbeat_at || "")) || 0;
+          const sessionHeartbeatTs = Date.parse(String(sessionDoc?.resume_worker_heartbeat_at || "")) || 0;
+          const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs, resumeHeartbeatTs, sessionHeartbeatTs);
+          const staleThresholdMs = 90_000; // 90s = 3× heartbeat interval (30s); matches handler.js enrichmentStaleMs
 
           if (mostRecentTs && Date.now() - mostRecentTs > staleThresholdMs) {
             const reopenedAt = nowIso();
@@ -1963,14 +1967,18 @@ async function handler(req, context) {
           }
         }
 
-        // Staleness repair: if the resume doc has been "in_progress" for >5 min with no
-        // heartbeat update, the fire-and-forget enrichment promise was likely killed by
-        // Azure worker recycling. Convert to "queued" so the resume trigger can fire.
-        if (!STATUS_NO_ORCHESTRATION && resume_needed && resumeStatus === "in_progress") {
+        // Staleness repair: if the resume doc has been "in_progress" or "running" with no
+        // recent heartbeat, the worker process was likely killed by Azure recycling.
+        // Convert to "queued" so the resume trigger can fire a new worker.
+        // Note: import-status marks status "in_progress", but the handler overwrites to
+        // "running" (handler.js:1501). Both must be checked.
+        if (!STATUS_NO_ORCHESTRATION && resume_needed && (resumeStatus === "in_progress" || resumeStatus === "running")) {
           const resumeUpdatedTs = Date.parse(String(currentResume?.updated_at || "")) || 0;
           const enrichStartedTs = Date.parse(String(currentResume?.enrichment_started_at || "")) || 0;
-          const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs);
-          const staleThresholdMs = 360_000; // 6 minutes (exceeds 5-min enrichment wall-clock cap)
+          const resumeHeartbeatTs = Date.parse(String(currentResume?.resume_worker_heartbeat_at || "")) || 0;
+          const sessionHeartbeatTs = Date.parse(String(sessionDoc?.resume_worker_heartbeat_at || "")) || 0;
+          const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs, resumeHeartbeatTs, sessionHeartbeatTs);
+          const staleThresholdMs = 90_000; // 90s = 3× heartbeat interval (30s); matches handler.js enrichmentStaleMs
 
           if (mostRecentTs && Date.now() - mostRecentTs > staleThresholdMs) {
             const reopenedAt = nowIso();

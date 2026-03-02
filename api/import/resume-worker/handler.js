@@ -1993,6 +1993,7 @@ async function resumeWorkerHandler(req, context) {
       if (now - lastHeartbeatWrite > HEARTBEAT_INTERVAL_MS) {
         const nowIsoStr = nowIso();
         try {
+          // Write to session doc (UI status)
           await bestEffortPatchSessionDoc({
             container,
             sessionId,
@@ -2003,6 +2004,21 @@ async function resumeWorkerHandler(req, context) {
               updated_at: nowIsoStr,
             },
           }).catch(() => null);
+
+          // Also write to resume doc so staleness checks in both
+          // import-status (index.js:847) and the handler itself (line ~1295)
+          // can detect dead workers via heartbeat age.
+          try {
+            const freshResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+            if (freshResume && typeof freshResume === "object") {
+              await upsertDoc(container, {
+                ...freshResume,
+                resume_worker_heartbeat_at: nowIsoStr,
+                updated_at: nowIsoStr,
+              }).catch(() => null);
+            }
+          } catch {}
+
           lastHeartbeatWrite = now;
           console.log(`[resume-worker] heartbeat written at ${nowIsoStr} (field=${currentEnrichmentField || "none"})`);
         } catch (err) {
@@ -2063,6 +2079,17 @@ async function resumeWorkerHandler(req, context) {
     let last_written_fields;
     let resumeNeeded;
     let updatedAt;
+
+    // Timer-based heartbeat: fires every 30s DURING the enrichment loop,
+    // even while enrichCompanyFields() blocks on long xAI calls (150-180s).
+    // Without this, single-company imports write zero heartbeats because the
+    // poll-style maybeWriteHeartbeat() at loop boundaries never reaches the
+    // 30s threshold before the blocking call starts.
+    let heartbeatTimer = null;
+    try {
+    heartbeatTimer = setInterval(async () => {
+      try { await maybeWriteHeartbeat(); } catch {}
+    }, HEARTBEAT_INTERVAL_MS);
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -2663,6 +2690,10 @@ async function resumeWorkerHandler(req, context) {
     await sleepMs(3000);
 
     } // end while(true) internal retry loop
+
+    } finally {
+      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    }
 
     const nextCycleCount = cycleCount + 1;
 
