@@ -196,10 +196,13 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 // Two-Call Split timeouts (v3.0) — used by the new enrichCompanyFields() pipeline.
 // Call 1 (structured): all non-review fields in a single xAI call with full guidance.
 // Call 2 (reviews): curated reviews in a parallel xAI call with stricter disambiguation.
+// xAI web search typically takes 90-150s for complex queries. Previous values (90s/120s)
+// caused consistent upstream_timeout — xAI was still working when we aborted.
+// No retry round: if the first call is structured properly it should return all fields.
+// Admin reviews each company anyway and can refresh individual missing fields.
 const TWO_CALL_TIMEOUTS_MS = Object.freeze({
-  structured: { min: 45_000, max: 90_000 },   // 0.75-1.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo)
-  reviews:    { min: 60_000, max: 120_000 },   // 1-2 min for Call 2 (curated reviews)
-  retry:      { min: 30_000, max: 60_000 },    // 0.5-1 min for retry of missing structured fields
+  structured: { min: 90_000, max: 150_000 },   // 1.5-2.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo)
+  reviews:    { min: 90_000, max: 180_000 },    // 1.5-3 min for Call 2 (curated reviews)
 });
 
 // Absolute minimum budget to attempt an xAI call at all.
@@ -2788,8 +2791,8 @@ Return STRICT JSON only with the requested fields:
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: budgetMs,
-      minMs: TWO_CALL_TIMEOUTS_MS.retry.min,
-      maxMs: TWO_CALL_TIMEOUTS_MS.retry.max,
+      minMs: TWO_CALL_TIMEOUTS_MS.structured.min,
+      maxMs: TWO_CALL_TIMEOUTS_MS.structured.max,
       safetyMarginMs: 5_000,
     }),
     maxAttempts: 1,
@@ -3337,12 +3340,7 @@ async function enrichCompanyFields({
   const wantReviews = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("reviews");
   const wantLogo = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("logo") || fieldsToEnrich.includes("logo_url");
 
-  // Reduce structured-fields timeout on retry cycles where the previous cycle timed out.
-  // If Grok couldn't respond in 210s on cycle 0, giving it another 210s on cycle 1
-  // wastes identical wall time for the same failure. Cap at 90s on retries.
-  const structuredMaxMs = retryHints?.hadStructuredTimeout
-    ? 90_000
-    : TWO_CALL_TIMEOUTS_MS.structured.max;
+  const structuredMaxMs = TWO_CALL_TIMEOUTS_MS.structured.max;
 
   console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, structuredMax=${structuredMaxMs}ms, wantReviews=${wantReviews}, wantLogo=${wantLogo}, run=${runId}`);
 
@@ -3480,66 +3478,9 @@ async function enrichCompanyFields({
     delete proposed.logo_source;
   }
 
-  // ── Retry missing structured fields (up to 2 rounds for locations) ──
-  const LOCATION_FIELDS = ["headquarters", "manufacturing"];
-  const MAX_RETRY_ROUNDS = 1;
-
-  for (let retryRound = 1; retryRound <= MAX_RETRY_ROUNDS; retryRound++) {
-    const missingStructured = findMissingFields(proposed).filter((f) => f !== "reviews");
-    const filteredMissing = filterMissingByTarget(missingStructured);
-
-    // Round 1: retry all missing EXCEPT tagline when Grok explicitly returned empty
-    //          (it searched and found nothing — repeating the same prompt is futile).
-    //          Only retry tagline on timeout/error where the attempt was interrupted.
-    // Round 2: only retry location fields that are still missing.
-    const fieldsToRetry = retryRound === 1
-      ? filteredMissing.filter((f) => {
-          if (f === "tagline" && field_statuses.tagline === "empty") return false;
-          return true;
-        })
-      : filteredMissing.filter((f) => LOCATION_FIELDS.includes(f));
-
-    if (fieldsToRetry.length === 0 || getRemainingMs() <= 30_000) {
-      if (fieldsToRetry.length > 0) {
-        console.warn(`[enrichCompanyFields] Retry round ${retryRound} SKIPPED — remaining=${getRemainingMs()}ms < 30000ms, fields=[${fieldsToRetry.join(", ")}], run=${runId}`);
-      }
-      break;
-    }
-
-    const retryBudgetMs = Math.min(TWO_CALL_TIMEOUTS_MS.retry.max, getRemainingMs() - 5_000);
-    console.log(`[enrichCompanyFields] Retry round ${retryRound}/${MAX_RETRY_ROUNDS} for missing fields: [${fieldsToRetry.join(", ")}], remaining=${getRemainingMs()}ms, run=${runId}`);
-    const retryResult = await raceTimeout(
-      retryMissingStructuredFields({
-        companyName, websiteUrl, normalizedDomain: domain,
-        missingFields: fieldsToRetry,
-        budgetMs: retryBudgetMs,
-        xaiUrl, xaiKey,
-      }),
-      retryBudgetMs + 5_000,
-      `retryMissingStructuredFields_round${retryRound}[${runId}]`
-    ).catch((e) => {
-      console.warn(`[enrichCompanyFields] Retry round ${retryRound} watchdog fired: ${e.message}, run=${runId}`);
-      return { ok: false, parsed_fields: {}, field_statuses: {} };
-    });
-
-    if (retryResult?.ok && retryResult.parsed_fields) {
-      for (const shortName of fieldsToRetry) {
-        const longName = FIELD_SHORT_TO_LONG[shortName] || shortName;
-        if (retryResult.parsed_fields[longName]) {
-          proposed[longName] = retryResult.parsed_fields[longName];
-          field_statuses[shortName] = retryResult.field_statuses?.[shortName] || "ok";
-        }
-      }
-    }
-
-    // If no location fields remain missing, no need for another round
-    const stillMissingLocations = LOCATION_FIELDS.filter((f) => {
-      const longName = FIELD_SHORT_TO_LONG[f] || f;
-      if (f === "manufacturing") return !Array.isArray(proposed[longName]) || proposed[longName].length === 0;
-      return !proposed[longName];
-    });
-    if (stillMissingLocations.length === 0) break;
-  }
+  // No retry round: the structured call includes all fields with full guidance.
+  // If xAI couldn't find a field with thorough web search, repeating the same
+  // prompt won't help. Admin reviews each company and can refresh individually.
 
   const totalElapsed = Date.now() - started;
   const missingAtEnd = Object.entries(field_statuses).filter(([, v]) => v !== "ok").map(([k, v]) => `${k}=${v}`);
