@@ -201,7 +201,7 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 // No retry round: if the first call is structured properly it should return all fields.
 // Admin reviews each company anyway and can refresh individual missing fields.
 const TWO_CALL_TIMEOUTS_MS = Object.freeze({
-  structured: { min: 90_000, max: 150_000 },   // 1.5-2.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo)
+  structured: { min: 90_000, max: 330_000 },   // 1.5-5.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo) — matches reviews
   reviews:    { min: 90_000, max: 330_000 },    // 1.5-5.5 min for Call 2 (curated reviews)
 });
 

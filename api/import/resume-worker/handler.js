@@ -198,7 +198,7 @@ const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 3, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
-const MAX_RESUME_CYCLES = envInt("MAX_RESUME_CYCLES", 2, { min: 1, max: 50 });
+const MAX_RESUME_CYCLES = 1;
 
 // Per-company wall-clock cap across all cycles.  Prevents one slow company
 // (e.g. chronic XAI timeouts) from stalling the entire batch.
