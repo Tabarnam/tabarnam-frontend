@@ -3266,6 +3266,22 @@ export default function CompanyDashboard() {
           color: isDark ? "hsl(187 10% 93%)" : undefined,
           borderTopColor: isDark ? "hsl(187 10% 18%)" : undefined,
         },
+        pageButtonsStyle: isDark
+          ? {
+              color: "hsl(187 10% 93%)",
+              fill: "hsl(187 10% 93%)",
+              "&:disabled": {
+                color: "hsl(187 10% 30%)",
+                fill: "hsl(187 10% 30%)",
+              },
+              "&:hover:not(:disabled)": {
+                backgroundColor: "hsl(187 12% 18%)",
+              },
+              "&:focus": {
+                backgroundColor: "hsl(187 12% 18%)",
+              },
+            }
+          : undefined,
       },
       noData: {
         style: {
@@ -3469,7 +3485,8 @@ export default function CompanyDashboard() {
               progressComponent={progressComponent}
               pagination
               paginationPerPage={25}
-              paginationRowsPerPageOptions={[10, 25, 50, 100]}
+              paginationRowsPerPageOptions={[25, 50, 100, 250, 500, 1000]}
+              paginationComponentOptions={{ selectAllRowsItem: true, selectAllRowsItemText: "All" }}
               highlightOnHover
               dense
               customStyles={tableTheme}

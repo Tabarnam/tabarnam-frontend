@@ -98,6 +98,15 @@ mark {
   color: hsl(187 47% 65%);
 }
 
+/* Dark mode: react-data-table-component pagination select dropdown */
+.dark .rdt_Pagination select {
+  background-color: hsl(187 15% 11%);
+  color: hsl(187 10% 93%);
+  border-color: hsl(187 10% 25%);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
 }
 
 /* Smooth theme switch — only active during toggle, not permanently */
