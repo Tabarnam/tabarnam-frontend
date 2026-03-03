@@ -131,12 +131,12 @@ STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
 
 FORMAT RULES:
 - List ALL known CURRENT manufacturing locations worldwide. Be exhaustive.
-- City-level precision within the USA is crucial — but only when a specific city is actually disclosed on the official website or in a confirmed source for the exact same entity.
+- City-level precision is crucial for ALL locations worldwide — not just the USA. Always include the city and region/province when disclosed in any source (official website, SEC filings, news articles, or trade directories).
 - Use state/province abbreviations (e.g., "Los Angeles, CA" not "Los Angeles, California").
 - Format: "City, ST, USA" for US; "City, ST, Canada" for Canada; "City, Country" for international.
 - Always append the country. Use "USA" (not "United States" or "U.S.A.").
 - Return an array of locations. Include multiple entries when applicable.
-- Country-only entries are acceptable when city-level data is unavailable (e.g., "China", "USA").
+- Country-only entries are a LAST RESORT — acceptable ONLY after browsing the company website AND running at least 3 web searches that all fail to reveal a specific city. If any source names a city, you MUST include it (e.g., "Quito, Ecuador" not just "Ecuador").
 - No explanatory text — just location strings.
 - Provide the supporting URLs you used for the manufacturing determination.`,
     jsonSchema: `"manufacturing_locations": ["City, ST, USA", "City, Country"]`,

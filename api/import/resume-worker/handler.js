@@ -2294,6 +2294,13 @@ async function resumeWorkerHandler(req, context) {
                   mapped.curated_reviews = mapped.reviews;
                   delete mapped.reviews;
                 }
+                // Don't overwrite a valid logo_url with null/empty from xAI structured call.
+                // import-start may have already discovered and uploaded a logo via HTML scraping
+                // before enrichment runs; the xAI call often returns logo=empty for the same company.
+                if (!mapped.logo_url && doc.logo_url) {
+                  delete mapped.logo_url;
+                  delete mapped.logo_source;
+                }
                 Object.assign(doc, mapped);
                 doc.updated_at = nowIso();
                 await upsertDoc(container, doc);
