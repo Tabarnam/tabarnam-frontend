@@ -28,7 +28,7 @@ function parseBulkLocations(text) {
 // ── field-label regex ────────────────────────────────────────────────
 
 const FIELD_LABEL_RE =
-  /^\s*(Tagline|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Industries|Keywords)\s*:\s*(.*)$/i;
+  /^\s*(Tagline|Website|URL|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Industries|Keywords)\s*:\s*(.*)$/i;
 
 function normalizeFieldLabel(raw) {
   const l = raw.trim().toLowerCase().replace(/\s+/g, " ");
@@ -37,6 +37,7 @@ function normalizeFieldLabel(raw) {
   if (l.startsWith("manufacturing")) return "manufacturing_locations";
   if (l === "industries") return "industries";
   if (l === "keywords") return "keywords";
+  if (l === "website" || l === "url") return "website_url";
   return null;
 }
 
@@ -149,6 +150,7 @@ function normalizeReview(r) {
  *
  * Expected labeled format:
  *   Company Name
+ *   Website: https://example.com
  *   Tagline: ...
  *   HQ: City, ST, Country; City2, ST2, Country2
  *   Manufacturing: City, ST, Country; ...
@@ -237,6 +239,14 @@ export function parseBulkPasteText(text) {
 
   const proposed = {};
 
+  if (companyNameLine) {
+    proposed.company_name = companyNameLine;
+  }
+
+  if (fields.website_url) {
+    proposed.website_url = fields.website_url.trim();
+  }
+
   if (fields.tagline) {
     proposed.tagline = fields.tagline;
   }
@@ -277,6 +287,8 @@ export function parseBulkPasteText(text) {
 
   // ── warnings ──
 
+  if (!companyNameLine) warnings.push("No company name found (expected first line)");
+  if (!fields.website_url) warnings.push("No website URL found");
   if (!fields.tagline) warnings.push("No tagline found");
   if (!fields.headquarters_locations) warnings.push("No HQ location found");
   if (!fields.manufacturing_locations) warnings.push("No manufacturing locations found");

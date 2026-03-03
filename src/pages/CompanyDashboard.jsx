@@ -1512,8 +1512,26 @@ export default function CompanyDashboard() {
 
     setBulkPasteOpen(false);
 
+    const isNew = !editorOriginalId;
+
+    // For new companies, apply company_name and website_url directly to the
+    // editor draft (these are Basic Info fields, not diff-UI fields).
+    if (isNew) {
+      setEditorDraft((d) => ({
+        ...(d && typeof d === "object" ? d : {}),
+        ...(proposed.company_name && { company_name: proposed.company_name, name: proposed.company_name }),
+        ...(proposed.website_url && { website_url: proposed.website_url }),
+      }));
+    }
+
+    // For new companies, strip name/URL from proposed so they don't appear
+    // redundantly in both the Basic Info inputs AND the diff panel.
+    const proposedForDiff = isNew
+      ? (() => { const { company_name, website_url, ...rest } = proposed; return rest; })()
+      : proposed;
+
     const companyId = asString(editorOriginalId || editorDraft?.company_id).trim();
-    applyRefreshProposed(proposed, {}, companyId, new Date().toISOString());
+    applyRefreshProposed(proposedForDiff, {}, companyId, new Date().toISOString());
   }, [bulkPasteText, editorOriginalId, editorDraft, applyRefreshProposed]);
 
   // Poll /refresh-status?company_id=X until enrichment completes or times out.
@@ -3699,21 +3717,19 @@ export default function CompanyDashboard() {
                                 </div>
                               ) : null}
 
-                              {editorOriginalId ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    setBulkPasteText("");
-                                    setBulkPasteOpen(true);
-                                  }}
-                                  disabled={refreshLoading || editorSaving}
-                                  title="Paste Grok response to populate fields"
-                                >
-                                  <ClipboardPaste className="h-4 w-4 mr-2" />
-                                  Bulk paste
-                                </Button>
-                              ) : null}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setBulkPasteText("");
+                                  setBulkPasteOpen(true);
+                                }}
+                                disabled={refreshLoading || editorSaving}
+                                title="Paste Grok response to populate fields"
+                              >
+                                <ClipboardPaste className="h-4 w-4 mr-2" />
+                                Bulk paste
+                              </Button>
 
                               {editorOriginalId ? (
                                 <div className="min-w-0 flex-1 max-w-[520px] leading-snug">
@@ -3829,7 +3845,7 @@ export default function CompanyDashboard() {
                         return null;
                       })() : null}
 
-                      {editorOriginalId && (refreshLoading || refreshError || proposedDraft) ? (
+                      {(refreshLoading || refreshError || proposedDraft) ? (
                         <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-4 space-y-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="text-sm font-semibold text-slate-900 dark:text-foreground">Proposed refresh</div>
@@ -4995,14 +5011,17 @@ export default function CompanyDashboard() {
               <DialogHeader>
                 <DialogTitle>Bulk paste Grok response</DialogTitle>
                 <DialogDescription>
-                  Paste the full Grok AI response below. Fields will be parsed and shown in the diff view for review.
+                  Paste the full Grok AI response below.{" "}
+                  {editorOriginalId
+                    ? "Fields will be parsed and shown in the diff view for review."
+                    : "Company name and website URL will be set directly. Other fields will appear in the diff view for review."}
                 </DialogDescription>
               </DialogHeader>
 
               <Textarea
                 value={bulkPasteText}
                 onChange={(e) => setBulkPasteText(e.target.value)}
-                placeholder={"Company Name\nTagline: Your tagline here\nHQ: City, ST, Country\nManufacturing: City, ST, Country; City2, ST2, Country2\nIndustries: industry1, industry2, industry3\nKeywords: keyword1, keyword2, keyword3\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
+                placeholder={"Company Name\nWebsite: https://example.com\nTagline: Your tagline here\nHQ: City, ST, Country\nManufacturing: City, ST, Country; City2, ST2, Country2\nIndustries: industry1, industry2, industry3\nKeywords: keyword1, keyword2, keyword3\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
                 className="min-h-[300px] font-mono text-xs leading-relaxed"
                 autoFocus
               />
