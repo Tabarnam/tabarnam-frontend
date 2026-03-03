@@ -175,7 +175,7 @@ function clampInt(value, { min, max, fallback }) {
 }
 
 // XAI stage timeout max: generous to allow deep, accurate XAI searches (3-5+ minutes per field).
-function resolveXaiStageTimeoutMaxMs(fallback = 300_000) {
+function resolveXaiStageTimeoutMaxMs(fallback = 330_000) {
   const raw = Number(process.env.XAI_TIMEOUT_MS);
   if (!Number.isFinite(raw)) return fallback;
   // Extended upper bound to allow thorough XAI research.
@@ -2355,8 +2355,8 @@ Return STRICT JSON only:
   const tagline = asString(parsed.tagline || parsed.slogan || "").trim();
   field_statuses.tagline = tagline ? "ok" : "empty";
 
-  // Unwrap nested object — XAI sometimes returns { headquarters_location: { headquarters_location: "..." } }
-  let hq_val_r = parsed.headquarters_location || parsed.hq || "";
+  // Unwrap nested object — XAI sometimes wraps in { headquarters: { headquarters_location: "..." } }
+  let hq_val_r = parsed.headquarters_location || parsed.hq || parsed.headquarters?.headquarters_location || "";
   if (hq_val_r && typeof hq_val_r === "object" && !Array.isArray(hq_val_r)) {
     hq_val_r = hq_val_r.headquarters_location || hq_val_r.hq || hq_val_r.location || "";
   }
@@ -2364,8 +2364,8 @@ Return STRICT JSON only:
   const hq_normalized = hq_raw ? normalizeCountryInLocation(normalizeLocationWithStateAbbrev(hq_raw)) : "";
   field_statuses.headquarters = hq_normalized ? "ok" : "empty";
 
-  // Unwrap nested object — XAI sometimes returns { manufacturing_locations: { manufacturing_locations: [...] } }
-  let mfg_val_r = parsed.manufacturing_locations;
+  // Unwrap nested object — XAI sometimes wraps in { manufacturing: { manufacturing_locations: [...] } }
+  let mfg_val_r = parsed.manufacturing_locations || parsed.manufacturing?.manufacturing_locations;
   if (mfg_val_r && typeof mfg_val_r === "object" && !Array.isArray(mfg_val_r) && Array.isArray(mfg_val_r.manufacturing_locations)) {
     mfg_val_r = mfg_val_r.manufacturing_locations;
   }
@@ -2620,8 +2620,9 @@ function parseStructuredResponse(parsed) {
   const tagline = isSentinelOrPlaceholder(tagline_raw) ? "" : tagline_raw;
   field_statuses.tagline = tagline ? "ok" : "empty";
 
-  // Unwrap nested object — XAI sometimes returns { headquarters_location: { headquarters_location: "..." } }
-  let hq_val = parsed.headquarters_location || parsed.hq || "";
+  // Unwrap nested object — XAI sometimes wraps in { headquarters: { headquarters_location: "..." } }
+  // or { headquarters_location: { headquarters_location: "..." } }
+  let hq_val = parsed.headquarters_location || parsed.hq || parsed.headquarters?.headquarters_location || "";
   if (hq_val && typeof hq_val === "object" && !Array.isArray(hq_val)) {
     hq_val = hq_val.headquarters_location || hq_val.hq || hq_val.location || "";
   }
@@ -2630,8 +2631,9 @@ function parseStructuredResponse(parsed) {
   if (isSentinelOrPlaceholder(hq_normalized)) hq_normalized = "";
   field_statuses.headquarters = hq_normalized ? "ok" : "empty";
 
-  // Unwrap nested object — XAI sometimes returns { manufacturing_locations: { manufacturing_locations: [...] } }
-  let mfg_val = parsed.manufacturing_locations;
+  // Unwrap nested object — XAI sometimes wraps in { manufacturing: { manufacturing_locations: [...] } }
+  // or { manufacturing_locations: { manufacturing_locations: [...] } }
+  let mfg_val = parsed.manufacturing_locations || parsed.manufacturing?.manufacturing_locations;
   if (mfg_val && typeof mfg_val === "object" && !Array.isArray(mfg_val) && Array.isArray(mfg_val.manufacturing_locations)) {
     mfg_val = mfg_val.manufacturing_locations;
   }
@@ -2702,9 +2704,19 @@ function parseStructuredResponse(parsed) {
     }
   }
 
-  // Extract location source URLs for audit trail
-  if (parsed.location_source_urls && typeof parsed.location_source_urls === "object") {
-    parsed_fields.location_source_urls = parsed.location_source_urls;
+  // Extract location source URLs for audit trail — may be at top level or nested inside
+  // wrapper objects (e.g., parsed.headquarters.location_source_urls, parsed.manufacturing.location_source_urls)
+  const merged_source_urls = {};
+  const sourceCandidates = [
+    parsed.location_source_urls,
+    parsed.headquarters?.location_source_urls,
+    parsed.manufacturing?.location_source_urls,
+  ];
+  for (const src of sourceCandidates) {
+    if (src && typeof src === "object") Object.assign(merged_source_urls, src);
+  }
+  if (Object.keys(merged_source_urls).length > 0) {
+    parsed_fields.location_source_urls = merged_source_urls;
   }
 
   return { parsed_fields, field_statuses };
