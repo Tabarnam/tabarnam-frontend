@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Loader2,
   X,
+  ClipboardPaste,
 } from "lucide-react";
 
 import { calculateInitialRating, normalizeRating } from "@/lib/stars/calculateRating";
@@ -108,6 +109,7 @@ import ReviewLinkFetcher from "./company-dashboard/ReviewLinkFetcher";
 import RatingEditor from "./company-dashboard/RatingEditor";
 import CompanyNotesEditor from "./company-dashboard/CompanyNotesEditor";
 import StructuredLocationListEditor from "./company-dashboard/StructuredLocationListEditor";
+import { parseBulkPasteText } from "./company-dashboard/parseBulkPaste";
 
 // Collapsible section wrapper for sidebar and left column groups
 function CollapsibleSection({ title, isOpen, onToggle, badge, children, className = "" }) {
@@ -579,6 +581,10 @@ export default function CompanyDashboard() {
   const refreshInFlightRef = useRef(false);
   const [refreshActiveField, setRefreshActiveField] = useState(null);
   const refreshPollTimerRef = useRef(null);
+
+  // Bulk paste dialog
+  const [bulkPasteOpen, setBulkPasteOpen] = useState(false);
+  const [bulkPasteText, setBulkPasteText] = useState("");
 
   // Confirmation gate — prevents accidental refresh clicks
   const [refreshConfirmPending, setRefreshConfirmPending] = useState(false);
@@ -1480,6 +1486,35 @@ export default function CompanyDashboard() {
     },
     [editorDraft, normalizeForDiff, proposedValueToInputText, refreshDiffFields]
   );
+
+  // Bulk-paste handler: parse pasted Grok response → feed into refresh diff UI
+  const handleBulkPaste = useCallback(() => {
+    const text = bulkPasteText.trim();
+    if (!text) {
+      toast.error("Paste text is empty");
+      return;
+    }
+
+    const { proposed, companyNameLine, warnings } = parseBulkPasteText(text);
+
+    if (Object.keys(proposed).length === 0) {
+      toast.error("Could not parse any fields from the pasted text. Use labeled format (Tagline: …, HQ: …, etc.)");
+      return;
+    }
+
+    for (const w of warnings) {
+      toast.warning(w);
+    }
+
+    if (companyNameLine) {
+      toast.info(`Parsed fields for: ${companyNameLine}`);
+    }
+
+    setBulkPasteOpen(false);
+
+    const companyId = asString(editorOriginalId || editorDraft?.company_id).trim();
+    applyRefreshProposed(proposed, {}, companyId, new Date().toISOString());
+  }, [bulkPasteText, editorOriginalId, editorDraft, applyRefreshProposed]);
 
   // Poll /refresh-status?company_id=X until enrichment completes or times out.
   const pollRefreshStatus = useCallback(
@@ -3648,6 +3683,22 @@ export default function CompanyDashboard() {
                               ) : null}
 
                               {editorOriginalId ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setBulkPasteText("");
+                                    setBulkPasteOpen(true);
+                                  }}
+                                  disabled={refreshLoading || editorSaving}
+                                  title="Paste Grok response to populate fields"
+                                >
+                                  <ClipboardPaste className="h-4 w-4 mr-2" />
+                                  Bulk paste
+                                </Button>
+                              ) : null}
+
+                              {editorOriginalId ? (
                                 <div className="min-w-0 flex-1 max-w-[520px] leading-snug">
                                   <div className="text-xs text-muted-foreground">
                                     Click "Refresh search" to fetch proposed updates. Protected fields (logo, notes, manual stars) are never overwritten.
@@ -4921,6 +4972,43 @@ export default function CompanyDashboard() {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
+          <Dialog open={bulkPasteOpen} onOpenChange={setBulkPasteOpen}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Bulk paste Grok response</DialogTitle>
+                <DialogDescription>
+                  Paste the full Grok AI response below. Fields will be parsed and shown in the diff view for review.
+                </DialogDescription>
+              </DialogHeader>
+
+              <Textarea
+                value={bulkPasteText}
+                onChange={(e) => setBulkPasteText(e.target.value)}
+                placeholder={"Company Name\nTagline: Your tagline here\nHQ: City, ST, Country\nManufacturing: City, ST, Country; City2, ST2, Country2\nIndustries: industry1, industry2, industry3\nKeywords: keyword1, keyword2, keyword3\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
+                className="min-h-[300px] font-mono text-xs leading-relaxed"
+                autoFocus
+              />
+
+              {bulkPasteText.trim() ? (
+                <div className="text-xs text-muted-foreground">
+                  {bulkPasteText.trim().split("\n").length} lines pasted
+                </div>
+              ) : null}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setBulkPasteOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleBulkPaste}
+                  disabled={!bulkPasteText.trim()}
+                >
+                  Parse &amp; preview
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </main>
       </div>
     </>
