@@ -512,6 +512,25 @@ function isXUrl(raw) {
 }
 
 /**
+ * Returns true if the URL is effectively a site root / homepage.
+ * Examples that match:
+ *   https://example.com
+ *   https://example.com/
+ *   https://www.example.com/
+ *   https://example.com/?ref=123  (root with only query params)
+ */
+function isRootDomainUrl(raw) {
+  const s = asString(raw).trim();
+  if (!s) return false;
+  try {
+    const u = new URL(s);
+    return u.pathname === "/" || u.pathname === "";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Check if two hosts belong to the same domain family (same root domain or subdomain relationship).
  * Used to detect cross-domain redirects that likely indicate URL recycling or content migration.
  */
@@ -1058,6 +1077,14 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       const raw = String(x.source_url || "").trim().toLowerCase();
       if (raw === "n/a" || raw === "na" || raw === "none" || raw === "null" || raw === "undefined" || raw === "-" || raw === "#") {
         console.log(`[grokEnrichment] reviews: placeholder_url_rejected: "${x.source_url}"`);
+        return false;
+      }
+      return true;
+    })
+    // Reject root/homepage URLs — a review must link to a specific page
+    .filter((x) => {
+      if (isRootDomainUrl(x.source_url)) {
+        console.log(`[grokEnrichment] reviews: root_url_rejected: "${x.source_url}"`);
         return false;
       }
       return true;

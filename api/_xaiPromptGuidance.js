@@ -165,13 +165,17 @@ FORMAT RULES:
   Run web_search: "[Company Name] products catalog"
   Also try: "[Company Name] flavors" or "[Company Name] all varieties" for food/beverage companies.
   Use browse_page on retailer or distributor listings to find products not on the main site.
-- STEP 3: If the company has named product lines (e.g., brand names, model names, series names), list EACH named product separately. Include both the product line name AND individual product variants.
-  Example: "Vellux Original Blanket", "Vellux Plush Blanket", "Martex 225 Thread Count Sheet Set" — NOT just "blankets", "sheets".
-- STEP 4: VERIFY COMPLETENESS. Compare your list against what you saw on the shop/products pages.
+- STEP 3: EXPAND product lines into individual product variants. For EACH product line or collection, list EVERY individual product type within it.
+  Example: A "Vintage Linen" collection should produce: "Vintage Linen Sheet Set", "Vintage Linen Fitted Sheet", "Vintage Linen Flat Sheet", "Vintage Linen Duvet Cover", "Vintage Linen Sham", "Vintage Linen Pillowcase" — NOT just "Vintage Linen".
+  Example: A "Classic Towels" line should produce: "Classic Bath Towel", "Classic Hand Towel", "Classic Washcloth", "Classic Bath Sheet" — NOT just "Classic Towels".
+  Combine the collection/line name WITH each product type to form specific, searchable keywords.
+- STEP 4: VERIFY COMPLETENESS and FILL THE 50-CAP. Compare your list against what you saw on the shop/products pages.
   If you found category pages with products you haven't listed, go back and add them.
   If your list has fewer than 15 items for a company with a full product catalog, you are likely missing products — search harder.
+  If you have room under the 50-item cap, go back to STEP 3 and expand more product lines into their individual variants.
+  A complete catalog typically includes: individual product types within each collection, size variants if they are distinct products, and material/style variants.
 - Keywords should be exhaustive, complete and all-inclusive of all products the company produces.
-- Return up to 30 of the company's most important products and product lines. Stop when you reach 30 or when you cannot find any more.
+- Return up to 50 of the company's most important products and product lines. Stop when you reach 50 or when you cannot find any more.
 - If a customer could search for it and find this company's product, include it.
 - Return ONLY actual products/product lines. Do NOT include:
   Navigation labels: Shop All, Collections, New, Best Sellers, Sale, Limited Edition, All
@@ -193,13 +197,24 @@ FORMAT RULES:
 
   tagline: {
     rules: `Provide the company's tagline, slogan, or motto — the short phrase they use to describe their brand.
+
+STEP 1 — Look for an explicit tagline, slogan, or motto:
 - Browse the company homepage and look for: hero section text, header/nav area near the logo, footer, meta description, og:description, and <title> tag.
 - Also web_search "[Company Name] tagline" or "[Company Name] slogan" to cross-reference.
 - Accept a tagline, slogan, motto, or brand promise — whichever appears most prominently on the company's website.
-- Return the EXACT text as displayed on the website. Do not paraphrase or embellish.
+
+STEP 2 — If STEP 1 found nothing, look for a brand description:
+- Check the company's About page, mission statement, or "Our Story" page for a short brand description (1 sentence max).
+- Check social media bios (Instagram, X/Twitter, LinkedIn, Facebook) for a concise brand descriptor.
+- web_search "[Company Name] brand description" or "[Company Name] about".
+- Extract the most concise, brand-defining phrase (under 15 words preferred). Trim to the essential message.
+
+RULES:
+- Return the EXACT text as displayed on the source (STEP 1) or a faithful condensation (STEP 2).
 - A sentence fragment is acceptable.
 - Do NOT return: navigation menu labels, promotional sale text, legal disclaimers, or page titles that are just the company name.
-- If no tagline/slogan/motto is found anywhere, return empty string.`,
+- Do NOT return generic phrases like "Quality products" or "Welcome to our website."
+- If neither step yields a result, return empty string.`,
     jsonSchema: `"tagline": "..."`,
   },
 
@@ -249,7 +264,7 @@ SEARCH STRATEGY — run at least 3 separate searches, prioritizing magazines, Yo
 2. Magazine/blog reviews: web_search "${companyName} review" — look specifically for lifestyle blogs, food/drink magazines, industry magazines, and independent review blogs (e.g., tastingtable.com, thedailymeal.com, eater.com, bonappetit.com, wirecutter.com)
 3. Product-specific: web_search "${companyName} [flagship product name] review" — target the company's main products by name for more precise results
 4. If those yield fewer than 3: try "${companyName} honest review", "${companyName} [product] comparison", or "${companyName} worth it"
-5. Website testimonial: Also browse ${websiteUrl || "the company website"} and look for an About page, Testimonials page, or customer quotes. If found, include exactly ONE entry using Source: "${companyName} Website" — this signals it is a company-sourced testimonial, not a third-party review. Include this alongside any third-party reviews found above.
+5. Website testimonial: Also browse ${websiteUrl || "the company website"} and look for a specific About page, Testimonials page, Press page, or customer quotes page. The URL must be a specific page (e.g., /about, /testimonials, /press), NEVER the site root (/). If found, include exactly ONE entry using Source: "${companyName} Website" — this signals it is a company-sourced testimonial, not a third-party review. Include this alongside any third-party reviews found above.
 
 VERIFICATION — for EACH candidate URL, use browse_page to confirm:
 - The page loads without errors (no 404, "page not found", paywall)
