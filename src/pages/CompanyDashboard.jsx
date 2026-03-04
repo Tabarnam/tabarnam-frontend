@@ -29,6 +29,7 @@ import useNotificationSound from "@/hooks/useNotificationSound";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ScrollScrubber from "@/components/ScrollScrubber";
 import AdminEditHistory from "@/components/AdminEditHistory";
+import TallyCounter from "@/components/TallyCounter";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -545,6 +546,7 @@ export default function CompanyDashboard() {
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
+  const [totalCount, setTotalCount] = useState(null);
   const [lastError, setLastError] = useState(null);
   const [rowErrors, setRowErrors] = useState({});
 
@@ -774,6 +776,7 @@ export default function CompanyDashboard() {
         }
 
         const nextItems = Array.isArray(body?.items) ? body.items : [];
+        if (body?.totalCount != null) setTotalCount(body.totalCount);
         setItems(nextItems);
         setRowErrors((prev) => {
           if (!prev || typeof prev !== "object") return {};
@@ -3456,6 +3459,12 @@ export default function CompanyDashboard() {
               <div className="text-sm text-slate-600 dark:text-muted-foreground">
                 Showing {filteredItems.length} companies{loading ? " · Loading…" : ""}
               </div>
+
+              {totalCount != null && (
+                <div className="ml-auto">
+                  <TallyCounter value={totalCount} label="Published" />
+                </div>
+              )}
             </div>
           </header>
 

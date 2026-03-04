@@ -1270,6 +1270,17 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           "(NOT IS_DEFINED(c.type) OR c.type != 'import_control')",
         ];
 
+        // Total count of all consumer-facing companies (runs in parallel with data query)
+        const baseWhereStr = whereClauses.join(" AND ");
+        const countPromise = container.items
+          .query(
+            { query: `SELECT VALUE COUNT(1) FROM c WHERE ${baseWhereStr}`, parameters: [] },
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll()
+          .then((r) => (r.resources && r.resources[0]) || 0)
+          .catch(() => null);
+
         if (search) {
           parameters.push({ name: "@q", value: search });
           parameters.push({ name: "@q_compact", value: searchCompact });
@@ -1302,8 +1313,14 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           items.sort((a, b) => (b._searchRelevance || 0) - (a._searchRelevance || 0));
         }
 
-        context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length);
-        return json({ items, count: items.length, ...(cosmosTarget ? cosmosTarget : {}) }, 200);
+        const totalCount = await countPromise;
+
+        context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length, "total:", totalCount);
+        return json({
+          items, count: items.length,
+          ...(totalCount != null ? { totalCount } : {}),
+          ...(cosmosTarget ? cosmosTarget : {}),
+        }, 200);
       }
 
       if (method === "POST" || method === "PUT") {
