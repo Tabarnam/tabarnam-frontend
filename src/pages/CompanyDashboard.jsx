@@ -2673,18 +2673,20 @@ export default function CompanyDashboard() {
       }
 
       setLogoFile(file);
+      uploadLogo(file);
     },
-    [isAllowedLogoType]
+    [isAllowedLogoType, uploadLogo]
   );
 
-  const uploadLogo = useCallback(async () => {
+  const uploadLogo = useCallback(async (fileArg) => {
+    const file = fileArg || logoFile;
     const companyId = asString(editorOriginalId).trim();
     if (!companyId) {
       toast.error("Save the company first to generate a company_id, then upload the logo.");
       return;
     }
 
-    if (!logoFile) {
+    if (!file) {
       toast.error("Choose a logo file first.");
       return;
     }
@@ -2693,7 +2695,7 @@ export default function CompanyDashboard() {
     setLogoUploadError(null);
 
     try {
-      const url = await uploadLogoBlobFile(logoFile, companyId);
+      const url = await uploadLogoBlobFile(file, companyId);
 
       setEditorDraft((d) => ({ ...(d || {}), logo_url: url }));
       updateCompanyInState(companyId, { logo_url: url });
