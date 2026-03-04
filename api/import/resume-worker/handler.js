@@ -2173,15 +2173,14 @@ async function resumeWorkerHandler(req, context) {
           ? progressRoot.enrichment_progress[companyId]
           : {};
 
-      // ── Unified enrichment: single xAI call for all non-logo fields ──
+      // ── Unified enrichment: single xAI call for all fields including logo ──
       // Instead of 7 individual xAI web searches (each 20-60s), use the unified
       // enrichCompanyFields() orchestrator (Phase 1 + Phase 2 + Phase 3) which
-      // makes one web search for all fields. Logo is handled separately below
-      // because it requires HTML scraping (importCompanyLogo) before Grok fallback.
+      // makes one web search for all fields including logo. The separate logo
+      // path below (HTML scraping + Grok fallback) runs as additional fallback.
 
-      // Determine which non-logo fields still need enrichment
-      const missingNonLogoFields = ENRICH_FIELDS.filter((f) => {
-        if (f === "logo") return false; // Logo handled separately
+      // Determine which fields still need enrichment
+      const missingFields = ENRICH_FIELDS.filter((f) => {
         // Already populated?
         const hasValue = f === "reviews" ? isRealValue("reviews", doc.curated_reviews, doc) : isRealValue(f, doc?.[f], doc);
         if (hasValue) {
@@ -2231,14 +2230,14 @@ async function resumeWorkerHandler(req, context) {
       // Track current enrichment for real-time UI status
       currentEnrichmentCompanyName = doc?.company_name || companyId;
 
-      // ── Run unified enrichment for all missing non-logo fields at once ──
-      if (missingNonLogoFields.length > 0 && budgetRemainingMs() > 30_000) {
-        const unifiedBudgetMs = Math.min(perDocBudgetMs, budgetRemainingMs() - 15_000); // Reserve 15s for logo
+      // ── Run unified enrichment for all missing fields at once ──
+      if (missingFields.length > 0 && budgetRemainingMs() > 30_000) {
+        const unifiedBudgetMs = Math.min(perDocBudgetMs, budgetRemainingMs() - 5_000); // Reserve 5s for post-enrichment cleanup
 
         console.log(`[resume-worker] unified_enrichment_start`, {
           session_id: sessionId,
           company_id: companyId,
-          fields: missingNonLogoFields,
+          fields: missingFields,
           budget_ms: unifiedBudgetMs,
           cycle_count: cycleCount,
           is_fresh_seed: isFreshSeed,
@@ -2247,7 +2246,7 @@ async function resumeWorkerHandler(req, context) {
 
         // Bump attempt counts for all fields being attempted
         const attemptAt = nowIso();
-        for (const f of missingNonLogoFields) {
+        for (const f of missingFields) {
           bumpFieldAttempt(doc, f, requestId);
           const fp = progressRoot.enrichment_progress[companyId][f] || { attempts: 0, last_attempt_at: null, last_error: null, status: null, last_cycle_attempted: null };
           fp.attempts = (fp.attempts || 0) + 1;
@@ -2258,7 +2257,7 @@ async function resumeWorkerHandler(req, context) {
           progressRoot.enrichment_progress[companyId][f] = fp;
           attemptedFieldsThisRun.push(f);
         }
-        xaiFieldsAttemptedThisRun += missingNonLogoFields.length;
+        xaiFieldsAttemptedThisRun += missingFields.length;
 
         currentEnrichmentField = "unified";
         await updateLastXaiAttempt(attemptAt);
@@ -2281,7 +2280,7 @@ async function resumeWorkerHandler(req, context) {
             budgetMs: unifiedBudgetMs,
             xaiUrl,
             xaiKey,
-            fieldsToEnrich: missingNonLogoFields,
+            fieldsToEnrich: missingFields,
             retryHints: hadStructuredTimeout ? { hadStructuredTimeout: true } : undefined,
             skipDedicatedDeepening: false, // Allow Phase 3 for reviews/keywords deepening
             onIntermediateSave: async (verified) => {
@@ -2324,7 +2323,7 @@ async function resumeWorkerHandler(req, context) {
             company_id: companyId,
             error: String(enrichErr?.message || enrichErr),
           });
-          enrichResult = { ok: false, fields_completed: [], fields_failed: missingNonLogoFields, errors: {}, enriched: {}, elapsed_ms: 0 };
+          enrichResult = { ok: false, fields_completed: [], fields_failed: missingFields, errors: {}, enriched: {}, elapsed_ms: 0 };
         }
 
         console.log(`[resume-worker] unified_enrichment_end`, {
@@ -2359,7 +2358,7 @@ async function resumeWorkerHandler(req, context) {
           reviews: MAX_ATTEMPTS_REVIEWS,
         };
 
-        for (const f of missingNonLogoFields) {
+        for (const f of missingFields) {
           const fp = progressRoot.enrichment_progress[companyId][f];
 
           if (enrichResult.fields_completed.includes(f)) {
