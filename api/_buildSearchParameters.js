@@ -84,10 +84,6 @@ function buildExcludedHostsCandidates({ companyWebsiteHost, additionalExcludedHo
     "google.com",
     "g.co",
     "goo.gl",
-    "yelp.com",
-
-    // Deterministic "directory/aggregator" pick (kept stable across imports/refresh).
-    "trustpilot.com",
   ];
 
   const provided = Array.isArray(additionalExcludedHosts) ? additionalExcludedHosts : [];
@@ -117,8 +113,6 @@ function buildCappedExcludedHosts({ companyWebsiteHost, additionalExcludedHosts,
     ...(companyHost ? [companyHost] : []),
     "amazon.com",
     "google.com",
-    "yelp.com",
-    "trustpilot.com",
   ]);
 
   const prioritySet = new Set(priority);

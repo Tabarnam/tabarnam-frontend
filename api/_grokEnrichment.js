@@ -1081,10 +1081,10 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       }
       return true;
     })
-    // Reject root/homepage URLs — a review must link to a specific page
+    // Reject root/homepage URLs for the company's own domain — a review on the company site must link to a specific page
     .filter((x) => {
-      if (isRootDomainUrl(x.source_url)) {
-        console.log(`[grokEnrichment] reviews: root_url_rejected: "${x.source_url}"`);
+      if (isRootDomainUrl(x.source_url) && domain && x.source_url.includes(domain)) {
+        console.log(`[grokEnrichment] reviews: company_root_url_rejected: "${x.source_url}"`);
         return false;
       }
       return true;
@@ -1093,7 +1093,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     .filter((x) => x.is_website_testimonial || !excludeDomains.some((d) => x.source_url.includes(d)))
     .filter((x) => {
       const len = (x.excerpt || "").length;
-      const minLen = x.is_website_testimonial ? 30 : 120;
+      const minLen = x.is_website_testimonial ? 30 : 100;
       if (len < minLen) {
         console.log(`[grokEnrichment] reviews: excerpt_too_short (${len} chars < ${minLen}): ${x.source_url}`);
         return false;

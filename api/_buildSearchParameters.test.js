@@ -54,7 +54,6 @@ test("buildExcludedHostsCandidates includes defaults", () => {
   const candidates = buildExcludedHostsCandidates({});
   assert.ok(candidates.includes("amazon.com"));
   assert.ok(candidates.includes("google.com"));
-  assert.ok(candidates.includes("trustpilot.com"));
 });
 
 test("buildExcludedHostsCandidates puts company host first", () => {
