@@ -2653,31 +2653,6 @@ export default function CompanyDashboard() {
     return type === "image/png" || type === "image/jpeg" || type === "image/webp";
   }, []);
 
-  const handleLogoFileChange = useCallback(
-    (e) => {
-      const file = e?.target?.files?.[0] || null;
-      setLogoUploadError(null);
-      setLogoFile(null);
-
-      if (!file) return;
-
-      if (!isAllowedLogoType(file.type)) {
-        setLogoUploadError("Invalid file type. Use PNG, JPG, or WebP.");
-        return;
-      }
-
-      const maxBytes = 300 * 1024;
-      if (typeof file.size === "number" && file.size > maxBytes) {
-        setLogoUploadError("File too large. Max size is 300KB.");
-        return;
-      }
-
-      setLogoFile(file);
-      uploadLogo(file);
-    },
-    [isAllowedLogoType, uploadLogo]
-  );
-
   const uploadLogo = useCallback(async (fileArg) => {
     const file = fileArg || logoFile;
     const companyId = asString(editorOriginalId).trim();
@@ -2709,6 +2684,31 @@ export default function CompanyDashboard() {
       setLogoUploading(false);
     }
   }, [editorOriginalId, logoFile, updateCompanyInState]);
+
+  const handleLogoFileChange = useCallback(
+    (e) => {
+      const file = e?.target?.files?.[0] || null;
+      setLogoUploadError(null);
+      setLogoFile(null);
+
+      if (!file) return;
+
+      if (!isAllowedLogoType(file.type)) {
+        setLogoUploadError("Invalid file type. Use PNG, JPG, or WebP.");
+        return;
+      }
+
+      const maxBytes = 300 * 1024;
+      if (typeof file.size === "number" && file.size > maxBytes) {
+        setLogoUploadError("File too large. Max size is 300KB.");
+        return;
+      }
+
+      setLogoFile(file);
+      uploadLogo(file);
+    },
+    [isAllowedLogoType, uploadLogo]
+  );
 
   const clearLogoReference = useCallback(() => {
     const companyId = asString(editorOriginalId).trim();
