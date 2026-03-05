@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
  * digit into view — like a classic mechanical click counter.
  */
 function TallyDigit({ digit, delay = 0 }) {
-  const y = -(digit * 100); // percentage offset within the drum
+  const y = -(digit * 10); // each face is 10% of the drum height (10 digits)
 
   return (
     <div className="tally-digit-window">
