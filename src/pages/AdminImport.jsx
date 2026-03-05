@@ -73,6 +73,10 @@ import ImportReportSection from "./admin-import/ImportReportSection";
 import BulkImportSection from "./admin-import/BulkImportSection";
 import StatusAlerts from "./admin-import/StatusAlerts";
 import ImportResultsPanels from "./admin-import/ImportResultsPanels";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
+} from "@/components/ui/alert-dialog";
 
 async function apiFetchWithFallback(paths, init) {
   const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
@@ -116,6 +120,7 @@ export default function AdminImport() {
   const [preflightLoading, setPreflightLoading] = useState(false);
   const [preflightError, setPreflightError] = useState(null);
   const [preflightEnabled, setPreflightEnabled] = useState(true);
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
 
   // Spreadsheet paste state
   const [spreadsheetPasteOpen, setSpreadsheetPasteOpen] = useState(false);
@@ -3479,6 +3484,15 @@ export default function AdminImport() {
   const handleStartSuccession = useCallback(() => {
     if (startImportDisabled) return;
 
+    // Check if preflight found any duplicate matches
+    const hasDuplicates = Array.isArray(preflightResults) &&
+      preflightResults.some((r) => r.status === "exact_match" || r.status === "fuzzy_match");
+
+    if (hasDuplicates) {
+      setDuplicateDialogOpen(true);
+      return; // Don't start import yet — show dialog first
+    }
+
     if (successionCount <= 1) {
       handleStartImportStaged();
       return;
@@ -3501,7 +3515,35 @@ export default function AdminImport() {
     setQuery(first.companyName);
     setCompanyUrl(first.companyUrl);
     successionTriggerRef.current = true;
-  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged]);
+  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged, preflightResults]);
+
+  // Import Now: proceeds with import after duplicate dialog confirmation
+  const handleImportNow = useCallback(() => {
+    setDuplicateDialogOpen(false);
+
+    if (successionCount <= 1) {
+      handleStartImportStaged();
+      return;
+    }
+
+    const validRows = successionRows.filter(
+      (row) => row.companyName.trim() || row.companyUrl.trim()
+    );
+
+    if (validRows.length === 0) {
+      toast.error("Enter at least one company name or URL.");
+      return;
+    }
+
+    setSuccessionQueue(validRows);
+    setSuccessionResults([]);
+    setSuccessionIndex(0);
+
+    const first = validRows[0];
+    setQuery(first.companyName);
+    setCompanyUrl(first.companyUrl);
+    successionTriggerRef.current = true;
+  }, [successionCount, successionRows, handleStartImportStaged]);
 
   // Succession import: trigger effect — fires the import after state has updated
   useEffect(() => {
@@ -4737,6 +4779,39 @@ export default function AdminImport() {
           />
         </main>
       </div>
+
+      {/* Duplicate confirmation dialog */}
+      <AlertDialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Possible Duplicates Detected</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                const exactCount = (preflightResults || []).filter(r => r.status === "exact_match").length;
+                const fuzzyCount = (preflightResults || []).filter(r => r.status === "fuzzy_match").length;
+                const parts = [];
+                if (exactCount > 0) parts.push(`${exactCount} exact match${exactCount > 1 ? "es" : ""}`);
+                if (fuzzyCount > 0) parts.push(`${fuzzyCount} possible match${fuzzyCount > 1 ? "es" : ""}`);
+                return `Found ${parts.join(" and ")} with existing companies. Review the flagged entries or import anyway.`;
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              variant="destructive"
+              onClick={() => setDuplicateDialogOpen(false)}
+            >
+              Review Dups
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={handleImportNow}
+            >
+              Import Now
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
