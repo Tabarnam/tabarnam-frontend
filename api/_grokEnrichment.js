@@ -193,17 +193,19 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
   light: { min: 30_000, max: 60_000 },         // 30s-1 min for simpler fields (tagline, industries)
 });
 
-// Two-Call Split timeouts (v3.0) — used by the new enrichCompanyFields() pipeline.
-// Call 1 (structured): all non-review fields in a single xAI call with full guidance.
-// Call 2 (reviews): curated reviews in a parallel xAI call with stricter disambiguation.
+// Four-Call Split timeouts (v4.0) — used by enrichCompanyFields() pipeline.
+// Each field group gets a dedicated xAI call so the model can focus on thorough research.
 // xAI web search typically takes 90-150s for complex queries. Previous values (90s/120s)
 // caused consistent upstream_timeout — xAI was still working when we aborted.
-// No retry round: if the first call is structured properly it should return all fields.
-// Admin reviews each company anyway and can refresh individual missing fields.
-const TWO_CALL_TIMEOUTS_MS = Object.freeze({
-  structured: { min: 90_000, max: 330_000 },   // 1.5-5.5 min for Call 1 (tagline+HQ+mfg+industries+keywords+logo) — matches reviews
-  reviews:    { min: 90_000, max: 330_000 },    // 1.5-5.5 min for Call 2 (curated reviews)
+const CALL_TIMEOUTS_MS = Object.freeze({
+  locations:  { min: 90_000,  max: 150_000 },   // 1.5-2.5 min for HQ + Manufacturing
+  keywords:   { min: 90_000,  max: 150_000 },   // 1.5-2.5 min for product keywords
+  light:      { min: 60_000,  max: 90_000 },    // 1-1.5 min for tagline + industries + logo
+  reviews:    { min: 90_000,  max: 330_000 },    // 1.5-5.5 min for curated reviews
+  structured: { min: 90_000,  max: 330_000 },    // Legacy — kept for retryMissingStructuredFields
 });
+// Backward compat alias
+const TWO_CALL_TIMEOUTS_MS = CALL_TIMEOUTS_MS;
 
 // Absolute minimum budget to attempt an xAI call at all.
 // Resume cycles from import-status have only 15s budget. The ideal stage timeouts above are
@@ -2478,11 +2480,390 @@ Return STRICT JSON only:
 }
 
 // ============================================================================
-// TWO-CALL SPLIT (v3.0): fetchStructuredFields + retryMissingStructuredFields
+// FOUR-CALL SPLIT (v4.0): locations + keywords + light fields + reviews
 // ============================================================================
 
 /**
- * Call 1 of the two-call split pipeline.
+ * Fetch HQ + Manufacturing locations in a dedicated xAI call.
+ * Isolated from other fields so the model can devote full attention to thorough
+ * location research (multiple browse_page + web_search calls, cross-verification).
+ */
+async function fetchLocationFields({
+  companyName,
+  websiteUrl,
+  normalizedDomain,
+  budgetMs = 150000,
+  xaiUrl,
+  xaiKey,
+  model,
+} = {}) {
+  const started = Date.now();
+
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain || websiteUrl);
+  const websiteUrlForPrompt = websiteUrl
+    ? asString(websiteUrl).trim()
+    : domain
+      ? `https://${domain}`
+      : "";
+
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, determine the headquarters and manufacturing locations.
+
+HEADQUARTERS LOCATION:
+${FIELD_GUIDANCE.headquarters.rules}
+
+MANUFACTURING LOCATIONS:
+${FIELD_GUIDANCE.manufacturing.rules}
+
+${QUALITY_RULES}
+Return STRICT JSON only:
+{
+  ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources},
+  ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
+}`.trim();
+
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+
+  const r = await xaiLiveSearchWithRetry({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: budgetMs,
+      minMs: CALL_TIMEOUTS_MS.locations.min,
+      maxMs: CALL_TIMEOUTS_MS.locations.max,
+      safetyMarginMs: 5_000,
+    }),
+    maxAttempts: 1,
+    maxTokens: 1500,
+    model: resolveSearchModel(model),
+    xaiUrl,
+    xaiKey,
+    search_parameters: {
+      ...searchBuild.search_parameters,
+      excluded_domains: searchBuild.excluded_domains,
+    },
+    useTools: true,
+  });
+
+  const elapsedMs = Date.now() - started;
+
+  if (!r.ok) {
+    const failure = classifyXaiFailure(r);
+    console.log(`[fetchLocationFields] Failed: ${failure}, company="${name}", elapsed=${elapsedMs}ms`);
+    return {
+      ok: false,
+      method: "locations",
+      raw_response_text: "",
+      parsed_fields: null,
+      field_statuses: {},
+      error: r.error,
+      error_code: failure,
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+      },
+    };
+  }
+
+  const rawText = asString(extractTextFromXaiResponse(r.resp));
+  console.log(`[fetchLocationFields] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
+  const parsed = parseJsonFromXaiResponse(r.resp);
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.log(`[fetchLocationFields] Failed to parse JSON from response for "${name}"`);
+    return {
+      ok: false,
+      method: "locations",
+      raw_response_text: rawText,
+      parsed_fields: null,
+      field_statuses: {},
+      error: "invalid_json",
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        reason: "could_not_parse_location_response",
+        raw_preview: rawText ? rawText.slice(0, 2000) : null,
+      },
+    };
+  }
+
+  const result = parseStructuredResponse(parsed);
+
+  console.log(`[fetchLocationFields] Parsed: hq=${result.parsed_fields.headquarters_location || "none"}, mfg=${result.parsed_fields.manufacturing_locations?.length || 0}, elapsed=${elapsedMs}ms`);
+
+  return {
+    ok: true,
+    method: "locations",
+    raw_response_text: rawText,
+    parsed_fields: result.parsed_fields,
+    field_statuses: result.field_statuses,
+    elapsed_ms: elapsedMs,
+    diagnostics: {
+      ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+    },
+  };
+}
+
+/**
+ * Fetch product keywords in a dedicated xAI call.
+ * Isolated so the model can deeply browse product catalogs, shop pages, and
+ * collections without competing with other field research.
+ */
+async function fetchKeywordFields({
+  companyName,
+  websiteUrl,
+  normalizedDomain,
+  budgetMs = 150000,
+  xaiUrl,
+  xaiKey,
+  model,
+} = {}) {
+  const started = Date.now();
+
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain || websiteUrl);
+  const websiteUrlForPrompt = websiteUrl
+    ? asString(websiteUrl).trim()
+    : domain
+      ? `https://${domain}`
+      : "";
+
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, find all product keywords.
+
+PRODUCT KEYWORDS:
+${FIELD_GUIDANCE.keywords.rules}
+
+${QUALITY_RULES}
+Return STRICT JSON only:
+{
+  ${FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness}
+}`.trim();
+
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+
+  const r = await xaiLiveSearchWithRetry({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: budgetMs,
+      minMs: CALL_TIMEOUTS_MS.keywords.min,
+      maxMs: CALL_TIMEOUTS_MS.keywords.max,
+      safetyMarginMs: 5_000,
+    }),
+    maxAttempts: 1,
+    maxTokens: 1500,
+    model: resolveSearchModel(model),
+    xaiUrl,
+    xaiKey,
+    search_parameters: {
+      ...searchBuild.search_parameters,
+      excluded_domains: searchBuild.excluded_domains,
+    },
+    useTools: true,
+  });
+
+  const elapsedMs = Date.now() - started;
+
+  if (!r.ok) {
+    const failure = classifyXaiFailure(r);
+    console.log(`[fetchKeywordFields] Failed: ${failure}, company="${name}", elapsed=${elapsedMs}ms`);
+    return {
+      ok: false,
+      method: "keywords",
+      raw_response_text: "",
+      parsed_fields: null,
+      field_statuses: {},
+      error: r.error,
+      error_code: failure,
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+      },
+    };
+  }
+
+  const rawText = asString(extractTextFromXaiResponse(r.resp));
+  console.log(`[fetchKeywordFields] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
+  const parsed = parseJsonFromXaiResponse(r.resp);
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.log(`[fetchKeywordFields] Failed to parse JSON from response for "${name}"`);
+    return {
+      ok: false,
+      method: "keywords",
+      raw_response_text: rawText,
+      parsed_fields: null,
+      field_statuses: {},
+      error: "invalid_json",
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        reason: "could_not_parse_keyword_response",
+        raw_preview: rawText ? rawText.slice(0, 2000) : null,
+      },
+    };
+  }
+
+  const result = parseStructuredResponse(parsed);
+
+  console.log(`[fetchKeywordFields] Parsed: keywords=${result.parsed_fields.product_keywords?.length || 0}, completeness=${result.parsed_fields.keywords_completeness || "n/a"}, elapsed=${elapsedMs}ms`);
+
+  return {
+    ok: true,
+    method: "keywords",
+    raw_response_text: rawText,
+    parsed_fields: result.parsed_fields,
+    field_statuses: result.field_statuses,
+    elapsed_ms: elapsedMs,
+    diagnostics: {
+      ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+    },
+  };
+}
+
+/**
+ * Fetch tagline + industries + logo in a single lightweight xAI call.
+ * These fields are all found on or near the homepage and require minimal
+ * web searching — natural companions that finish quickly.
+ */
+async function fetchLightFields({
+  companyName,
+  websiteUrl,
+  normalizedDomain,
+  budgetMs = 90000,
+  xaiUrl,
+  xaiKey,
+  model,
+} = {}) {
+  const started = Date.now();
+
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain || websiteUrl);
+  const websiteUrlForPrompt = websiteUrl
+    ? asString(websiteUrl).trim()
+    : domain
+      ? `https://${domain}`
+      : "";
+
+  const prompt = `${SEARCH_PREAMBLE}
+
+For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, provide the following fields.
+IMPORTANT: When browsing the homepage, identify the tagline FIRST — it is the short phrase in the hero section, near the logo, or in the site's meta description. Return the exact text.
+
+TAGLINE:
+${FIELD_GUIDANCE.tagline.rules}
+
+INDUSTRIES:
+${FIELD_GUIDANCE.industries.rules}
+
+LOGO:
+${FIELD_GUIDANCE.logo.rules}
+
+${QUALITY_RULES}
+Return STRICT JSON only:
+{
+  ${FIELD_GUIDANCE.tagline.jsonSchema},
+  ${FIELD_GUIDANCE.industries.jsonSchema},
+  ${FIELD_GUIDANCE.logo.jsonSchema},
+  "logo_source": "header" | "nav" | "footer" | "meta" | null
+}`.trim();
+
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+
+  const r = await xaiLiveSearchWithRetry({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: budgetMs,
+      minMs: CALL_TIMEOUTS_MS.light.min,
+      maxMs: CALL_TIMEOUTS_MS.light.max,
+      safetyMarginMs: 5_000,
+    }),
+    maxAttempts: 1,
+    maxTokens: 2000,
+    model: resolveSearchModel(model),
+    xaiUrl,
+    xaiKey,
+    search_parameters: {
+      ...searchBuild.search_parameters,
+      excluded_domains: searchBuild.excluded_domains,
+    },
+    useTools: true,
+    enableImageUnderstanding: true,
+  });
+
+  const elapsedMs = Date.now() - started;
+
+  if (!r.ok) {
+    const failure = classifyXaiFailure(r);
+    console.log(`[fetchLightFields] Failed: ${failure}, company="${name}", elapsed=${elapsedMs}ms`);
+    return {
+      ok: false,
+      method: "light",
+      raw_response_text: "",
+      parsed_fields: null,
+      field_statuses: {},
+      error: r.error,
+      error_code: failure,
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+      },
+    };
+  }
+
+  const rawText = asString(extractTextFromXaiResponse(r.resp));
+  console.log(`[fetchLightFields] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
+  const parsed = parseJsonFromXaiResponse(r.resp);
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.log(`[fetchLightFields] Failed to parse JSON from response for "${name}"`);
+    return {
+      ok: false,
+      method: "light",
+      raw_response_text: rawText,
+      parsed_fields: null,
+      field_statuses: {},
+      error: "invalid_json",
+      elapsed_ms: elapsedMs,
+      diagnostics: {
+        reason: "could_not_parse_light_response",
+        raw_preview: rawText ? rawText.slice(0, 2000) : null,
+      },
+    };
+  }
+
+  const result = parseStructuredResponse(parsed);
+
+  // Add logo_url extraction (same as fetchStructuredFields)
+  const logo_url_raw = asString(parsed.logo_url || "").trim() || null;
+  const logo_source = asString(parsed.logo_source || "").trim() || null;
+  result.field_statuses.logo_url = logo_url_raw ? "ok" : "empty";
+  result.parsed_fields.logo_url = logo_url_raw ? safeUrl(logo_url_raw) : null;
+  result.parsed_fields.logo_source = logo_source;
+
+  console.log(`[fetchLightFields] Parsed: tagline=${result.parsed_fields.tagline ? "yes" : "no"}, industries=${result.parsed_fields.industries?.length || 0}, logo=${logo_url_raw ? "yes" : "no"}, elapsed=${elapsedMs}ms`);
+
+  return {
+    ok: true,
+    method: "light",
+    raw_response_text: rawText,
+    parsed_fields: result.parsed_fields,
+    field_statuses: result.field_statuses,
+    elapsed_ms: elapsedMs,
+    diagnostics: {
+      ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+    },
+  };
+}
+
+// ============================================================================
+// LEGACY (v3.0): fetchStructuredFields + retryMissingStructuredFields
+// ============================================================================
+
+/**
+ * @deprecated v4.0 — replaced by fetchLocationFields + fetchKeywordFields + fetchLightFields.
+ * Kept for backward compatibility and retryMissingStructuredFields fallback.
+ *
  * Fetches ALL structured fields (tagline, HQ, mfg, industries, keywords, logo)
  * in a single xAI call using FULL FIELD_GUIDANCE rules (not condensed summaries).
  * Does NOT request reviews (those come from fetchCuratedReviews in parallel).
@@ -3299,14 +3680,42 @@ async function enrichCompanyFields({
   const domain = normalizeDomain(normalizedDomain || websiteUrl);
 
   // ── Targeted refresh shortcut (≤2 specific fields) ──────────────────────
-  // When only a few fields need refreshing, skip the full two-call pipeline
+  // When only a few fields need refreshing, skip the full four-call pipeline
   // and use retryMissingStructuredFields or fetchCuratedReviews directly.
-  // EXCEPTION: location fields (manufacturing, headquarters) require deep research
-  // with multiple web searches — they need the full pipeline's 210s primary call
-  // plus up to 2 retry rounds (150s each) to reliably return results.
-  const DEEP_RESEARCH_LONG_NAMES = ["manufacturing_locations", "headquarters_location"];
-  const hasDeepResearchField = Array.isArray(fieldsToEnrich) && fieldsToEnrich.some((f) => DEEP_RESEARCH_LONG_NAMES.includes(f));
+  // Location fields now get routed to fetchLocationFields() directly.
+  const LOCATION_LONG_NAMES = new Set(["manufacturing_locations", "headquarters_location"]);
+  const isLocationsOnly = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 &&
+    fieldsToEnrich.every((f) => LOCATION_LONG_NAMES.has(f));
+  const hasDeepResearchField = Array.isArray(fieldsToEnrich) && fieldsToEnrich.some((f) => LOCATION_LONG_NAMES.has(f));
   const skipUnified = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 && fieldsToEnrich.length <= 2 && !hasDeepResearchField;
+
+  // ── Location-only shortcut: route directly to fetchLocationFields() ──
+  if (isLocationsOnly) {
+    console.log(`[enrichCompanyFields] Location-only refresh for [${fieldsToEnrich.join(", ")}], budget=${budgetMs}ms`);
+    const locResult = await fetchLocationFields({
+      companyName, websiteUrl, normalizedDomain: domain,
+      budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 5_000),
+      xaiUrl, xaiKey,
+    });
+    const filled = {};
+    const fld_statuses = {};
+    if (locResult?.ok && locResult.parsed_fields) {
+      Object.assign(filled, locResult.parsed_fields);
+      Object.assign(fld_statuses, locResult.field_statuses);
+    }
+    if (typeof onIntermediateSave === "function" && Object.keys(filled).length > 0) {
+      try { await onIntermediateSave(filled); } catch { /* best effort */ }
+    }
+    console.log(`[enrichCompanyFields] Location-only refresh done for "${companyName}": filled=[${Object.keys(filled).join(", ")}], elapsed=${Date.now() - started}ms`);
+    return {
+      ok: true,
+      method: "location_direct",
+      proposed: filled,
+      field_statuses: fld_statuses,
+      elapsed_ms: Date.now() - started,
+      remaining_budget_ms: getRemainingMs(),
+    };
+  }
 
   if (skipUnified) {
     const targetShortNames = fieldsToEnrich.map((f) => LONG_TO_SHORT[f] || f).filter(Boolean);
@@ -3371,42 +3780,67 @@ async function enrichCompanyFields({
     };
   }
 
-  // ── Two-Call Split Pipeline (v3.0) ──────────────────────────────────────
-  // Call 1: fetchStructuredFields (all non-review fields with FULL guidance)
-  // Call 2: fetchCuratedReviews (reviews with PRIMARY SUBJECT disambiguation)
-  // Both fire in parallel via Promise.allSettled.
+  // ── Four-Call Split Pipeline (v4.0) ─────────────────────────────────────
+  // Call 1: fetchLocationFields (HQ + Manufacturing — deep research)
+  // Call 2: fetchKeywordFields (product keywords — deep catalog browsing)
+  // Call 3: fetchLightFields (tagline + industries + logo — quick homepage)
+  // Call 4: fetchCuratedReviews (reviews with PRIMARY SUBJECT disambiguation)
+  // All four fire in parallel via Promise.allSettled.
 
+  const wantLocations = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.some((f) =>
+    ["headquarters_location", "manufacturing_locations"].includes(f));
+  const wantKeywords = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("product_keywords");
+  const wantLight = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.some((f) =>
+    ["tagline", "industries", "logo", "logo_url"].includes(f));
   const wantReviews = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("reviews");
   const wantLogo = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("logo") || fieldsToEnrich.includes("logo_url");
 
-  const structuredMaxMs = TWO_CALL_TIMEOUTS_MS.structured.max;
-
-  console.log(`[enrichCompanyFields] Two-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, structuredMax=${structuredMaxMs}ms, wantReviews=${wantReviews}, wantLogo=${wantLogo}, run=${runId}`);
+  console.log(`[enrichCompanyFields] Four-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantLocations=${wantLocations}, wantKeywords=${wantKeywords}, wantLight=${wantLight}, wantReviews=${wantReviews}, run=${runId}`);
 
   // Each promise saves its results to Cosmos immediately via onIntermediateSave,
-  // so that if Azure DrainMode kills the process between Call 1 and Call 2, the
-  // data from whichever call already completed is preserved.  The post-merge save
-  // at the bottom still runs (idempotent upsert via Object.assign).
-  const structuredPromise = fetchStructuredFields({
-    companyName, websiteUrl, normalizedDomain: domain,
-    budgetMs: Math.min(structuredMaxMs, getRemainingMs() - 30_000),
-    xaiUrl, xaiKey,
-  }).then(async (result) => {
+  // so that if Azure DrainMode kills the process mid-flight, data from whichever
+  // calls already completed is preserved. The post-merge save at the bottom
+  // still runs (idempotent upsert via Object.assign).
+  const earlySave = async (result, label) => {
     if (result?.ok && result.parsed_fields && typeof onIntermediateSave === "function") {
       try {
         await onIntermediateSave(result.parsed_fields);
-        console.log(`[enrichCompanyFields] Early structured save OK, run=${runId}`);
+        console.log(`[enrichCompanyFields] Early ${label} save OK, run=${runId}`);
       } catch (e) {
-        console.warn(`[enrichCompanyFields] Early structured save failed: ${e?.message}, run=${runId}`);
+        console.warn(`[enrichCompanyFields] Early ${label} save failed: ${e?.message}, run=${runId}`);
       }
     }
     return result;
-  });
+  };
+
+  const locationPromise = wantLocations
+    ? fetchLocationFields({
+        companyName, websiteUrl, normalizedDomain: domain,
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
+        xaiUrl, xaiKey,
+      }).then((r) => earlySave(r, "locations"))
+    : Promise.resolve(null);
+
+  const keywordPromise = wantKeywords
+    ? fetchKeywordFields({
+        companyName, websiteUrl, normalizedDomain: domain,
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.keywords.max, getRemainingMs() - 15_000),
+        xaiUrl, xaiKey,
+      }).then((r) => earlySave(r, "keywords"))
+    : Promise.resolve(null);
+
+  const lightPromise = wantLight
+    ? fetchLightFields({
+        companyName, websiteUrl, normalizedDomain: domain,
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.light.max, getRemainingMs() - 15_000),
+        xaiUrl, xaiKey,
+      }).then((r) => earlySave(r, "light"))
+    : Promise.resolve(null);
 
   const reviewsPromise = wantReviews
     ? fetchCuratedReviews({
         companyName, normalizedDomain: domain,
-        budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey,
       }).then(async (result) => {
         if (result?.curated_reviews?.length > 0 && typeof onIntermediateSave === "function") {
@@ -3421,28 +3855,45 @@ async function enrichCompanyFields({
       })
     : Promise.resolve(null);
 
-  const [structuredSettled, reviewsSettled] = await raceTimeout(
-    Promise.allSettled([structuredPromise, reviewsPromise]),
+  const [locSettled, kwSettled, lightSettled, revSettled] = await raceTimeout(
+    Promise.allSettled([locationPromise, keywordPromise, lightPromise, reviewsPromise]),
     budgetMs + 10_000,
-    `enrichCompanyFields_two_call_split[${runId}]`
+    `enrichCompanyFields_four_call_split[${runId}]`
   ).catch((e) => {
-    console.warn(`[enrichCompanyFields] Two-call split watchdog fired (${budgetMs + 10000}ms): ${e.message}, run=${runId}`);
+    console.warn(`[enrichCompanyFields] Four-call split watchdog fired (${budgetMs + 10000}ms): ${e.message}, run=${runId}`);
     return [
+      { status: "rejected", reason: e },
+      { status: "rejected", reason: e },
       { status: "rejected", reason: e },
       { status: "rejected", reason: e },
     ];
   });
 
-  // ── Merge results ──
-  const structured = structuredSettled.status === "fulfilled" ? structuredSettled.value : null;
-  const reviews = reviewsSettled.status === "fulfilled" ? reviewsSettled.value : null;
+  // ── Merge results (order: locations → keywords → light → reviews) ──
+  const locations = locSettled.status === "fulfilled" ? locSettled.value : null;
+  const keywords = kwSettled.status === "fulfilled" ? kwSettled.value : null;
+  const light = lightSettled.status === "fulfilled" ? lightSettled.value : null;
+  const reviews = revSettled.status === "fulfilled" ? revSettled.value : null;
 
   let proposed = {};
   let field_statuses = {};
 
-  if (structured?.ok && structured.parsed_fields) {
-    proposed = { ...structured.parsed_fields };
-    field_statuses = { ...structured.field_statuses };
+  // Merge location fields
+  if (locations?.ok && locations.parsed_fields) {
+    Object.assign(proposed, locations.parsed_fields);
+    Object.assign(field_statuses, locations.field_statuses);
+  }
+
+  // Merge keyword fields
+  if (keywords?.ok && keywords.parsed_fields) {
+    Object.assign(proposed, keywords.parsed_fields);
+    Object.assign(field_statuses, keywords.field_statuses);
+  }
+
+  // Merge light fields (tagline, industries, logo)
+  if (light?.ok && light.parsed_fields) {
+    Object.assign(proposed, light.parsed_fields);
+    Object.assign(field_statuses, light.field_statuses);
   }
 
   // Merge reviews
@@ -3456,17 +3907,17 @@ async function enrichCompanyFields({
     console.log(`[enrichCompanyFields] Reviews empty for "${companyName}": status=${field_statuses.reviews}, reason=${reviewReason}, run=${runId}`);
   }
 
-  // ── Intermediate save ──
+  // ── Intermediate save after all calls merged ──
   if (typeof onIntermediateSave === "function" && Object.keys(proposed).length > 0) {
     try {
       await onIntermediateSave(proposed);
-      console.log(`[enrichCompanyFields] Intermediate save after two-call merge complete`);
+      console.log(`[enrichCompanyFields] Intermediate save after four-call merge complete`);
     } catch (e) {
       console.warn(`[enrichCompanyFields] Intermediate save failed: ${e?.message}`);
     }
   }
 
-  // ── Verify logo URL from Call 1 ──
+  // ── Verify logo URL from light call ──
   if (wantLogo) {
     if (!proposed.logo_url) {
       console.log(`[enrichCompanyFields] Logo extraction: Grok returned no logo URL for "${companyName}", will try homepage scraper, run=${runId}`);
@@ -3481,10 +3932,6 @@ async function enrichCompanyFields({
     }
 
     // ── Homepage scraper fallback for logo ──
-    // If Grok returned no logo or a dead URL, try the homepage scraper which
-    // parses live HTML for <img> tags in header/nav, schema.org, og:image, etc.
-    // This is far more reliable than Grok's URL guessing (3/3 logos found by
-    // scraper vs 0/3 from Grok in session 19b3e08f).
     if (!proposed.logo_url && getRemainingMs() > 15_000) {
       try {
         console.log(`[enrichCompanyFields] Logo fallback: trying homepage scraper for "${companyName}", remaining=${getRemainingMs()}ms, run=${runId}`);
@@ -3494,7 +3941,6 @@ async function enrichCompanyFields({
           { budgetMs: Math.min(12_000, getRemainingMs() - 5_000) },
         );
         if (scraperResult?.ok && scraperResult.logo_source_url) {
-          // Verify the scraped URL before accepting
           const scraperCheck = await verifyLogoUrl(scraperResult.logo_source_url);
           if (scraperCheck.ok) {
             proposed.logo_url = scraperResult.logo_source_url;
@@ -3512,14 +3958,13 @@ async function enrichCompanyFields({
       }
     }
   } else {
-    // Logo not requested — strip any logo data Grok may have returned
     delete proposed.logo_url;
     delete proposed.logo_source;
   }
 
-  // No retry round: the structured call includes all fields with full guidance.
-  // If xAI couldn't find a field with thorough web search, repeating the same
-  // prompt won't help. Admin reviews each company and can refresh individually.
+  // No retry round: each dedicated call includes full field guidance.
+  // If xAI couldn't find a field with thorough focused search, repeating won't help.
+  // Admin reviews each company and can refresh individual missing fields.
 
   const totalElapsed = Date.now() - started;
   const missingAtEnd = Object.entries(field_statuses).filter(([, v]) => v !== "ok").map(([k, v]) => `${k}=${v}`);
@@ -3527,9 +3972,9 @@ async function enrichCompanyFields({
 
   return {
     ok: true,
-    method: "two_call_split",
+    method: "four_call_split",
     proposed,
-    raw_response: structured?.raw_response_text || "",
+    raw_response: locations?.raw_response_text || light?.raw_response_text || "",
     field_statuses,
     elapsed_ms: totalElapsed,
     reviews_attempted_urls: reviews?.attempted_urls || [],
@@ -3549,7 +3994,11 @@ module.exports = {
   // @deprecated v3.0 — replaced by fetchStructuredFields() + retryMissingStructuredFields()
   fetchAllFieldsUnified,
   fillMissingFieldsIndividually,
-  // Two-call split pipeline (v3.0)
+  // Four-call split pipeline (v4.0)
+  fetchLocationFields,
+  fetchKeywordFields,
+  fetchLightFields,
+  // @deprecated v4.0 — replaced by fetchLocationFields + fetchKeywordFields + fetchLightFields
   fetchStructuredFields,
   retryMissingStructuredFields,
   parseStructuredResponse,
