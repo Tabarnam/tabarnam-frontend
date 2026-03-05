@@ -4381,7 +4381,7 @@ export default function CompanyDashboard() {
                                     <img
                                       src={getCompanyLogoUrl({ ...editorDraft, id: editorOriginalId, logo_url: rawLogoUrl })}
                                       alt="Company logo"
-                                      className="h-12 w-12 rounded border border-slate-200 dark:border-border object-contain bg-white dark:bg-card"
+                                      className="h-12 w-12 rounded border border-slate-200 dark:border-border object-contain bg-white dark:bg-card transition-transform duration-200 hover:scale-[3] hover:z-50 hover:relative hover:shadow-lg"
                                       loading="lazy"
                                       onError={() => setLogoPreviewFailed(true)}
                                     />
