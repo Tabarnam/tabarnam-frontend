@@ -1324,17 +1324,17 @@ async function adminCompaniesHandler(req, context, deps = {}) {
 
         let totalCount = await countPromise;
 
-        // Fallback: if count query failed (null) or returned 0 but data query found items,
-        // use the data query count (may be capped by TOP @take, but better than 0).
-        if ((totalCount == null || totalCount === 0) && raw.length > 0) {
-          context.log("[admin-companies-v2] count query returned", totalCount, "— falling back to data query length:", raw.length);
-          totalCount = raw.length;
+        // Fallback: if id-based count query returned 0 or null but data query found items,
+        // use the deduplicated items count (guaranteed non-zero when companies exist).
+        if (!totalCount && items.length > 0) {
+          context.log("[admin-companies-v2] count query returned", totalCount, "— falling back to items.length:", items.length);
+          totalCount = items.length;
         }
 
         context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length, "total:", totalCount);
         return json({
           items, count: items.length,
-          ...(totalCount != null ? { totalCount } : {}),
+          ...(totalCount != null && totalCount > 0 ? { totalCount } : {}),
           ...(cosmosTarget ? cosmosTarget : {}),
         }, 200);
       }

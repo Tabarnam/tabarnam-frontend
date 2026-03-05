@@ -776,7 +776,9 @@ export default function CompanyDashboard() {
         }
 
         const nextItems = Array.isArray(body?.items) ? body.items : [];
-        if (body?.totalCount != null) setTotalCount(body.totalCount);
+        // Only accept positive counts — a 0 from a flaky count query shouldn't
+        // override a previously valid count.
+        if (body?.totalCount > 0) setTotalCount(body.totalCount);
         setItems(nextItems);
         setRowErrors((prev) => {
           if (!prev || typeof prev !== "object") return {};
