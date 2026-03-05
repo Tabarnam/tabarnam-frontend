@@ -3725,6 +3725,40 @@ async function enrichCompanyFields({
   const hasDeepResearchField = Array.isArray(fieldsToEnrich) && fieldsToEnrich.some((f) => LOCATION_LONG_NAMES.has(f));
   const skipUnified = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 && fieldsToEnrich.length <= 2 && !hasDeepResearchField;
 
+  // ── Field ownership: each call "owns" specific fields ──────────────────
+  // parseStructuredResponse() returns ALL fields (with empty defaults),
+  // so without filtering, later calls overwrite earlier calls' real data.
+  const LOCATION_OWNED_PARSED = [
+    "headquarters_location", "manufacturing_locations", "location_source_urls",
+    "headquarters_city", "headquarters_state_code", "headquarters_country", "headquarters_country_code",
+  ];
+  const LOCATION_OWNED_STATUSES = ["headquarters", "manufacturing"];
+
+  const KEYWORD_OWNED_PARSED = ["product_keywords", "keywords_completeness", "keywords_incomplete_reason"];
+  const KEYWORD_OWNED_STATUSES = ["keywords"];
+
+  const LIGHT_OWNED_PARSED = ["tagline", "industries", "logo_url", "logo_source"];
+  const LIGHT_OWNED_STATUSES = ["tagline", "industries", "logo_url"];
+
+  // Remap short field_statuses names → long names for runDirectEnrichment()
+  const STATUS_SHORT_TO_LONG = { headquarters: "headquarters_location", manufacturing: "manufacturing_locations", keywords: "product_keywords" };
+
+  const pickKeys = (obj, keys) => {
+    if (!obj || typeof obj !== "object") return {};
+    const out = {};
+    for (const k of keys) { if (k in obj) out[k] = obj[k]; }
+    return out;
+  };
+
+  const remapFieldStatuses = (statuses) => {
+    for (const [short, long] of Object.entries(STATUS_SHORT_TO_LONG)) {
+      if (short in statuses && !(long in statuses)) {
+        statuses[long] = statuses[short];
+        delete statuses[short];
+      }
+    }
+  };
+
   // ── Location-only shortcut: route directly to fetchLocationFields() ──
   if (isLocationsOnly) {
     console.log(`[enrichCompanyFields] Location-only refresh for [${fieldsToEnrich.join(", ")}], budget=${budgetMs}ms`);
@@ -3736,8 +3770,9 @@ async function enrichCompanyFields({
     const filled = {};
     const fld_statuses = {};
     if (locResult?.ok && locResult.parsed_fields) {
-      Object.assign(filled, locResult.parsed_fields);
-      Object.assign(fld_statuses, locResult.field_statuses);
+      Object.assign(filled, pickKeys(locResult.parsed_fields, LOCATION_OWNED_PARSED));
+      Object.assign(fld_statuses, pickKeys(locResult.field_statuses, LOCATION_OWNED_STATUSES));
+      remapFieldStatuses(fld_statuses);
     }
     if (typeof onIntermediateSave === "function" && Object.keys(filled).length > 0) {
       try { await onIntermediateSave(filled); } catch { /* best effort */ }
@@ -3805,6 +3840,7 @@ async function enrichCompanyFields({
       try { await onIntermediateSave(filled); } catch { /* best effort */ }
     }
 
+    remapFieldStatuses(field_statuses);
     console.log(`[enrichCompanyFields] Targeted refresh done for "${companyName}": filled=[${Object.keys(filled).join(", ")}], statuses=${JSON.stringify(field_statuses)}, elapsed=${Date.now() - started}ms`);
     return {
       ok: true,
@@ -3837,10 +3873,14 @@ async function enrichCompanyFields({
   // so that if Azure DrainMode kills the process mid-flight, data from whichever
   // calls already completed is preserved. The post-merge save at the bottom
   // still runs (idempotent upsert via Object.assign).
-  const earlySave = async (result, label) => {
+  const earlySave = async (result, label, ownedParsedKeys) => {
     if (result?.ok && result.parsed_fields && typeof onIntermediateSave === "function") {
       try {
-        await onIntermediateSave(result.parsed_fields);
+        // Only save the fields this call owns — prevents clobbering other calls' data
+        const payload = ownedParsedKeys
+          ? pickKeys(result.parsed_fields, ownedParsedKeys)
+          : result.parsed_fields;
+        await onIntermediateSave(payload);
         console.log(`[enrichCompanyFields] Early ${label} save OK, run=${runId}`);
       } catch (e) {
         console.warn(`[enrichCompanyFields] Early ${label} save failed: ${e?.message}, run=${runId}`);
@@ -3854,7 +3894,7 @@ async function enrichCompanyFields({
         companyName, websiteUrl, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey,
-      }).then((r) => earlySave(r, "locations"))
+      }).then((r) => earlySave(r, "locations", LOCATION_OWNED_PARSED))
     : Promise.resolve(null);
 
   const keywordPromise = wantKeywords
@@ -3862,7 +3902,7 @@ async function enrichCompanyFields({
         companyName, websiteUrl, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.keywords.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey,
-      }).then((r) => earlySave(r, "keywords"))
+      }).then((r) => earlySave(r, "keywords", KEYWORD_OWNED_PARSED))
     : Promise.resolve(null);
 
   const lightPromise = wantLight
@@ -3870,7 +3910,7 @@ async function enrichCompanyFields({
         companyName, websiteUrl, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.light.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey,
-      }).then((r) => earlySave(r, "light"))
+      }).then((r) => earlySave(r, "light", LIGHT_OWNED_PARSED))
     : Promise.resolve(null);
 
   const reviewsPromise = wantReviews
@@ -3914,22 +3954,22 @@ async function enrichCompanyFields({
   let proposed = {};
   let field_statuses = {};
 
-  // Merge location fields
+  // Merge location fields (only owned: HQ, MFG, location_source_urls, geo sub-fields)
   if (locations?.ok && locations.parsed_fields) {
-    Object.assign(proposed, locations.parsed_fields);
-    Object.assign(field_statuses, locations.field_statuses);
+    Object.assign(proposed, pickKeys(locations.parsed_fields, LOCATION_OWNED_PARSED));
+    Object.assign(field_statuses, pickKeys(locations.field_statuses, LOCATION_OWNED_STATUSES));
   }
 
-  // Merge keyword fields
+  // Merge keyword fields (only owned: product_keywords, completeness, incomplete_reason)
   if (keywords?.ok && keywords.parsed_fields) {
-    Object.assign(proposed, keywords.parsed_fields);
-    Object.assign(field_statuses, keywords.field_statuses);
+    Object.assign(proposed, pickKeys(keywords.parsed_fields, KEYWORD_OWNED_PARSED));
+    Object.assign(field_statuses, pickKeys(keywords.field_statuses, KEYWORD_OWNED_STATUSES));
   }
 
-  // Merge light fields (tagline, industries, logo)
+  // Merge light fields (only owned: tagline, industries, logo_url, logo_source)
   if (light?.ok && light.parsed_fields) {
-    Object.assign(proposed, light.parsed_fields);
-    Object.assign(field_statuses, light.field_statuses);
+    Object.assign(proposed, pickKeys(light.parsed_fields, LIGHT_OWNED_PARSED));
+    Object.assign(field_statuses, pickKeys(light.field_statuses, LIGHT_OWNED_STATUSES));
   }
 
   // Merge reviews
@@ -3942,6 +3982,9 @@ async function enrichCompanyFields({
     const reviewReason = reviews?.diagnostics?.reason || reviews?.reviews_stage_status || "unknown";
     console.log(`[enrichCompanyFields] Reviews empty for "${companyName}": status=${field_statuses.reviews}, reason=${reviewReason}, run=${runId}`);
   }
+
+  // Remap short field_statuses names → long names for runDirectEnrichment()
+  remapFieldStatuses(field_statuses);
 
   // ── Intermediate save after all calls merged ──
   if (typeof onIntermediateSave === "function" && Object.keys(proposed).length > 0) {
