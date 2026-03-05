@@ -198,9 +198,9 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 // xAI web search typically takes 90-150s for complex queries. Previous values (90s/120s)
 // caused consistent upstream_timeout — xAI was still working when we aborted.
 const CALL_TIMEOUTS_MS = Object.freeze({
-  locations:  { min: 90_000,  max: 150_000 },   // 1.5-2.5 min for HQ + Manufacturing
-  keywords:   { min: 90_000,  max: 150_000 },   // 1.5-2.5 min for product keywords
-  light:      { min: 60_000,  max: 90_000 },    // 1-1.5 min for tagline + industries + logo
+  locations:  { min: 90_000,  max: 240_000 },   // 1.5-4 min for HQ + Manufacturing
+  keywords:   { min: 90_000,  max: 240_000 },   // 1.5-4 min for product keywords
+  light:      { min: 90_000,  max: 180_000 },   // 1.5-3 min for tagline + industries + logo
   reviews:    { min: 90_000,  max: 330_000 },    // 1.5-5.5 min for curated reviews
   structured: { min: 90_000,  max: 330_000 },    // Legacy — kept for retryMissingStructuredFields
 });
@@ -448,6 +448,19 @@ function normalizeDomain(raw) {
   const host = asString(raw).trim().toLowerCase();
   if (!host) return "";
   return host.replace(/^www\./, "").replace(/\.+$/, "");
+}
+
+/**
+ * When xAI returns an array of objects instead of a single merged object,
+ * merge all elements into one.  E.g. [{hq: …}, {mfg: …}] → {hq: …, mfg: …}
+ * Returns the input unchanged if it is not an array of plain objects.
+ */
+function mergeArrayResponse(parsed) {
+  if (!Array.isArray(parsed)) return parsed;
+  if (parsed.length === 0) return null;
+  // Only merge if every element is a plain object (not a nested array / null / primitive)
+  if (!parsed.every(el => el && typeof el === "object" && !Array.isArray(el))) return parsed;
+  return Object.assign({}, ...parsed);
 }
 
 function parseJsonFromXaiResponse(resp) {
@@ -2358,7 +2371,11 @@ Return STRICT JSON only:
 
   const rawText = asString(extractTextFromXaiResponse(r.resp));
   console.log(`[fetchAllFieldsUnified] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
-  const parsed = parseJsonFromXaiResponse(r.resp);
+  const parsedRaw = parseJsonFromXaiResponse(r.resp);
+  if (Array.isArray(parsedRaw)) {
+    console.log(`[fetchAllFieldsUnified] Merged array response (${parsedRaw.length} elements) into single object`);
+  }
+  const parsed = mergeArrayResponse(parsedRaw);
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     console.log(`[fetchAllFieldsUnified] Failed to parse JSON from response`);
@@ -2568,7 +2585,12 @@ Return STRICT JSON only:
 
   const rawText = asString(extractTextFromXaiResponse(r.resp));
   console.log(`[fetchLocationFields] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
-  const parsed = parseJsonFromXaiResponse(r.resp);
+  const parsedRaw = parseJsonFromXaiResponse(r.resp);
+  // xAI sometimes returns [{hq_fields}, {mfg_fields}] instead of a single object — merge them
+  if (Array.isArray(parsedRaw)) {
+    console.log(`[fetchLocationFields] Merged array response (${parsedRaw.length} elements) into single object`);
+  }
+  const parsed = mergeArrayResponse(parsedRaw);
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     console.log(`[fetchLocationFields] Failed to parse JSON from response for "${name}"`);
@@ -2685,7 +2707,12 @@ Return STRICT JSON only:
 
   const rawText = asString(extractTextFromXaiResponse(r.resp));
   console.log(`[fetchKeywordFields] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
-  const parsed = parseJsonFromXaiResponse(r.resp);
+  const parsedRaw = parseJsonFromXaiResponse(r.resp);
+  // xAI sometimes returns [{kw_fields}] instead of a single object — merge if needed
+  if (Array.isArray(parsedRaw)) {
+    console.log(`[fetchKeywordFields] Merged array response (${parsedRaw.length} elements) into single object`);
+  }
+  const parsed = mergeArrayResponse(parsedRaw);
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     console.log(`[fetchKeywordFields] Failed to parse JSON from response for "${name}"`);
@@ -2813,7 +2840,12 @@ Return STRICT JSON only:
 
   const rawText = asString(extractTextFromXaiResponse(r.resp));
   console.log(`[fetchLightFields] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
-  const parsed = parseJsonFromXaiResponse(r.resp);
+  const parsedRaw = parseJsonFromXaiResponse(r.resp);
+  // xAI sometimes returns [{tagline_fields}, {industry_fields}, ...] — merge if needed
+  if (Array.isArray(parsedRaw)) {
+    console.log(`[fetchLightFields] Merged array response (${parsedRaw.length} elements) into single object`);
+  }
+  const parsed = mergeArrayResponse(parsedRaw);
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     console.log(`[fetchLightFields] Failed to parse JSON from response for "${name}"`);
@@ -2967,7 +2999,11 @@ Return STRICT JSON only:
 
   const rawText = asString(extractTextFromXaiResponse(r.resp));
   console.log(`[fetchStructuredFields] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
-  const parsed = parseJsonFromXaiResponse(r.resp);
+  const parsedRaw = parseJsonFromXaiResponse(r.resp);
+  if (Array.isArray(parsedRaw)) {
+    console.log(`[fetchStructuredFields] Merged array response (${parsedRaw.length} elements) into single object`);
+  }
+  const parsed = mergeArrayResponse(parsedRaw);
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     console.log(`[fetchStructuredFields] Failed to parse JSON from response for "${name}"`);
