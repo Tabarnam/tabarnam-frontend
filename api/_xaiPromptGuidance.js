@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.6.0";
+const PROMPT_GUIDANCE_VERSION = "3.7.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -42,6 +42,11 @@ const FIELD_GUIDANCE = {
   headquarters: {
     rules: `Conduct thorough research using web_search and browse_page tools to identify the CURRENT official headquarters location. Companies relocate — you MUST return the active, current address, NOT a previous or registered address. Having the actual cities within the United States is crucial. Be accurate. No guessing or hallucinating.
 
+MINIMUM TOOL USAGE (mandatory):
+- You MUST make at least 2 browse_page calls (the company website + at least 1 external source).
+- You MUST make at least 2 web_search calls with different query patterns.
+- Do NOT finalize your answer until you have completed all required tool calls.
+
 STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
 - ONLY use text that appears on the company's LIVE official website (contact page, about page, footer, shipping policy, privacy page).
 - Use browse_page on the company URL. Prioritize: /contact, /contact-us, then /about, /about-us, /our-story.
@@ -63,15 +68,29 @@ STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - CRITICAL: LinkedIn, business directories, MapQuest, older press releases, and business registration databases FREQUENTLY show PREVIOUS or OUTDATED addresses. If the live company website (especially the contact page) shows a different address than these sources, the website address is the CURRENT one. Do NOT return the directory address.
 - CRITICAL — NAME COLLISIONS: Many brand names are shared by unrelated companies in different countries (e.g., "Uplift Desk" in Austin TX vs "Suzhou Uplift Intelligent Technology" in China). Always verify that the entity you are reporting on matches the EXACT website domain provided. If a similarly-named foreign entity appears in search results, explicitly confirm it is NOT the company being researched before including any of its locations.
 - CRITICAL — PARENT COMPANY CONTAMINATION: If the company is a subsidiary or was acquired (e.g., Hekman Furniture under Howard Miller), report ONLY the address that belongs to the specific brand at the given website domain. Do NOT return the parent company's HQ address as the brand's HQ. The parent's address is NOT the brand's address unless the brand's own website confirms it.
-- Website has no location info → require at least 2 external sources that agree on the city. Prefer the most recently dated source.
+- ALWAYS CROSS-VERIFY: Even when the company website states a location, confirm it against at least 2 independent external sources (LinkedIn, Crunchbase, SEC filings, recent news). If website + 2 externals agree → confidence is high. If externals disagree with the website → trust the website but note the discrepancy.
+- Website has no location info → require at least 3 independent external sources, with at least 2 agreeing on the city. Prefer the most recently dated source.
 - If only a US state is found, search "[Company Name] address [State]" or check the LinkedIn company page to pin down the city.
 - When sources show different cities, look for dates — the most recently dated source with an address is more likely current. Companies relocate; older filings and directories may lag by years.
+- SOURCE TRUST HIERARCHY (use when sources conflict):
+  1. Company website contact/about page (most authoritative)
+  2. SEC/government filings dated within last 2 years
+  3. Recent press releases or news articles (last 2 years)
+  4. LinkedIn, Crunchbase, Bloomberg company profiles
+  5. Business registration databases, WHOIS, older press releases
+  Always go with the highest-ranked source when they conflict.
 
 STEP 4 — HANDLE EDGE CASES. Do NOT give up easily.
 - Small/private companies: search "[Company Name] [founder name] location" or "[Company Name] business registration [state]".
 - Subsidiaries or rebrands: search the parent company name if the brand itself has no disclosed HQ.
 - Try WHOIS or domain registration data: "[domain] WHOIS registrant" for last-resort city identification.
 - Always verify with sources. Do NOT rely on training data — you MUST verify by actually visiting pages.
+
+STEP 5 — CONSOLIDATE AND RECONCILE (mandatory final step).
+- Review ALL data from EVERY browse_page and web_search call you made.
+- Compile every location candidate with its supporting sources and dates.
+- Apply the trust hierarchy to resolve conflicts.
+- Your final answer MUST reflect this consolidated review, not just the last source checked.
 
 FORMAT RULES:
 - Return ONLY the current, active headquarters address — never a previous or registered address.
@@ -90,6 +109,11 @@ FORMAT RULES:
 
   manufacturing: {
     rules: `Conduct thorough research using web_search and browse_page tools to identify ALL known CURRENT manufacturing locations worldwide. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Be accurate. No guessing or hallucinating.
+
+MINIMUM TOOL USAGE (mandatory):
+- You MUST make at least 2 browse_page calls (the company website + at least 1 external source).
+- You MUST make at least 3 web_search calls with different query patterns.
+- Do NOT finalize your answer until you have completed all required tool calls. Manufacturing locations are especially prone to incomplete results from insufficient searching.
 
 STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
 - ONLY use text that appears on the company's LIVE official website. Do NOT attribute manufacturing locations from third-party sources unless the official website is silent.
@@ -114,10 +138,18 @@ STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - CRITICAL — SHOWROOMS ARE NOT FACTORIES: Trade show locations (e.g., High Point Market NC, Las Vegas Market NV), showrooms, design centers, and sales offices are NOT manufacturing facilities. Do NOT include them as manufacturing locations.
 - Never assume or import a manufacturing city unless the official website itself names it, or you have confirmed the source refers to the exact same entity at the given domain.
 - Distinguish between OWNED facilities and CONTRACT manufacturers when evidence is available.
-- Website has no manufacturing info → require at least 2 external sources that agree, AND confirm they reference the exact same company (same domain/parent company).
+- ALWAYS CROSS-VERIFY: Even when the company website states manufacturing locations, verify against at least 2 independent external sources (SEC filings, news articles, trade directories, FDA registrations). This catches both missed facilities and closed/relocated ones. If website + externals agree → confidence is high.
+- Website has no manufacturing info → require at least 3 independent external sources, with at least 2 agreeing, AND confirm they reference the exact same company (same domain/parent company).
 - For vague US locations (just a state), check SEC 10-K filings, LinkedIn, or Glassdoor job postings for exact city.
 - If the company was acquired or rebranded, search the parent company's manufacturing footprint ONLY if you can confirm a specific parent facility actually produces the brand's products. Do NOT blindly include all parent company locations.
 - IMPORTANT: Verify locations are current — companies close or relocate facilities. Prefer the most recently dated sources.
+- SOURCE TRUST HIERARCHY (use when sources conflict about whether a location is active):
+  1. Company website (most authoritative — if they list it, it is current)
+  2. SEC 10-K filings, FDA facility registrations dated within last 2 years
+  3. Recent news articles about factory openings/closings (last 2 years)
+  4. Trade directories, B2B databases, LinkedIn facility listings
+  5. Older filings, press releases, and business registrations
+  A location confirmed by the company website should ALWAYS be included. A location found ONLY in lower-ranked sources should be included only if the source is recent and specifically names this company.
 
 STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
 - Do NOT return an empty result after only one search. Try at least 3 different search queries.
@@ -128,6 +160,15 @@ STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
 - If ONLY country-level info exists (e.g., "Made in USA"), that is acceptable — include it.
 - If the company only states "Made in USA" or "assembled in the USA" with no specific city or facility name, return "USA" — do NOT guess a city.
 - If nothing is found after exhaustive searching, return an empty array [].
+
+STEP 5 — CONSOLIDATE AND RECONCILE (mandatory final step).
+- Review ALL data from EVERY browse_page and web_search call you made.
+- Compile a master list of every manufacturing location mentioned across all sources.
+- For each candidate, note which sources support it and how recent they are.
+- Apply the trust hierarchy to resolve conflicts.
+- Cross-check for completeness: if Source A mentions 3 locations and Source B mentions 5, investigate the 2 extra — do NOT silently drop them.
+- Remove only locations confirmed as closed, relocated, or belonging to a different entity.
+- Your final answer MUST be the COMPLETE, RECONCILED list.
 
 FORMAT RULES:
 - List ALL known CURRENT manufacturing locations worldwide. Be exhaustive.
