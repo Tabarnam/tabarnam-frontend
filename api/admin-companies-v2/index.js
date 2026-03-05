@@ -1274,18 +1274,29 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const baseWhereStr = whereClauses.join(" AND ");
         const countPromise = container.items
           .query(
-            { query: `SELECT VALUE COUNT(1) FROM c WHERE ${baseWhereStr}`, parameters: [] },
+            `SELECT VALUE COUNT(1) FROM c WHERE ${baseWhereStr}`,
             { enableCrossPartitionQuery: true }
           )
           .fetchAll()
           .then((r) => {
             const arr = r.resources || [];
-            const total = arr.reduce((sum, v) => sum + (typeof v === "number" ? v : 0), 0);
-            console.log("[admin-companies-v2] totalCount resources:", JSON.stringify(arr), "→", total);
+            context.log("[admin-companies-v2] totalCount raw:", JSON.stringify(arr), "type[0]:", typeof arr[0]);
+            let total = 0;
+            for (const v of arr) {
+              if (typeof v === "number") { total += v; }
+              else if (typeof v === "string" && /^\d+$/.test(v)) { total += parseInt(v, 10); }
+              else if (v && typeof v === "object") {
+                // Handle formats like {"$1": 500} or {"cnt": 500}
+                for (const n of Object.values(v)) {
+                  if (typeof n === "number") total += n;
+                  else if (typeof n === "string" && /^\d+$/.test(n)) total += parseInt(n, 10);
+                }
+              }
+            }
             return total;
           })
           .catch((e) => {
-            console.error("[admin-companies-v2] totalCount query failed:", e?.message);
+            context.log("[admin-companies-v2] totalCount query error:", e?.message, e?.code);
             return null;
           });
 
@@ -1321,7 +1332,14 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           items.sort((a, b) => (b._searchRelevance || 0) - (a._searchRelevance || 0));
         }
 
-        const totalCount = await countPromise;
+        let totalCount = await countPromise;
+
+        // Fallback: if COUNT aggregate returned 0 or null but data query found items,
+        // use the data query count (may be capped by TOP @take, but better than 0).
+        if (!totalCount && raw.length > 0) {
+          context.log("[admin-companies-v2] COUNT aggregate returned", totalCount, "but data query has", raw.length, "items — using data query count as fallback");
+          totalCount = raw.length;
+        }
 
         context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length, "total:", totalCount);
         return json({
