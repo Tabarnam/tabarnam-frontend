@@ -41,7 +41,7 @@ function TallyDigit({ digit, delay = 0 }) {
 export default function TallyCounter({ value, label = "Published" }) {
   const digits = useMemo(() => {
     if (value == null || value < 0) return [];
-    const str = String(Math.floor(value));
+    const str = String(Math.floor(value)).padStart(4, "0");
     return str.split("").map(Number);
   }, [value]);
 

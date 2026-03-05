@@ -1278,8 +1278,16 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             { enableCrossPartitionQuery: true }
           )
           .fetchAll()
-          .then((r) => (r.resources && r.resources[0]) || 0)
-          .catch(() => null);
+          .then((r) => {
+            const arr = r.resources || [];
+            const total = arr.reduce((sum, v) => sum + (typeof v === "number" ? v : 0), 0);
+            console.log("[admin-companies-v2] totalCount resources:", JSON.stringify(arr), "→", total);
+            return total;
+          })
+          .catch((e) => {
+            console.error("[admin-companies-v2] totalCount query failed:", e?.message);
+            return null;
+          });
 
         if (search) {
           parameters.push({ name: "@q", value: search });
