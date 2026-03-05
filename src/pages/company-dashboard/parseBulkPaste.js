@@ -28,7 +28,7 @@ function parseBulkLocations(text) {
 // ── field-label regex ────────────────────────────────────────────────
 
 const FIELD_LABEL_RE =
-  /^\s*(Tagline|Website|URL|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Industries|Keywords)\s*:\s*(.*)$/i;
+  /^\s*(Tagline|Website|URL|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Industries|Keywords|Reviews)\s*:\s*(.*)$/i;
 
 function normalizeFieldLabel(raw) {
   const l = raw.trim().toLowerCase().replace(/\s+/g, " ");
@@ -38,6 +38,7 @@ function normalizeFieldLabel(raw) {
   if (l === "industries") return "industries";
   if (l === "keywords") return "keywords";
   if (l === "website" || l === "url") return "website_url";
+  if (l === "reviews") return null; // section label only — consumed but ignored
   return null;
 }
 
@@ -172,6 +173,11 @@ export function parseBulkPasteText(text) {
 
   // Normalize
   let raw = asStr(text).replace(/\r\n/g, "\n").replace(/\*\*/g, "");
+
+  // Ensure each "Source:" line (review block start) is preceded by a blank
+  // line.  This prevents header fields from being swallowed into a review
+  // block when the paste has no blank line between headers and reviews.
+  raw = raw.replace(/\n([ \t]*Source\s*:)/gi, "\n\n$1");
 
   // Split into blank-line-delimited blocks
   const blocks = raw.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
