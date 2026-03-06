@@ -1458,7 +1458,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const incomingDomain =
           computedDomain !== "unknown" ? computedDomain : incoming.normalized_domain || computedDomain;
 
-        const normalizedDomain = String((existingDoc && existingDoc.normalized_domain) || incomingDomain || "unknown").trim();
+        const normalizedDomain = String(incomingDomain || (existingDoc && existingDoc.normalized_domain) || "unknown").trim();
 
         if (!normalizedDomain) {
           return json({ error: "Unable to determine company domain for partition key" }, 400);
@@ -1616,6 +1616,28 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             company_id: String(doc.company_id || doc.id || "").trim(),
             error: e?.message || String(e),
           });
+        }
+
+        // When the domain (partition key) changes on an existing document we
+        // must delete the old document first — Cosmos DB does not allow moving
+        // a document between partitions via upsert.
+        const oldDomain = existingDoc ? String(existingDoc.normalized_domain || "").trim() : "";
+        const domainChanged = existingDoc && oldDomain && oldDomain !== normalizedDomain;
+
+        if (domainChanged) {
+          context.log("[admin-companies-v2] Domain changed, deleting old document before upsert", {
+            id: String(existingDoc.id).trim(),
+            old_domain: oldDomain,
+            new_domain: normalizedDomain,
+          });
+          try {
+            await container.item(String(existingDoc.id).trim(), oldDomain).delete();
+          } catch (delErr) {
+            context.log("[admin-companies-v2] Failed to delete old partition document (proceeding with upsert)", {
+              error: delErr?.message,
+              code: delErr?.code,
+            });
+          }
         }
 
         context.log("[admin-companies-v2] Upserting company", {
