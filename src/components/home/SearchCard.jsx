@@ -162,10 +162,8 @@ export default function SearchCard({
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
 
-  // Search-as-you-type: only on results page (when onSubmitParams is provided)
+  // Search-as-you-type: works on both home page and results page
   useEffect(() => {
-    if (!onSubmitParams) return;
-
     if (debounceSearchRef.current) {
       clearTimeout(debounceSearchRef.current);
       debounceSearchRef.current = null;
@@ -188,7 +186,7 @@ export default function SearchCard({
         debounceSearchRef.current = null;
       }
     };
-  }, [q, onSubmitParams]);
+  }, [q]);
 
   // Check if input might be a postal code and auto-fill country
   useEffect(() => {
