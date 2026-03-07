@@ -215,6 +215,12 @@ async function importPreflightHandler(req, context) {
     return json({}, 204);
   }
 
+  // ── Admin auth gate ──────────────────────────────────────────
+  const { adminGuard } = require("../_adminAuth");
+  const authError = adminGuard(req, context);
+  if (authError) return authError;
+  // ─────────────────────────────────────────────────────────────
+
   if (method !== "POST") {
     return json({ ok: false, error: "Method not allowed" }, 405);
   }

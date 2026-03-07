@@ -54,6 +54,12 @@ async function adminBatchUpdateHandler(req, context) {
     };
   }
 
+  // ── Admin auth gate ──────────────────────────────────────────
+  const { adminGuard } = require("../_adminAuth");
+  const authError = adminGuard(req, context);
+  if (authError) return authError;
+  // ─────────────────────────────────────────────────────────────
+
   const companiesContainer = getCompaniesContainer();
   const undoContainer = getUndoContainer();
 

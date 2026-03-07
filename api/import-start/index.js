@@ -551,6 +551,12 @@ const importStartHandlerInner = async (req, context) => {
         };
       }
 
+      // ── Admin auth gate ──────────────────────────────────────────
+      const { adminGuard } = require("../_adminAuth");
+      const authError = adminGuard(req, context);
+      if (authError) return authError;
+      // ─────────────────────────────────────────────────────────────
+
       const pingRaw = readQueryParam(req, "ping");
       if (String(pingRaw || "").trim() === "1") {
         const route = (() => {

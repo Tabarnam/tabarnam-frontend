@@ -280,6 +280,12 @@ async function readJsonBody(req) {
 }
 
 async function handleImportOne(req, context) {
+  // ── Admin auth gate ──────────────────────────────────────────
+  const { adminGuard } = require("../_adminAuth");
+  const authError = adminGuard(req, context);
+  if (authError) return authError;
+  // ─────────────────────────────────────────────────────────────
+
   const startTime = Date.now();
   const sessionId = randomUUID();
   const cosmosEnabled = !process.env.TABARNAM_DISABLE_COSMOS;

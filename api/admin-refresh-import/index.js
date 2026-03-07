@@ -230,6 +230,12 @@ function createHandler(routeName) {
       };
     }
 
+    // ── Admin auth gate ──────────────────────────────────────────
+    const { adminGuard } = require("../_adminAuth");
+    const authError = adminGuard(req, context);
+    if (authError) return authError;
+    // ─────────────────────────────────────────────────────────────
+
     const traceId = newTraceId(req);
 
     if (method !== "POST") {

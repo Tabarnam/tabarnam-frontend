@@ -484,6 +484,12 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     return json({ ok: true }, 200);
   }
 
+  // ── Admin auth gate ──────────────────────────────────────────
+  const { adminGuard } = require("./_adminAuth");
+  const authError = adminGuard(req, context);
+  if (authError) return authError;
+  // ─────────────────────────────────────────────────────────────
+
   const startedAt = Date.now();
   let stage = "start";
 
