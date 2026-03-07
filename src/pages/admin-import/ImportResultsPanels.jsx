@@ -556,7 +556,22 @@ export default function ImportResultsPanels({
                   <div className="mt-2 text-xs text-slate-600 dark:text-muted-foreground">
                     <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{r.session_id}</code>
                   </div>
-                  <div className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">{new Date(r.startedAt).toLocaleString()}</div>
+                  <div className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">
+                    {new Date(r.startedAt).toLocaleString()}
+                    {(r.completed || r.stopped || r.timedOut) ? (
+                      <>
+                        {" → "}{new Date(r.updatedAt).toLocaleTimeString()}
+                        {(() => {
+                          const ms = r.elapsed_ms ?? (new Date(r.updatedAt) - new Date(r.startedAt));
+                          if (!ms || ms <= 0) return null;
+                          const totalSec = Math.round(ms / 1000);
+                          const m = Math.floor(totalSec / 60);
+                          const s = totalSec % 60;
+                          return <span className="ml-2 text-slate-400 dark:text-muted-foreground">TRT {m}m {s}s</span>;
+                        })()}
+                      </>
+                    ) : null}
+                  </div>
                 </div>
               );
             })
