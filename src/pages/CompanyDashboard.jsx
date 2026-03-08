@@ -5022,9 +5022,9 @@ export default function CompanyDashboard() {
           <Dialog open={bulkPasteOpen} onOpenChange={setBulkPasteOpen}>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Bulk paste Grok response</DialogTitle>
+                <DialogTitle>Bulk Paste Fields</DialogTitle>
                 <DialogDescription>
-                  Paste the full Grok AI response below.{" "}
+                  Paste LLM response below.{" "}
                   {editorOriginalId
                     ? "Fields will be parsed and shown in the diff view for review."
                     : "Company name and website URL will be set directly. Other fields will appear in the diff view for review."}
@@ -5034,6 +5034,12 @@ export default function CompanyDashboard() {
               <Textarea
                 value={bulkPasteText}
                 onChange={(e) => setBulkPasteText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && bulkPasteText.trim()) {
+                    e.preventDefault();
+                    handleBulkPaste();
+                  }
+                }}
                 placeholder={"Company Name\nWebsite: https://example.com\nTagline: Your tagline here\nHQ: City, ST, Country\nManufacturing: City, ST, Country; City2, ST2, Country2\nIndustries: industry1, industry2, industry3\nKeywords: keyword1, keyword2, keyword3\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
                 className="min-h-[300px] font-mono text-xs leading-relaxed"
                 autoFocus
