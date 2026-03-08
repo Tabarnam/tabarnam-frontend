@@ -860,7 +860,7 @@ export default function ExpandableCompanyRow({
       </div>
 
       {/* Logo Column */}
-      <div className="col-span-2 lg:col-span-1">
+      <div className="col-span-2 lg:col-span-1 flex items-center justify-center">
         {shouldShowLogo ? (
           websiteUrl ? (
             <a
