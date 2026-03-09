@@ -4907,46 +4907,19 @@ export default function CompanyDashboard() {
                       ) : null}
                     </div>
                   ) : null}
-                  {/* Floating toolbar: Undo/Redo (center) + Save (right) */}
+                  {/* Floating Save button (saves without closing) */}
                   {editorDraft ? (
-                    <div className="sticky bottom-4 flex items-center px-12 pointer-events-none" style={{ marginTop: "-3rem" }}>
-                      <div className="flex-1" />
-                      {/* Center: Undo / Redo */}
-                      <div className="flex items-center gap-1 pointer-events-auto">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={editorHistory.undo}
-                          disabled={!editorHistory.canUndo}
-                          className="h-8 w-8 shadow-lg bg-white dark:bg-card"
-                          title="Undo (Ctrl+Z)"
-                        >
-                          <Undo2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={editorHistory.redo}
-                          disabled={!editorHistory.canRedo}
-                          className="h-8 w-8 shadow-lg bg-white dark:bg-card"
-                          title="Redo (Ctrl+Y)"
-                        >
-                          <Redo2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                      {/* Right: Save */}
-                      <div className="flex-1 flex justify-end pointer-events-auto">
-                        <Button
-                          onClick={() => saveEditor({ closeAfter: false })}
-                          disabled={editorSaving || Boolean(editorValidationError)}
-                          className="shadow-lg text-black hover:brightness-95"
-                          style={{ backgroundColor: "#B1DDE3" }}
-                          size="sm"
-                        >
-                          <Save className="h-3.5 w-3.5 mr-1.5" />
-                          {editorSaving ? "Saving…" : "Save"}
-                        </Button>
-                      </div>
+                    <div className="sticky bottom-4 flex justify-end pr-12 pointer-events-none" style={{ marginTop: "-3rem" }}>
+                      <Button
+                        onClick={() => saveEditor({ closeAfter: false })}
+                        disabled={editorSaving || Boolean(editorValidationError)}
+                        className="pointer-events-auto shadow-lg text-black hover:brightness-95"
+                        style={{ backgroundColor: "#B1DDE3" }}
+                        size="sm"
+                      >
+                        <Save className="h-3.5 w-3.5 mr-1.5" />
+                        {editorSaving ? "Saving…" : "Save"}
+                      </Button>
                     </div>
                   ) : null}
                   </div>
@@ -4976,6 +4949,26 @@ export default function CompanyDashboard() {
                   ) : (
                     <span className="mr-auto" />
                   )}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={editorHistory.undo}
+                    disabled={!editorHistory.canUndo}
+                    title="Undo (Ctrl+Z)"
+                    className="h-9 w-9"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={editorHistory.redo}
+                    disabled={!editorHistory.canRedo}
+                    title="Redo (Ctrl+Y)"
+                    className="h-9 w-9"
+                  >
+                    <Redo2 className="h-4 w-4" />
+                  </Button>
                   <Button variant="outline" onClick={closeEditor}>
                     Cancel
                   </Button>
