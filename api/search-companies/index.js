@@ -344,15 +344,18 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
 
 /**
  * Compute a composite relevance score combining name and keyword match quality.
- * When a name match exists: name 70%, keyword 30%.
+ * When a name match exists: name 70%, keyword 30%, plus a +20 bonus for
+ * strong name matches (word-boundary or better, nameScore ≥ 60) so that
+ * companies whose name matches the query always outrank keyword-only matches.
  * When no name match: keyword gets 60% weight to widen the scoring gap
  * (otherwise all keyword-only matches compress into 0-30 range).
  */
 function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   const nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
   const keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
+  const nameBonus = nameScore >= 60 ? 20 : 0;
   const relevanceScore = nameScore > 0
-    ? Math.round(nameScore * 0.7 + keywordScore * 0.3)
+    ? Math.round(nameScore * 0.7 + keywordScore * 0.3) + nameBonus
     : Math.round(keywordScore * 0.6);
   return { _nameMatchScore: nameScore, _keywordMatchScore: keywordScore, _relevanceScore: relevanceScore };
 }

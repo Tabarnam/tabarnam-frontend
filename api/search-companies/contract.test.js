@@ -318,7 +318,7 @@ test("computeRelevanceScore combines name and keyword scores", () => {
   const scores = _test.computeRelevanceScore(company, "body wash", "body wash", "bodywash");
   assert.equal(scores._nameMatchScore, 80); // starts-with
   assert.equal(scores._keywordMatchScore, 100); // exact match
-  assert.equal(scores._relevanceScore, Math.round(80 * 0.7 + 100 * 0.3)); // 86
+  assert.equal(scores._relevanceScore, Math.round(80 * 0.7 + 100 * 0.3) + 20); // 106 (includes +20 name bonus)
 });
 
 test("computeRelevanceScore: partial keyword match scores lower than exact", () => {
@@ -537,6 +537,23 @@ test("computeRelevanceScore: exact robes keyword ranks above bathrobes compound"
   assert.ok(
     robesScores._relevanceScore > bathrobesScores._relevanceScore,
     `robes co (${robesScores._relevanceScore}) should rank above bathrobes co (${bathrobesScores._relevanceScore})`
+  );
+});
+
+test("computeRelevanceScore: name-starts-with always beats keyword-only (dove scenario)", () => {
+  // Dove (Unilever): name starts with "dove", no keyword match
+  const doveCo = { company_name: "Dove (Unilever)", product_keywords: ["body wash"] };
+  const doveScores = _test.computeRelevanceScore(doveCo, "dove", "dove", "dove");
+  // Aireloom: no name match, exact keyword "dove"
+  const aireloomCo = { company_name: "Aireloom", product_keywords: ["dove"] };
+  const aireloomScores = _test.computeRelevanceScore(aireloomCo, "dove", "dove", "dove");
+  assert.equal(doveScores._nameMatchScore, 80);
+  assert.equal(doveScores._keywordMatchScore, 0);
+  assert.equal(aireloomScores._nameMatchScore, 0);
+  assert.equal(aireloomScores._keywordMatchScore, 100);
+  assert.ok(
+    doveScores._relevanceScore > aireloomScores._relevanceScore,
+    `Dove (${doveScores._relevanceScore}) should rank above Aireloom (${aireloomScores._relevanceScore})`
   );
 });
 
