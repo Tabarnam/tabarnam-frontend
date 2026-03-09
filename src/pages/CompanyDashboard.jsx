@@ -17,6 +17,8 @@ import {
   Loader2,
   X,
   ClipboardPaste,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 
 import { calculateInitialRating, normalizeRating } from "@/lib/stars/calculateRating";
@@ -26,6 +28,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 import AdminHeader from "@/components/AdminHeader";
 import useNotificationSound from "@/hooks/useNotificationSound";
+import useUndoableState from "@/hooks/useUndoableState";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ScrollScrubber from "@/components/ScrollScrubber";
 import AdminEditHistory from "@/components/AdminEditHistory";
@@ -556,7 +559,7 @@ export default function CompanyDashboard() {
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorLoading, setEditorLoading] = useState(false);
   const [editorLoadError, setEditorLoadError] = useState(null);
-  const [editorDraft, setEditorDraft] = useState(null);
+  const [editorDraft, setEditorDraft, editorHistory] = useUndoableState(null);
   const [editorOriginalId, setEditorOriginalId] = useState(null);
   const [editorShowAdvanced, setEditorShowAdvanced] = useState(false);
   const [editorDisplayNameOverride, setEditorDisplayNameOverride] = useState("");
@@ -881,7 +884,7 @@ export default function CompanyDashboard() {
         }
 
         const draft = buildCompanyDraft(company);
-        setEditorDraft(draft);
+        editorHistory.resetHistory(draft);
         setEditorShowAdvanced(false);
         setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
       } catch (e) {
@@ -905,7 +908,7 @@ export default function CompanyDashboard() {
 
   const closeEditor = useCallback(() => {
     setEditorOpen(false);
-    setEditorDraft(null);
+    editorHistory.resetHistory(null);
     setEditorOriginalId(null);
     setEditorLoadError(null);
     setEditorLoading(false);
@@ -945,7 +948,7 @@ export default function CompanyDashboard() {
     const draft = buildCompanyDraft(company);
 
     setEditorOriginalId(id || null);
-    setEditorDraft(draft);
+    editorHistory.resetHistory(draft);
     setEditorShowAdvanced(false);
     setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
     setEditorLoadError(null);
@@ -987,7 +990,7 @@ export default function CompanyDashboard() {
     };
 
     setEditorOriginalId(null);
-    setEditorDraft(draft);
+    editorHistory.resetHistory(draft);
     setEditorShowAdvanced(false);
     setEditorDisplayNameOverride("");
     setLogoFile(null);
@@ -2494,7 +2497,7 @@ export default function CompanyDashboard() {
         toast.branded(msg);
         // Update the draft with the saved company so it reflects the persisted state
         const merged = buildCompanyDraft(savedCompany);
-        setEditorDraft(merged);
+        editorHistory.resetHistory(merged);
         setEditorOriginalId(savedId);
       }
     } catch (e) {
@@ -2527,6 +2530,23 @@ export default function CompanyDashboard() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [editorOpen, editorSaving, editorDraft, saveEditor]);
+
+  // Ctrl/Cmd+Z undo, Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z redo
+  useEffect(() => {
+    if (!editorOpen) return;
+    const handler = (e) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        editorHistory.undo();
+      } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+        e.preventDefault();
+        editorHistory.redo();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [editorOpen, editorHistory]);
 
   const updateCompanyInState = useCallback((companyId, patch) => {
     const id = asString(companyId).trim();
@@ -4887,19 +4907,46 @@ export default function CompanyDashboard() {
                       ) : null}
                     </div>
                   ) : null}
-                  {/* Floating Save button (saves without closing) */}
+                  {/* Floating toolbar: Undo/Redo (center) + Save (right) */}
                   {editorDraft ? (
-                    <div className="sticky bottom-4 flex justify-end pr-12 pointer-events-none" style={{ marginTop: "-3rem" }}>
-                      <Button
-                        onClick={() => saveEditor({ closeAfter: false })}
-                        disabled={editorSaving || Boolean(editorValidationError)}
-                        className="pointer-events-auto shadow-lg text-black hover:brightness-95"
-                        style={{ backgroundColor: "#B1DDE3" }}
-                        size="sm"
-                      >
-                        <Save className="h-3.5 w-3.5 mr-1.5" />
-                        {editorSaving ? "Saving…" : "Save"}
-                      </Button>
+                    <div className="sticky bottom-4 flex items-center px-12 pointer-events-none" style={{ marginTop: "-3rem" }}>
+                      <div className="flex-1" />
+                      {/* Center: Undo / Redo */}
+                      <div className="flex items-center gap-1 pointer-events-auto">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={editorHistory.undo}
+                          disabled={!editorHistory.canUndo}
+                          className="h-8 w-8 shadow-lg bg-white dark:bg-card"
+                          title="Undo (Ctrl+Z)"
+                        >
+                          <Undo2 className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={editorHistory.redo}
+                          disabled={!editorHistory.canRedo}
+                          className="h-8 w-8 shadow-lg bg-white dark:bg-card"
+                          title="Redo (Ctrl+Y)"
+                        >
+                          <Redo2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      {/* Right: Save */}
+                      <div className="flex-1 flex justify-end pointer-events-auto">
+                        <Button
+                          onClick={() => saveEditor({ closeAfter: false })}
+                          disabled={editorSaving || Boolean(editorValidationError)}
+                          className="shadow-lg text-black hover:brightness-95"
+                          style={{ backgroundColor: "#B1DDE3" }}
+                          size="sm"
+                        >
+                          <Save className="h-3.5 w-3.5 mr-1.5" />
+                          {editorSaving ? "Saving…" : "Save"}
+                        </Button>
+                      </div>
                     </div>
                   ) : null}
                   </div>
