@@ -11,6 +11,7 @@ export default function StatusAlerts({
   activeStatus,
   API_BASE,
   replayNotification,
+  lastPlayed,
 }) {
   return (
     <>
@@ -102,10 +103,11 @@ export default function StatusAlerts({
           <button
             type="button"
             onClick={replayNotification}
-            className="shrink-0 rounded-md p-1.5 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+            className="shrink-0 rounded-md p-1.5 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors flex items-center gap-1.5"
             title="Replay notification sound"
           >
-            <Volume2 className="h-4 w-4" />
+            <Volume2 className="h-4 w-4 shrink-0" />
+            {lastPlayed && <span className="text-xs truncate max-w-[180px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
           </button>
         </div>
       ) : null}
@@ -199,10 +201,11 @@ export default function StatusAlerts({
             <button
               type="button"
               onClick={replayNotification}
-              className={`shrink-0 rounded-md p-1.5 ${useGreen ? "text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50" : "text-amber-600 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50"} transition-colors`}
+              className={`shrink-0 rounded-md p-1.5 ${useGreen ? "text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50" : "text-amber-600 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50"} transition-colors flex items-center gap-1.5`}
               title="Replay notification sound"
             >
-              <Volume2 className="h-4 w-4" />
+              <Volume2 className="h-4 w-4 shrink-0" />
+              {lastPlayed && <span className="text-xs truncate max-w-[180px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
             </button>
           </div>
         );

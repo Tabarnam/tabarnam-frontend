@@ -28,7 +28,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   ref
 ) {
   const stableId = asString(companyId).trim();
-  const { play: playNotification, replay: replayNotification } = useNotificationSound();
+  const { play: playNotification, replay: replayNotification, lastPlayed } = useNotificationSound();
   const [take, setTake] = useState(1);
   const [includeExisting, setIncludeExisting] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -614,10 +614,11 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
               <button
                 type="button"
                 onClick={replayNotification}
-                className="shrink-0 rounded-md p-1.5 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                className="shrink-0 rounded-md p-1.5 text-emerald-600 hover:bg-emerald-100 transition-colors flex items-center gap-1.5"
                 title="Replay notification sound"
               >
-                <Volume2 className="h-4 w-4" />
+                <Volume2 className="h-4 w-4 shrink-0" />
+                {lastPlayed && <span className="text-xs truncate max-w-[180px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
               </button>
             </div>
           );

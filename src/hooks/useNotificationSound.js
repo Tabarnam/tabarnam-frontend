@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 
 /**
  * Hook that plays a random notification sound from /sounds/notifications/.
@@ -91,6 +91,7 @@ function playFile(file) {
 export default function useNotificationSound() {
   // Guard against overlapping plays within a very short window.
   const playingRef = useRef(false);
+  const [lastPlayed, setLastPlayed] = useState(null);
 
   const play = useCallback(async () => {
     if (playingRef.current) return;
@@ -105,6 +106,7 @@ export default function useNotificationSound() {
 
       playingRef.current = true;
       lastPlayedFile = file;
+      setLastPlayed(file);
 
       await playFile(file);
     } catch (err) {
@@ -132,5 +134,5 @@ export default function useNotificationSound() {
     }
   }, []);
 
-  return { play, replay };
+  return { play, replay, lastPlayed };
 }

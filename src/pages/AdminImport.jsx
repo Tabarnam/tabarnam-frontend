@@ -183,7 +183,7 @@ export default function AdminImport() {
   const showSuccessionPanel = isSuccessionRunning || successionCompleted;
 
   // Audio notification on import / succession completion
-  const { play: playNotification, replay: replayNotification } = useNotificationSound();
+  const { play: playNotification, replay: replayNotification, lastPlayed } = useNotificationSound();
   const prevActiveStatusRef = useRef(activeStatus);
 
   useEffect(() => {
@@ -3685,6 +3685,7 @@ export default function AdminImport() {
             activeStatus={activeStatus}
             API_BASE={API_BASE}
             replayNotification={replayNotification}
+            lastPlayed={lastPlayed}
           />
 
           <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-4">
