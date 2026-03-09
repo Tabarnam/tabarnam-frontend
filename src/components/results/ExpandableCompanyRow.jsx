@@ -194,6 +194,7 @@ export default function ExpandableCompanyRow({
   unit,
   onKeywordSearch,
   rightColsOrder,
+  debugScores = false,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -591,6 +592,23 @@ export default function ExpandableCompanyRow({
               <div className="text-sm text-muted-foreground mt-1">{company.tagline}</div>
             )}
 
+            {debugScores && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                <span className="text-[10px] font-mono opacity-80 bg-black/10 dark:bg-white/10 rounded px-1">
+                  R:{company._relevanceScore ?? "–"}
+                </span>
+                <span className="text-[10px] font-mono opacity-80 bg-black/10 dark:bg-white/10 rounded px-1">
+                  N:{company._nameMatchScore ?? "–"}
+                </span>
+                <span className="text-[10px] font-mono opacity-80 bg-black/10 dark:bg-white/10 rounded px-1">
+                  K:{company._keywordMatchScore ?? "–"}
+                </span>
+                <span className="text-[10px] font-mono opacity-80 bg-black/10 dark:bg-white/10 rounded px-1">
+                  T:{company._matchType ?? "–"}
+                </span>
+              </div>
+            )}
+
             {(affiliateLinks.length > 0 || amazonLink) && (
               <div className="affiliate-links-zone mt-3 space-y-1 border-l-2 border-blue-200 dark:border-blue-800 pl-3">
                 {affiliateLinks.map((link, idx) => (
@@ -800,6 +818,23 @@ export default function ExpandableCompanyRow({
         </h2>
         {company.tagline && (
           <div className="text-xs text-muted-foreground mt-1">{company.tagline}</div>
+        )}
+
+        {debugScores && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            <span className="text-[10px] font-mono opacity-80 bg-black/10 dark:bg-white/10 rounded px-1">
+              R:{company._relevanceScore ?? "–"}
+            </span>
+            <span className="text-[10px] font-mono opacity-80 bg-black/10 dark:bg-white/10 rounded px-1">
+              N:{company._nameMatchScore ?? "–"}
+            </span>
+            <span className="text-[10px] font-mono opacity-80 bg-black/10 dark:bg-white/10 rounded px-1">
+              K:{company._keywordMatchScore ?? "–"}
+            </span>
+            <span className="text-[10px] font-mono opacity-80 bg-black/10 dark:bg-white/10 rounded px-1">
+              T:{company._matchType ?? "–"}
+            </span>
+          </div>
         )}
 
         {(affiliateLinks.length > 0 || amazonLink) && (

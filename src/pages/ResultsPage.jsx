@@ -70,6 +70,7 @@ export default function ResultsPage() {
   const cityParam = (searchParams.get("city") ?? "").toString();
   const latParam = (searchParams.get("lat") ?? "").toString();
   const lngParam = (searchParams.get("lng") ?? "").toString();
+  const debugScores = searchParams.get("debug") === "scores";
 
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -531,6 +532,7 @@ export default function ResultsPage() {
                 unit={unit}
                 onKeywordSearch={handleKeywordSearch}
                 rightColsOrder={rightColsOrder}
+                debugScores={debugScores}
               />
             ))}
           </div>
