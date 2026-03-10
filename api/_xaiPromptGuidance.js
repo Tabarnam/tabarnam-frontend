@@ -289,16 +289,21 @@ Return up to 5 verified reviews. Quality over quantity.`;
         return `The standard review search for ${companyRef} did not find enough results.
 Create ONE review entry from the company's own website content.
 
-Visit these pages on ${websiteUrl} (try each, skip any that 404):
-1. /testimonials or /reviews (customer testimonials — PREFERRED)
-2. /about, /about-us, /our-story, /our-mission (company story)
-3. /faq (frequently asked questions)
-4. If none of the above exist, use the homepage at ${websiteUrl}
+Start at ${websiteUrl} and look at the site's navigation menu and footer for links to:
+1. Customer testimonials or reviews (PREFERRED)
+2. About Us / Our Story / Our Mission
+3. FAQ
+
+Also try common URL patterns:
+${websiteUrl}/testimonials, /about, /our-story, /faq
+${websiteUrl}/pages/testimonials, /pages/about, /pages/our-story, /pages/faq
+
+If no relevant pages load, use the homepage at ${websiteUrl} directly.
 
 From the FIRST page that loads successfully, create ONE review entry:
 - source_name: "Website - [page type]" (e.g., "Website - Testimonials", "Website - About", "Website - Home")
 - excerpt: A customer testimonial (preferred), OR the company's story/mission/what makes their products unique. Minimum 30 characters.
-- source_url: The actual page URL you visited (e.g., ${websiteUrl}/about-us)
+- source_url: The actual page URL you visited
 - author: The customer name (for testimonials) or "${companyName}" (for about/mission content)
 
 Return exactly 1 review.
