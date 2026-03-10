@@ -254,12 +254,17 @@ async function runDirectEnrichment({
       result.enriched[fieldKey] = fieldResult;
       result.attempts[fieldKey] = (existingAttempts[fieldKey] || 0) + 1;
 
-      if (isFieldComplete(fieldKey, value, status)) {
+      const complete = isFieldComplete(fieldKey, value, status);
+      const valuePresent = value != null && (typeof value !== "string" || value.trim().length > 0) && (!Array.isArray(value) || value.length > 0);
+      if (complete) {
         result.fields_completed.push(fieldKey);
+        console.log(`[isFieldComplete] field=${fieldKey}, status=${status}, value_present=${valuePresent} → complete`);
       } else if (status === "upstream_timeout" || status === "upstream_unreachable") {
         result.errors[fieldKey] = status;
+        console.log(`[isFieldComplete] field=${fieldKey}, status=${status}, value_present=${valuePresent} → error (${status})`);
       } else {
         result.fields_failed.push(fieldKey);
+        console.log(`[isFieldComplete] field=${fieldKey}, status=${status}, value_present=${valuePresent}${Array.isArray(value) ? ", count=" + value.length : ""} → failed`);
       }
     }
 
@@ -590,6 +595,26 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
   updated.reviews_star_value = reviewsStarState.next_value;
   updated.reviews_star_source = reviewsStarState.next_source;
   updated.rating = reviewsStarState.next_rating;
+
+  // Log final enrichment state for diagnostics
+  console.log(`[enrichment_final_state] company="${updated.company_name || updated.name || "(unknown)"}" domain=${updated.normalized_domain || "(unknown)"}`, {
+    tagline: updated.tagline || "(empty)",
+    tagline_status: updated.tagline_status || "(none)",
+    headquarters_location: updated.headquarters_location || "(empty)",
+    headquarters_location_status: updated.headquarters_location_status || "(none)",
+    manufacturing_locations: updated.manufacturing_locations || [],
+    manufacturing_locations_status: updated.manufacturing_locations_status || "(none)",
+    industries: updated.industries || [],
+    industries_status: updated.industries_status || "(none)",
+    product_keywords_count: Array.isArray(updated.product_keywords) ? updated.product_keywords.length : 0,
+    product_keywords_status: updated.product_keywords_status || "(none)",
+    logo_url: updated.logo_url ? updated.logo_url.slice(0, 120) : "(empty)",
+    logo_source: updated.logo_source || "(none)",
+    curated_reviews_count: Array.isArray(updated.curated_reviews) ? updated.curated_reviews.length : 0,
+    reviews_stage_status: updated.reviews_stage_status || "(none)",
+    import_missing_fields: updated.import_missing_fields || [],
+    import_missing_reason: updated.import_missing_reason || {},
+  });
 
   return updated;
 }

@@ -3895,6 +3895,16 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status} companies=${companies.length}`);
 
+          // Log primary search results so we can see what Grok found
+          if (companies.length > 0) {
+            const preview = companies.map((c) => ({
+              company_name: c.company_name || c.name || "(unnamed)",
+              url: c.url || c.website_url || "(no url)",
+              tagline: c.tagline ? String(c.tagline).slice(0, 120) : "(none)",
+            }));
+            console.log(`[import-start] session=${sessionId} primary_search_result: ${JSON.stringify(preview).slice(0, 2000)}`);
+          }
+
           setStage("enrichCompany");
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));

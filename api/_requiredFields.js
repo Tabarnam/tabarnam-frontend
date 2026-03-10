@@ -186,18 +186,19 @@ function sanitizeIndustries(value) {
 
   const seen = new Set();
   const valid = [];
+  const rejected = [];
 
   for (const item of raw) {
     const key = normalizeKey(item);
-    if (!key) continue;
+    if (!key) { rejected.push({ item, reason: "empty_key" }); continue; }
 
     // "Baby" alone is too ambiguous and has caused bad defaults; require a more specific label.
-    if (key === "baby" || key === "babies") continue;
+    if (key === "baby" || key === "babies") { rejected.push({ item, reason: "ambiguous_baby" }); continue; }
 
-    if (INDUSTRY_MARKETPLACE_BUCKETS.has(key)) continue;
+    if (INDUSTRY_MARKETPLACE_BUCKETS.has(key)) { rejected.push({ item, reason: "marketplace_bucket" }); continue; }
 
     // Reject obvious navigation labels.
-    if (INDUSTRY_NAV_TERMS.some((t) => key.includes(t))) continue;
+    if (INDUSTRY_NAV_TERMS.some((t) => key.includes(t))) { rejected.push({ item, reason: "nav_label" }); continue; }
 
     // Map to a short, controlled vocabulary when possible.
     const mapped = INDUSTRY_CANONICAL_MAP.find((m) => m.match.some((tok) => key.includes(normalizeKey(tok))));
@@ -209,14 +210,18 @@ function sanitizeIndustries(value) {
       INDUSTRY_ALLOWLIST.some((t) => key.includes(normalizeKey(t))) ||
       isPlausibleIndustryCandidate(key, item);
 
-    if (!allow) continue;
+    if (!allow) { rejected.push({ item, reason: "not_allowlisted" }); continue; }
 
     const candidateKey = normalizeKey(candidate);
-    if (!candidateKey) continue;
-    if (seen.has(candidateKey)) continue;
+    if (!candidateKey) { rejected.push({ item, reason: "empty_candidate" }); continue; }
+    if (seen.has(candidateKey)) { rejected.push({ item, reason: "duplicate" }); continue; }
 
     seen.add(candidateKey);
     valid.push(candidate);
+  }
+
+  if (rejected.length > 0) {
+    console.log(`[sanitizeIndustries] input=${JSON.stringify(raw)}, output=${JSON.stringify(valid)}, rejected=${JSON.stringify(rejected)}`);
   }
 
   return valid;
@@ -399,13 +404,25 @@ function sanitizeKeywords({ product_keywords, keywords }) {
 
   const seen = new Set();
   const sanitized = [];
+  let junkCount = 0;
+  let dupCount = 0;
+  const sampleRejected = [];
 
   for (const k of raw) {
-    if (isKeywordJunk(k)) continue;
+    if (isKeywordJunk(k)) {
+      junkCount++;
+      if (sampleRejected.length < 10) sampleRejected.push(k);
+      continue;
+    }
     const key = normalizeKey(k);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) { dupCount++; continue; }
     seen.add(key);
     sanitized.push(k);
+  }
+
+  const rejectedCount = total_raw - sanitized.length;
+  if (rejectedCount > 0) {
+    console.log(`[sanitizeKeywords] raw_count=${total_raw}, sanitized_count=${sanitized.length}, rejected: junk=${junkCount}, duplicate=${dupCount}, sample_rejected=${JSON.stringify(sampleRejected)}`);
   }
 
   return {

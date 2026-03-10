@@ -2543,6 +2543,8 @@ Return STRICT JSON only:
 
   const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
 
+  console.log(`[fetchLocationFields] prompt_summary: company="${name}", domain="${domain}", fields=["headquarters_location","manufacturing_locations"], prompt_chars=${prompt.length}, budget=${budgetMs}ms`);
+
   const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
@@ -2612,6 +2614,12 @@ Return STRICT JSON only:
   const result = parseStructuredResponse(parsed);
 
   console.log(`[fetchLocationFields] Parsed: hq=${result.parsed_fields.headquarters_location || "none"}, mfg=${result.parsed_fields.manufacturing_locations?.length || 0}, elapsed=${elapsedMs}ms`);
+  console.log(`[fetchLocationFields] field_values`, {
+    headquarters_location: result.parsed_fields.headquarters_location || "(empty)",
+    manufacturing_locations: result.parsed_fields.manufacturing_locations || [],
+    hq_source_urls: result.parsed_fields.location_source_urls?.hq_source_urls || [],
+    mfg_source_urls: result.parsed_fields.location_source_urls?.mfg_source_urls || [],
+  });
 
   return {
     ok: true,
@@ -2664,6 +2672,8 @@ Return STRICT JSON only:
 }`.trim();
 
   const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+
+  console.log(`[fetchKeywordFields] prompt_summary: company="${name}", domain="${domain}", fields=["product_keywords"], prompt_chars=${prompt.length}, budget=${budgetMs}ms`);
 
   const r = await xaiLiveSearchWithRetry({
     prompt,
@@ -2734,6 +2744,10 @@ Return STRICT JSON only:
   const result = parseStructuredResponse(parsed);
 
   console.log(`[fetchKeywordFields] Parsed: keywords=${result.parsed_fields.product_keywords?.length || 0}, completeness=${result.parsed_fields.keywords_completeness || "n/a"}, elapsed=${elapsedMs}ms`);
+  {
+    const kw = result.parsed_fields.product_keywords || [];
+    console.log(`[fetchKeywordFields] field_values: total=${kw.length}, first_20=${JSON.stringify(kw.slice(0, 20))}${kw.length > 20 ? `, ... +${kw.length - 20} more` : ""}`);
+  }
 
   return {
     ok: true,
@@ -2796,6 +2810,8 @@ Return STRICT JSON only:
 }`.trim();
 
   const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+
+  console.log(`[fetchLightFields] prompt_summary: company="${name}", domain="${domain}", fields=["tagline","industries","logo_url"], prompt_chars=${prompt.length}, budget=${budgetMs}ms`);
 
   const r = await xaiLiveSearchWithRetry({
     prompt,
@@ -2874,6 +2890,12 @@ Return STRICT JSON only:
   result.parsed_fields.logo_source = logo_source;
 
   console.log(`[fetchLightFields] Parsed: tagline=${result.parsed_fields.tagline ? "yes" : "no"}, industries=${result.parsed_fields.industries?.length || 0}, logo=${logo_url_raw ? "yes" : "no"}, elapsed=${elapsedMs}ms`);
+  console.log(`[fetchLightFields] field_values`, {
+    tagline: result.parsed_fields.tagline || "(empty)",
+    industries: result.parsed_fields.industries || [],
+    logo_url: result.parsed_fields.logo_url || "(empty)",
+    logo_source: result.parsed_fields.logo_source || "(none)",
+  });
 
   return {
     ok: true,
@@ -4048,6 +4070,7 @@ async function enrichCompanyFields({
   const totalElapsed = Date.now() - started;
   const missingAtEnd = Object.entries(field_statuses).filter(([, v]) => v !== "ok").map(([k, v]) => `${k}=${v}`);
   console.log(`[enrichCompanyFields] Done for "${companyName}" (${domain}). reviews=${Array.isArray(proposed.reviews) ? proposed.reviews.length : 0}, logo=${field_statuses.logo_url || "n/a"}, missing=[${missingAtEnd.join(", ")}], elapsed=${totalElapsed}ms, run=${runId}`);
+  console.log(`[enrichCompanyFields] field_statuses`, field_statuses);
 
   return {
     ok: true,
