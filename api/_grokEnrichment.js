@@ -4064,10 +4064,44 @@ async function enrichCompanyFields({
     proposed.reviews = reviews.curated_reviews;
     field_statuses.reviews = reviews.reviews_stage_status || "ok";
   } else if (wantReviews) {
-    proposed.reviews = [];
-    field_statuses.reviews = reviews?.reviews_stage_status || "empty";
     const reviewReason = reviews?.diagnostics?.reason || reviews?.reviews_stage_status || "unknown";
-    console.log(`[enrichCompanyFields] Reviews empty for "${companyName}": status=${field_statuses.reviews}, reason=${reviewReason}, run=${runId}`);
+    const retryBudget = getRemainingMs();
+    const canRetry = !retryHints?.browseAboutPage   // prevent double-retry
+      && retryBudget > CALL_TIMEOUTS_MS.reviews.min + 15_000;  // need 90s+15s = 105s minimum
+
+    if (canRetry) {
+      console.log(`[enrichCompanyFields] Reviews empty (reason=${reviewReason}), attempting browseAboutPage retry, budget_remaining=${retryBudget}ms, run=${runId}`);
+      const retryStarted = Date.now();
+      const retryResult = await fetchCuratedReviews({
+        companyName, normalizedDomain: domain,
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.reviews.max, retryBudget - 15_000),
+        xaiUrl, xaiKey,
+        browseAboutPage: true,
+      });
+      const retryElapsed = Date.now() - retryStarted;
+
+      if (retryResult?.curated_reviews?.length > 0) {
+        proposed.reviews = retryResult.curated_reviews;
+        field_statuses.reviews = retryResult.reviews_stage_status || "ok";
+        console.log(`[enrichCompanyFields] browseAboutPage retry SUCCESS: ${retryResult.curated_reviews.length} reviews, elapsed=${retryElapsed}ms, run=${runId}`);
+        // Early save the retry reviews
+        if (typeof onIntermediateSave === "function") {
+          try {
+            await onIntermediateSave({ reviews: retryResult.curated_reviews });
+          } catch (e) {
+            console.warn(`[enrichCompanyFields] Retry reviews save failed: ${e?.message}, run=${runId}`);
+          }
+        }
+      } else {
+        proposed.reviews = [];
+        field_statuses.reviews = retryResult?.reviews_stage_status || "empty";
+        console.log(`[enrichCompanyFields] browseAboutPage retry also empty, elapsed=${retryElapsed}ms, run=${runId}`);
+      }
+    } else {
+      proposed.reviews = [];
+      field_statuses.reviews = reviews?.reviews_stage_status || "empty";
+      console.log(`[enrichCompanyFields] Reviews empty for "${companyName}": status=${field_statuses.reviews}, reason=${reviewReason}, canRetry=false (alreadyBrowsed=${!!retryHints?.browseAboutPage}, budget=${retryBudget}ms), run=${runId}`);
+    }
   }
 
   // Remap short field_statuses names → long names for runDirectEnrichment()
