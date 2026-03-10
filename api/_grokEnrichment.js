@@ -4082,7 +4082,10 @@ async function enrichCompanyFields({
 
       if (retryResult?.curated_reviews?.length > 0) {
         proposed.reviews = retryResult.curated_reviews;
-        field_statuses.reviews = retryResult.reviews_stage_status || "ok";
+        // browseAboutPage is our last-resort retry — accept any reviews found (even 1).
+        // Don't pass through "incomplete" from fetchCuratedReviews (which wants 3+),
+        // or isRealValue will treat reviews as missing and trigger re-enrichment.
+        field_statuses.reviews = "ok";
         console.log(`[enrichCompanyFields] browseAboutPage retry SUCCESS: ${retryResult.curated_reviews.length} reviews, elapsed=${retryElapsed}ms, run=${runId}`);
         // Early save the retry reviews
         if (typeof onIntermediateSave === "function") {
