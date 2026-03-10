@@ -306,119 +306,139 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
   const updated = { ...company };
   const enriched = enrichmentResult.enriched;
 
-  // Apply tagline
-  if (enriched.tagline?.tagline) {
-    updated.tagline = enriched.tagline.tagline;
+  // Apply tagline — always write status/searched_at so we record that the
+  // field was attempted, even when Grok returned empty.
+  if (enriched.tagline) {
     updated.tagline_status = enriched.tagline.tagline_status || "ok";
     updated.tagline_searched_at = enriched.tagline.searched_at;
+    if (enriched.tagline.tagline) {
+      updated.tagline = enriched.tagline.tagline;
+    }
   }
 
   // Apply industries
-  if (enriched.industries?.industries) {
-    updated.industries = enriched.industries.industries;
+  if (enriched.industries) {
     updated.industries_status = enriched.industries.industries_status || "ok";
     updated.industries_searched_at = enriched.industries.searched_at;
+    if (Array.isArray(enriched.industries.industries) && enriched.industries.industries.length > 0) {
+      updated.industries = enriched.industries.industries;
+    }
   }
 
   // Apply headquarters_location
-  if (enriched.headquarters_location?.headquarters_location) {
-    updated.headquarters_location = enriched.headquarters_location.headquarters_location;
+  if (enriched.headquarters_location) {
     updated.headquarters_location_status = enriched.headquarters_location.headquarters_location_status || "ok";
     updated.headquarters_location_searched_at = enriched.headquarters_location.searched_at;
-    if (enriched.headquarters_location.location_source_urls?.hq_source_urls) {
-      updated.hq_source_urls = enriched.headquarters_location.location_source_urls.hq_source_urls;
-    }
-    // Set _unknown flag based on enrichment outcome
-    if (updated.headquarters_location_status === "not_disclosed") {
-      updated.hq_unknown = true;
-      updated.hq_unknown_reason = "not_disclosed";
-    } else {
-      updated.hq_unknown = false;
-      updated.hq_unknown_reason = null;
-    }
-
-    // Geocode HQ location for distance calculations
-    try {
-      const hqString = updated.headquarters_location;
-      if (hqString && typeof hqString === "string") {
-        const geocoded = await geocodeLocationArray([{ address: hqString }], { timeoutMs: 5000, concurrency: 1 });
-        if (geocoded?.[0]?.lat != null && geocoded?.[0]?.lng != null) {
-          const geo = geocoded[0];
-          updated.hq_lat = geo.lat;
-          updated.hq_lng = geo.lng;
-          updated.headquarters_locations = [{ address: hqString, ...geo }];
-          updated.headquarters = updated.headquarters_locations;
-        }
+    if (enriched.headquarters_location.headquarters_location) {
+      updated.headquarters_location = enriched.headquarters_location.headquarters_location;
+      if (enriched.headquarters_location.location_source_urls?.hq_source_urls) {
+        updated.hq_source_urls = enriched.headquarters_location.location_source_urls.hq_source_urls;
       }
-    } catch { /* geocoding failure is non-fatal */ }
+      // Set _unknown flag based on enrichment outcome
+      if (updated.headquarters_location_status === "not_disclosed") {
+        updated.hq_unknown = true;
+        updated.hq_unknown_reason = "not_disclosed";
+      } else {
+        updated.hq_unknown = false;
+        updated.hq_unknown_reason = null;
+      }
+
+      // Geocode HQ location for distance calculations
+      try {
+        const hqString = updated.headquarters_location;
+        if (hqString && typeof hqString === "string") {
+          const geocoded = await geocodeLocationArray([{ address: hqString }], { timeoutMs: 5000, concurrency: 1 });
+          if (geocoded?.[0]?.lat != null && geocoded?.[0]?.lng != null) {
+            const geo = geocoded[0];
+            updated.hq_lat = geo.lat;
+            updated.hq_lng = geo.lng;
+            updated.headquarters_locations = [{ address: hqString, ...geo }];
+            updated.headquarters = updated.headquarters_locations;
+          }
+        }
+      } catch { /* geocoding failure is non-fatal */ }
+    }
   }
 
   // Apply manufacturing_locations
-  if (enriched.manufacturing_locations?.manufacturing_locations) {
-    updated.manufacturing_locations = enriched.manufacturing_locations.manufacturing_locations;
+  if (enriched.manufacturing_locations) {
     updated.manufacturing_locations_status = enriched.manufacturing_locations.manufacturing_locations_status || "ok";
     updated.manufacturing_locations_searched_at = enriched.manufacturing_locations.searched_at;
-    if (enriched.manufacturing_locations.location_source_urls?.mfg_source_urls) {
-      updated.mfg_source_urls = enriched.manufacturing_locations.location_source_urls.mfg_source_urls;
-    }
-    // Set _unknown flag based on enrichment outcome
-    if (updated.manufacturing_locations_status === "not_disclosed") {
-      updated.mfg_unknown = true;
-      updated.mfg_unknown_reason = "not_disclosed";
-    } else {
-      updated.mfg_unknown = false;
-      updated.mfg_unknown_reason = null;
-    }
-
-    // Geocode manufacturing locations for distance calculations
-    try {
-      const mfgArr = updated.manufacturing_locations;
-      if (Array.isArray(mfgArr) && mfgArr.length > 0) {
-        const seeds = mfgArr.map((loc) =>
-          typeof loc === "string" ? { location: loc, address: loc } : loc
-        );
-        const geocoded = await geocodeLocationArray(seeds, { timeoutMs: 5000, concurrency: 4 });
-        if (geocoded && geocoded.length > 0) {
-          updated.manufacturing_geocodes = geocoded;
-        }
+    if (enriched.manufacturing_locations.manufacturing_locations) {
+      updated.manufacturing_locations = enriched.manufacturing_locations.manufacturing_locations;
+      if (enriched.manufacturing_locations.location_source_urls?.mfg_source_urls) {
+        updated.mfg_source_urls = enriched.manufacturing_locations.location_source_urls.mfg_source_urls;
       }
-    } catch { /* geocoding failure is non-fatal */ }
+      // Set _unknown flag based on enrichment outcome
+      if (updated.manufacturing_locations_status === "not_disclosed") {
+        updated.mfg_unknown = true;
+        updated.mfg_unknown_reason = "not_disclosed";
+      } else {
+        updated.mfg_unknown = false;
+        updated.mfg_unknown_reason = null;
+      }
+
+      // Geocode manufacturing locations for distance calculations
+      try {
+        const mfgArr = updated.manufacturing_locations;
+        if (Array.isArray(mfgArr) && mfgArr.length > 0) {
+          const seeds = mfgArr.map((loc) =>
+            typeof loc === "string" ? { location: loc, address: loc } : loc
+          );
+          const geocoded = await geocodeLocationArray(seeds, { timeoutMs: 5000, concurrency: 4 });
+          if (geocoded && geocoded.length > 0) {
+            updated.manufacturing_geocodes = geocoded;
+          }
+        }
+      } catch { /* geocoding failure is non-fatal */ }
+    }
   }
 
   // Apply product_keywords
-  if (enriched.product_keywords?.product_keywords) {
-    updated.product_keywords = enriched.product_keywords.product_keywords;
+  if (enriched.product_keywords) {
     updated.product_keywords_status = enriched.product_keywords.product_keywords_status || "ok";
     updated.product_keywords_searched_at = enriched.product_keywords.searched_at;
-    // Sync to keywords array — admin edit page reads keywords first (via buildCompanyDraft),
-    // and an empty [] from seed time is truthy so it never falls through to product_keywords.
-    if (Array.isArray(enriched.product_keywords.product_keywords) && enriched.product_keywords.product_keywords.length > 0) {
-      updated.keywords = enriched.product_keywords.product_keywords;
+    if (enriched.product_keywords.product_keywords) {
+      updated.product_keywords = enriched.product_keywords.product_keywords;
+      // Sync to keywords array — admin edit page reads keywords first (via buildCompanyDraft),
+      // and an empty [] from seed time is truthy so it never falls through to product_keywords.
+      if (Array.isArray(enriched.product_keywords.product_keywords) && enriched.product_keywords.product_keywords.length > 0) {
+        updated.keywords = enriched.product_keywords.product_keywords;
+      }
     }
   }
 
   // Apply logo_url
-  if (enriched.logo_url?.logo_url) {
-    updated.logo_url = enriched.logo_url.logo_url;
+  if (enriched.logo_url) {
     updated.logo_status = enriched.logo_url.logo_url_status || "ok";
     updated.logo_searched_at = enriched.logo_url.searched_at;
-    if (enriched.logo_url.logo_source) {
-      updated.logo_source = enriched.logo_url.logo_source;
+    if (enriched.logo_url.logo_url) {
+      updated.logo_url = enriched.logo_url.logo_url;
+      if (enriched.logo_url.logo_source) {
+        updated.logo_source = enriched.logo_url.logo_source;
+      }
     }
   }
 
   // Apply amazon_store_url
-  if (enriched.amazon_store_url?.amazon_store_url) {
-    updated.amazon_store_url = enriched.amazon_store_url.amazon_store_url;
+  if (enriched.amazon_store_url) {
     updated.amazon_store_url_status = enriched.amazon_store_url.amazon_store_url_status || "ok";
     updated.amazon_store_url_searched_at = enriched.amazon_store_url.searched_at;
+    if (enriched.amazon_store_url.amazon_store_url) {
+      updated.amazon_store_url = enriched.amazon_store_url.amazon_store_url;
+    }
   }
 
   // Apply reviews — write to curated_reviews (the persisted schema field)
+  // Guard: don't overwrite existing reviews with an empty array from a
+  // timeout/failure — empty arrays are truthy in JS so the outer check
+  // would pass even when there are no real reviews to save.
   if (enriched.reviews?.reviews || enriched.reviews?.review_candidates) {
     const reviews = enriched.reviews.reviews || enriched.reviews.review_candidates || [];
-    updated.curated_reviews = reviews;
-    updated.review_count = reviews.length;
+    if (reviews.length > 0 || !Array.isArray(updated.curated_reviews) || updated.curated_reviews.length === 0) {
+      updated.curated_reviews = reviews;
+      updated.review_count = reviews.length;
+    }
     const rawReviewsStatus = enriched.reviews.reviews_status || "ok";
     // Signal "incomplete" when review count is below the quality threshold so the
     // resume-worker re-fetches with the stronger fetchCuratedReviews() prompt.
