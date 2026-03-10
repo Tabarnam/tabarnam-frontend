@@ -4929,7 +4929,7 @@ export default function CompanyDashboard() {
                   </div>
                 </div>
 
-                <DialogFooter className="flex-none px-6 py-4 border-t">
+                <DialogFooter className="flex-none px-6 py-4 border-t relative">
                   {editorOriginalId ? (
                     <Button
                       variant="outline"
@@ -4949,7 +4949,8 @@ export default function CompanyDashboard() {
                   ) : (
                     <span className="mr-auto" />
                   )}
-                  <div className="flex items-center gap-1">
+                  {/* Undo/Redo — absolutely centered in footer */}
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1">
                     <Button
                       variant="outline"
                       size="icon"
@@ -4971,7 +4972,6 @@ export default function CompanyDashboard() {
                       <Redo2 className="h-4 w-4" />
                     </Button>
                   </div>
-                  <span className="mr-auto" />
                   <Button variant="outline" onClick={closeEditor}>
                     Cancel
                   </Button>
