@@ -1148,9 +1148,11 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       }
       return true;
     })
-    // Reject root/homepage URLs for the company's own domain — a review on the company site must link to a specific page
+    // Reject root/homepage URLs for the company's own domain — a review on the company site must link to a specific page.
+    // Exception: website testimonials (browseAboutPage may use the homepage as a last-resort source).
     .filter((x) => {
       if (isRootDomainUrl(x.source_url) && domain && x.source_url.includes(domain)) {
+        if (x.is_website_testimonial) return true;
         console.log(`[grokEnrichment] reviews: company_root_url_rejected: "${x.source_url}"`);
         return false;
       }
@@ -1258,8 +1260,14 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     }
 
     if (!verified.ok) {
-      console.log(`[grokEnrichment] reviews: URL failed verification: ${c.source_url} (${verified.reason})`);
-      continue;
+      // Company websites may redirect to CDN/Shopify domains — accept for website testimonials
+      if (c.is_website_testimonial && verified.reason === "cross_domain_redirect") {
+        console.log(`[grokEnrichment] reviews: cross_domain_redirect accepted for website testimonial: ${c.source_url} → ${verified.final_url}`);
+        verified = { ok: true, url: c.source_url, final_url: c.source_url, status: verified.status };
+      } else {
+        console.log(`[grokEnrichment] reviews: URL failed verification: ${c.source_url} (${verified.reason})`);
+        continue;
+      }
     }
 
     // Use Grok-provided metadata; fall back to HTML meta only for missing fields
