@@ -2608,7 +2608,9 @@ Return STRICT JSON only:
   ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
 }`.trim();
 
-  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+  // Don't exclude company domain — the prompt needs Grok to browse the company website
+  // for contact/about page addresses. Domain exclusion only makes sense for reviews.
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: null });
 
   console.log(`[fetchLocationFields] prompt_summary: company="${name}", domain="${domain}", fields=["headquarters_location","manufacturing_locations"], prompt_chars=${prompt.length}, budget=${budgetMs}ms`);
 
@@ -2739,7 +2741,8 @@ Return STRICT JSON only:
   ${FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness}
 }`.trim();
 
-  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+  // Don't exclude company domain — the prompt needs Grok to browse product/shop pages.
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: null });
 
   console.log(`[fetchKeywordFields] prompt_summary: company="${name}", domain="${domain}", fields=["product_keywords"], prompt_chars=${prompt.length}, budget=${budgetMs}ms`);
 
@@ -2878,7 +2881,8 @@ Return STRICT JSON only:
   "logo_source": "header" | "nav" | "footer" | "meta" | null
 }`.trim();
 
-  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+  // Don't exclude company domain — the prompt needs Grok to browse the homepage.
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: null });
 
   console.log(`[fetchLightFields] prompt_summary: company="${name}", domain="${domain}", fields=["tagline","industries","logo_url"], prompt_chars=${prompt.length}, budget=${budgetMs}ms`);
 
