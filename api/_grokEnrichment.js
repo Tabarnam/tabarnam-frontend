@@ -930,10 +930,16 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
+  // When browseAboutPage, remove company domain + yelp from prompt exclusions.
+  // Step 1 NEEDS to browse the company website; Step 2 may find Yelp/TripAdvisor reviews.
+  const promptExcludeDomains = browseAboutPage
+    ? excludeDomains.filter(d => d !== domain && d !== `www.${domain}` && !d.startsWith("yelp"))
+    : excludeDomains;
+
   // Declarative review prompt: ask for what we want, let Grok decide how to find it.
   // Client-side verification (URL reachability + YouTube oEmbed) provides a safety net.
   // On retry (browseAboutPage=true), switch to 2-phase: website review + targeted external search.
-  const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, excludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)", { browseAboutPage })}
+  const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, promptExcludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)", { browseAboutPage })}
 ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
   // v3.0: use TWO_CALL_TIMEOUTS_MS for generous review timeout (3-5 min)
@@ -960,10 +966,17 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     }
   }
 
-  const searchBuild = buildSearchParameters({
-    companyWebsiteHost: domain,
-    additionalExcludedHosts: excludeDomains,
-  });
+  // When browseAboutPage, don't exclude the company domain from web_search tool —
+  // Step 1 needs Grok to access company pages via web_search.
+  const searchBuild = browseAboutPage
+    ? buildSearchParameters({
+        companyWebsiteHost: null,
+        additionalExcludedHosts: excludeDomains.filter(d => d !== domain && d !== `www.${domain}`),
+      })
+    : buildSearchParameters({
+        companyWebsiteHost: domain,
+        additionalExcludedHosts: excludeDomains,
+      });
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
