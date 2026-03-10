@@ -4949,26 +4949,29 @@ export default function CompanyDashboard() {
                   ) : (
                     <span className="mr-auto" />
                   )}
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={editorHistory.undo}
-                    disabled={!editorHistory.canUndo}
-                    title="Undo (Ctrl+Z)"
-                    className="h-9 w-9"
-                  >
-                    <Undo2 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={editorHistory.redo}
-                    disabled={!editorHistory.canRedo}
-                    title="Redo (Ctrl+Y)"
-                    className="h-9 w-9"
-                  >
-                    <Redo2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={editorHistory.undo}
+                      disabled={!editorHistory.canUndo}
+                      title="Undo (Ctrl+Z)"
+                      className="h-9 w-9"
+                    >
+                      <Undo2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={editorHistory.redo}
+                      disabled={!editorHistory.canRedo}
+                      title="Redo (Ctrl+Y)"
+                      className="h-9 w-9"
+                    >
+                      <Redo2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <span className="mr-auto" />
                   <Button variant="outline" onClick={closeEditor}>
                     Cancel
                   </Button>
