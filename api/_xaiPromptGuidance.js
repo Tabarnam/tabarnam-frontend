@@ -284,35 +284,24 @@ Return up to 5 verified reviews. Quality over quantity.`;
           : "";
       const companyRef = websiteUrl ? `${companyName} (${websiteUrl})` : companyName;
 
-      // ── Retry prompt: browse company website first, then targeted external search ──
+      // ── Fallback prompt: extract a "review" from the company's own website ──
       if (opts.browseAboutPage) {
-        return `A previous search for third-party reviews of ${companyRef} found no results.
-This time, start by gathering context from the company's own website, then search externally.
+        return `The standard review search for ${companyRef} did not find enough results.
+Create ONE review entry from the company's own website content.
 
-STEP 1 — COMPANY WEBSITE REVIEW:
-Use browse_page to visit these pages on ${websiteUrl} (try each in order, skip any that 404):
-- /about, /about-us, /our-story, /our-mission
-- /faq
-- /testimonials, /reviews
+Visit these pages on ${websiteUrl} (try each, skip any that 404):
+1. /testimonials or /reviews (customer testimonials — PREFERRED)
+2. /about, /about-us, /our-story, /our-mission (company story)
+3. /faq (frequently asked questions)
+4. If none of the above exist, use the homepage at ${websiteUrl}
 
-From what you find, create ONE review entry:
-- Use source_name: "Website - [page type]" (e.g., "Website - About", "Website - Testimonials")
-- The excerpt should capture EITHER:
-  (a) A real customer testimonial found on the site (preferred), OR
-  (b) The company's story, mission, or what makes their products unique
-- Use the actual page URL as source_url (e.g., ${websiteUrl}/about-us)
-- Author should be the customer name (for testimonials) or "${companyName}" (for about/mission)
+From the FIRST page that loads successfully, create ONE review entry:
+- source_name: "Website - [page type]" (e.g., "Website - Testimonials", "Website - About", "Website - Home")
+- excerpt: A customer testimonial (preferred), OR the company's story/mission/what makes their products unique. Minimum 30 characters.
+- source_url: The actual page URL you visited (e.g., ${websiteUrl}/about-us)
+- author: The customer name (for testimonials) or "${companyName}" (for about/mission content)
 
-STEP 2 — TARGETED EXTERNAL SEARCH:
-Using the products and brand positioning you learned in Step 1, run 1-2 web_search queries:
-1. web_search "${companyName} [specific product you discovered on their site] review"
-2. Only if search 1 yields no results: web_search "${companyName} [product category] review"
-
-Look for YouTube videos, lifestyle blogs, food/drink magazines, Yelp, TripAdvisor, or independent review sites.
-
-REJECT: reviews of a DIFFERENT company with a similar name, generic product listings without review content.
-${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
-Return up to 2 reviews total (1 from website + 1 external). Quality over quantity.
+Return exactly 1 review.
 ${attemptedExclusion}`;
       }
 

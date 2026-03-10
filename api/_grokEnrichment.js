@@ -930,15 +930,15 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // When browseAboutPage, remove company domain + yelp from prompt exclusions.
-  // Step 1 NEEDS to browse the company website; Step 2 may find Yelp/TripAdvisor reviews.
+  // When browseAboutPage, remove company domain from prompt exclusions —
+  // the retry prompt needs to browse the company's own website pages.
   const promptExcludeDomains = browseAboutPage
-    ? excludeDomains.filter(d => d !== domain && d !== `www.${domain}` && !d.startsWith("yelp"))
+    ? excludeDomains.filter(d => d !== domain && d !== `www.${domain}`)
     : excludeDomains;
 
   // Declarative review prompt: ask for what we want, let Grok decide how to find it.
   // Client-side verification (URL reachability + YouTube oEmbed) provides a safety net.
-  // On retry (browseAboutPage=true), switch to 2-phase: website review + targeted external search.
+  // On retry (browseAboutPage=true), simplified website-only fallback: browse company pages to constitute 1 review.
   const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, promptExcludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)", { browseAboutPage })}
 ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
@@ -967,7 +967,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   }
 
   // When browseAboutPage, don't exclude the company domain from web_search tool —
-  // Step 1 needs Grok to access company pages via web_search.
+  // the retry prompt needs Grok to browse company website pages.
   const searchBuild = browseAboutPage
     ? buildSearchParameters({
         companyWebsiteHost: null,
@@ -4076,6 +4076,39 @@ async function enrichCompanyFields({
   if (reviews?.curated_reviews?.length > 0) {
     proposed.reviews = reviews.curated_reviews;
     field_statuses.reviews = reviews.reviews_stage_status || "ok";
+
+    // If first attempt found 1-2 reviews ("incomplete") and budget allows,
+    // supplement with browseAboutPage to add a website review
+    if (field_statuses.reviews === "incomplete"
+        && !retryHints?.browseAboutPage
+        && getRemainingMs() > CALL_TIMEOUTS_MS.reviews.min + 15_000) {
+      const incReason = reviews?.diagnostics?.reason || "insufficient_verified_reviews";
+      console.log(`[enrichCompanyFields] Reviews incomplete (${proposed.reviews.length} found, reason=${incReason}), supplementing with browseAboutPage, budget_remaining=${getRemainingMs()}ms, run=${runId}`);
+      const retryStarted = Date.now();
+      const retryResult = await fetchCuratedReviews({
+        companyName, normalizedDomain: domain,
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
+        xaiUrl, xaiKey,
+        browseAboutPage: true,
+      });
+      const retryElapsed = Date.now() - retryStarted;
+
+      if (retryResult?.curated_reviews?.length > 0) {
+        const existingUrls = new Set(proposed.reviews.map(r => r?.source_url).filter(Boolean));
+        const newReviews = retryResult.curated_reviews.filter(r => !existingUrls.has(r?.source_url));
+        proposed.reviews = proposed.reviews.concat(newReviews);
+        console.log(`[enrichCompanyFields] browseAboutPage supplement SUCCESS: +${newReviews.length} new (total=${proposed.reviews.length}), elapsed=${retryElapsed}ms, run=${runId}`);
+      } else {
+        console.log(`[enrichCompanyFields] browseAboutPage supplement empty, elapsed=${retryElapsed}ms, run=${runId}`);
+      }
+      // Accept whatever total we have — browseAboutPage is best-effort supplement
+      field_statuses.reviews = "ok";
+
+      if (proposed.reviews.length > 0 && typeof onIntermediateSave === "function") {
+        try { await onIntermediateSave({ reviews: proposed.reviews }); }
+        catch (e) { console.warn(`[enrichCompanyFields] Supplemented reviews save failed: ${e?.message}, run=${runId}`); }
+      }
+    }
   } else if (wantReviews) {
     const reviewReason = reviews?.diagnostics?.reason || reviews?.reviews_stage_status || "unknown";
     const retryBudget = getRemainingMs();
