@@ -598,10 +598,26 @@ function isRealValue(field, value, doc) {
   }
 
   if (f === "product_keywords") {
+    // Memoize: sanitizeKeywords is expensive and logs on every call.
+    // import-status polls call isRealValue many times per company with
+    // identical data, so cache the result on the doc object.
+    const rawStr = typeof value === "string" ? value : Array.isArray(value) ? value.join(", ") : "";
+    const kwArr = doc?.keywords;
+    const cacheKey = `${rawStr.length}|${(Array.isArray(kwArr) ? kwArr.length : 0)}`;
+    if (doc && doc._kwCacheKey === cacheKey && doc._kwRelevantCount != null) {
+      return doc._kwRelevantCount >= 1;
+    }
+
     const stats = sanitizeKeywords({
-      product_keywords: typeof value === "string" ? value : Array.isArray(value) ? value.join(", ") : "",
-      keywords: doc?.keywords,
+      product_keywords: rawStr,
+      keywords: kwArr,
     });
+
+    // Cache result on doc for subsequent calls with same data
+    if (doc) {
+      doc._kwCacheKey = cacheKey;
+      doc._kwRelevantCount = stats.product_relevant_count;
+    }
 
     // Quality gate: require at least 1 meaningful keyword after sanitization.
     if (stats.product_relevant_count < 1) return false;
