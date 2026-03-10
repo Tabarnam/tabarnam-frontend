@@ -944,7 +944,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = Math.min(stageTimeout.min + 1_200, RESUME_MIN_BUDGET_MS);
-  console.log(`[grokEnrichment] fetchCuratedReviews: budgetMs=${budgetMs}, remaining=${remaining}, minRequired=${minRequired}, hasStub=${hasStub}`);
+  console.log(`[grokEnrichment] fetchCuratedReviews: budgetMs=${budgetMs}, remaining=${remaining}, minRequired=${minRequired}, hasStub=${hasStub}, browseAboutPage=${browseAboutPage}`);
   if (!hasStub) {
     if (remaining < minRequired) {
       logResult("deferred", `remaining=${remaining}ms, minRequired=${minRequired}ms`);
