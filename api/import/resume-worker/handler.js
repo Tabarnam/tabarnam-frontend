@@ -2281,7 +2281,12 @@ async function resumeWorkerHandler(req, context) {
             xaiUrl,
             xaiKey,
             fieldsToEnrich: missingFields,
-            retryHints: hadStructuredTimeout ? { hadStructuredTimeout: true } : undefined,
+            retryHints: (hadStructuredTimeout || (cycleCount > 0 && missingFields.includes("reviews")))
+              ? {
+                  hadStructuredTimeout: !!hadStructuredTimeout,
+                  browseAboutPage: cycleCount > 0 && missingFields.includes("reviews"),
+                }
+              : undefined,
             skipDedicatedDeepening: false, // Allow Phase 3 for reviews/keywords deepening
             onIntermediateSave: async (verified) => {
               try {

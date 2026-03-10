@@ -902,6 +902,7 @@ async function fetchCuratedReviews({
   xaiKey,
   model = "grok-4-latest",
   attempted_urls = [],
+  browseAboutPage = false,
 } = {}) {
   const started = Date.now();
 
@@ -931,7 +932,8 @@ async function fetchCuratedReviews({
 
   // Declarative review prompt: ask for what we want, let Grok decide how to find it.
   // Client-side verification (URL reachability + YouTube oEmbed) provides a safety net.
-  const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, excludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)")}
+  // On retry (browseAboutPage=true), switch to 2-phase: website review + targeted external search.
+  const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, excludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)", { browseAboutPage })}
 ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
   // v3.0: use TWO_CALL_TIMEOUTS_MS for generous review timeout (3-5 min)
@@ -3881,6 +3883,7 @@ async function enrichCompanyFields({
         companyName, normalizedDomain: domain,
         budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 5000),
         xaiUrl, xaiKey,
+        browseAboutPage: !!retryHints?.browseAboutPage,
       }).then((r) => ({ type: "reviews", result: r })));
     }
 
@@ -3990,6 +3993,7 @@ async function enrichCompanyFields({
         companyName, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey,
+        browseAboutPage: !!retryHints?.browseAboutPage,
       }).then(async (result) => {
         if (result?.curated_reviews?.length > 0 && typeof onIntermediateSave === "function") {
           try {

@@ -273,7 +273,7 @@ SENTIMENT: Prefer reviews that are positive, neutral, or constructively critical
 Return up to 5 verified reviews. Quality over quantity.`;
     },
     // Full investigation rules for dedicated review fetcher (web_search includes page browsing)
-    rulesFull: (companyName, excludeDomains, attemptedUrls, websiteUrl) => {
+    rulesFull: (companyName, excludeDomains, attemptedUrls, websiteUrl, opts = {}) => {
       const attemptedExclusion =
         Array.isArray(attemptedUrls) && attemptedUrls.length > 0
           ? `\nPREVIOUSLY TRIED URLs (all failed verification — do NOT return any of these):\n${attemptedUrls.map((u) => `- ${u}`).join("\n")}\nFind DIFFERENT sources instead.\n`
@@ -283,6 +283,40 @@ Return up to 5 verified reviews. Quality over quantity.`;
           ? excludeDomains.join(", ")
           : "";
       const companyRef = websiteUrl ? `${companyName} (${websiteUrl})` : companyName;
+
+      // ── Retry prompt: browse company website first, then targeted external search ──
+      if (opts.browseAboutPage) {
+        return `A previous search for third-party reviews of ${companyRef} found no results.
+This time, start by gathering context from the company's own website, then search externally.
+
+STEP 1 — COMPANY WEBSITE REVIEW:
+Use browse_page to visit these pages on ${websiteUrl} (try each in order, skip any that 404):
+- /about, /about-us, /our-story, /our-mission
+- /faq
+- /testimonials, /reviews
+
+From what you find, create ONE review entry:
+- Use source_name: "Website - [page type]" (e.g., "Website - About", "Website - Testimonials")
+- The excerpt should capture EITHER:
+  (a) A real customer testimonial found on the site (preferred), OR
+  (b) The company's story, mission, or what makes their products unique
+- Use the actual page URL as source_url (e.g., ${websiteUrl}/about-us)
+- Author should be the customer name (for testimonials) or "${companyName}" (for about/mission)
+
+STEP 2 — TARGETED EXTERNAL SEARCH:
+Using the products and brand positioning you learned in Step 1, run 1-2 web_search queries:
+1. web_search "${companyName} [specific product you discovered on their site] review"
+2. Only if search 1 yields no results: web_search "${companyName} [product category] review"
+
+Look for YouTube videos, lifestyle blogs, food/drink magazines, Yelp, TripAdvisor, or independent review sites.
+
+REJECT: reviews of a DIFFERENT company with a similar name, generic product listings without review content.
+${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
+Return up to 2 reviews total (1 from website + 1 external). Quality over quantity.
+${attemptedExclusion}`;
+      }
+
+      // ── Standard first-attempt prompt ──
       return `Find 2 unique, legitimate third-party reviews of ${companyRef}.
 
 BRAND DISAMBIGUATION:
