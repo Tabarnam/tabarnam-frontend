@@ -399,6 +399,7 @@ function clampStageTimeoutMs({
   minMs = 2_500,
   maxMs = resolveXaiStageTimeoutMaxMs(),
   safetyMarginMs = 1_200,
+  label = "",
 } = {}) {
   const rem = Number.isFinite(Number(remainingMs)) ? Number(remainingMs) : 0;
   const min = clampInt(minMs, { min: 250, max: 600_000, fallback: 2_500 });
@@ -406,7 +407,11 @@ function clampStageTimeoutMs({
   const safety = clampInt(safetyMarginMs, { min: 0, max: 20_000, fallback: 1_200 });
 
   const raw = Math.max(0, Math.trunc(rem - safety));
-  return Math.max(min, Math.min(max, raw));
+  const result = Math.max(min, Math.min(max, raw));
+  if (label) {
+    console.log(`[clampStageTimeout] ${label}: ${result}ms (remaining=${rem}, min=${min}, max=${max}, safety=${safety})`);
+  }
+  return result;
 }
 
 function asString(value) {
@@ -467,6 +472,7 @@ function mergeArrayResponse(parsed) {
   // elements.  Shallow Object.assign would let the second object's
   // location_source_urls overwrite the first, silently losing hq_source_urls.
   const result = {};
+  const deepMergedKeys = [];
   for (const obj of parsed) {
     for (const [key, val] of Object.entries(obj)) {
       if (
@@ -474,10 +480,14 @@ function mergeArrayResponse(parsed) {
         result[key] && typeof result[key] === "object" && !Array.isArray(result[key])
       ) {
         Object.assign(result[key], val);
+        deepMergedKeys.push(key);
       } else {
         result[key] = val;
       }
     }
+  }
+  if (deepMergedKeys.length > 0) {
+    console.log(`[mergeArrayResponse] deep-merged keys: [${deepMergedKeys.join(", ")}]`);
   }
   return result;
 }
@@ -962,6 +972,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
+      label: "reviews",
     }),
     maxAttempts: 1,   // No retry — review timeout is already generous (150-240s); retrying doubles it
     maxTokens: 2000,  // 2 reviews need less output than the previous 3-5
@@ -1004,6 +1015,13 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       : null,
     top_keys: Object.keys(_respInner).slice(0, 12),
   });
+
+  // Scannable web_search_call count (avoids manual counting in response_shape output_types)
+  const _outputTypes = Array.isArray(_respInner.output)
+    ? _respInner.output.map(i => i?.type || "?")
+    : [];
+  const _webSearchCallCount = _outputTypes.filter(t => t === "web_search_call").length;
+  console.log(`[fetchCuratedReviews] web_search_calls=${_webSearchCallCount}, elapsed=${Date.now() - started}ms`);
 
   // Parse response — try plain-text format first (Source:/Author:/URL:), fall back to JSON.
   const rawText = asString(extractTextFromXaiResponse(r.resp));
@@ -1374,6 +1392,7 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
       minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
+      label: "headquarters",
     }),
     maxTokens: 400,
     model: resolveSearchModel(),
@@ -1536,6 +1555,7 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
       minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
+      label: "manufacturing",
     }),
     maxTokens: 500,
     model: resolveSearchModel(),
@@ -1692,6 +1712,7 @@ Return:
       minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
+      label: "tagline",
     }),
     maxTokens: 180,
     model: resolveSearchModel(model),
@@ -1821,6 +1842,7 @@ Return:
       minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
+      label: "industries",
     }),
     maxTokens: 220,
     model: resolveSearchModel(model),
@@ -1945,6 +1967,7 @@ ${FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness}
       minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
+      label: "product_keywords",
     }),
     maxTokens: 2400,  // Large budget for exhaustive product catalogs with variants
     model: resolveSearchModel(model),
@@ -2123,6 +2146,7 @@ Return logo_url if a direct image URL exists. Return svg_code ONLY when the logo
       minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
+      label: "logo",
     }),
     maxTokens: 2000,
     model: resolveSearchModel(model),
@@ -2356,6 +2380,7 @@ Return STRICT JSON only:
       minMs: 30_000,
       maxMs: 120_000,
       safetyMarginMs: 5_000,
+      label: "unified",
     }),
     maxAttempts: 1, // No retry — retrying doubles Phase 1 (110s×2=220s)
     maxTokens: 4000,
@@ -2571,6 +2596,7 @@ Return STRICT JSON only:
       minMs: CALL_TIMEOUTS_MS.locations.min,
       maxMs: CALL_TIMEOUTS_MS.locations.max,
       safetyMarginMs: 5_000,
+      label: "locations",
     }),
     maxAttempts: 1,
     maxTokens: 1500,
@@ -2701,6 +2727,7 @@ Return STRICT JSON only:
       minMs: CALL_TIMEOUTS_MS.keywords.min,
       maxMs: CALL_TIMEOUTS_MS.keywords.max,
       safetyMarginMs: 5_000,
+      label: "keywords",
     }),
     maxAttempts: 1,
     maxTokens: 1500,
@@ -2839,6 +2866,7 @@ Return STRICT JSON only:
       minMs: CALL_TIMEOUTS_MS.light.min,
       maxMs: CALL_TIMEOUTS_MS.light.max,
       safetyMarginMs: 5_000,
+      label: "light",
     }),
     maxAttempts: 1,
     maxTokens: 2000,
@@ -3004,6 +3032,7 @@ Return STRICT JSON only:
       minMs: TWO_CALL_TIMEOUTS_MS.structured.min,
       maxMs: TWO_CALL_TIMEOUTS_MS.structured.max,
       safetyMarginMs: 5_000,
+      label: "structured",
     }),
     maxAttempts: 1,
     maxTokens: 4000,
@@ -3291,6 +3320,7 @@ Return STRICT JSON only with the requested fields:
       minMs: TWO_CALL_TIMEOUTS_MS.structured.min,
       maxMs: TWO_CALL_TIMEOUTS_MS.structured.max,
       safetyMarginMs: 5_000,
+      label: "structured_retry",
     }),
     maxAttempts: 1,
     maxTokens: 2000,
@@ -3954,6 +3984,7 @@ async function enrichCompanyFields({
       }).then((r) => earlySave(r, "light", LIGHT_OWNED_PARSED))
     : Promise.resolve(null);
 
+  const reviewsStarted = Date.now();
   const reviewsPromise = wantReviews
     ? fetchCuratedReviews({
         companyName, normalizedDomain: domain,
@@ -3968,6 +3999,8 @@ async function enrichCompanyFields({
             console.warn(`[enrichCompanyFields] Early reviews save failed: ${e?.message}, run=${runId}`);
           }
         }
+        // Inject elapsed_ms for per-call breakdown logging
+        if (result && typeof result === "object") result.elapsed_ms = Date.now() - reviewsStarted;
         return result;
       })
     : Promise.resolve(null);
@@ -3991,6 +4024,15 @@ async function enrichCompanyFields({
   const keywords = kwSettled.status === "fulfilled" ? kwSettled.value : null;
   const light = lightSettled.status === "fulfilled" ? lightSettled.value : null;
   const reviews = revSettled.status === "fulfilled" ? revSettled.value : null;
+
+  // Per-call elapsed breakdown for performance diagnostics
+  const callElapsed = {
+    locations: locations?.elapsed_ms ?? (locSettled.status === "rejected" ? "rejected" : "(n/a)"),
+    keywords:  keywords?.elapsed_ms ?? (kwSettled.status === "rejected" ? "rejected" : "(n/a)"),
+    light:     light?.elapsed_ms ?? (lightSettled.status === "rejected" ? "rejected" : "(n/a)"),
+    reviews:   reviews?.elapsed_ms ?? (revSettled.status === "rejected" ? "rejected" : "(n/a)"),
+  };
+  console.log(`[enrichCompanyFields] call_elapsed`, callElapsed, `run=${runId}`);
 
   let proposed = {};
   let field_statuses = {};
