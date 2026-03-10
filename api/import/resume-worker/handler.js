@@ -45,6 +45,7 @@ const { importCompanyLogo } = require("../../_logoImport");
 const { PROMPT_GUIDANCE_VERSION } = require("../../_xaiPromptGuidance");
 
 const { geocodeLocationString } = require("../../_geocode");
+const { computeProfileCompleteness } = require("../../_profileCompleteness");
 
 const HANDLER_ID = "import-resume-worker";
 
@@ -2403,6 +2404,12 @@ async function resumeWorkerHandler(req, context) {
         // Save doc after unified enrichment
         doc.import_missing_fields = computeMissingFields(doc);
         doc.updated_at = nowIso();
+
+        // Recompute profile completeness — seed-time value (0%) is stale after enrichment.
+        const completeness = computeProfileCompleteness(doc);
+        doc.profile_completeness = completeness.profile_completeness;
+        doc.profile_completeness_version = completeness.profile_completeness_version;
+        doc.profile_completeness_meta = completeness.profile_completeness_meta;
 
         // Clear stale seed flags now that enrichment has run.  These flags are set
         // at initial import but never cleared, causing the duplicate-detection gate

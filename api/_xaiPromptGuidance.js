@@ -50,6 +50,7 @@ MINIMUM TOOL USAGE (mandatory):
 STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
 - ONLY use text that appears on the company's LIVE official website (contact page, about page, footer, shipping policy, privacy page).
 - Use browse_page on the company URL. Prioritize: /contact, /contact-us, then /about, /about-us, /our-story.
+- For Shopify sites, also try /pages/ variants: /pages/contact, /pages/about, /pages/our-story.
 - The CONTACT PAGE is the single most reliable source for the current address. Check it first.
 - Also check: footer addresses, legal/privacy page addresses, ordering/shipping pages.
 - Look for: physical addresses, "headquartered in..." statements, mailing addresses.
@@ -117,8 +118,9 @@ MINIMUM TOOL USAGE (mandatory):
 STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
 - ONLY use text that appears on the company's LIVE official website. Do NOT attribute manufacturing locations from third-party sources unless the official website is silent.
 - Use browse_page on the company URL. Also try /about, /about-us, /our-story, /faq, /sustainability, /contact, /shipping-policy.
-- Look for: "manufactured in...", "produced at our facility in...", "Made in...", facility addresses, supply chain or sustainability pages.
-- Check product pages and packaging images for "Made in [Country]" labels.
+- For Shopify sites, also try /pages/ variants: /pages/about, /pages/our-story, /pages/faq, /pages/contact.
+- Look for: "manufactured in...", "produced at our facility in...", "Made in...", "sourced and processed in...", "traceable to...", "harvested and processed in...", facility addresses, supply chain or sustainability pages.
+- Check product pages — not just "Made in [Country]" labels, but also product descriptions that mention where the product is sourced, processed, cured, smoked, or packaged. For food companies, if raw materials are sourced AND processed at the same location, that location is a manufacturing site.
 - If the website states manufacturing locations, that is the PRIMARY source of truth.
 
 STEP 2 — WEB SEARCH TO FIND ALL FACILITIES (secondary to the live website).
