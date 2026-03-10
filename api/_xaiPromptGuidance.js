@@ -283,49 +283,26 @@ Return up to 5 verified reviews. Quality over quantity.`;
           ? excludeDomains.join(", ")
           : "";
       const companyRef = websiteUrl ? `${companyName} (${websiteUrl})` : companyName;
-      return `Find 3-5 unique, legitimate third-party reviews of ${companyRef} using multiple search strategies.
+      return `Find 2 unique, legitimate third-party reviews of ${companyRef}.
 
-CRITICAL — BRAND DISAMBIGUATION:
-${companyName} must refer to the company at ${websiteUrl || "(see URL above)"}.
-Before including ANY review, verify it discusses products sold on that website — not a similarly-named company, different division, or unrelated brand.
-For example, if the company is "WestPoint Home" (home textiles), do NOT include reviews of "WestPoint" kitchen appliances (a different company).
+BRAND DISAMBIGUATION:
+${companyName} must refer to the company at ${websiteUrl || "(see URL above)"}. Before including ANY review, verify it discusses products sold on that website — not a similarly-named company or unrelated brand.
 
-PRIMARY SUBJECT RULE — CRITICAL:
-The review must be primarily ABOUT ${companyName}'s products or brand.
-REJECT reviews where:
-- The company is merely mentioned in passing within a broader article
-- The company appears as one item in a roundup of 10+ brands
-- The company is referenced as a partner, sponsor, or collaboration in an article about ANOTHER entity (e.g., a restaurant article that mentions the company's soda as a drink option)
-- The article's headline/title does not reference ${companyName} or its products
-A valid review is one where a reader would say "this article is ABOUT ${companyName}."
-Exception: "top 5"/"best of" lists where the company has a dedicated section with 2+ sentences of substantive commentary are acceptable.
+PRIMARY SUBJECT RULE:
+The review must be primarily ABOUT ${companyName}'s products. REJECT reviews where the company is merely mentioned in passing, appears as one item in a 10+ brand roundup, or is referenced as a partner in an article about another entity.
+Exception: "top 5"/"best of" lists with a dedicated section of 2+ sentences are acceptable.
 
-SEARCH STRATEGY — run at least 3 separate searches, prioritizing magazines, YouTube, and blogs:
-1. YouTube reviews: web_search "${companyName} review site:youtube.com" — product reviews, taste tests, unboxing, comparison videos
-2. Magazine/blog reviews: web_search "${companyName} review" — look specifically for lifestyle blogs, food/drink magazines, industry magazines, and independent review blogs (e.g., tastingtable.com, thedailymeal.com, eater.com, bonappetit.com, wirecutter.com)
-3. Product-specific: web_search "${companyName} [flagship product name] review" — target the company's main products by name for more precise results
-4. If those yield fewer than 3: try "${companyName} honest review", "${companyName} [product] comparison", or "${companyName} worth it"
-5. Website testimonial: Also browse ${websiteUrl || "the company website"} and look for a specific About page, Testimonials page, Press page, or customer quotes page. The URL must be a specific page (e.g., /about, /testimonials, /press), NEVER the site root (/). If found, include exactly ONE entry using Source: "${companyName} Website" — this signals it is a company-sourced testimonial, not a third-party review. Include this alongside any third-party reviews found above.
+SEARCH STRATEGY — run 1-2 searches:
+1. web_search "${companyName} review" — look for YouTube videos, lifestyle blogs, food/drink magazines, and independent review sites
+2. Only if search 1 yields fewer than 2 results: web_search "${companyName} [flagship product] review"
 
-VERIFICATION — for EACH candidate URL, use browse_page to confirm:
-- The page loads without errors (no 404, "page not found", paywall)
-- Contains a substantive review, taste test, or opinion about ${companyName}'s products
-- The reviewer is NOT affiliated with ${companyName}
-- The review is about THIS specific company's products (match against ${websiteUrl || "the company website"})
+Do NOT use browse_page to verify candidate URLs — just return the best matches from search results.
 
-REJECT:
-- Error pages, brand-not-found notices, paywall, empty brand pages
-- Generic product listings without review content
-- Reviews of a DIFFERENT company with a similar name
-- Reviews that are predominantly negative or dismissive — prefer positive, neutral, or constructively critical coverage
+REJECT: reviews of a DIFFERENT company with a similar name, generic product listings without review content, predominantly negative reviews.
 
-REVIEW SENTIMENT PREFERENCE:
-Our platform presents these reviews to help consumers discover products. Prefer reviews that highlight product quality, features, or value. Constructive criticism is fine. Do NOT include reviews whose primary message is that the product is bad, disliked, or not recommended — unless that is the ONLY coverage available.
-
-SOURCE PREFERENCE: Strongly prefer magazines, YouTube, blogs, and X (Twitter) as review sources. Aim for 2-3 YouTube videos from different creators plus 2-3 written articles from magazines, blogs, or X threads. Other sources (news sites, Facebook, forums) are acceptable ONLY as fallbacks when preferred source coverage is insufficient. Do not include the same author more than once.
+SOURCE PREFERENCE: Prefer YouTube videos and written articles from magazines/blogs. Do not include the same author more than once.
 ${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
-Return up to 5 verified reviews. Quality over quantity — 3 strong reviews beat 5 weak ones.
-Always include one website testimonial (strategy 5) in addition to any third-party reviews found.
+Return up to 2 reviews. Quality over quantity.
 ${attemptedExclusion}`;
     },
     // JSON shapes

@@ -460,7 +460,26 @@ function mergeArrayResponse(parsed) {
   if (parsed.length === 0) return null;
   // Only merge if every element is a plain object (not a nested array / null / primitive)
   if (!parsed.every(el => el && typeof el === "object" && !Array.isArray(el))) return parsed;
-  return Object.assign({}, ...parsed);
+
+  // Deep merge (one level): recursively merge nested plain objects instead
+  // of overwriting.  Preserves hq_source_urls AND mfg_source_urls when they
+  // live under the same parent key (location_source_urls) in separate array
+  // elements.  Shallow Object.assign would let the second object's
+  // location_source_urls overwrite the first, silently losing hq_source_urls.
+  const result = {};
+  for (const obj of parsed) {
+    for (const [key, val] of Object.entries(obj)) {
+      if (
+        val && typeof val === "object" && !Array.isArray(val) &&
+        result[key] && typeof result[key] === "object" && !Array.isArray(result[key])
+      ) {
+        Object.assign(result[key], val);
+      } else {
+        result[key] = val;
+      }
+    }
+  }
+  return result;
 }
 
 function parseJsonFromXaiResponse(resp) {
@@ -945,7 +964,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       safetyMarginMs: 1_200,
     }),
     maxAttempts: 1,   // No retry — review timeout is already generous (150-240s); retrying doubles it
-    maxTokens: 4000,  // Increased — browse_page responses include page content in tool chain
+    maxTokens: 2000,  // 2 reviews need less output than the previous 3-5
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,

@@ -91,6 +91,17 @@ function extractJsonFromText(text) {
       console.log(`[extractJsonFromText] Repaired orphan objects in malformed JSON`);
       return repaired;
     }
+
+    // Recovery: Grok sometimes returns bare comma-separated objects instead
+    // of wrapping them in an array: {hq...},{mfg...}
+    // Wrap in [...] to produce a valid JSON array.
+    if (slice.includes("},{")) {
+      const asArray = safeJsonParse("[" + slice + "]");
+      if (asArray != null) {
+        console.log(`[extractJsonFromText] Recovered comma-separated objects as array (${asArray.length} elements)`);
+        return asArray;
+      }
+    }
   }
 
   // Fallback: try extracting an array.
