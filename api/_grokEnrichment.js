@@ -1368,7 +1368,14 @@ async function fetchHeadquartersLocation({ companyName, normalizedDomain, budget
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   const prompt = `${SEARCH_PREAMBLE}
-
+${websiteUrlForPrompt ? `
+PRIORITY: Before any web searches, browse these pages of the company website first:
+- ${websiteUrlForPrompt}/pages/about-us
+- ${websiteUrlForPrompt}/pages/about
+- ${websiteUrlForPrompt}/about
+- ${websiteUrlForPrompt}/pages/contact
+If any of these pages contain headquarters or location information, accept it immediately and return the result. Only proceed to web searches if none of these pages have what you need.
+` : ""}
 For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the headquarters location.
 
 Task: Determine the company's HEADQUARTERS location.
@@ -1417,6 +1424,7 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
       safetyMarginMs: 1_200,
       label: "headquarters",
     }),
+    maxAttempts: 1, // outer enrichCompanyFields handles retries with budget management
     maxTokens: 400,
     model: resolveSearchModel(),
     xaiUrl,
@@ -1531,7 +1539,14 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   const prompt = `${SEARCH_PREAMBLE}
-
+${websiteUrlForPrompt ? `
+PRIORITY: Before any web searches, browse these pages of the company website first:
+- ${websiteUrlForPrompt}/pages/about-us
+- ${websiteUrlForPrompt}/pages/about
+- ${websiteUrlForPrompt}/about
+- ${websiteUrlForPrompt}/pages/contact
+If any of these pages contain manufacturing or production location information (e.g., "Made in...", "sourced and made in..."), accept it immediately and return the result. Only proceed to web searches if none of these pages have what you need.
+` : ""}
 For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
 
 Task: Identify ALL known MANUFACTURING locations for this company worldwide.
@@ -1580,6 +1595,7 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
       safetyMarginMs: 1_200,
       label: "manufacturing",
     }),
+    maxAttempts: 1, // outer enrichCompanyFields handles retries with budget management
     maxTokens: 500,
     model: resolveSearchModel(),
     xaiUrl,
