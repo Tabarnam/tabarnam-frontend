@@ -3598,11 +3598,6 @@ export default function AdminImport() {
       toast.error("Enter at least one URL");
       return;
     }
-    if (urls.length > 50) {
-      toast.error("Maximum 50 URLs per batch");
-      return;
-    }
-
     setBulkEnqueueLoading(true);
     try {
       const res = await fetch(`${API_BASE}/bulk-import/enqueue`, {

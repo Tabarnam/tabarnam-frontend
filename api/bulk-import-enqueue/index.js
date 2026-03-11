@@ -46,7 +46,7 @@ function normalizeUrl(str) {
   }
 }
 
-const MAX_URLS_PER_BATCH = 50;
+const MAX_URLS_PER_BATCH = 500;
 
 async function handler(context, req) {
   // Handle CORS preflight

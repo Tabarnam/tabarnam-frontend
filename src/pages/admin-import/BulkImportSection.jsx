@@ -39,7 +39,7 @@ export default function BulkImportSection({
       {bulkMode ? (
         <>
           <div className="space-y-2">
-            <label className="text-sm text-slate-700 dark:text-muted-foreground">Company URLs (one per line, max 50)</label>
+            <label className="text-sm text-slate-700 dark:text-muted-foreground">Company URLs (one per line)</label>
             <textarea
               value={bulkUrls}
               onChange={(e) => setBulkUrls(e.target.value)}
