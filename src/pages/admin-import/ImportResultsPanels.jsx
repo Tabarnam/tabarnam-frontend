@@ -562,12 +562,12 @@ export default function ImportResultsPanels({
                       <>
                         {" → "}{new Date(r.updatedAt).toLocaleTimeString()}
                         {(() => {
-                          const ms = r.elapsed_ms ?? (new Date(r.updatedAt) - new Date(r.startedAt));
+                          const ms = (r.elapsed_ms > 0 ? r.elapsed_ms : null) ?? (new Date(r.updatedAt) - new Date(r.startedAt));
                           if (!ms || ms <= 0) return null;
                           const totalSec = Math.round(ms / 1000);
                           const m = Math.floor(totalSec / 60);
                           const s = totalSec % 60;
-                          return <span className="ml-2 text-slate-400 dark:text-muted-foreground">TRT {m}m {s}s</span>;
+                          return <span className="ml-2 text-slate-400 dark:text-muted-foreground">TRT: {String(m).padStart(2,'0')}:{String(s).padStart(2,'0')}</span>;
                         })()}
                       </>
                     ) : null}
