@@ -193,12 +193,12 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
   light: { min: 30_000, max: 60_000 },         // 30s-1 min for simpler fields (tagline, industries)
 });
 
-// Four-Call Split timeouts (v4.0) — used by enrichCompanyFields() pipeline.
+// Five-Call Split timeouts (v5.0) — used by enrichCompanyFields() pipeline.
 // Each field group gets a dedicated xAI call so the model can focus on thorough research.
-// xAI web search typically takes 90-150s for complex queries. Previous values (90s/120s)
-// caused consistent upstream_timeout — xAI was still working when we aborted.
+// v5.0: Locations split into separate HQ + MFG calls (~60s each) instead of combined (240s timeout).
+// xAI web search typically takes 30-90s for focused single-field queries.
 const CALL_TIMEOUTS_MS = Object.freeze({
-  locations:  { min: 90_000,  max: 240_000 },   // 1.5-4 min for HQ + Manufacturing
+  locations:  { min: 45_000,  max: 120_000 },   // 0.75-2 min per standalone HQ or MFG call
   keywords:   { min: 90_000,  max: 240_000 },   // 1.5-4 min for product keywords
   light:      { min: 90_000,  max: 180_000 },   // 1.5-3 min for tagline + industries + logo
   reviews:    { min: 90_000,  max: 120_000 },    // 1.5-2 min — fail fast so browseAboutPage fallback gets more budget
@@ -2564,7 +2564,7 @@ Return STRICT JSON only:
 }
 
 // ============================================================================
-// FOUR-CALL SPLIT (v4.0): locations + keywords + light fields + reviews
+// FIVE-CALL SPLIT (v5.0): HQ + MFG + keywords + light fields + reviews
 // ============================================================================
 
 /**
@@ -3816,9 +3816,9 @@ async function enrichCompanyFields({
   const domain = normalizeDomain(normalizedDomain || websiteUrl);
 
   // ── Targeted refresh shortcut (≤2 specific fields) ──────────────────────
-  // When only a few fields need refreshing, skip the full four-call pipeline
+  // When only a few fields need refreshing, skip the full five-call pipeline
   // and use retryMissingStructuredFields or fetchCuratedReviews directly.
-  // Location fields now get routed to fetchLocationFields() directly.
+  // Location fields get routed to fetchHeadquartersLocation/fetchManufacturingLocations directly.
   const LOCATION_LONG_NAMES = new Set(["manufacturing_locations", "headquarters_location"]);
   const isLocationsOnly = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 &&
     fieldsToEnrich.every((f) => LOCATION_LONG_NAMES.has(f));
@@ -3953,12 +3953,16 @@ async function enrichCompanyFields({
     };
   }
 
-  // ── Four-Call Split Pipeline (v4.0) ─────────────────────────────────────
-  // Call 1: fetchLocationFields (HQ + Manufacturing — deep research)
-  // Call 2: fetchKeywordFields (product keywords — deep catalog browsing)
-  // Call 3: fetchLightFields (tagline + industries + logo — quick homepage)
-  // Call 4: fetchCuratedReviews (reviews with PRIMARY SUBJECT disambiguation)
-  // All four fire in parallel via Promise.allSettled.
+  // ── Five-Call Split Pipeline (v5.0) ─────────────────────────────────────
+  // Call 1: fetchHeadquartersLocation (HQ — standalone focused query)
+  // Call 2: fetchManufacturingLocations (MFG — standalone focused query)
+  // Call 3: fetchKeywordFields (product keywords — deep catalog browsing)
+  // Call 4: fetchLightFields (tagline + industries + logo — quick homepage)
+  // Call 5: fetchCuratedReviews (reviews with PRIMARY SUBJECT disambiguation)
+  // All five fire in parallel via Promise.allSettled.
+  //
+  // v5.0 replaces the combined fetchLocationFields (240s timeout, frequent timeouts)
+  // with two parallel standalone calls (~60s each). This cuts wall-clock from ~7 min to ~3 min.
 
   const wantLocations = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.some((f) =>
     ["headquarters_location", "manufacturing_locations"].includes(f));
@@ -3968,7 +3972,7 @@ async function enrichCompanyFields({
   const wantReviews = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("reviews");
   const wantLogo = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("logo") || fieldsToEnrich.includes("logo_url");
 
-  console.log(`[enrichCompanyFields] Four-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantLocations=${wantLocations}, wantKeywords=${wantKeywords}, wantLight=${wantLight}, wantReviews=${wantReviews}, run=${runId}`);
+  console.log(`[enrichCompanyFields] Five-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantLocations=${wantLocations}, wantKeywords=${wantKeywords}, wantLight=${wantLight}, wantReviews=${wantReviews}, run=${runId}`);
 
   // Each promise saves its results to Cosmos immediately via onIntermediateSave,
   // so that if Azure DrainMode kills the process mid-flight, data from whichever
@@ -3990,12 +3994,58 @@ async function enrichCompanyFields({
     return result;
   };
 
-  const locationPromise = wantLocations
-    ? fetchLocationFields({
-        companyName, websiteUrl, normalizedDomain: domain,
+  // ── HQ promise — standalone call with early save ──
+  const hqStartedAt = Date.now();
+  const hqPromise = wantLocations
+    ? fetchHeadquartersLocation({
+        companyName, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey,
-      }).then((r) => earlySave(r, "locations", LOCATION_OWNED_PARSED))
+      }).then(async (hqRaw) => {
+        const hqLoc = asString(hqRaw?.headquarters_location).trim();
+        const isOk = !!hqLoc && hqRaw?.hq_status !== "deferred";
+        if (isOk && typeof onIntermediateSave === "function") {
+          try {
+            const payload = { headquarters_location: hqLoc };
+            if (hqRaw.location_source_urls) payload.location_source_urls = hqRaw.location_source_urls;
+            if (hqRaw.headquarters_city) payload.headquarters_city = hqRaw.headquarters_city;
+            if (hqRaw.headquarters_state_code) payload.headquarters_state_code = hqRaw.headquarters_state_code;
+            if (hqRaw.headquarters_country) payload.headquarters_country = hqRaw.headquarters_country;
+            if (hqRaw.headquarters_country_code) payload.headquarters_country_code = hqRaw.headquarters_country_code;
+            await onIntermediateSave(payload);
+            console.log(`[enrichCompanyFields] Early HQ save OK, run=${runId}`);
+          } catch (e) {
+            console.warn(`[enrichCompanyFields] Early HQ save failed: ${e?.message}, run=${runId}`);
+          }
+        }
+        if (hqRaw && typeof hqRaw === "object") hqRaw.elapsed_ms = Date.now() - hqStartedAt;
+        return hqRaw;
+      })
+    : Promise.resolve(null);
+
+  // ── MFG promise — standalone call with early save ──
+  const mfgStartedAt = Date.now();
+  const mfgPromise = wantLocations
+    ? fetchManufacturingLocations({
+        companyName, normalizedDomain: domain,
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
+        xaiUrl, xaiKey,
+      }).then(async (mfgRaw) => {
+        const mfgLocs = mfgRaw?.manufacturing_locations;
+        const isOk = Array.isArray(mfgLocs) && mfgLocs.length > 0 && mfgRaw?.mfg_status !== "deferred";
+        if (isOk && typeof onIntermediateSave === "function") {
+          try {
+            const payload = { manufacturing_locations: mfgLocs };
+            if (mfgRaw.location_source_urls) payload.location_source_urls = mfgRaw.location_source_urls;
+            await onIntermediateSave(payload);
+            console.log(`[enrichCompanyFields] Early MFG save OK, run=${runId}`);
+          } catch (e) {
+            console.warn(`[enrichCompanyFields] Early MFG save failed: ${e?.message}, run=${runId}`);
+          }
+        }
+        if (mfgRaw && typeof mfgRaw === "object") mfgRaw.elapsed_ms = Date.now() - mfgStartedAt;
+        return mfgRaw;
+      })
     : Promise.resolve(null);
 
   const keywordPromise = wantKeywords
@@ -4036,13 +4086,14 @@ async function enrichCompanyFields({
       })
     : Promise.resolve(null);
 
-  const [locSettled, kwSettled, lightSettled, revSettled] = await raceTimeout(
-    Promise.allSettled([locationPromise, keywordPromise, lightPromise, reviewsPromise]),
+  const [hqSettled, mfgSettled, kwSettled, lightSettled, revSettled] = await raceTimeout(
+    Promise.allSettled([hqPromise, mfgPromise, keywordPromise, lightPromise, reviewsPromise]),
     budgetMs + 10_000,
-    `enrichCompanyFields_four_call_split[${runId}]`
+    `enrichCompanyFields_five_call_split[${runId}]`
   ).catch((e) => {
-    console.warn(`[enrichCompanyFields] Four-call split watchdog fired (${budgetMs + 10000}ms): ${e.message}, run=${runId}`);
+    console.warn(`[enrichCompanyFields] Five-call split watchdog fired (${budgetMs + 10000}ms): ${e.message}, run=${runId}`);
     return [
+      { status: "rejected", reason: e },
       { status: "rejected", reason: e },
       { status: "rejected", reason: e },
       { status: "rejected", reason: e },
@@ -4050,15 +4101,17 @@ async function enrichCompanyFields({
     ];
   });
 
-  // ── Merge results (order: locations → keywords → light → reviews) ──
-  const locations = locSettled.status === "fulfilled" ? locSettled.value : null;
+  // ── Merge results (order: HQ → MFG → keywords → light → reviews) ──
+  const hqResult = hqSettled.status === "fulfilled" ? hqSettled.value : null;
+  const mfgResult = mfgSettled.status === "fulfilled" ? mfgSettled.value : null;
   const keywords = kwSettled.status === "fulfilled" ? kwSettled.value : null;
   const light = lightSettled.status === "fulfilled" ? lightSettled.value : null;
   const reviews = revSettled.status === "fulfilled" ? revSettled.value : null;
 
   // Per-call elapsed breakdown for performance diagnostics
   const callElapsed = {
-    locations: locations?.elapsed_ms ?? (locSettled.status === "rejected" ? "rejected" : "(n/a)"),
+    hq:        hqResult?.elapsed_ms ?? (hqSettled.status === "rejected" ? "rejected" : "(n/a)"),
+    mfg:       mfgResult?.elapsed_ms ?? (mfgSettled.status === "rejected" ? "rejected" : "(n/a)"),
     keywords:  keywords?.elapsed_ms ?? (kwSettled.status === "rejected" ? "rejected" : "(n/a)"),
     light:     light?.elapsed_ms ?? (lightSettled.status === "rejected" ? "rejected" : "(n/a)"),
     reviews:   reviews?.elapsed_ms ?? (revSettled.status === "rejected" ? "rejected" : "(n/a)"),
@@ -4068,70 +4121,99 @@ async function enrichCompanyFields({
   let proposed = {};
   let field_statuses = {};
 
-  // Merge location fields (only owned: HQ, MFG, location_source_urls, geo sub-fields)
-  if (locations?.ok && locations.parsed_fields) {
-    Object.assign(proposed, pickKeys(locations.parsed_fields, LOCATION_OWNED_PARSED));
-    Object.assign(field_statuses, pickKeys(locations.field_statuses, LOCATION_OWNED_STATUSES));
+  // Merge HQ result (standalone shape → proposed)
+  const hqLoc = asString(hqResult?.headquarters_location).trim();
+  if (hqLoc) {
+    proposed.headquarters_location = hqLoc;
+    field_statuses.headquarters = hqResult.hq_status || "ok";
+    if (hqResult.location_source_urls?.hq_source_urls) {
+      if (!proposed.location_source_urls) proposed.location_source_urls = {};
+      proposed.location_source_urls.hq_source_urls = hqResult.location_source_urls.hq_source_urls;
+    }
+    // Geo sub-fields from state abbreviation inference
+    if (hqResult.headquarters_city) proposed.headquarters_city = hqResult.headquarters_city;
+    if (hqResult.headquarters_state_code) proposed.headquarters_state_code = hqResult.headquarters_state_code;
+    if (hqResult.headquarters_country) proposed.headquarters_country = hqResult.headquarters_country;
+    if (hqResult.headquarters_country_code) proposed.headquarters_country_code = hqResult.headquarters_country_code;
   }
 
-  // ── Location timeout retry ──
-  // If fetchLocationFields failed (timeout/error) and budget allows, retry with
-  // the simpler standalone HQ + MFG functions (shorter prompts, one field each).
-  // IMPORTANT: Cap retry budgets to reserve ≥150s for downstream work
+  // Merge MFG result (standalone shape → proposed)
+  if (mfgResult?.manufacturing_locations?.length > 0) {
+    proposed.manufacturing_locations = mfgResult.manufacturing_locations;
+    field_statuses.manufacturing = mfgResult.mfg_status || "ok";
+    if (mfgResult.location_source_urls?.mfg_source_urls) {
+      if (!proposed.location_source_urls) proposed.location_source_urls = {};
+      proposed.location_source_urls.mfg_source_urls = mfgResult.location_source_urls.mfg_source_urls;
+    }
+  }
+
+  // ── Location retry ──
+  // If either standalone call failed (timeout/error), retry individually.
+  // Cap retry budgets to reserve ≥150s for downstream work
   // (reviews browseAboutPage fallback ~120s + logo verification ~30s).
   const DOWNSTREAM_RESERVE_MS = 150_000;
 
-  if (wantLocations && !locations?.ok
+  const needHqRetry = wantLocations && !proposed.headquarters_location;
+  const needMfgRetry = wantLocations && !(proposed.manufacturing_locations?.length > 0);
+
+  if ((needHqRetry || needMfgRetry)
       && getRemainingMs() > CALL_TIMEOUTS_MS.locations.min + DOWNSTREAM_RESERVE_MS) {
-    const locReason = locations?.error_code || locations?.error || "unknown";
     const locationRetryBudget = getRemainingMs() - DOWNSTREAM_RESERVE_MS;
-    console.log(`[enrichCompanyFields] Locations failed (reason=${locReason}), retrying with standalone HQ+MFG calls, budget_remaining=${getRemainingMs()}ms, locationRetryBudget=${locationRetryBudget}ms, run=${runId}`);
+    console.log(`[enrichCompanyFields] Location retry needed (hq=${needHqRetry}, mfg=${needMfgRetry}), budget_remaining=${getRemainingMs()}ms, locationRetryBudget=${locationRetryBudget}ms, run=${runId}`);
 
-    const hqStarted = Date.now();
-    const hqRetry = await fetchHeadquartersLocation({
-      companyName, normalizedDomain: domain,
-      budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, locationRetryBudget / 2),
-      xaiUrl, xaiKey,
-    });
-    const hqElapsed = Date.now() - hqStarted;
-    const hqLoc = asString(hqRetry?.headquarters_location).trim();
+    const retryStarted = Date.now();
 
-    if (hqLoc) {
-      proposed.headquarters_location = hqLoc;
-      field_statuses.headquarters = hqRetry.hq_status || "ok";
-      if (hqRetry.location_source_urls?.hq_source_urls) {
-        if (!proposed.location_source_urls) proposed.location_source_urls = {};
-        proposed.location_source_urls.hq_source_urls = hqRetry.location_source_urls.hq_source_urls;
-      }
-      console.log(`[enrichCompanyFields] HQ retry SUCCESS: "${hqLoc}", elapsed=${hqElapsed}ms, run=${runId}`);
-    } else {
-      console.log(`[enrichCompanyFields] HQ retry empty (status=${hqRetry?.hq_status}), elapsed=${hqElapsed}ms, run=${runId}`);
-    }
-
-    // MFG retry: use remaining location budget (not total remaining — preserve downstream reserve)
-    const mfgBudget = Math.max(0, locationRetryBudget - (Date.now() - hqStarted));
-    if (mfgBudget > CALL_TIMEOUTS_MS.locations.min) {
-      const mfgStarted2 = Date.now();
-      const mfgRetry2 = await fetchManufacturingLocations({
+    if (needHqRetry) {
+      const hqRetry = await fetchHeadquartersLocation({
         companyName, normalizedDomain: domain,
-        budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, mfgBudget),
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, needMfgRetry ? locationRetryBudget / 2 : locationRetryBudget),
         xaiUrl, xaiKey,
       });
-      const mfgElapsed2 = Date.now() - mfgStarted2;
+      const hqElapsed = Date.now() - retryStarted;
+      const retryHqLoc = asString(hqRetry?.headquarters_location).trim();
 
-      if (mfgRetry2?.manufacturing_locations?.length > 0) {
-        proposed.manufacturing_locations = mfgRetry2.manufacturing_locations;
-        field_statuses.manufacturing = mfgRetry2.mfg_status || "ok";
-        if (mfgRetry2.location_source_urls?.mfg_source_urls) {
+      if (retryHqLoc) {
+        proposed.headquarters_location = retryHqLoc;
+        field_statuses.headquarters = hqRetry.hq_status || "ok";
+        if (hqRetry.location_source_urls?.hq_source_urls) {
           if (!proposed.location_source_urls) proposed.location_source_urls = {};
-          proposed.location_source_urls.mfg_source_urls = mfgRetry2.location_source_urls.mfg_source_urls;
+          proposed.location_source_urls.hq_source_urls = hqRetry.location_source_urls.hq_source_urls;
         }
-        console.log(`[enrichCompanyFields] MFG retry SUCCESS: ${JSON.stringify(mfgRetry2.manufacturing_locations)}, elapsed=${mfgElapsed2}ms, run=${runId}`);
+        if (hqRetry.headquarters_city) proposed.headquarters_city = hqRetry.headquarters_city;
+        if (hqRetry.headquarters_state_code) proposed.headquarters_state_code = hqRetry.headquarters_state_code;
+        if (hqRetry.headquarters_country) proposed.headquarters_country = hqRetry.headquarters_country;
+        if (hqRetry.headquarters_country_code) proposed.headquarters_country_code = hqRetry.headquarters_country_code;
+        console.log(`[enrichCompanyFields] HQ retry SUCCESS: "${retryHqLoc}", elapsed=${hqElapsed}ms, run=${runId}`);
       } else {
-        console.log(`[enrichCompanyFields] MFG retry empty (status=${mfgRetry2?.mfg_status}), elapsed=${mfgElapsed2}ms, run=${runId}`);
+        console.log(`[enrichCompanyFields] HQ retry empty (status=${hqRetry?.hq_status}), elapsed=${hqElapsed}ms, run=${runId}`);
       }
-    } else {
-      console.log(`[enrichCompanyFields] MFG retry skipped (mfgBudget=${mfgBudget}ms < min=${CALL_TIMEOUTS_MS.locations.min}ms), preserving budget for downstream, run=${runId}`);
+    }
+
+    if (needMfgRetry) {
+      const mfgBudget = Math.max(0, locationRetryBudget - (Date.now() - retryStarted));
+      if (mfgBudget > CALL_TIMEOUTS_MS.locations.min) {
+        const mfgRetryStarted = Date.now();
+        const mfgRetry2 = await fetchManufacturingLocations({
+          companyName, normalizedDomain: domain,
+          budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, mfgBudget),
+          xaiUrl, xaiKey,
+        });
+        const mfgElapsed2 = Date.now() - mfgRetryStarted;
+
+        if (mfgRetry2?.manufacturing_locations?.length > 0) {
+          proposed.manufacturing_locations = mfgRetry2.manufacturing_locations;
+          field_statuses.manufacturing = mfgRetry2.mfg_status || "ok";
+          if (mfgRetry2.location_source_urls?.mfg_source_urls) {
+            if (!proposed.location_source_urls) proposed.location_source_urls = {};
+            proposed.location_source_urls.mfg_source_urls = mfgRetry2.location_source_urls.mfg_source_urls;
+          }
+          console.log(`[enrichCompanyFields] MFG retry SUCCESS: ${JSON.stringify(mfgRetry2.manufacturing_locations)}, elapsed=${mfgElapsed2}ms, run=${runId}`);
+        } else {
+          console.log(`[enrichCompanyFields] MFG retry empty (status=${mfgRetry2?.mfg_status}), elapsed=${mfgElapsed2}ms, run=${runId}`);
+        }
+      } else {
+        console.log(`[enrichCompanyFields] MFG retry skipped (mfgBudget=${mfgBudget}ms < min=${CALL_TIMEOUTS_MS.locations.min}ms), preserving budget for downstream, run=${runId}`);
+      }
     }
 
     // Early save retry results
@@ -4271,7 +4353,7 @@ async function enrichCompanyFields({
   if (typeof onIntermediateSave === "function" && Object.keys(proposed).length > 0) {
     try {
       await onIntermediateSave(proposed);
-      console.log(`[enrichCompanyFields] Intermediate save after four-call merge complete`);
+      console.log(`[enrichCompanyFields] Intermediate save after five-call merge complete`);
     } catch (e) {
       console.warn(`[enrichCompanyFields] Intermediate save failed: ${e?.message}`);
     }
@@ -4333,9 +4415,9 @@ async function enrichCompanyFields({
 
   return {
     ok: true,
-    method: "four_call_split",
+    method: "five_call_split",
     proposed,
-    raw_response: locations?.raw_response_text || light?.raw_response_text || "",
+    raw_response: light?.raw_response_text || "",
     field_statuses,
     elapsed_ms: totalElapsed,
     reviews_attempted_urls: reviews?.attempted_urls || [],
@@ -4355,8 +4437,8 @@ module.exports = {
   // @deprecated v3.0 — replaced by fetchStructuredFields() + retryMissingStructuredFields()
   fetchAllFieldsUnified,
   fillMissingFieldsIndividually,
-  // Four-call split pipeline (v4.0)
-  fetchLocationFields,
+  // Five-call split pipeline (v5.0) — HQ + MFG + keywords + light + reviews
+  fetchLocationFields,  // @deprecated v5.0 — replaced by fetchHeadquartersLocation + fetchManufacturingLocations
   fetchKeywordFields,
   fetchLightFields,
   // @deprecated v4.0 — replaced by fetchLocationFields + fetchKeywordFields + fetchLightFields
