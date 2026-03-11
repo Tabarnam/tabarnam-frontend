@@ -4367,6 +4367,47 @@ async function enrichCompanyFields({
   if (light?.ok && light.parsed_fields) {
     Object.assign(proposed, pickKeys(light.parsed_fields, LIGHT_OWNED_PARSED));
     Object.assign(field_statuses, pickKeys(light.field_statuses, LIGHT_OWNED_STATUSES));
+  } else if (light?.error_code) {
+    // Propagate failure status so downstream knows WHY tagline/industries are missing (not just "unknown")
+    field_statuses.tagline = light.error_code;
+    field_statuses.industries = light.error_code;
+  }
+
+  // ── Light field retry on timeout ──
+  // Tagline and industries should always exist for product companies.
+  // Unlike MFG (where data may genuinely not exist), a timeout here means
+  // XAI was slow, not that there's no data. Use the min budget on retry.
+  const lightTimedOut = !light?.ok && light?.error_code === "upstream_timeout";
+  const lightRetryBudget = getRemainingMs();
+  const canRetryLight = wantLight && lightTimedOut
+    && lightRetryBudget > CALL_TIMEOUTS_MS.light.min + 15_000;
+
+  if (lightTimedOut && !canRetryLight) {
+    console.log(`[enrichCompanyFields] Skipping light retry (budget=${lightRetryBudget}ms < min=${CALL_TIMEOUTS_MS.light.min + 15_000}ms), run=${runId}`);
+  }
+
+  if (canRetryLight) {
+    console.log(`[enrichCompanyFields] Light fields timed out, retrying with shorter budget, budget_remaining=${lightRetryBudget}ms, run=${runId}`);
+    const lightRetryStarted = Date.now();
+    const lightRetry = await fetchLightFields({
+      companyName, websiteUrl, normalizedDomain: domain,
+      budgetMs: Math.min(CALL_TIMEOUTS_MS.light.min, lightRetryBudget - 15_000),
+      xaiUrl, xaiKey, signal,
+      skipLogo,
+    });
+    const lightRetryElapsed = Date.now() - lightRetryStarted;
+
+    if (lightRetry?.ok && lightRetry.parsed_fields) {
+      Object.assign(proposed, pickKeys(lightRetry.parsed_fields, LIGHT_OWNED_PARSED));
+      Object.assign(field_statuses, pickKeys(lightRetry.field_statuses, LIGHT_OWNED_STATUSES));
+      console.log(`[enrichCompanyFields] Light retry SUCCESS: tagline=${lightRetry.parsed_fields?.tagline ? "yes" : "no"}, industries=${lightRetry.parsed_fields?.industries?.length || 0}, elapsed=${lightRetryElapsed}ms, run=${runId}`);
+      if (typeof onIntermediateSave === "function") {
+        try { await onIntermediateSave(pickKeys(lightRetry.parsed_fields, LIGHT_OWNED_PARSED)); }
+        catch (e) { console.warn(`[enrichCompanyFields] Light retry save failed: ${e?.message}, run=${runId}`); }
+      }
+    } else {
+      console.log(`[enrichCompanyFields] Light retry also failed (${lightRetry?.error_code || "unknown"}), elapsed=${lightRetryElapsed}ms, run=${runId}`);
+    }
   }
 
   // Merge reviews

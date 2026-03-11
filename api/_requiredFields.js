@@ -215,9 +215,6 @@ const KEYWORD_DISALLOW_TERMS = [
   "shop",
   "shop all",
   "all products",
-  "collections",
-  "collection",
-  "new",
   "new arrivals",
   "best sellers",
   "bestsellers",
@@ -226,12 +223,8 @@ const KEYWORD_DISALLOW_TERMS = [
   "clearance",
   "promotions",
   "promo",
-  "gift",
-  "gifts",
   "gift card",
   "gift cards",
-  "bundles",
-  "bundle",
   "subscription",
   "subscribe",
   "rewards",
@@ -298,6 +291,13 @@ const KEYWORD_DISALLOW_TERMS = [
   "react",
 ];
 
+// Terms that are junk when they ARE the entire keyword (nav labels like "Bundles")
+// but valid as part of a multi-word product name (e.g. "Fireplace Bundle", "Gift Set").
+// Checked via exact match, not substring.
+const KEYWORD_EXACT_DISALLOW = new Set([
+  "bundle", "bundles", "gift", "gifts", "new", "collection", "collections",
+]);
+
 function splitKeywordString(value) {
   const s = asString(value).trim();
   if (!s) return [];
@@ -341,8 +341,11 @@ function isKeywordJunk(keyword) {
   // URLs / fragments
   if (key.includes("http://") || key.includes("https://")) return true;
 
-  // Legal/nav terms
+  // Legal/nav terms (substring match)
   if (KEYWORD_DISALLOW_TERMS.some((t) => key.includes(normalizeKey(t)))) return true;
+
+  // Exact-match-only nav terms (junk alone, valid in product names)
+  if (KEYWORD_EXACT_DISALLOW.has(key)) return true;
 
   // Heuristic: ALL CAPS labels ("SHOP ALL", "BEST SELLERS") are rarely real product names.
   // Keep anything with digits (SKUs), known product acronyms, or longer descriptive phrases.
