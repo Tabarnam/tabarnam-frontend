@@ -5,7 +5,7 @@ const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch"
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE } = require("./_xaiPromptGuidance");
-const { SENTINEL_STRINGS, PLACEHOLDER_STRINGS } = require("./_requiredFields");
+const { SENTINEL_STRINGS, PLACEHOLDER_STRINGS, isCountryOnlyLocation } = require("./_requiredFields");
 const { discoverLogoSourceUrl } = require("./_logoImport");
 
 // ============================================================================
@@ -4070,6 +4070,36 @@ async function enrichCompanyFields({
   if (locations?.ok && locations.parsed_fields) {
     Object.assign(proposed, pickKeys(locations.parsed_fields, LOCATION_OWNED_PARSED));
     Object.assign(field_statuses, pickKeys(locations.field_statuses, LOCATION_OWNED_STATUSES));
+  }
+
+  // ── MFG country-only refinement ──
+  // If MFG locations are all country-level (e.g. "USA") and budget allows,
+  // fire a focused refinement call to get city-level precision.
+  const mfgLocs = proposed.manufacturing_locations;
+  if (Array.isArray(mfgLocs) && mfgLocs.length > 0
+      && mfgLocs.every(isCountryOnlyLocation)
+      && getRemainingMs() > CALL_TIMEOUTS_MS.locations.min + 15_000) {
+    console.log(`[enrichCompanyFields] MFG country-only detected (${JSON.stringify(mfgLocs)}), attempting refinement, budget_remaining=${getRemainingMs()}ms, run=${runId}`);
+    const mfgStarted = Date.now();
+    const mfgRetry = await fetchManufacturingLocations({
+      companyName, normalizedDomain: domain,
+      budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
+      xaiUrl, xaiKey,
+    });
+    const mfgElapsed = Date.now() - mfgStarted;
+
+    if (mfgRetry?.manufacturing_locations?.length > 0
+        && !mfgRetry.manufacturing_locations.every(isCountryOnlyLocation)) {
+      proposed.manufacturing_locations = mfgRetry.manufacturing_locations;
+      // Carry over source URLs if available
+      if (mfgRetry.location_source_urls?.mfg_source_urls) {
+        if (!proposed.location_source_urls) proposed.location_source_urls = {};
+        proposed.location_source_urls.mfg_source_urls = mfgRetry.location_source_urls.mfg_source_urls;
+      }
+      console.log(`[enrichCompanyFields] MFG refinement SUCCESS: ${JSON.stringify(mfgRetry.manufacturing_locations)}, elapsed=${mfgElapsed}ms, run=${runId}`);
+    } else {
+      console.log(`[enrichCompanyFields] MFG refinement no improvement (still country-only or empty), elapsed=${mfgElapsed}ms, run=${runId}`);
+    }
   }
 
   // Merge keyword fields (only owned: product_keywords, completeness, incomplete_reason)

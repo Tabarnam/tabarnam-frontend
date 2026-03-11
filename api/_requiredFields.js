@@ -34,6 +34,9 @@ const INDUSTRY_MARKETPLACE_BUCKETS = new Set([
   "shopping",
   "retail",
   "marketplace",
+  "consumer goods",
+  "e-commerce",
+  "ecommerce",
 ]);
 
 const INDUSTRY_NAV_TERMS = [
@@ -90,7 +93,6 @@ const INDUSTRY_ALLOWLIST = [
   "fragrance",
   "candle",
   "candles",
-  "consumer goods",
   "manufacturing",
   "supplements",
   "healthcare",
@@ -119,36 +121,6 @@ function toTitleCase(input) {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
-
-const INDUSTRY_CANONICAL_MAP = [
-  { match: ["supplement", "vitamin", "nutrition", "nutraceutical", "wellness"], canonical: "Supplements" },
-  { match: ["oral care", "dental", "tooth", "teeth", "whitening", "mouth"], canonical: "Oral Care" },
-  { match: ["skin", "skincare", "cosmetic", "beauty", "dermat"], canonical: "Skincare" },
-  { match: ["personal care", "hygiene", "groom"], canonical: "Personal Care" },
-
-  // Prefer these for brands like Pachasoap (avoid mapping "soap" into household cleaning).
-  { match: ["soap", "bar soap", "hand soap", "handmade soap"], canonical: "Soap" },
-  { match: ["bath", "bath & body", "bath and body", "body", "body wash", "shower", "shampoo", "conditioner"], canonical: "Bath & Body" },
-  { match: ["home fragrance", "fragrance", "candle", "candles", "diffuser", "aromatherapy", "essential oil"], canonical: "Home Fragrance" },
-
-  { match: ["household", "clean", "laundry", "disinfect", "detergent"], canonical: "Household Cleaning" },
-  { match: ["pet", "veterinary", "dog", "cat"], canonical: "Pet Care" },
-  { match: ["medical", "healthcare", "health care", "clinic", "pharma", "pharmaceutical"], canonical: "Healthcare" },
-  { match: ["apparel", "clothing", "fashion"], canonical: "Apparel" },
-  { match: ["furniture", "home decor", "homegoods", "home goods"], canonical: "Home Goods" },
-  { match: ["outdoor", "sports", "fitness"], canonical: "Sports & Fitness" },
-  { match: ["food", "beverage", "snack"], canonical: "Food & Beverage" },
-
-  // Broader industries (tech, electronics, confectionery, auto, etc.)
-  { match: ["technology", "tech", "software", "saas", "cloud"], canonical: "Technology" },
-  { match: ["computer", "hardware", "peripheral", "accessory", "accessories"], canonical: "Computer Hardware" },
-  { match: ["electronics", "consumer electronics", "audio", "video", "av"], canonical: "Consumer Electronics" },
-  { match: ["chocolate", "confection", "candy", "sweets", "cocoa"], canonical: "Confectionery" },
-  { match: ["automotive", "auto", "vehicle", "car"], canonical: "Automotive" },
-  { match: ["industrial", "machinery", "equipment", "tools"], canonical: "Industrial Equipment" },
-  { match: ["education", "edtech", "learning", "training"], canonical: "Education" },
-  { match: ["toy", "toys", "games", "gaming"], canonical: "Toys & Games" },
-];
 
 function isPlausibleIndustryCandidate(key, raw) {
   const k = normalizeKey(key);
@@ -200,13 +172,11 @@ function sanitizeIndustries(value) {
     // Reject obvious navigation labels.
     if (INDUSTRY_NAV_TERMS.some((t) => key.includes(t))) { rejected.push({ item, reason: "nav_label" }); continue; }
 
-    // Map to a short, controlled vocabulary when possible.
-    const mapped = INDUSTRY_CANONICAL_MAP.find((m) => m.match.some((tok) => key.includes(normalizeKey(tok))));
-    const candidate = mapped ? mapped.canonical : toTitleCase(item);
+    // Title-case the raw value — preserve specific labels from xAI as-is.
+    const candidate = toTitleCase(item);
 
-    // As a fallback, accept values that match the allowlist keywords OR are plausible "industry-like" terms.
+    // Accept values that match the allowlist keywords OR are plausible "industry-like" terms.
     const allow =
-      Boolean(mapped) ||
       INDUSTRY_ALLOWLIST.some((t) => key.includes(normalizeKey(t))) ||
       isPlausibleIndustryCandidate(key, item);
 
@@ -498,6 +468,16 @@ function looksLikeHqLocationString(value) {
   if (words.length === 1 && s.length >= 2) return true;
 
   return false;
+}
+
+/**
+ * Detects country-only location strings (no city/state precision).
+ * Examples: "USA", "Canada", "China" → true.  "Bolton, CT, USA" → false.
+ */
+function isCountryOnlyLocation(loc) {
+  const s = asString(loc).trim();
+  if (!s) return false;
+  return !s.includes(",");
 }
 
 function hasMeaningfulLocationEntry(list) {
@@ -877,4 +857,5 @@ module.exports = {
   isTerminalMissingReason,
   deriveMissingReason,
   isTerminalMissingField,
+  isCountryOnlyLocation,
 };
