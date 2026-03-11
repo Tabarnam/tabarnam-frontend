@@ -4072,6 +4072,64 @@ async function enrichCompanyFields({
     Object.assign(field_statuses, pickKeys(locations.field_statuses, LOCATION_OWNED_STATUSES));
   }
 
+  // ── Location timeout retry ──
+  // If fetchLocationFields failed (timeout/error) and budget allows, retry with
+  // the simpler standalone HQ + MFG functions (shorter prompts, one field each).
+  if (wantLocations && !locations?.ok
+      && getRemainingMs() > CALL_TIMEOUTS_MS.locations.min * 2 + 30_000) {
+    const locReason = locations?.error_code || locations?.error || "unknown";
+    console.log(`[enrichCompanyFields] Locations failed (reason=${locReason}), retrying with standalone HQ+MFG calls, budget_remaining=${getRemainingMs()}ms, run=${runId}`);
+
+    const hqStarted = Date.now();
+    const hqRetry = await fetchHeadquartersLocation({
+      companyName, normalizedDomain: domain,
+      budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() / 2 - 15_000),
+      xaiUrl, xaiKey,
+    });
+    const hqElapsed = Date.now() - hqStarted;
+    const hqLoc = asString(hqRetry?.headquarters_location).trim();
+
+    if (hqLoc) {
+      proposed.headquarters_location = hqLoc;
+      field_statuses.headquarters = hqRetry.hq_status || "ok";
+      if (hqRetry.location_source_urls?.hq_source_urls) {
+        if (!proposed.location_source_urls) proposed.location_source_urls = {};
+        proposed.location_source_urls.hq_source_urls = hqRetry.location_source_urls.hq_source_urls;
+      }
+      console.log(`[enrichCompanyFields] HQ retry SUCCESS: "${hqLoc}", elapsed=${hqElapsed}ms, run=${runId}`);
+    } else {
+      console.log(`[enrichCompanyFields] HQ retry empty (status=${hqRetry?.hq_status}), elapsed=${hqElapsed}ms, run=${runId}`);
+    }
+
+    if (getRemainingMs() > CALL_TIMEOUTS_MS.locations.min + 15_000) {
+      const mfgStarted2 = Date.now();
+      const mfgRetry2 = await fetchManufacturingLocations({
+        companyName, normalizedDomain: domain,
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
+        xaiUrl, xaiKey,
+      });
+      const mfgElapsed2 = Date.now() - mfgStarted2;
+
+      if (mfgRetry2?.manufacturing_locations?.length > 0) {
+        proposed.manufacturing_locations = mfgRetry2.manufacturing_locations;
+        field_statuses.manufacturing = mfgRetry2.mfg_status || "ok";
+        if (mfgRetry2.location_source_urls?.mfg_source_urls) {
+          if (!proposed.location_source_urls) proposed.location_source_urls = {};
+          proposed.location_source_urls.mfg_source_urls = mfgRetry2.location_source_urls.mfg_source_urls;
+        }
+        console.log(`[enrichCompanyFields] MFG retry SUCCESS: ${JSON.stringify(mfgRetry2.manufacturing_locations)}, elapsed=${mfgElapsed2}ms, run=${runId}`);
+      } else {
+        console.log(`[enrichCompanyFields] MFG retry empty (status=${mfgRetry2?.mfg_status}), elapsed=${mfgElapsed2}ms, run=${runId}`);
+      }
+    }
+
+    // Early save retry results
+    if (Object.keys(proposed).length > 0 && typeof onIntermediateSave === "function") {
+      try { await onIntermediateSave(proposed); }
+      catch (e) { console.warn(`[enrichCompanyFields] Location retry save failed: ${e?.message}, run=${runId}`); }
+    }
+  }
+
   // ── MFG country-only refinement ──
   // If MFG locations are all country-level (e.g. "USA") and budget allows,
   // fire a focused refinement call to get city-level precision.
