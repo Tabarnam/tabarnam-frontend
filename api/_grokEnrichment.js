@@ -1547,6 +1547,8 @@ PRIORITY: Before any web searches, browse these pages of the company website fir
 - ${websiteUrlForPrompt}/pages/contact
 If any of these pages contain manufacturing or production location information (e.g., "Made in...", "sourced and made in..."), accept it immediately and return the result. Only proceed to web searches if none of these pages have what you need.
 ` : ""}
+IMPORTANT: If the company website reveals this is a RETAILER, MARKETPLACE, or RESELLER selling products from multiple other brands (not its own brand), return {"manufacturing_locations": [], "mfg_status": "not_applicable", "location_source_urls": {"mfg_source_urls": []}} immediately. Do not search further.
+
 For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
 
 Task: Identify ALL known MANUFACTURING locations for this company worldwide.
@@ -1654,6 +1656,14 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
     .filter(Boolean)
     .map(normalizeLocationWithStateAbbrev)  // Normalize state names to abbreviations
     .map(normalizeCountryInLocation);       // Normalize "United States" → "USA"
+
+  // Detect explicit "not_applicable" signal from Grok (retailer/marketplace, not a manufacturer)
+  const grokMfgStatus = asString(out?.mfg_status).trim().toLowerCase();
+  if (cleaned.length === 0 && grokMfgStatus === "not_applicable") {
+    const valueOut = { manufacturing_locations: [], mfg_status: "not_applicable", source_urls, location_source_urls };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
+  }
 
   if (cleaned.length === 0) {
     const valueOut = { manufacturing_locations: [], mfg_status: "not_found", source_urls, location_source_urls };
@@ -4161,6 +4171,9 @@ async function enrichCompanyFields({
       if (!proposed.location_source_urls) proposed.location_source_urls = {};
       proposed.location_source_urls.mfg_source_urls = mfgResult.location_source_urls.mfg_source_urls;
     }
+  } else if (mfgResult?.mfg_status) {
+    // Preserve status even when empty (e.g. "not_applicable" for retailers) to prevent pointless retries
+    field_statuses.manufacturing = mfgResult.mfg_status;
   }
 
   // ── Location retry ──
@@ -4170,7 +4183,9 @@ async function enrichCompanyFields({
   const DOWNSTREAM_RESERVE_MS = 150_000;
 
   const needHqRetry = wantLocations && !proposed.headquarters_location;
-  const needMfgRetry = wantLocations && !(proposed.manufacturing_locations?.length > 0);
+  // Skip MFG retry if Grok explicitly said "not_applicable" (retailer/marketplace)
+  const mfgExplicitlyEmpty = field_statuses.manufacturing === "not_applicable" || field_statuses.manufacturing === "not_disclosed";
+  const needMfgRetry = wantLocations && !(proposed.manufacturing_locations?.length > 0) && !mfgExplicitlyEmpty;
 
   if ((needHqRetry || needMfgRetry)
       && getRemainingMs() > CALL_TIMEOUTS_MS.locations.min + DOWNSTREAM_RESERVE_MS) {

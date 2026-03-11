@@ -1295,7 +1295,7 @@ async function resumeWorkerHandler(req, context) {
     if (resumeInvocationMode === "resume_worker" && resumeStatus === "in_progress") {
       const heartbeatAt = Date.parse(String(resumeDoc?.resume_worker_heartbeat_at || "")) || 0;
       const heartbeatAgeMs = heartbeatAt ? Date.now() - heartbeatAt : Infinity;
-      const enrichmentStaleMs = 90_000; // 90s = 3× heartbeat interval (30s)
+      const enrichmentStaleMs = 210_000; // 210s = 7× heartbeat interval (30s); allows 170s+ xAI calls + Cosmos I/O contention
 
       if (heartbeatAgeMs >= enrichmentStaleMs || (enrichmentAgeMs >= 420_000 && !heartbeatAt)) {
         console.warn(`[resume-worker] stale resume_worker detected for session=${sessionId}`
@@ -1491,6 +1491,10 @@ async function resumeWorkerHandler(req, context) {
   const thisLockExpiresAt = new Date(Date.now() + 60_000).toISOString();
   const invokedAt = nowIso();
 
+  // Unique invocation ID — used as abort_token so orphaned workers can detect
+  // they've been superseded by a newer worker (see heartbeat abort check below).
+  const invocationId = `rw_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
   const resumeControlUpsert = await upsertDoc(container, {
     ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
     id: resumeDocId,
@@ -1500,6 +1504,7 @@ async function resumeWorkerHandler(req, context) {
     type: "import_control",
     doc_created: true,
     status: "running",
+    abort_token: invocationId,
     attempt: attempt + 1,
     enrichment_started_at: resumeDoc?.enrichment_started_at || invokedAt,
     last_invoked_at: invokedAt,
@@ -1989,12 +1994,19 @@ async function resumeWorkerHandler(req, context) {
     let lastHeartbeatWrite = Date.now();
     const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
 
+    // Abort flag — set to true when the heartbeat timer detects that a newer worker
+    // has taken over (abort_token on resume control doc changed). Checked at loop
+    // boundaries to stop the orphaned worker from making further xAI calls.
+    let aborted = false;
+
     const maybeWriteHeartbeat = async () => {
       const now = Date.now();
       if (now - lastHeartbeatWrite > HEARTBEAT_INTERVAL_MS) {
         const nowIsoStr = nowIso();
+        // Update IMMEDIATELY to prevent drift — don't wait for async Cosmos writes
+        lastHeartbeatWrite = now;
         try {
-          // Write to session doc (UI status)
+          // Primary heartbeat: session doc (UI status) — await this one
           await bestEffortPatchSessionDoc({
             container,
             sessionId,
@@ -2006,21 +2018,19 @@ async function resumeWorkerHandler(req, context) {
             },
           }).catch(() => null);
 
-          // Also write to resume doc so staleness checks in both
-          // import-status (index.js:847) and the handler itself (line ~1295)
-          // can detect dead workers via heartbeat age.
-          try {
-            const freshResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+          // Secondary heartbeat: resume control doc — fire-and-forget (don't block next cycle)
+          // Staleness checks in import-status (index.js:847) and handler (line ~1295)
+          // use this to detect dead workers via heartbeat age.
+          readControlDoc(container, resumeDocId, sessionId).then((freshResume) => {
             if (freshResume && typeof freshResume === "object") {
-              await upsertDoc(container, {
+              return upsertDoc(container, {
                 ...freshResume,
                 resume_worker_heartbeat_at: nowIsoStr,
                 updated_at: nowIsoStr,
-              }).catch(() => null);
+              });
             }
-          } catch {}
+          }).catch(() => null);
 
-          lastHeartbeatWrite = now;
           console.log(`[resume-worker] heartbeat written at ${nowIsoStr} (field=${currentEnrichmentField || "none"})`);
         } catch (err) {
           console.warn(`[resume-worker] heartbeat write failed: ${err?.message || err}`);
@@ -2086,10 +2096,24 @@ async function resumeWorkerHandler(req, context) {
     // Without this, single-company imports write zero heartbeats because the
     // poll-style maybeWriteHeartbeat() at loop boundaries never reaches the
     // 30s threshold before the blocking call starts.
+    // Also checks the abort_token on the resume control doc — if a newer worker
+    // has taken over, sets the `aborted` flag to stop this orphaned worker.
     let heartbeatTimer = null;
     try {
     heartbeatTimer = setInterval(async () => {
-      try { await maybeWriteHeartbeat(); } catch {}
+      try {
+        // Check abort BEFORE writing heartbeat — piggyback on resume-doc read
+        if (!aborted) {
+          const freshResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+          if (freshResume && freshResume.abort_token && freshResume.abort_token !== invocationId) {
+            console.warn(`[resume-worker] ABORT detected: token changed from ${invocationId} to ${freshResume.abort_token}, session=${sessionId}`);
+            aborted = true;
+            if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+            return;
+          }
+        }
+        await maybeWriteHeartbeat();
+      } catch {}
     }, HEARTBEAT_INTERVAL_MS);
 
     // eslint-disable-next-line no-constant-condition
@@ -2099,6 +2123,10 @@ async function resumeWorkerHandler(req, context) {
 
     for (const entry of plannedByCompany) {
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
+      if (aborted) {
+        console.log(`[resume-worker] aborting enrichment loop — superseded by newer worker, session=${sessionId}`);
+        return gracefulExit("aborted_superseded");
+      }
 
       // Hard timeout check: exit loop before Azure Function timeout kills us
       const handlerElapsed = Date.now() - handlerStartedAt;
@@ -2330,6 +2358,12 @@ async function resumeWorkerHandler(req, context) {
             error: String(enrichErr?.message || enrichErr),
           });
           enrichResult = { ok: false, fields_completed: [], fields_failed: missingFields, errors: {}, enriched: {}, elapsed_ms: 0 };
+        }
+
+        // Check abort after enrichment completes — don't write results if superseded
+        if (aborted) {
+          console.log(`[resume-worker] aborting after enrichment — superseded by newer worker, session=${sessionId}`);
+          return gracefulExit("aborted_superseded");
         }
 
         console.log(`[resume-worker] unified_enrichment_end`, {

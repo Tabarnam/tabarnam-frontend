@@ -852,7 +852,7 @@ async function handler(req, context) {
           const resumeHeartbeatTs = Date.parse(String(resumeDoc?.resume_worker_heartbeat_at || "")) || 0;
           const sessionHeartbeatTs = Date.parse(String(sessionDoc?.resume_worker_heartbeat_at || "")) || 0;
           const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs, resumeHeartbeatTs, sessionHeartbeatTs);
-          const staleThresholdMs = 90_000; // 90s = 3× heartbeat interval (30s); matches handler.js enrichmentStaleMs
+          const staleThresholdMs = 210_000; // 210s = 7× heartbeat interval (30s); allows 170s+ xAI calls + Cosmos I/O contention
 
           if (mostRecentTs && Date.now() - mostRecentTs > staleThresholdMs) {
             const reopenedAt = nowIso();
@@ -1978,7 +1978,7 @@ async function handler(req, context) {
           const resumeHeartbeatTs = Date.parse(String(currentResume?.resume_worker_heartbeat_at || "")) || 0;
           const sessionHeartbeatTs = Date.parse(String(sessionDoc?.resume_worker_heartbeat_at || "")) || 0;
           const mostRecentTs = Math.max(resumeUpdatedTs, enrichStartedTs, resumeHeartbeatTs, sessionHeartbeatTs);
-          const staleThresholdMs = 90_000; // 90s = 3× heartbeat interval (30s); matches handler.js enrichmentStaleMs
+          const staleThresholdMs = 210_000; // 210s = 7× heartbeat interval (30s); allows 170s+ xAI calls + Cosmos I/O contention
 
           if (mostRecentTs && Date.now() - mostRecentTs > staleThresholdMs) {
             const reopenedAt = nowIso();

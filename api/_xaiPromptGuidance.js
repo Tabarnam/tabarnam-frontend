@@ -103,6 +103,11 @@ STEP 1 — BROWSE THE COMPANY WEBSITE FIRST (mandatory, most authoritative sourc
 - Check product pages for descriptions that mention where the product is sourced, processed, cured, smoked, or packaged. For food companies, if raw materials are sourced AND processed at the same location, that location is a manufacturing site.
 - If the website clearly states manufacturing locations with city-level detail, accept them and move to formatting. Only do additional web searches if the website is silent or only names a country.
 
+EARLY EXIT — NOT A MANUFACTURER:
+- If Step 1 reveals the company is a RETAILER, MARKETPLACE, or RESELLER that sells products from multiple OTHER brands/companies (not its own), STOP immediately and return an empty array [].
+- Indicators: the website sells products from many different brand names, has no "Made by us" or "Our facility" language, describes itself as a retailer/distributor/marketplace, or is an e-commerce storefront aggregating third-party products.
+- Do NOT spend time searching for manufacturing data for retailers — they do not manufacture. Return [] promptly.
+
 STEP 2 — WEB SEARCH (only if Step 1 found NO city-level manufacturing info on the website).
 - Run web_search: "[Company Name] manufacturing facilities locations"
 - Run web_search: "[Company Name] factory OR plant OR production facility"
@@ -152,8 +157,10 @@ FORMAT RULES:
     jsonSchema: `"manufacturing_locations": ["City, ST, USA", "City, Country"]`,
     jsonSchemaWithSources: `{
   "manufacturing_locations": ["City, ST, USA", "City, Country"],
+  "mfg_status": "ok | not_applicable",
   "location_source_urls": { "mfg_source_urls": ["https://...", "https://..."] }
-}`,
+}
+mfg_status: use "ok" when manufacturing locations were found, "not_applicable" when the company is a retailer/marketplace/reseller (not a manufacturer). Omit or use "ok" by default.`,
   },
 
   industries: {
