@@ -211,11 +211,10 @@ FORMAT RULES:
   Example: A "Vintage Linen" collection should produce: "Vintage Linen Sheet Set", "Vintage Linen Fitted Sheet", "Vintage Linen Flat Sheet", "Vintage Linen Duvet Cover", "Vintage Linen Sham", "Vintage Linen Pillowcase" — NOT just "Vintage Linen".
   Example: A "Classic Towels" line should produce: "Classic Bath Towel", "Classic Hand Towel", "Classic Washcloth", "Classic Bath Sheet" — NOT just "Classic Towels".
   Combine the collection/line name WITH each product type to form specific, searchable keywords.
-- STEP 4: VERIFY COMPLETENESS and FILL THE 100-CAP. Compare your list against what you saw on the shop/products pages.
+- STEP 4: VERIFY COMPLETENESS. Compare your list against what you saw on the shop/products pages.
   If you found category pages with products you haven't listed, go back and add them.
-  If your list has fewer than 15 items for a company with a full product catalog, you are likely missing products — search harder.
-  If you have room under the 100-item cap, go back to STEP 3 and expand more product lines into their individual variants.
-  A complete catalog typically includes: individual product types within each collection, size variants if they are distinct products, and material/style variants.
+  If the product pages look complete (no pagination, no "load more" buttons, no unexplored categories), accept your list as complete — even if it is short.
+  Only expand product lines into variants (STEP 3) or search harder if there is clear evidence of missing products.
 - Keywords should be exhaustive, complete and all-inclusive of all products the company produces.
 - Return up to 100 of the company's most important products and product lines. Stop when you reach 100 or when you cannot find any more.
 - If a customer could search for it and find this company's product, include it.
