@@ -204,6 +204,7 @@ async function runDirectEnrichment({
       onIntermediateSave,
       phase3BudgetCapMs,
       retryHints,
+      existingLogoUrl: asString(company?.logo_url).trim() || null,
     });
 
     result.enrichment_method = ecf.method || "unified";

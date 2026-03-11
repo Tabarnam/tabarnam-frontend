@@ -2006,8 +2006,10 @@ async function resumeWorkerHandler(req, context) {
         // Update IMMEDIATELY to prevent drift — don't wait for async Cosmos writes
         lastHeartbeatWrite = now;
         try {
-          // Primary heartbeat: session doc (UI status) — await this one
-          await bestEffortPatchSessionDoc({
+          // Primary heartbeat: session doc (UI status) — fire-and-forget
+          // Don't await: lastHeartbeatWrite is already updated above, and blocking
+          // on slow Cosmos writes causes heartbeat gaps that trigger stale detection.
+          bestEffortPatchSessionDoc({
             container,
             sessionId,
             patch: {
@@ -2099,12 +2101,19 @@ async function resumeWorkerHandler(req, context) {
     // Also checks the abort_token on the resume control doc — if a newer worker
     // has taken over, sets the `aborted` flag to stop this orphaned worker.
     let heartbeatTimer = null;
+    let heartbeatTickRunning = false;
     try {
     heartbeatTimer = setInterval(async () => {
+      if (heartbeatTickRunning) return; // skip if previous tick still running (Cosmos contention)
+      heartbeatTickRunning = true;
       try {
         // Check abort BEFORE writing heartbeat — piggyback on resume-doc read
+        // 8s timeout prevents slow Cosmos reads from blocking heartbeat writes
         if (!aborted) {
-          const freshResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+          const freshResume = await Promise.race([
+            readControlDoc(container, resumeDocId, sessionId).catch(() => null),
+            new Promise(resolve => setTimeout(() => resolve(null), 8_000)),
+          ]);
           if (freshResume && freshResume.abort_token && freshResume.abort_token !== invocationId) {
             console.warn(`[resume-worker] ABORT detected: token changed from ${invocationId} to ${freshResume.abort_token}, session=${sessionId}`);
             aborted = true;
@@ -2113,7 +2122,9 @@ async function resumeWorkerHandler(req, context) {
           }
         }
         await maybeWriteHeartbeat();
-      } catch {}
+      } catch {} finally {
+        heartbeatTickRunning = false;
+      }
     }, HEARTBEAT_INTERVAL_MS);
 
     // eslint-disable-next-line no-constant-condition

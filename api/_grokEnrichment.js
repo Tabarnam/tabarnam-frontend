@@ -199,7 +199,7 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 // xAI web search typically takes 30-90s for focused single-field queries.
 const CALL_TIMEOUTS_MS = Object.freeze({
   locations:  { min: 45_000,  max: 120_000 },   // 0.75-2 min per standalone HQ or MFG call
-  keywords:   { min: 90_000,  max: 240_000 },   // 1.5-4 min for product keywords
+  keywords:   { min: 90_000,  max: 180_000 },   // 1.5-3 min for product keywords (was 240s; 180s prevents keyword call from being parallel bottleneck)
   light:      { min: 90_000,  max: 180_000 },   // 1.5-3 min for tagline + industries + logo
   reviews:    { min: 90_000,  max: 120_000 },    // 1.5-2 min — fail fast so browseAboutPage fallback gets more budget
   structured: { min: 90_000,  max: 330_000 },    // Legacy — kept for retryMissingStructuredFields
@@ -2876,6 +2876,7 @@ async function fetchLightFields({
   xaiUrl,
   xaiKey,
   model,
+  skipLogo = false,
 } = {}) {
   const started = Date.now();
 
@@ -2887,6 +2888,14 @@ async function fetchLightFields({
       ? `https://${domain}`
       : "";
 
+  const logoBlock = skipLogo ? "" : `
+LOGO:
+${FIELD_GUIDANCE.logo.rules}
+`;
+  const logoJsonSchema = skipLogo ? "" : `
+  ${FIELD_GUIDANCE.logo.jsonSchema},
+  "logo_source": "header" | "nav" | "footer" | "meta" | null`;
+
   const prompt = `${SEARCH_PREAMBLE}
 
 For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, provide the following fields.
@@ -2897,23 +2906,19 @@ ${FIELD_GUIDANCE.tagline.rules}
 
 INDUSTRIES:
 ${FIELD_GUIDANCE.industries.rules}
-
-LOGO:
-${FIELD_GUIDANCE.logo.rules}
-
+${logoBlock}
 ${QUALITY_RULES}
 Return STRICT JSON only:
 {
   ${FIELD_GUIDANCE.tagline.jsonSchema},
-  ${FIELD_GUIDANCE.industries.jsonSchema},
-  ${FIELD_GUIDANCE.logo.jsonSchema},
-  "logo_source": "header" | "nav" | "footer" | "meta" | null
+  ${FIELD_GUIDANCE.industries.jsonSchema}${logoJsonSchema}
 }`.trim();
 
   // Don't exclude company domain — the prompt needs Grok to browse the homepage.
   const searchBuild = buildSearchParameters({ companyWebsiteHost: null });
 
-  console.log(`[fetchLightFields] prompt_summary: company="${name}", domain="${domain}", fields=["tagline","industries","logo_url"], prompt_chars=${prompt.length}, budget=${budgetMs}ms`);
+  const lightFieldNames = skipLogo ? '["tagline","industries"]' : '["tagline","industries","logo_url"]';
+  console.log(`[fetchLightFields] prompt_summary: company="${name}", domain="${domain}", fields=${lightFieldNames}, prompt_chars=${prompt.length}, budget=${budgetMs}ms${skipLogo ? ", skipLogo=true" : ""}`);
 
   const r = await xaiLiveSearchWithRetry({
     prompt,
@@ -2985,19 +2990,21 @@ Return STRICT JSON only:
 
   const result = parseStructuredResponse(parsed);
 
-  // Add logo_url extraction (same as fetchStructuredFields)
-  const logo_url_raw = asString(parsed.logo_url || "").trim() || null;
-  const logo_source = asString(parsed.logo_source || "").trim() || null;
-  result.field_statuses.logo_url = logo_url_raw ? "ok" : "empty";
-  result.parsed_fields.logo_url = logo_url_raw ? safeUrl(logo_url_raw) : null;
-  result.parsed_fields.logo_source = logo_source;
+  // Add logo_url extraction (same as fetchStructuredFields) — skip when logo already captured
+  if (!skipLogo) {
+    const logo_url_raw = asString(parsed.logo_url || "").trim() || null;
+    const logo_source_raw = asString(parsed.logo_source || "").trim() || null;
+    result.field_statuses.logo_url = logo_url_raw ? "ok" : "empty";
+    result.parsed_fields.logo_url = logo_url_raw ? safeUrl(logo_url_raw) : null;
+    result.parsed_fields.logo_source = logo_source_raw;
+  }
 
-  console.log(`[fetchLightFields] Parsed: tagline=${result.parsed_fields.tagline ? "yes" : "no"}, industries=${result.parsed_fields.industries?.length || 0}, logo=${logo_url_raw ? "yes" : "no"}, elapsed=${elapsedMs}ms`);
+  const logoStatus = skipLogo ? "skipped (pre-captured)" : (result.parsed_fields.logo_url ? "yes" : "no");
+  console.log(`[fetchLightFields] Parsed: tagline=${result.parsed_fields.tagline ? "yes" : "no"}, industries=${result.parsed_fields.industries?.length || 0}, logo=${logoStatus}, elapsed=${elapsedMs}ms`);
   console.log(`[fetchLightFields] field_values`, {
     tagline: result.parsed_fields.tagline || "(empty)",
     industries: result.parsed_fields.industries || [],
-    logo_url: result.parsed_fields.logo_url || "(empty)",
-    logo_source: result.parsed_fields.logo_source || "(none)",
+    ...(skipLogo ? {} : { logo_url: result.parsed_fields.logo_url || "(empty)", logo_source: result.parsed_fields.logo_source || "(none)" }),
   });
 
   return {
@@ -3822,6 +3829,7 @@ async function enrichCompanyFields({
   onIntermediateSave,
   phase3BudgetCapMs,                // legacy — ignored by v3.0 pipeline
   retryHints,                       // { hadStructuredTimeout: boolean } — reduces structured timeout on retry cycles
+  existingLogoUrl,                  // if non-null, skip logo in fetchLightFields (already captured by homepage scraper)
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -4085,11 +4093,13 @@ async function enrichCompanyFields({
       }).then((r) => earlySave(r, "keywords", KEYWORD_OWNED_PARSED))
     : Promise.resolve(null);
 
+  const skipLogo = !!existingLogoUrl;
   const lightPromise = wantLight
     ? fetchLightFields({
         companyName, websiteUrl, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.light.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey,
+        skipLogo,
       }).then((r) => earlySave(r, "light", LIGHT_OWNED_PARSED))
     : Promise.resolve(null);
 
