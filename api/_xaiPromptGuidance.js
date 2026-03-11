@@ -103,10 +103,11 @@ STEP 1 — BROWSE THE COMPANY WEBSITE FIRST (mandatory, most authoritative sourc
 - Check product pages for descriptions that mention where the product is sourced, processed, cured, smoked, or packaged. For food companies, if raw materials are sourced AND processed at the same location, that location is a manufacturing site.
 - If the website clearly states manufacturing locations with city-level detail, accept them and move to formatting. Only do additional web searches if the website is silent or only names a country.
 
-EARLY EXIT — NOT A MANUFACTURER:
-- If Step 1 reveals the company is a RETAILER, MARKETPLACE, or RESELLER that sells products from multiple OTHER brands/companies (not its own), STOP immediately and return an empty array [].
-- Indicators: the website sells products from many different brand names, has no "Made by us" or "Our facility" language, describes itself as a retailer/distributor/marketplace, or is an e-commerce storefront aggregating third-party products.
-- Do NOT spend time searching for manufacturing data for retailers — they do not manufacture. Return [] promptly.
+EARLY EXIT — RETAILER / MARKETPLACE / RESELLER:
+If Step 1 reveals the company is a RETAILER, MARKETPLACE, or RESELLER that sells products from multiple OTHER brands (not its own), do NOT search for specific factory addresses. Instead:
+- If the website states a sourcing country (e.g., "America's Best", "Made in USA", "sourced from US makers"), return that country as a single manufacturing entry (e.g., country "USA" with empty city/state).
+- If no sourcing country is stated, return an empty array [].
+Either way, do NOT proceed to Step 2-4 web searches for retailers.
 
 STEP 2 — WEB SEARCH (only if Step 1 found NO city-level manufacturing info on the website).
 - Run web_search: "[Company Name] manufacturing facilities locations"

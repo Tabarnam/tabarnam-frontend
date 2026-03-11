@@ -1547,7 +1547,8 @@ PRIORITY: Before any web searches, browse these pages of the company website fir
 - ${websiteUrlForPrompt}/pages/contact
 If any of these pages contain manufacturing or production location information (e.g., "Made in...", "sourced and made in..."), accept it immediately and return the result. Only proceed to web searches if none of these pages have what you need.
 ` : ""}
-IMPORTANT: If the company website reveals this is a RETAILER, MARKETPLACE, or RESELLER selling products from multiple other brands (not its own brand), return {"manufacturing_locations": [], "mfg_status": "not_applicable", "location_source_urls": {"mfg_source_urls": []}} immediately. Do not search further.
+IMPORTANT: If the company website reveals this is a RETAILER, MARKETPLACE, or RESELLER selling products from multiple other brands — do NOT search for factory addresses. Instead, if the site states a sourcing country (e.g., "America's Best Craft Jerky", "Made in USA"), return that country: {"manufacturing_locations": [{"city": "", "state": "", "country": "USA"}], "mfg_status": "ok", "location_source_urls": {"mfg_source_urls": ["<url>"]}}.
+If no sourcing country is stated, return {"manufacturing_locations": [], "mfg_status": "not_applicable", "location_source_urls": {"mfg_source_urls": []}}.
 
 For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
 
