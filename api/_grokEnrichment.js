@@ -2883,6 +2883,7 @@ async function fetchLightFields({
   xaiKey,
   model,
   skipLogo = false,
+  signal,
 } = {}) {
   const started = Date.now();
 
@@ -4154,6 +4155,13 @@ async function enrichCompanyFields({
   const keywords = kwSettled.status === "fulfilled" ? kwSettled.value : null;
   const light = lightSettled.status === "fulfilled" ? lightSettled.value : null;
   const reviews = revSettled.status === "fulfilled" ? revSettled.value : null;
+
+  // Log rejection reasons so promise crashes are diagnosable
+  for (const [label, settled] of [["hq", hqSettled], ["mfg", mfgSettled], ["keywords", kwSettled], ["light", lightSettled], ["reviews", revSettled]]) {
+    if (settled.status === "rejected") {
+      console.error(`[enrichCompanyFields] ${label} promise REJECTED: ${settled.reason?.message || String(settled.reason)}, run=${runId}`);
+    }
+  }
 
   // Per-call elapsed breakdown for performance diagnostics
   const callElapsed = {
