@@ -1145,7 +1145,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
       return { ok: false, reason: "offsite_head_redirect" };
     }
     if (!isAllowedLogoContentType(probedType)) return { ok: false, reason: `unsupported_content_type_${probedType || "unknown"}` };
-    if (head.contentLength != null && head.contentLength <= 1024) return { ok: false, reason: `too_small_${head.contentLength}_bytes` };
+    if (head.contentLength != null && head.contentLength > 0 && head.contentLength <= 1024) return { ok: false, reason: `too_small_${head.contentLength}_bytes` };
   }
 
   if (isBudgetExhausted(budget, { marginMs: 0, minRemainingMs: 1200 })) {

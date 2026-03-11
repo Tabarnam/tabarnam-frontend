@@ -1550,6 +1550,8 @@ If any of these pages contain manufacturing or production location information (
 IMPORTANT: If the company website reveals this is a RETAILER, MARKETPLACE, or RESELLER selling products from multiple other brands — do NOT search for factory addresses. Instead, if the site states a sourcing country (e.g., "America's Best Craft Jerky", "Made in USA"), return that country: {"manufacturing_locations": [{"city": "", "state": "", "country": "USA"}], "mfg_status": "ok", "location_source_urls": {"mfg_source_urls": ["<url>"]}}.
 If no sourcing country is stated, return {"manufacturing_locations": [], "mfg_status": "not_applicable", "location_source_urls": {"mfg_source_urls": []}}.
 
+SMALL / ARTISAN PRODUCERS: If the company is a small-batch, artisan, or craft producer and no separate manufacturing facility is mentioned anywhere on the website, the headquarters address IS the manufacturing location. Return the HQ address as the manufacturing location rather than spending time searching for a separate factory that does not exist.
+
 For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
 
 Task: Identify ALL known MANUFACTURING locations for this company worldwide.

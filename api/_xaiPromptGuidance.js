@@ -109,6 +109,8 @@ If Step 1 reveals the company is a RETAILER, MARKETPLACE, or RESELLER that sells
 - If no sourcing country is stated, return an empty array [].
 Either way, do NOT proceed to Step 2-4 web searches for retailers.
 
+SMALL / ARTISAN PRODUCERS: If the company is a small-batch, artisan, or craft producer and no separate manufacturing facility is mentioned anywhere on the website, the headquarters address IS the manufacturing location. Return the HQ address as the manufacturing location rather than spending time searching for a separate factory that does not exist.
+
 STEP 2 — WEB SEARCH (only if Step 1 found NO city-level manufacturing info on the website).
 - Run web_search: "[Company Name] manufacturing facilities locations"
 - Run web_search: "[Company Name] factory OR plant OR production facility"
