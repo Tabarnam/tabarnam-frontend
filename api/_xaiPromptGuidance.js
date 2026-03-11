@@ -175,10 +175,9 @@ FORMAT RULES:
   Run web_search: "[Company Name] products catalog"
   Also try: "[Company Name] flavors" or "[Company Name] all varieties" for food/beverage companies.
   Use browse_page on retailer or distributor listings to find products not on the main site.
-- STEP 3: EXPAND product lines into individual product variants. For EACH product line or collection, list EVERY individual product type within it.
-  Example: A "Vintage Linen" collection should produce: "Vintage Linen Sheet Set", "Vintage Linen Fitted Sheet", "Vintage Linen Flat Sheet", "Vintage Linen Duvet Cover", "Vintage Linen Sham", "Vintage Linen Pillowcase" — NOT just "Vintage Linen".
-  Example: A "Classic Towels" line should produce: "Classic Bath Towel", "Classic Hand Towel", "Classic Washcloth", "Classic Bath Sheet" — NOT just "Classic Towels".
-  Combine the collection/line name WITH each product type to form specific, searchable keywords.
+- STEP 3: EXPAND collection names into individual products — but ONLY if the product pages show collection headers without listing individual items.
+  If the product pages already list individual products by name (e.g., "Original Beef Jerky", "Teriyaki Beef Jerky"), those ARE your keywords — no further expansion needed.
+  Only expand when the site shows generic collection names (e.g., "Classic Towels") without individual product listings underneath. In that case, combine the collection name with each product type (e.g., "Classic Bath Towel", "Classic Hand Towel").
 - STEP 4: VERIFY COMPLETENESS. Compare your list against what you saw on the shop/products pages.
   If you found category pages with products you haven't listed, go back and add them.
   If the product pages look complete (no pagination, no "load more" buttons, no unexplored categories), accept your list as complete — even if it is short.
@@ -257,22 +256,24 @@ Return up to 5 verified reviews. Quality over quantity.`;
         return `The standard review search for ${companyRef} did not find enough results.
 Create ONE review entry from the company's own website content.
 
-Start at ${websiteUrl} and look at the site's navigation menu and footer for links to:
-1. Customer testimonials or reviews (PREFERRED)
-2. About Us / Our Story / Our Mission
-3. FAQ
+STEP 1 — Browse the HOMEPAGE at ${websiteUrl} FIRST.
+Many company homepages feature press mentions, magazine logos, award badges, customer testimonials, or review quotes directly on the landing page. Look for:
+- Press logos or "As seen in..." sections (e.g., Forbes, Men's Health, Food Magazine)
+- Customer testimonial sections with quotes
+- Award or competition mentions
+- "Featured in..." or "Press" sections
+If you find any of these on the homepage, use that content for your review entry.
 
-Also try common URL patterns:
-${websiteUrl}/testimonials, /about, /our-story, /faq
-${websiteUrl}/pages/testimonials, /pages/about, /pages/our-story, /pages/faq
+STEP 2 — Only if the homepage has NO review/press content, try these pages:
+- ${websiteUrl}/testimonials, /about, /our-story, /faq
+- ${websiteUrl}/pages/testimonials, /pages/about, /pages/our-story, /pages/faq
+- Check the site's navigation menu and footer for links to testimonials, about, or press pages.
 
-If no relevant pages load, use the homepage at ${websiteUrl} directly.
-
-From the FIRST page that loads successfully, create ONE review entry:
-- source_name: "Website - [page type]" (e.g., "Website - Testimonials", "Website - About", "Website - Home")
-- excerpt: A customer testimonial (preferred), OR the company's story/mission/what makes their products unique. Minimum 30 characters.
+From the FIRST page with usable content, create ONE review entry:
+- source_name: "Website - [page type]" (e.g., "Website - Home", "Website - Testimonials", "Website - About")
+- excerpt: A press mention, customer testimonial, or the company's story/mission. Minimum 30 characters.
 - source_url: The actual page URL you visited
-- author: The customer name (for testimonials) or "${companyName}" (for about/mission content)
+- author: The customer name (for testimonials), publication name (for press mentions), or "${companyName}" (for about/mission content)
 
 Return exactly 1 review.
 ${attemptedExclusion}`;
@@ -325,40 +326,18 @@ Text: [1-3 sentence excerpt or summary of the review]`,
   },
 
   logo: {
-    rules: `STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory first step).
-- Use browse_page on the company URL. Inspect the page source for logo images:
-  - Look for <img> tags with alt text containing "logo" or class/id like "logo", "header-logo", "brand-logo", "site-logo", or "wordmark".
-  - Look for <img> tags inside <header>, <nav>, or the first <a> element that links to "/" or the homepage.
-  - Check <link rel="icon" type="image/png"> or <link rel="apple-touch-icon"> for high-res icon URLs (NOT favicon.ico — only 180x180+ icons).
-  - Check <meta property="og:image"> for a social sharing image that may be the logo.
-  - If the logo appears to be lazy-loaded (data-src, data-lazy, loading="lazy"), extract the data-src or original source URL.
-- If you find an image URL in the header area, that is the PRIMARY logo source.
-
-STEP 2 — CHECK ADDITIONAL PAGES.
-- Browse /about, /about-us, /press, /press-kit, /brand, /media for press kit or brand asset downloads.
-- Some companies provide high-resolution logo files on their press/media pages — prefer these when available.
-- Try web_search: "[Company Name] logo download" or "[Company Name] press kit" for official brand asset pages.
-
-STEP 3 — WEB SEARCH AS FALLBACK.
-- Run web_search: "[Company Name] logo PNG" or "[Company Name] logo SVG".
-- Run web_search: "[Company Name] site:linkedin.com" — the company's LinkedIn page often has a square logo image.
-- Use browse_page on results to find direct image URLs.
-
-STEP 4 — SOCIAL MEDIA PROFILE IMAGES (last resort).
-- If nothing above works, try the company's Twitter/X profile or Facebook page for profile images.
-
-STEP 5 — VERIFY THE URL BEFORE RETURNING (critical).
-- Use browse_page on the candidate logo URL to confirm it loads (is not a 404 or error page).
-- If view_image is available, use it to confirm the image is an actual company logo (matches brand name/colors, not a hero banner or product image).
-- If the URL returns an error, go back to Step 1-4 and try a different candidate.
-- Do NOT return a URL you have not verified. Dead URLs waste processing time.
+    rules: `Browse the company homepage and find the logo image in the header or navigation area.
+- Look for <img> tags with alt text containing "logo" or class/id like "logo", "header-logo", "brand-logo", "site-logo", or "wordmark".
+- Look for <img> tags inside <header>, <nav>, or the first <a> element that links to "/" or the homepage.
+- Check <meta property="og:image"> for a social sharing image that may be the logo.
+- If the logo appears to be lazy-loaded (data-src, data-lazy), extract the data-src or original source URL.
+- If you find a logo image in the header area, return it immediately.
 
 FORMAT RULES:
 - Return the direct URL to the logo image file (PNG, SVG, JPG, WebP).
 - Do NOT return favicon.ico or generic 16x16 favicons.
 - Do NOT return product images, hero banners, or promotional graphics.
 - If the logo is an inline SVG with no separate image URL, return null for logo_url.
-- If multiple logo variants exist, prefer the main/primary version displayed in the header.
 - The URL must point directly to an image file, not an HTML page.`,
     jsonSchema: `"logo_url": "https://..." | null`,
   },

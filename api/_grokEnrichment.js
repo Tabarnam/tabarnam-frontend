@@ -201,7 +201,7 @@ const CALL_TIMEOUTS_MS = Object.freeze({
   locations:  { min: 90_000,  max: 240_000 },   // 1.5-4 min for HQ + Manufacturing
   keywords:   { min: 90_000,  max: 240_000 },   // 1.5-4 min for product keywords
   light:      { min: 90_000,  max: 180_000 },   // 1.5-3 min for tagline + industries + logo
-  reviews:    { min: 90_000,  max: 150_000 },    // 1.5-2.5 min — found reviews arrive in 84-126s; cap prevents 5-min dry-well searches
+  reviews:    { min: 90_000,  max: 120_000 },    // 1.5-2 min — fail fast so browseAboutPage fallback gets more budget
   structured: { min: 90_000,  max: 330_000 },    // Legacy — kept for retryMissingStructuredFields
 });
 // Backward compat alias
