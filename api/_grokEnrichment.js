@@ -4077,15 +4077,20 @@ async function enrichCompanyFields({
   // ── Location timeout retry ──
   // If fetchLocationFields failed (timeout/error) and budget allows, retry with
   // the simpler standalone HQ + MFG functions (shorter prompts, one field each).
+  // IMPORTANT: Cap retry budgets to reserve ≥150s for downstream work
+  // (reviews browseAboutPage fallback ~120s + logo verification ~30s).
+  const DOWNSTREAM_RESERVE_MS = 150_000;
+
   if (wantLocations && !locations?.ok
-      && getRemainingMs() > CALL_TIMEOUTS_MS.locations.min * 2 + 30_000) {
+      && getRemainingMs() > CALL_TIMEOUTS_MS.locations.min + DOWNSTREAM_RESERVE_MS) {
     const locReason = locations?.error_code || locations?.error || "unknown";
-    console.log(`[enrichCompanyFields] Locations failed (reason=${locReason}), retrying with standalone HQ+MFG calls, budget_remaining=${getRemainingMs()}ms, run=${runId}`);
+    const locationRetryBudget = getRemainingMs() - DOWNSTREAM_RESERVE_MS;
+    console.log(`[enrichCompanyFields] Locations failed (reason=${locReason}), retrying with standalone HQ+MFG calls, budget_remaining=${getRemainingMs()}ms, locationRetryBudget=${locationRetryBudget}ms, run=${runId}`);
 
     const hqStarted = Date.now();
     const hqRetry = await fetchHeadquartersLocation({
       companyName, normalizedDomain: domain,
-      budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() / 2 - 15_000),
+      budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, locationRetryBudget / 2),
       xaiUrl, xaiKey,
     });
     const hqElapsed = Date.now() - hqStarted;
@@ -4103,11 +4108,13 @@ async function enrichCompanyFields({
       console.log(`[enrichCompanyFields] HQ retry empty (status=${hqRetry?.hq_status}), elapsed=${hqElapsed}ms, run=${runId}`);
     }
 
-    if (getRemainingMs() > CALL_TIMEOUTS_MS.locations.min + 15_000) {
+    // MFG retry: use remaining location budget (not total remaining — preserve downstream reserve)
+    const mfgBudget = Math.max(0, locationRetryBudget - (Date.now() - hqStarted));
+    if (mfgBudget > CALL_TIMEOUTS_MS.locations.min) {
       const mfgStarted2 = Date.now();
       const mfgRetry2 = await fetchManufacturingLocations({
         companyName, normalizedDomain: domain,
-        budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, mfgBudget),
         xaiUrl, xaiKey,
       });
       const mfgElapsed2 = Date.now() - mfgStarted2;
@@ -4123,6 +4130,8 @@ async function enrichCompanyFields({
       } else {
         console.log(`[enrichCompanyFields] MFG retry empty (status=${mfgRetry2?.mfg_status}), elapsed=${mfgElapsed2}ms, run=${runId}`);
       }
+    } else {
+      console.log(`[enrichCompanyFields] MFG retry skipped (mfgBudget=${mfgBudget}ms < min=${CALL_TIMEOUTS_MS.locations.min}ms), preserving budget for downstream, run=${runId}`);
     }
 
     // Early save retry results
