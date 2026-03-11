@@ -200,7 +200,7 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 const CALL_TIMEOUTS_MS = Object.freeze({
   locations:  { min: 45_000,  max: 120_000 },   // 0.75-2 min per standalone HQ or MFG call
   keywords:   { min: 90_000,  max: 180_000 },   // 1.5-3 min for product keywords (was 240s; 180s prevents keyword call from being parallel bottleneck)
-  light:      { min: 90_000,  max: 180_000 },   // 1.5-3 min for tagline + industries + logo
+  light:      { min: 45_000,  max: 90_000 },    // 0.75-1.5 min for tagline + industries (was 180s; if Grok can't find these in 90s, it won't)
   reviews:    { min: 90_000,  max: 120_000 },    // 1.5-2 min — fail fast so browseAboutPage fallback gets more budget
   structured: { min: 90_000,  max: 330_000 },    // Legacy — kept for retryMissingStructuredFields
 });
@@ -903,6 +903,7 @@ async function fetchCuratedReviews({
   model = "grok-4-latest",
   attempted_urls = [],
   browseAboutPage = false,
+  signal,
 } = {}) {
   const started = Date.now();
 
@@ -994,6 +995,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,
+    signal,
     search_parameters: {
       ...searchBuild.search_parameters,
       excluded_domains: searchBuild.excluded_domains,
@@ -1347,7 +1349,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
 /** @deprecated v3.0 — subsumed by fetchStructuredFields() Call 1.
  *  Kept exported for backward compat (admin refresh, ENRICHMENT_FIELDS in _directEnrichment.js). */
-async function fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs = 20000, xaiUrl, xaiKey } = {}) {
+async function fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs = 20000, xaiUrl, xaiKey, signal } = {}) {
   const started = Date.now();
 
   const name = asString(companyName).trim();
@@ -1429,6 +1431,7 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
     model: resolveSearchModel(),
     xaiUrl,
     xaiKey,
+    signal,
     search_parameters: { mode: "on" },
   });
 
@@ -1518,7 +1521,7 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
 
 /** @deprecated v3.0 — subsumed by fetchStructuredFields() Call 1.
  *  Kept exported for backward compat (admin refresh, ENRICHMENT_FIELDS in _directEnrichment.js). */
-async function fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs = 20000, xaiUrl, xaiKey } = {}) {
+async function fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs = 20000, xaiUrl, xaiKey, signal } = {}) {
   const started = Date.now();
 
   const name = asString(companyName).trim();
@@ -1605,6 +1608,7 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
     model: resolveSearchModel(),
     xaiUrl,
     xaiKey,
+    signal,
     search_parameters: { mode: "on" },
   });
 
@@ -2746,6 +2750,7 @@ async function fetchKeywordFields({
   xaiUrl,
   xaiKey,
   model,
+  signal,
 } = {}) {
   const started = Date.now();
 
@@ -2789,6 +2794,7 @@ Return STRICT JSON only:
     model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
+    signal,
     search_parameters: {
       ...searchBuild.search_parameters,
       excluded_domains: searchBuild.excluded_domains,
@@ -2934,6 +2940,7 @@ Return STRICT JSON only:
     model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
+    signal,
     search_parameters: {
       ...searchBuild.search_parameters,
       excluded_domains: searchBuild.excluded_domains,
@@ -3830,6 +3837,7 @@ async function enrichCompanyFields({
   phase3BudgetCapMs,                // legacy — ignored by v3.0 pipeline
   retryHints,                       // { hadStructuredTimeout: boolean } — reduces structured timeout on retry cycles
   existingLogoUrl,                  // if non-null, skip logo in fetchLightFields (already captured by homepage scraper)
+  signal,                           // Optional: AbortSignal — cancels in-flight xAI fetches when worker is orphaned
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -4037,7 +4045,7 @@ async function enrichCompanyFields({
     ? fetchHeadquartersLocation({
         companyName, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
-        xaiUrl, xaiKey,
+        xaiUrl, xaiKey, signal,
       }).then(async (hqRaw) => {
         const hqLoc = asString(hqRaw?.headquarters_location).trim();
         const isOk = !!hqLoc && hqRaw?.hq_status !== "deferred";
@@ -4066,7 +4074,7 @@ async function enrichCompanyFields({
     ? fetchManufacturingLocations({
         companyName, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
-        xaiUrl, xaiKey,
+        xaiUrl, xaiKey, signal,
       }).then(async (mfgRaw) => {
         const mfgLocs = mfgRaw?.manufacturing_locations;
         const isOk = Array.isArray(mfgLocs) && mfgLocs.length > 0 && mfgRaw?.mfg_status !== "deferred";
@@ -4089,7 +4097,7 @@ async function enrichCompanyFields({
     ? fetchKeywordFields({
         companyName, websiteUrl, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.keywords.max, getRemainingMs() - 15_000),
-        xaiUrl, xaiKey,
+        xaiUrl, xaiKey, signal,
       }).then((r) => earlySave(r, "keywords", KEYWORD_OWNED_PARSED))
     : Promise.resolve(null);
 
@@ -4098,7 +4106,7 @@ async function enrichCompanyFields({
     ? fetchLightFields({
         companyName, websiteUrl, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.light.max, getRemainingMs() - 15_000),
-        xaiUrl, xaiKey,
+        xaiUrl, xaiKey, signal,
         skipLogo,
       }).then((r) => earlySave(r, "light", LIGHT_OWNED_PARSED))
     : Promise.resolve(null);
@@ -4108,7 +4116,7 @@ async function enrichCompanyFields({
     ? fetchCuratedReviews({
         companyName, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
-        xaiUrl, xaiKey,
+        xaiUrl, xaiKey, signal,
         browseAboutPage: !!retryHints?.browseAboutPage,
       }).then(async (result) => {
         if (result?.curated_reviews?.length > 0 && typeof onIntermediateSave === "function") {
@@ -4197,8 +4205,13 @@ async function enrichCompanyFields({
 
   const needHqRetry = wantLocations && !proposed.headquarters_location;
   // Skip MFG retry if Grok explicitly said "not_applicable" (retailer/marketplace)
+  // Also skip if initial MFG call timed out — a second try won't find data that 118.8s couldn't
   const mfgExplicitlyEmpty = field_statuses.manufacturing === "not_applicable" || field_statuses.manufacturing === "not_disclosed";
-  const needMfgRetry = wantLocations && !(proposed.manufacturing_locations?.length > 0) && !mfgExplicitlyEmpty;
+  const mfgTimedOut = field_statuses.manufacturing === "upstream_timeout";
+  const needMfgRetry = wantLocations && !(proposed.manufacturing_locations?.length > 0) && !mfgExplicitlyEmpty && !mfgTimedOut;
+  if (mfgTimedOut && !(proposed.manufacturing_locations?.length > 0)) {
+    console.log(`[enrichCompanyFields] Skipping MFG retry (initial timed out — back off and move on), run=${runId}`);
+  }
 
   if ((needHqRetry || needMfgRetry)
       && getRemainingMs() > CALL_TIMEOUTS_MS.locations.min + DOWNSTREAM_RESERVE_MS) {

@@ -233,6 +233,7 @@ async function xaiLiveSearch({
   search_parameters,
   useTools = false,
   enableImageUnderstanding = false,
+  signal, // Optional: external AbortSignal — cancels fetch when worker is orphaned
 } = {}) {
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
@@ -316,6 +317,13 @@ async function xaiLiveSearch({
     abortTimerFired = true;
     controller.abort();
   }, timeoutUsedMs);
+
+  // Link external abort signal (from worker orphan detection) to our internal controller.
+  // When the handler's AbortController fires, this immediately cancels the in-flight fetch.
+  if (signal) {
+    if (signal.aborted) { controller.abort(); }
+    else { signal.addEventListener("abort", () => controller.abort(), { once: true }); }
+  }
 
   try {
     // Detect if we're using the /responses endpoint (newer xAI API) vs /chat/completions

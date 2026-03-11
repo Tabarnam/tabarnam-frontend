@@ -151,6 +151,7 @@ async function runDirectEnrichment({
   onIntermediateSave,             // Optional: fires after Phase 2 with verified fields (survives DrainMode)
   phase3BudgetCapMs,              // Optional: cap Phase 3 budget (e.g. PASS1a uses 90s)
   retryHints,                     // Optional: { hadStructuredTimeout } — reduces structured timeout on retry cycles
+  signal,                         // Optional: AbortSignal — cancels in-flight xAI fetches when worker is orphaned
 } = {}) {
   const startedAt = Date.now();
   const resolvedXaiUrl = asString(xaiUrl).trim() || getXAIEndpoint();
@@ -205,6 +206,7 @@ async function runDirectEnrichment({
       phase3BudgetCapMs,
       retryHints,
       existingLogoUrl: asString(company?.logo_url).trim() || null,
+      signal,
     });
 
     result.enrichment_method = ecf.method || "unified";

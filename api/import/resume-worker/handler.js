@@ -1998,6 +1998,10 @@ async function resumeWorkerHandler(req, context) {
     // has taken over (abort_token on resume control doc changed). Checked at loop
     // boundaries to stop the orphaned worker from making further xAI calls.
     let aborted = false;
+    // AbortController — shared signal that cancels in-flight xAI fetch calls immediately
+    // when a newer worker takes over. Threaded through: handler → runDirectEnrichment →
+    // enrichCompanyFields → fetch functions → xaiLiveSearchWithRetry → xaiLiveSearch → fetch().
+    const workerAbortController = new AbortController();
 
     const maybeWriteHeartbeat = async () => {
       const now = Date.now();
@@ -2093,6 +2097,11 @@ async function resumeWorkerHandler(req, context) {
     let resumeNeeded;
     let updatedAt;
 
+    // Write initial heartbeat at T+0 so stale threshold (210s) has full runway
+    // even if the timer fails to fire on cold starts.
+    lastHeartbeatWrite = 0; // force immediate write
+    await maybeWriteHeartbeat();
+
     // Timer-based heartbeat: fires every 30s DURING the enrichment loop,
     // even while enrichCompanyFields() blocks on long xAI calls (150-180s).
     // Without this, single-company imports write zero heartbeats because the
@@ -2117,6 +2126,7 @@ async function resumeWorkerHandler(req, context) {
           if (freshResume && freshResume.abort_token && freshResume.abort_token !== invocationId) {
             console.warn(`[resume-worker] ABORT detected: token changed from ${invocationId} to ${freshResume.abort_token}, session=${sessionId}`);
             aborted = true;
+            workerAbortController.abort(); // cancel all in-flight xAI fetch calls
             if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
             return;
           }
@@ -2328,6 +2338,7 @@ async function resumeWorkerHandler(req, context) {
                 }
               : undefined,
             skipDedicatedDeepening: false, // Allow Phase 3 for reviews/keywords deepening
+            signal: workerAbortController.signal, // cancel in-flight fetches when worker is orphaned
             onIntermediateSave: async (verified) => {
               try {
                 const mapped = { ...verified };
@@ -2754,6 +2765,17 @@ async function resumeWorkerHandler(req, context) {
 
     } // end while(true) internal retry loop
 
+    } catch (loopError) {
+      // CRITICAL: Without this catch, errors in the enrichment loop propagate unhandled,
+      // crashing the handler and killing the heartbeat timer. This caused the "first run
+      // timer dies" bug — run 1's timer wrote one heartbeat then went silent because the
+      // handler exited abruptly. Run 2 worked because the error condition was transient.
+      console.error(`[resume-worker] enrichment_loop_error`, {
+        session_id: sessionId,
+        cycle: cycleCount,
+        error: loopError?.message || String(loopError),
+        stack: loopError?.stack ? loopError.stack.split("\n").slice(0, 5).join(" | ") : null,
+      });
     } finally {
       if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     }
