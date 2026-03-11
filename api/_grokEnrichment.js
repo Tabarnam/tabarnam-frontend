@@ -3328,7 +3328,7 @@ async function retryMissingStructuredFields({
 
   const prompt = `${SEARCH_PREAMBLE}
 
-For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, the following fields could not be determined in a previous search attempt. Please try harder to find them — use multiple web_search queries and browse_page to verify.
+For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, determine the following fields.
 
 ${sections.join("\n\n")}
 
@@ -3336,7 +3336,9 @@ ${QUALITY_RULES}
 Return STRICT JSON only with the requested fields:
 { ${jsonParts.join(", ")} }`.trim();
 
-  const searchBuild = buildSearchParameters({ companyWebsiteHost: domain });
+  // Don't exclude company domain — the prompt needs Grok to browse the company website
+  // for locations (footer/contact addresses), keywords (product pages), tagline, logo, etc.
+  const searchBuild = buildSearchParameters({ companyWebsiteHost: null });
 
   const needsImageUnderstanding = missingFields.includes("logo_url");
 

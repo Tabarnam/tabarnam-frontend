@@ -40,24 +40,16 @@ const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url
 // ---------------------------------------------------------------------------
 const FIELD_GUIDANCE = {
   headquarters: {
-    rules: `Conduct thorough research using web_search and browse_page tools to identify the CURRENT official headquarters location. Companies relocate — you MUST return the active, current address, NOT a previous or registered address. Having the actual cities within the United States is crucial. Be accurate. No guessing or hallucinating.
+    rules: `Identify the CURRENT official headquarters location. Companies relocate — return the active, current address, NOT a previous or registered address. Having the actual cities within the United States is crucial. Be accurate. No guessing or hallucinating.
 
-MINIMUM TOOL USAGE (mandatory):
-- You MUST make at least 2 browse_page calls (the company website + at least 1 external source).
-- You MUST make at least 2 web_search calls with different query patterns.
-- Do NOT finalize your answer until you have completed all required tool calls.
-
-STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
-- ONLY use text that appears on the company's LIVE official website (contact page, about page, footer, shipping policy, privacy page).
-- Use browse_page on the company URL. Prioritize: /contact, /contact-us, then /about, /about-us, /our-story.
+STEP 1 — BROWSE THE COMPANY WEBSITE FIRST (mandatory, most authoritative source).
+- Use browse_page on the company URL. Check the homepage, footer, contact page, and about page.
+- Prioritize: /contact, /contact-us, then /about, /about-us, /our-story.
 - For Shopify sites, also try /pages/ variants: /pages/contact, /pages/about, /pages/our-story.
-- The CONTACT PAGE is the single most reliable source for the current address. Check it first.
-- Also check: footer addresses, legal/privacy page addresses, ordering/shipping pages.
-- Look for: physical addresses, "headquartered in..." statements, mailing addresses.
-- If the website states a location, that is the PRIMARY source of truth for the CURRENT address.
-- Re-browse the contact/about page one final time before answering to confirm the address is still live.
+- Look for: physical addresses in the footer or header, "headquartered in..." statements, contact page addresses, mailing addresses.
+- If the website clearly states an address with a city (e.g., in the footer, banner, or contact page), that IS the headquarters. Accept it and move to formatting — no cross-referencing needed.
 
-STEP 2 — WEB SEARCH FOR CROSS-REFERENCING (secondary to the live website).
+STEP 2 — WEB SEARCH (only if Step 1 found NO city-level address on the website).
 - Run web_search: "[Company Name] headquarters location"
 - Run web_search: "[Company Name] company profile site:linkedin.com OR site:crunchbase.com OR site:bloomberg.com"
 - Use browse_page on the top 2-3 results to extract and verify the city.
@@ -80,17 +72,10 @@ STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
   5. Business registration databases, WHOIS, older press releases
   Always go with the highest-ranked source when they conflict.
 
-STEP 4 — HANDLE EDGE CASES. Do NOT give up easily.
+STEP 4 — HANDLE EDGE CASES (only if Steps 1-3 found nothing). Do NOT give up easily.
 - Small/private companies: search "[Company Name] [founder name] location" or "[Company Name] business registration [state]".
 - Subsidiaries or rebrands: search the parent company name if the brand itself has no disclosed HQ.
 - Try WHOIS or domain registration data: "[domain] WHOIS registrant" for last-resort city identification.
-- Always verify with sources. Do NOT rely on training data — you MUST verify by actually visiting pages.
-
-STEP 5 — CONSOLIDATE AND RECONCILE (mandatory final step).
-- Review ALL data from EVERY browse_page and web_search call you made.
-- Compile every location candidate with its supporting sources and dates.
-- Apply the trust hierarchy to resolve conflicts.
-- Your final answer MUST reflect this consolidated review, not just the last source checked.
 
 FORMAT RULES:
 - Return ONLY the current, active headquarters address — never a previous or registered address.
@@ -108,22 +93,17 @@ FORMAT RULES:
   },
 
   manufacturing: {
-    rules: `Conduct thorough research using web_search and browse_page tools to identify ALL known CURRENT manufacturing locations worldwide. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Be accurate. No guessing or hallucinating.
+    rules: `Identify ALL known CURRENT manufacturing locations worldwide. Include every city and country found. Be accurate. No guessing or hallucinating.
 
-MINIMUM TOOL USAGE (mandatory):
-- You MUST make at least 2 browse_page calls (the company website + at least 1 external source).
-- You MUST make at least 3 web_search calls with different query patterns.
-- Do NOT finalize your answer until you have completed all required tool calls. Manufacturing locations are especially prone to incomplete results from insufficient searching.
-
-STEP 1 — BROWSE THE COMPANY WEBSITE (mandatory, most authoritative source).
-- ONLY use text that appears on the company's LIVE official website. Do NOT attribute manufacturing locations from third-party sources unless the official website is silent.
-- Use browse_page on the company URL. Also try /about, /about-us, /our-story, /faq, /sustainability, /contact, /shipping-policy.
+STEP 1 — BROWSE THE COMPANY WEBSITE FIRST (mandatory, most authoritative source).
+- Use browse_page on the company URL. Check the homepage, footer, contact page, about page, FAQ, and shipping policy.
+- Also try /about, /about-us, /our-story, /faq, /sustainability, /contact, /shipping-policy.
 - For Shopify sites, also try /pages/ variants: /pages/about, /pages/our-story, /pages/faq, /pages/contact.
-- Look for: "manufactured in...", "produced at our facility in...", "Made in...", "sourced and processed in...", "traceable to...", "harvested and processed in...", facility addresses, supply chain or sustainability pages.
-- Check product pages — not just "Made in [Country]" labels, but also product descriptions that mention where the product is sourced, processed, cured, smoked, or packaged. For food companies, if raw materials are sourced AND processed at the same location, that location is a manufacturing site.
-- If the website states manufacturing locations, that is the PRIMARY source of truth.
+- Look for: "manufactured in...", "produced at our facility in...", "Made in...", "sourced and processed in...", facility addresses, supply chain or sustainability pages.
+- Check product pages for descriptions that mention where the product is sourced, processed, cured, smoked, or packaged. For food companies, if raw materials are sourced AND processed at the same location, that location is a manufacturing site.
+- If the website clearly states manufacturing locations with city-level detail, accept them and move to formatting. Only do additional web searches if the website is silent or only names a country.
 
-STEP 2 — WEB SEARCH TO FIND ALL FACILITIES (secondary to the live website).
+STEP 2 — WEB SEARCH (only if Step 1 found NO city-level manufacturing info on the website).
 - Run web_search: "[Company Name] manufacturing facilities locations"
 - Run web_search: "[Company Name] factory OR plant OR production facility"
 - For US companies, try: "[Company Name] manufacturing site:sec.gov OR site:fda.gov" (regulatory filings list facility addresses).
@@ -137,12 +117,10 @@ STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
 - CRITICAL — PARENT COMPANY CONTAMINATION: If the company is a subsidiary or was acquired (e.g., Hekman Furniture under Howard Miller), report ONLY manufacturing locations that belong to the specific brand being researched. Do NOT include the parent company's factories, other subsidiaries' plants, or the parent's HQ as a manufacturing site. Only include a parent's facility if the brand's own website confirms that specific facility produces the brand's products.
 - CRITICAL — SHOWROOMS ARE NOT FACTORIES: Trade show locations (e.g., High Point Market NC, Las Vegas Market NV), showrooms, design centers, and sales offices are NOT manufacturing facilities. Do NOT include them as manufacturing locations.
 - Never assume or import a manufacturing city unless the official website itself names it, or you have confirmed the source refers to the exact same entity at the given domain.
-- Distinguish between OWNED facilities and CONTRACT manufacturers when evidence is available.
 - Website has no manufacturing info → search business directories for verified addresses:
   Run web_search: "[Company Name] address site:yelp.com OR site:yellowpages.com OR site:bbb.org"
   Require at least 2 independent external sources agreeing, AND confirm they reference the exact same company (same domain/parent company).
 - For vague US locations (just a state), check SEC 10-K filings, LinkedIn, or Glassdoor job postings for exact city.
-- If the company was acquired or rebranded, search the parent company's manufacturing footprint ONLY if you can confirm a specific parent facility actually produces the brand's products. Do NOT blindly include all parent company locations.
 - IMPORTANT: Verify locations are current — companies close or relocate facilities. Prefer the most recently dated sources.
 - SOURCE TRUST HIERARCHY (use when website has no manufacturing info and sources conflict):
   1. Yelp, Yellow Pages, BBB verified business listings (actively maintained addresses)
@@ -152,24 +130,14 @@ STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
   5. Older filings, press releases, and business registrations
   A location found ONLY in lower-ranked sources should be included only if the source is recent and specifically names this company.
 
-STEP 4 — DEEPER INVESTIGATION BEFORE GIVING UP.
-- Do NOT return an empty result after only one search. Try at least 3 different search queries.
+STEP 4 — DEEPER INVESTIGATION (only if Steps 1-3 found nothing). Do NOT give up easily.
+- Try at least 3 different search queries before returning empty.
 - Check: "[Company Name] made in USA", "[Company Name] production location", "[Company Name] where are products made".
 - Look for news articles about factory openings, expansions, or closures.
 - For international companies, try "[Company Name] manufacturing [country]" for key markets.
-- Check government buyer guides, B2B directories, and trade databases for facility listings.
 - If ONLY country-level info exists (e.g., "Made in USA"), that is acceptable — include it.
 - If the company only states "Made in USA" or "assembled in the USA" with no specific city or facility name, return "USA" — do NOT guess a city.
 - If nothing is found after exhaustive searching, return an empty array [].
-
-STEP 5 — CONSOLIDATE AND RECONCILE (mandatory final step).
-- Review ALL data from EVERY browse_page and web_search call you made.
-- Compile a master list of every manufacturing location mentioned across all sources.
-- For each candidate, note which sources support it and how recent they are.
-- Apply the trust hierarchy to resolve conflicts.
-- Cross-check for completeness: if Source A mentions 3 locations and Source B mentions 5, investigate the 2 extra — do NOT silently drop them.
-- Remove only locations confirmed as closed, relocated, or belonging to a different entity.
-- Your final answer MUST be the COMPLETE, RECONCILED list.
 
 FORMAT RULES:
 - List ALL known CURRENT manufacturing locations worldwide. Be exhaustive.
