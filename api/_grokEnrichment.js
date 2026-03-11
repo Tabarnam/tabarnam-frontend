@@ -4322,6 +4322,45 @@ async function enrichCompanyFields({
   if (keywords?.ok && keywords.parsed_fields) {
     Object.assign(proposed, pickKeys(keywords.parsed_fields, KEYWORD_OWNED_PARSED));
     Object.assign(field_statuses, pickKeys(keywords.field_statuses, KEYWORD_OWNED_STATUSES));
+  } else if (keywords?.error_code) {
+    // Propagate failure status so downstream knows WHY keywords are missing (not just "unknown")
+    field_statuses.keywords = keywords.error_code;
+  }
+
+  // ── Keyword retry on timeout ──
+  // Keywords should always exist for product companies. Unlike MFG (where data may
+  // genuinely not exist), a timeout here means XAI was slow, not that there's no data.
+  // Use a shorter budget on retry — if 180s wasn't enough, give it one focused 90s shot.
+  const keywordsTimedOut = !keywords?.ok && keywords?.error_code === "upstream_timeout";
+  const keywordRetryBudget = getRemainingMs();
+  const canRetryKeywords = wantKeywords && keywordsTimedOut
+    && keywordRetryBudget > CALL_TIMEOUTS_MS.keywords.min + 15_000;
+
+  if (keywordsTimedOut && !canRetryKeywords) {
+    console.log(`[enrichCompanyFields] Skipping keywords retry (budget=${keywordRetryBudget}ms < min=${CALL_TIMEOUTS_MS.keywords.min + 15_000}ms), run=${runId}`);
+  }
+
+  if (canRetryKeywords) {
+    console.log(`[enrichCompanyFields] Keywords timed out, retrying with shorter budget, budget_remaining=${keywordRetryBudget}ms, run=${runId}`);
+    const kwRetryStarted = Date.now();
+    const kwRetry = await fetchKeywordFields({
+      companyName, websiteUrl, normalizedDomain: domain,
+      budgetMs: Math.min(CALL_TIMEOUTS_MS.keywords.min, keywordRetryBudget - 15_000),
+      xaiUrl, xaiKey, signal,
+    });
+    const kwRetryElapsed = Date.now() - kwRetryStarted;
+
+    if (kwRetry?.ok && kwRetry.parsed_fields) {
+      Object.assign(proposed, pickKeys(kwRetry.parsed_fields, KEYWORD_OWNED_PARSED));
+      Object.assign(field_statuses, pickKeys(kwRetry.field_statuses, KEYWORD_OWNED_STATUSES));
+      console.log(`[enrichCompanyFields] Keywords retry SUCCESS: ${kwRetry.parsed_fields?.product_keywords?.length || 0} keywords, elapsed=${kwRetryElapsed}ms, run=${runId}`);
+      if (typeof onIntermediateSave === "function") {
+        try { await onIntermediateSave(pickKeys(kwRetry.parsed_fields, KEYWORD_OWNED_PARSED)); }
+        catch (e) { console.warn(`[enrichCompanyFields] Keywords retry save failed: ${e?.message}, run=${runId}`); }
+      }
+    } else {
+      console.log(`[enrichCompanyFields] Keywords retry also failed (${kwRetry?.error_code || "unknown"}), elapsed=${kwRetryElapsed}ms, run=${runId}`);
+    }
   }
 
   // Merge light fields (only owned: tagline, industries, logo_url, logo_source)
@@ -4369,11 +4408,17 @@ async function enrichCompanyFields({
     }
   } else if (wantReviews) {
     const reviewReason = reviews?.diagnostics?.reason || reviews?.reviews_stage_status || "unknown";
+    const reviewsTimedOut = reviews?.reviews_stage_status === "upstream_timeout";
     const retryBudget = getRemainingMs();
     const canRetry = !retryHints?.browseAboutPage   // prevent double-retry
+      && !reviewsTimedOut                            // if XAI timed out, retry won't help — back off and move on
       && retryBudget > CALL_TIMEOUTS_MS.reviews.min + 15_000;  // need 90s+15s = 105s minimum
 
-    if (canRetry) {
+    if (reviewsTimedOut) {
+      proposed.reviews = [];
+      field_statuses.reviews = "upstream_timeout";
+      console.log(`[enrichCompanyFields] Skipping reviews browseAboutPage retry (initial timed out — back off and move on), run=${runId}`);
+    } else if (canRetry) {
       console.log(`[enrichCompanyFields] Reviews empty (reason=${reviewReason}), attempting browseAboutPage retry, budget_remaining=${retryBudget}ms, run=${runId}`);
       const retryStarted = Date.now();
       const retryResult = await fetchCuratedReviews({
