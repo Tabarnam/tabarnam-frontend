@@ -959,7 +959,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const skipParam = toFiniteNumber(url.searchParams.get("skip"));
   const skip = Math.max(0, Math.floor(skipParam ?? 0));
 
-  const limit = clamp(skip + take + 1, 1, 501);
+  // Are we just counting total results (no items returned)?
+  const countOnly = url.searchParams.get("countOnly") === "1";
+
+  // For countOnly, fetch up to 500 to get accurate total; otherwise fetch just enough for the page.
+  const limit = countOnly ? 500 : clamp(skip + take + 1, 1, 501);
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
 
@@ -1349,6 +1353,17 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // ORDER BY _ts DESC which sorts by recency, not relevance.
       if (q_norm && !sortField && sort !== "name") {
         deduped.sort((a, b) => (b._relevanceScore || 0) - (a._relevanceScore || 0));
+      }
+
+      // countOnly mode: return just the total count, no items (used for async pagination info)
+      if (countOnly) {
+        const totalCount = deduped.length;
+        const totalPages = Math.ceil(totalCount / take);
+        return json(
+          { ok: true, success: true, totalCount, totalPages, meta: { q: q_raw, sort, take } },
+          200,
+          req
+        );
       }
 
       const paged = deduped.slice(skip, skip + take);

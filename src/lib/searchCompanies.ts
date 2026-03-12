@@ -260,6 +260,46 @@ export async function getStateSuggestions(q: unknown, country?: string): Promise
   }
 }
 
+/**
+ * Lightweight call that returns only totalCount/totalPages (no items).
+ * Intended to be fired in the background after results are already displayed.
+ */
+export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng"> & { take?: number }): Promise<{ totalCount: number; totalPages: number } | null> {
+  const q = asStr(opts.q).trim();
+  if (!q) return null;
+
+  const sort = normalizeSort(opts.sort);
+  const take = Math.max(1, Math.min(Number(opts.take ?? 50) || 50, 200));
+  const { q_raw, q_norm, q_compact } = parseQuery(q);
+
+  const params = new URLSearchParams({ raw: q_raw, norm: q_norm, compact: q_compact, sort, take: String(take), countOnly: "1" });
+  const country = asStr(opts.country).trim();
+  const state = asStr(opts.state).trim();
+  const city = asStr(opts.city).trim();
+  if (country) params.set("country", country);
+  if (state) params.set("state", state);
+  if (city) params.set("city", city);
+
+  const lat = Number(asStr(opts.lat));
+  const lng = Number(asStr(opts.lng));
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    params.set("lat", String(lat));
+    params.set("lng", String(lng));
+  }
+
+  try {
+    const r = await apiFetch(`/search-companies?${params.toString()}`, { headers: { accept: "application/json" } });
+    if (!r.ok) return null;
+    const data = await r.json();
+    return {
+      totalCount: Number(data?.totalCount) || 0,
+      totalPages: Number(data?.totalPages) || 1,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function readError(resp: Response) {
   try {
     const t = await resp.text();

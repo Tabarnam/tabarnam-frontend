@@ -546,6 +546,7 @@ export default function CompanyDashboard() {
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
@@ -3535,8 +3536,9 @@ export default function CompanyDashboard() {
               progressPending={loading && items.length === 0}
               progressComponent={progressComponent}
               pagination
-              paginationPerPage={25}
+              paginationPerPage={rowsPerPage}
               paginationRowsPerPageOptions={[25, 50, 100, 250, 500, 1000]}
+              onChangeRowsPerPage={(newPerPage) => setRowsPerPage(newPerPage)}
               paginationComponentOptions={{ selectAllRowsItem: true, selectAllRowsItemText: "All" }}
               highlightOnHover
               dense

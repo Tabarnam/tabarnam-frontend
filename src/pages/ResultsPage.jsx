@@ -8,7 +8,7 @@ import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { searchCompanies } from "@/lib/searchCompanies";
+import { searchCompanies, getSearchCount } from "@/lib/searchCompanies";
 import { API_BASE } from "@/lib/api";
 import { getQQScore } from "@/lib/stars/qqRating";
 import { cn } from "@/lib/utils";
@@ -56,17 +56,18 @@ function SkeletonRow() {
 }
 
 /** Numbered page bar: < Previous  [1]  2  3  …  Next > */
-function Pagination({ currentPage, hasMore, onPageChange, disabled }) {
-  if (currentPage <= 1 && !hasMore) return null;
+function Pagination({ currentPage, hasMore, totalPages, onPageChange, disabled }) {
+  if (currentPage <= 1 && !hasMore && !totalPages) return null;
 
-  // Build visible page numbers: 1 through currentPage, plus next if hasMore
-  const lastKnown = hasMore ? currentPage + 1 : currentPage;
+  // If we know the total, use it; otherwise fall back to hasMore-based guessing
+  const lastPage = totalPages || (hasMore ? currentPage + 1 : currentPage);
   const pages = [];
-  const add = (n) => { if (n >= 1 && n <= lastKnown && !pages.includes(n)) pages.push(n); };
+  const add = (n) => { if (n >= 1 && n <= lastPage && !pages.includes(n)) pages.push(n); };
   add(1);
   add(currentPage - 1);
   add(currentPage);
-  if (hasMore) add(currentPage + 1);
+  add(currentPage + 1);
+  if (lastPage > 1) add(lastPage);
   pages.sort((a, b) => a - b);
 
   // Insert ellipsis markers (represented as null)
@@ -116,7 +117,7 @@ function Pagination({ currentPage, hasMore, onPageChange, disabled }) {
         <li>
           <button
             type="button"
-            disabled={disabled || !hasMore}
+            disabled={disabled || (!hasMore && (!totalPages || currentPage >= totalPages))}
             onClick={() => onPageChange(currentPage + 1)}
             className={cn(btn, "gap-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none")}
           >
@@ -152,6 +153,7 @@ export default function ResultsPage() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [hasMore, setHasMore] = useState(false);
+  const [totalPages, setTotalPages] = useState(null);
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
   const [sortBy, setSortBy] = useState(null);
@@ -366,6 +368,17 @@ export default function ResultsPage() {
       setResults(withReviews);
       setHasMore(apiHasMore === true);
 
+      // If everything fit on one page (no hasMore), we know the total already
+      if (!apiHasMore && skip === 0) {
+        setTotalPages(1);
+      } else {
+        // Fire background count request (doesn't block UI)
+        setTotalPages(null);
+        getSearchCount({ q, sort, country, state, city, take: PAGE_SIZE, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng })
+          .then((r) => { if (r) setTotalPages(r.totalPages); })
+          .catch(() => {});
+      }
+
       if (meta?.usingStubData) {
         if (withReviews.length === 0) {
           setStatus("⚠️ Search API unavailable and no sample companies matched your search.");
@@ -546,9 +559,7 @@ export default function ResultsPage() {
       {/* Column Headers — uses same grid as ExpandableCompanyRow so labels align */}
       {results.length > 0 && (
         <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 mb-4 px-2 items-center">
-          <div className="col-span-6 lg:col-span-2 font-semibold flex items-center gap-1 text-tabarnam-blue-bold text-[15px]">
-            Sort Results:
-          </div>
+          <div className="col-span-6 lg:col-span-2" />
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
               colKey === "manu" ? "Manufacturing" :
@@ -593,7 +604,13 @@ export default function ResultsPage() {
       {/* Result count + query echo */}
       {sorted.length > 0 && qParam && (
         <p className="text-sm text-muted-foreground mb-3 px-1">
-          Page {pageParam} – showing {sorted.length} result{sorted.length !== 1 ? "s" : ""} for <span className="font-medium text-foreground">"{qParam}"</span>
+          {totalPages != null
+            ? <>Page {pageParam} of {totalPages} for </>
+            : hasMore || pageParam > 1
+              ? <>Page {pageParam} for </>
+              : <>Results for </>
+          }
+          <span className="font-medium text-foreground">"{qParam}"</span>
         </p>
       )}
 
@@ -629,10 +646,11 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {(hasMore || pageParam > 1) && (
+      {(hasMore || pageParam > 1 || (totalPages && totalPages > 1)) && (
         <Pagination
           currentPage={pageParam}
           hasMore={hasMore}
+          totalPages={totalPages}
           onPageChange={goToPage}
           disabled={loading}
         />

@@ -247,23 +247,27 @@ function buildVariantSearchClauses(search, params) {
 
   // 2. Per-word matching for multi-word queries
   //    "mate the label" → filter stopwords → ["mate", "label"]
-  //    search_text_norm: ALL words must match (AND) to reduce false positives
-  //    name fields: each word checked individually (OR) for partial name matches
+  //    ALL words must match (AND) in each field to reduce false positives.
+  //    Matches frontend search-companies behavior.
   const words = q_norm.split(/\s+/).filter(w => w.length >= 3 && !SEARCH_STOPWORDS.has(w));
   if (words.length >= 2) {
-    // AND clause for search_text_norm: all content words must be present
-    const andParts = [];
+    const searchTextAndParts = [];
+    const companyNameAndParts = [];
+    const nameAndParts = [];
+    const displayNameAndParts = [];
     words.forEach((word, i) => {
       const paramName = `@q_w${i}`;
       params.push({ name: paramName, value: word });
-      andParts.push(`CONTAINS(c.search_text_norm, ${paramName})`);
-      // Individual word checks against name/display_name (OR — any word match is useful)
-      extraClauses.push(`(IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), ${paramName}))`);
-      extraClauses.push(`(IS_DEFINED(c.name) AND IS_STRING(c.name) AND CONTAINS(LOWER(c.name), ${paramName}))`);
-      extraClauses.push(`(IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND CONTAINS(LOWER(c.display_name), ${paramName}))`);
+      searchTextAndParts.push(`CONTAINS(c.search_text_norm, ${paramName})`);
+      companyNameAndParts.push(`CONTAINS(LOWER(c.company_name), ${paramName})`);
+      nameAndParts.push(`CONTAINS(LOWER(c.name), ${paramName})`);
+      displayNameAndParts.push(`CONTAINS(LOWER(c.display_name), ${paramName})`);
     });
-    // Single AND clause: company must contain ALL content words in search_text_norm
-    extraClauses.push(`(IS_DEFINED(c.search_text_norm) AND ${andParts.join(" AND ")})`);
+    // AND clauses: company must contain ALL content words in each field
+    extraClauses.push(`(IS_DEFINED(c.search_text_norm) AND ${searchTextAndParts.join(" AND ")})`);
+    extraClauses.push(`(IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND ${companyNameAndParts.join(" AND ")})`);
+    extraClauses.push(`(IS_DEFINED(c.name) AND IS_STRING(c.name) AND ${nameAndParts.join(" AND ")})`);
+    extraClauses.push(`(IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND ${displayNameAndParts.join(" AND ")})`);
   }
 
   return extraClauses;
