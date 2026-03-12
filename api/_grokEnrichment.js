@@ -5,7 +5,7 @@ const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch"
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE } = require("./_xaiPromptGuidance");
-const { SENTINEL_STRINGS, PLACEHOLDER_STRINGS, isCountryOnlyLocation } = require("./_requiredFields");
+const { SENTINEL_STRINGS, PLACEHOLDER_STRINGS } = require("./_requiredFields");
 const { discoverLogoSourceUrl } = require("./_logoImport");
 
 // ============================================================================
@@ -4190,167 +4190,17 @@ async function enrichCompanyFields({
     field_statuses.manufacturing = mfgResult.mfg_status;
   }
 
-  // ── Location retry ──
-  // If either standalone call failed (timeout/error), retry individually.
-  // Cap retry budgets to reserve ≥150s for downstream work
-  // Reserve for logo verification (~30s).
-  const DOWNSTREAM_RESERVE_MS = 150_000;
-
-  // Skip HQ retry if initial call timed out — retrying the same query against the same overloaded XAI infra is wasteful
-  const hqTimedOut = field_statuses.headquarters === "upstream_timeout";
-  const needHqRetry = wantLocations && !proposed.headquarters_location && !hqTimedOut;
-  if (hqTimedOut && !proposed.headquarters_location) {
-    console.log(`[enrichCompanyFields] Skipping HQ retry (initial timed out — back off and move on), run=${runId}`);
-  }
-  // Skip MFG retry if Grok explicitly said "not_applicable" (retailer/marketplace)
-  // Also skip if initial MFG call timed out — a second try won't find data that 118.8s couldn't
-  const mfgExplicitlyEmpty = field_statuses.manufacturing === "not_applicable" || field_statuses.manufacturing === "not_disclosed";
-  const mfgTimedOut = field_statuses.manufacturing === "upstream_timeout";
-  const needMfgRetry = wantLocations && !(proposed.manufacturing_locations?.length > 0) && !mfgExplicitlyEmpty && !mfgTimedOut;
-  if (mfgTimedOut && !(proposed.manufacturing_locations?.length > 0)) {
-    console.log(`[enrichCompanyFields] Skipping MFG retry (initial timed out — back off and move on), run=${runId}`);
-  }
-
-  if ((needHqRetry || needMfgRetry)
-      && getRemainingMs() > CALL_TIMEOUTS_MS.locations.min + DOWNSTREAM_RESERVE_MS) {
-    const locationRetryBudget = getRemainingMs() - DOWNSTREAM_RESERVE_MS;
-    console.log(`[enrichCompanyFields] Location retry needed (hq=${needHqRetry}, mfg=${needMfgRetry}), budget_remaining=${getRemainingMs()}ms, locationRetryBudget=${locationRetryBudget}ms, run=${runId}`);
-
-    const retryStarted = Date.now();
-
-    if (needHqRetry) {
-      const hqRetry = await fetchHeadquartersLocation({
-        companyName, normalizedDomain: domain,
-        budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, needMfgRetry ? locationRetryBudget / 2 : locationRetryBudget),
-        xaiUrl, xaiKey,
-      });
-      const hqElapsed = Date.now() - retryStarted;
-      const retryHqLoc = asString(hqRetry?.headquarters_location).trim();
-
-      if (retryHqLoc) {
-        proposed.headquarters_location = retryHqLoc;
-        field_statuses.headquarters = hqRetry.hq_status || "ok";
-        if (hqRetry.location_source_urls?.hq_source_urls) {
-          if (!proposed.location_source_urls) proposed.location_source_urls = {};
-          proposed.location_source_urls.hq_source_urls = hqRetry.location_source_urls.hq_source_urls;
-        }
-        if (hqRetry.headquarters_city) proposed.headquarters_city = hqRetry.headquarters_city;
-        if (hqRetry.headquarters_state_code) proposed.headquarters_state_code = hqRetry.headquarters_state_code;
-        if (hqRetry.headquarters_country) proposed.headquarters_country = hqRetry.headquarters_country;
-        if (hqRetry.headquarters_country_code) proposed.headquarters_country_code = hqRetry.headquarters_country_code;
-        console.log(`[enrichCompanyFields] HQ retry SUCCESS: "${retryHqLoc}", elapsed=${hqElapsed}ms, run=${runId}`);
-      } else {
-        console.log(`[enrichCompanyFields] HQ retry empty (status=${hqRetry?.hq_status}), elapsed=${hqElapsed}ms, run=${runId}`);
-      }
-    }
-
-    if (needMfgRetry) {
-      const mfgBudget = Math.max(0, locationRetryBudget - (Date.now() - retryStarted));
-      if (mfgBudget > CALL_TIMEOUTS_MS.locations.min) {
-        const mfgRetryStarted = Date.now();
-        const mfgRetry2 = await fetchManufacturingLocations({
-          companyName, normalizedDomain: domain,
-          budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, mfgBudget),
-          xaiUrl, xaiKey,
-        });
-        const mfgElapsed2 = Date.now() - mfgRetryStarted;
-
-        if (mfgRetry2?.manufacturing_locations?.length > 0) {
-          proposed.manufacturing_locations = mfgRetry2.manufacturing_locations;
-          field_statuses.manufacturing = mfgRetry2.mfg_status || "ok";
-          if (mfgRetry2.location_source_urls?.mfg_source_urls) {
-            if (!proposed.location_source_urls) proposed.location_source_urls = {};
-            proposed.location_source_urls.mfg_source_urls = mfgRetry2.location_source_urls.mfg_source_urls;
-          }
-          console.log(`[enrichCompanyFields] MFG retry SUCCESS: ${JSON.stringify(mfgRetry2.manufacturing_locations)}, elapsed=${mfgElapsed2}ms, run=${runId}`);
-        } else {
-          console.log(`[enrichCompanyFields] MFG retry empty (status=${mfgRetry2?.mfg_status}), elapsed=${mfgElapsed2}ms, run=${runId}`);
-        }
-      } else {
-        console.log(`[enrichCompanyFields] MFG retry skipped (mfgBudget=${mfgBudget}ms < min=${CALL_TIMEOUTS_MS.locations.min}ms), preserving budget for downstream, run=${runId}`);
-      }
-    }
-
-    // Early save retry results
-    if (Object.keys(proposed).length > 0 && typeof onIntermediateSave === "function") {
-      try { await onIntermediateSave(proposed); }
-      catch (e) { console.warn(`[enrichCompanyFields] Location retry save failed: ${e?.message}, run=${runId}`); }
-    }
-  }
-
-  // ── MFG country-only refinement ──
-  // If MFG locations are all country-level (e.g. "USA") and budget allows,
-  // fire a focused refinement call to get city-level precision.
-  const mfgLocs = proposed.manufacturing_locations;
-  if (Array.isArray(mfgLocs) && mfgLocs.length > 0
-      && mfgLocs.every(isCountryOnlyLocation)
-      && getRemainingMs() > CALL_TIMEOUTS_MS.locations.min + 15_000) {
-    console.log(`[enrichCompanyFields] MFG country-only detected (${JSON.stringify(mfgLocs)}), attempting refinement, budget_remaining=${getRemainingMs()}ms, run=${runId}`);
-    const mfgStarted = Date.now();
-    const mfgRetry = await fetchManufacturingLocations({
-      companyName, normalizedDomain: domain,
-      budgetMs: Math.min(CALL_TIMEOUTS_MS.locations.max, getRemainingMs() - 15_000),
-      xaiUrl, xaiKey,
-    });
-    const mfgElapsed = Date.now() - mfgStarted;
-
-    if (mfgRetry?.manufacturing_locations?.length > 0
-        && !mfgRetry.manufacturing_locations.every(isCountryOnlyLocation)) {
-      proposed.manufacturing_locations = mfgRetry.manufacturing_locations;
-      // Carry over source URLs if available
-      if (mfgRetry.location_source_urls?.mfg_source_urls) {
-        if (!proposed.location_source_urls) proposed.location_source_urls = {};
-        proposed.location_source_urls.mfg_source_urls = mfgRetry.location_source_urls.mfg_source_urls;
-      }
-      console.log(`[enrichCompanyFields] MFG refinement SUCCESS: ${JSON.stringify(mfgRetry.manufacturing_locations)}, elapsed=${mfgElapsed}ms, run=${runId}`);
-    } else {
-      console.log(`[enrichCompanyFields] MFG refinement no improvement (still country-only or empty), elapsed=${mfgElapsed}ms, run=${runId}`);
-    }
-  }
+  // ── No retries — each call gets 180s on the first attempt. ──
+  // If it fails, the resume worker handles recovery on a later cycle
+  // with fresh XAI conditions. Retrying immediately during congestion
+  // wastes 90-180s for the same upstream_timeout result.
 
   // Merge keyword fields (only owned: product_keywords, completeness, incomplete_reason)
   if (keywords?.ok && keywords.parsed_fields) {
     Object.assign(proposed, pickKeys(keywords.parsed_fields, KEYWORD_OWNED_PARSED));
     Object.assign(field_statuses, pickKeys(keywords.field_statuses, KEYWORD_OWNED_STATUSES));
   } else if (keywords?.error_code) {
-    // Propagate failure status so downstream knows WHY keywords are missing (not just "unknown")
     field_statuses.keywords = keywords.error_code;
-  }
-
-  // ── Keyword retry on timeout ──
-  // Keywords should always exist for product companies. Unlike MFG (where data may
-  // genuinely not exist), a timeout here means XAI was slow, not that there's no data.
-  // Use a shorter budget on retry — if 180s wasn't enough, give it one focused 90s shot.
-  const keywordsTimedOut = !keywords?.ok && keywords?.error_code === "upstream_timeout";
-  const keywordRetryBudget = getRemainingMs();
-  const canRetryKeywords = wantKeywords && keywordsTimedOut
-    && keywordRetryBudget > CALL_TIMEOUTS_MS.keywords.min + 15_000;
-
-  if (keywordsTimedOut && !canRetryKeywords) {
-    console.log(`[enrichCompanyFields] Skipping keywords retry (budget=${keywordRetryBudget}ms < min=${CALL_TIMEOUTS_MS.keywords.min + 15_000}ms), run=${runId}`);
-  }
-
-  if (canRetryKeywords) {
-    console.log(`[enrichCompanyFields] Keywords timed out, retrying with shorter budget, budget_remaining=${keywordRetryBudget}ms, run=${runId}`);
-    const kwRetryStarted = Date.now();
-    const kwRetry = await fetchKeywordFields({
-      companyName, websiteUrl, normalizedDomain: domain,
-      budgetMs: Math.min(CALL_TIMEOUTS_MS.keywords.min, keywordRetryBudget - 15_000),
-      xaiUrl, xaiKey, signal,
-    });
-    const kwRetryElapsed = Date.now() - kwRetryStarted;
-
-    if (kwRetry?.ok && kwRetry.parsed_fields) {
-      Object.assign(proposed, pickKeys(kwRetry.parsed_fields, KEYWORD_OWNED_PARSED));
-      Object.assign(field_statuses, pickKeys(kwRetry.field_statuses, KEYWORD_OWNED_STATUSES));
-      console.log(`[enrichCompanyFields] Keywords retry SUCCESS: ${kwRetry.parsed_fields?.product_keywords?.length || 0} keywords, elapsed=${kwRetryElapsed}ms, run=${runId}`);
-      if (typeof onIntermediateSave === "function") {
-        try { await onIntermediateSave(pickKeys(kwRetry.parsed_fields, KEYWORD_OWNED_PARSED)); }
-        catch (e) { console.warn(`[enrichCompanyFields] Keywords retry save failed: ${e?.message}, run=${runId}`); }
-      }
-    } else {
-      console.log(`[enrichCompanyFields] Keywords retry also failed (${kwRetry?.error_code || "unknown"}), elapsed=${kwRetryElapsed}ms, run=${runId}`);
-    }
   }
 
   // Merge light fields (only owned: tagline, industries, logo_url, logo_source)
@@ -4358,46 +4208,8 @@ async function enrichCompanyFields({
     Object.assign(proposed, pickKeys(light.parsed_fields, LIGHT_OWNED_PARSED));
     Object.assign(field_statuses, pickKeys(light.field_statuses, LIGHT_OWNED_STATUSES));
   } else if (light?.error_code) {
-    // Propagate failure status so downstream knows WHY tagline/industries are missing (not just "unknown")
     field_statuses.tagline = light.error_code;
     field_statuses.industries = light.error_code;
-  }
-
-  // ── Light field retry on timeout ──
-  // Tagline and industries should always exist for product companies.
-  // Unlike MFG (where data may genuinely not exist), a timeout here means
-  // XAI was slow, not that there's no data. Use the min budget on retry.
-  const lightTimedOut = !light?.ok && light?.error_code === "upstream_timeout";
-  const lightRetryBudget = getRemainingMs();
-  const canRetryLight = wantLight && lightTimedOut
-    && lightRetryBudget > CALL_TIMEOUTS_MS.light.min + 15_000;
-
-  if (lightTimedOut && !canRetryLight) {
-    console.log(`[enrichCompanyFields] Skipping light retry (budget=${lightRetryBudget}ms < min=${CALL_TIMEOUTS_MS.light.min + 15_000}ms), run=${runId}`);
-  }
-
-  if (canRetryLight) {
-    console.log(`[enrichCompanyFields] Light fields timed out, retrying with shorter budget, budget_remaining=${lightRetryBudget}ms, run=${runId}`);
-    const lightRetryStarted = Date.now();
-    const lightRetry = await fetchLightFields({
-      companyName, websiteUrl, normalizedDomain: domain,
-      budgetMs: Math.min(CALL_TIMEOUTS_MS.light.min, lightRetryBudget - 15_000),
-      xaiUrl, xaiKey, signal,
-      skipLogo,
-    });
-    const lightRetryElapsed = Date.now() - lightRetryStarted;
-
-    if (lightRetry?.ok && lightRetry.parsed_fields) {
-      Object.assign(proposed, pickKeys(lightRetry.parsed_fields, LIGHT_OWNED_PARSED));
-      Object.assign(field_statuses, pickKeys(lightRetry.field_statuses, LIGHT_OWNED_STATUSES));
-      console.log(`[enrichCompanyFields] Light retry SUCCESS: tagline=${lightRetry.parsed_fields?.tagline ? "yes" : "no"}, industries=${lightRetry.parsed_fields?.industries?.length || 0}, elapsed=${lightRetryElapsed}ms, run=${runId}`);
-      if (typeof onIntermediateSave === "function") {
-        try { await onIntermediateSave(pickKeys(lightRetry.parsed_fields, LIGHT_OWNED_PARSED)); }
-        catch (e) { console.warn(`[enrichCompanyFields] Light retry save failed: ${e?.message}, run=${runId}`); }
-      }
-    } else {
-      console.log(`[enrichCompanyFields] Light retry also failed (${lightRetry?.error_code || "unknown"}), elapsed=${lightRetryElapsed}ms, run=${runId}`);
-    }
   }
 
   // Merge reviews — single call, no browseAboutPage retry (website fallback is in the prompt)
