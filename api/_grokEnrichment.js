@@ -927,18 +927,14 @@ async function fetchCuratedReviews({
     };
   }
 
-  const excludeDomains = normalizeExcludeDomains({ normalizedDomain: domain });
-
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // When browseAboutPage, remove company domain from prompt exclusions —
-  // the retry prompt needs to browse the company's own website pages.
-  const promptExcludeDomains = browseAboutPage
-    ? excludeDomains.filter(d => d !== domain && d !== `www.${domain}`)
-    : excludeDomains;
+  // Only exclude the company's own domain from reviews (not Amazon/Google/Yelp —
+  // those are fine review sources). browseAboutPage needs the company domain open.
+  const promptExcludeDomains = browseAboutPage ? [] : (domain ? [domain] : []);
 
-  // Declarative review prompt: ask for what we want, let Grok decide how to find it.
-  // Client-side verification (URL reachability + YouTube oEmbed) provides a safety net.
+  // No SEARCH_PREAMBLE — the review prompt is self-contained and doesn't need
+  // browse_page verification instructions that force slow page-by-page crawling.
   // On retry (browseAboutPage=true), simplified website-only fallback: browse company pages to constitute 1 review.
   const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, promptExcludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)", { browseAboutPage })}
 ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
@@ -967,20 +963,10 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     }
   }
 
-  // When browseAboutPage, don't exclude the company domain from web_search tool —
-  // the retry prompt needs Grok to browse company website pages.
-  const searchBuild = browseAboutPage
-    ? buildSearchParameters({
-        companyWebsiteHost: null,
-        additionalExcludedHosts: excludeDomains.filter(d => d !== domain && d !== `www.${domain}`),
-      })
-    : buildSearchParameters({
-        companyWebsiteHost: domain,
-        additionalExcludedHosts: excludeDomains,
-      });
-
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
+  // No excluded_domains API filter — let XAI search freely like a direct Grok query.
+  // Domain exclusion is handled in the prompt text (company domain only).
   const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
@@ -990,17 +976,14 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       safetyMarginMs: 1_200,
       label: "reviews",
     }),
-    maxAttempts: 1,   // No retry — review timeout is already generous (150-240s); retrying doubles it
-    maxTokens: 2000,  // 2 reviews need less output than the previous 3-5
+    maxAttempts: 1,
+    maxTokens: 2000,
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,
     signal,
-    search_parameters: {
-      ...searchBuild.search_parameters,
-      excluded_domains: searchBuild.excluded_domains,
-    },
-    useTools: true,   // Reviews need real web search — includes page browsing in agentic flow
+    search_parameters: { mode: "on" },
+    useTools: true,
   });
 
   if (!r.ok) {
