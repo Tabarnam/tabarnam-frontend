@@ -1,7 +1,7 @@
 // src/components/home/SearchCard.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, MapPin, ListFilter, Loader2, X, Clock } from 'lucide-react';
+import { Search, MapPin, ListFilter, Loader2, X, Clock, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { useSearchCache } from '@/hooks/useSearchCache';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -47,6 +47,13 @@ export default function SearchCard({
   filtersRightSlot = null,
   containerClassName = "",
   autoFocus = false,
+  searchHistory = [],
+  historyIndex = -1,
+  canGoBack = false,
+  canGoForward = false,
+  onGoBack,
+  onGoForward,
+  onGoToIndex,
 }) {
   const nav = useNavigate();
   const { search } = useLocation();
@@ -67,6 +74,22 @@ export default function SearchCard({
   // Recent searches (Feature E)
   const [recentSearches, setRecentSearches] = useState([]);
   const [showRecent, setShowRecent] = useState(false);
+
+  // Search history dropdown
+  const [showHistoryDropdown, setShowHistoryDropdown] = useState(false);
+  const historyDropdownRef = useRef(null);
+
+  // Close history dropdown on outside click
+  useEffect(() => {
+    if (!showHistoryDropdown) return;
+    const handler = (e) => {
+      if (historyDropdownRef.current && !historyDropdownRef.current.contains(e.target)) {
+        setShowHistoryDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showHistoryDropdown]);
 
   // Rotating placeholder (Feature W)
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
@@ -350,7 +373,65 @@ export default function SearchCard({
       )}
     >
       {/* Row 1: Search field and button spanning full width */}
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mb-3">
+      <div className={cn("grid grid-cols-1 gap-3 mb-3", searchHistory.length > 0 ? "md:grid-cols-[auto_1fr_auto]" : "md:grid-cols-[1fr_auto]")}>
+        {/* Back / dropdown / forward nav */}
+        {searchHistory.length > 0 && (
+          <div className="hidden md:flex items-center gap-0.5 relative" ref={historyDropdownRef}>
+            <button
+              type="button"
+              disabled={!canGoBack}
+              onClick={onGoBack}
+              className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none transition-colors"
+              aria-label="Previous search"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowHistoryDropdown((v) => !v)}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              aria-label="Search history"
+            >
+              <ChevronDown size={16} />
+            </button>
+            <button
+              type="button"
+              disabled={!canGoForward}
+              onClick={onGoForward}
+              className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none transition-colors"
+              aria-label="Next search"
+            >
+              <ChevronRight size={20} />
+            </button>
+            {/* History dropdown */}
+            {showHistoryDropdown && (
+              <div className="absolute top-full left-0 mt-1 z-50 min-w-[200px] bg-popover border border-border rounded-md shadow-lg py-1">
+                <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border flex items-center gap-1.5">
+                  <Clock size={12} />
+                  Search History
+                </div>
+                {[...searchHistory].reverse().map((entry, revIdx) => {
+                  const realIdx = searchHistory.length - 1 - revIdx;
+                  const isCurrent = realIdx === historyIndex;
+                  return (
+                    <button
+                      key={`hist-${realIdx}`}
+                      type="button"
+                      className={cn(
+                        "w-full text-left px-3 py-1.5 text-sm hover:bg-accent flex items-center gap-2 transition-colors",
+                        isCurrent ? "bg-accent font-medium text-foreground" : "text-popover-foreground"
+                      )}
+                      onClick={() => { setShowHistoryDropdown(false); if (onGoToIndex) onGoToIndex(realIdx); }}
+                    >
+                      {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />}
+                      <span className={isCurrent ? "" : "ml-[14px]"}>{entry.q}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
           {q && (

@@ -154,6 +154,21 @@ export default function ResultsPage() {
   const [status, setStatus] = useState("");
   const [hasMore, setHasMore] = useState(false);
   const [totalPages, setTotalPages] = useState(null);
+
+  // Search history for back/forward navigation
+  const [searchHistory, setSearchHistory] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem("tabarnam_search_history");
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
+  const [historyIndex, setHistoryIndex] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem("tabarnam_search_history_index");
+      return stored != null ? Number(stored) : -1;
+    } catch { return -1; }
+  });
+  const navigatingHistoryRef = useRef(false);
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
   const [sortBy, setSortBy] = useState(null);
@@ -253,6 +268,8 @@ export default function ResultsPage() {
       setSortBy(null);
 
       if (!cancelled && qParam) {
+        // Seed search history on initial load / URL-driven navigation
+        pushSearchHistory({ q: qParam, sort: sortParam, country: countryParam, state: stateParam, city: cityParam });
         await doSearch({
           q: qParam,
           sort: sortParam,
@@ -311,6 +328,13 @@ export default function ResultsPage() {
     }
 
     setSortBy(null);
+
+    // Track in search history (skip if this was triggered by back/forward navigation)
+    if (!navigatingHistoryRef.current) {
+      pushSearchHistory({ q, sort, country, state, city });
+    }
+    navigatingHistoryRef.current = false;
+
     await doSearch({ q, sort, country, state, city, take: PAGE_SIZE, skip: 0, location: searchLocation });
   }
 
@@ -459,6 +483,49 @@ export default function ResultsPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // Persist search history to sessionStorage
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("tabarnam_search_history", JSON.stringify(searchHistory));
+      sessionStorage.setItem("tabarnam_search_history_index", String(historyIndex));
+    } catch { /* ignore */ }
+  }, [searchHistory, historyIndex]);
+
+  function pushSearchHistory(entry) {
+    setSearchHistory((prev) => {
+      // If we navigated back then search again, truncate forward history
+      const base = historyIndex >= 0 ? prev.slice(0, historyIndex + 1) : prev;
+      // Don't push duplicate of current entry
+      if (base.length > 0 && base[base.length - 1].q === entry.q) return base;
+      const next = [...base, entry];
+      setHistoryIndex(next.length - 1);
+      return next;
+    });
+  }
+
+  function navigateHistory(index) {
+    if (index < 0 || index >= searchHistory.length) return;
+    const entry = searchHistory[index];
+    setHistoryIndex(index);
+    navigatingHistoryRef.current = true;
+    skipUrlEffectRef.current = true;
+
+    // Update URL
+    const next = new URLSearchParams();
+    if (entry.q) next.set("q", entry.q);
+    if (entry.sort) next.set("sort", entry.sort);
+    if (entry.country) next.set("country", entry.country);
+    if (entry.state) next.set("state", entry.state);
+    if (entry.city) next.set("city", entry.city);
+    next.delete("page");
+    setSearchParams(next, { replace: true });
+
+    doSearch({ q: entry.q, sort: entry.sort, country: entry.country, state: entry.state, city: entry.city, take: PAGE_SIZE, skip: 0 });
+  }
+
+  const canGoBack = historyIndex > 0;
+  const canGoForward = historyIndex < searchHistory.length - 1;
+
   const SORT_LABELS = { manu: "Nearest Manufacturing", hq: "Nearest Headquarters", stars: "Highest Rated" };
 
   function removeFilter(key) {
@@ -518,6 +585,13 @@ export default function ResultsPage() {
           onSubmitParams={handleInlineSearch}
           filtersRightSlot={results.length > 0 ? languageSelector : null}
           containerClassName="max-w-none"
+          searchHistory={searchHistory}
+          historyIndex={historyIndex}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onGoBack={() => navigateHistory(historyIndex - 1)}
+          onGoForward={() => navigateHistory(historyIndex + 1)}
+          onGoToIndex={navigateHistory}
         />
       </div>
 
