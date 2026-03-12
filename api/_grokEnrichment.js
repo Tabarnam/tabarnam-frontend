@@ -198,7 +198,7 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 // v5.0: Locations split into separate HQ + MFG calls (~60s each) instead of combined (240s timeout).
 // xAI web search typically takes 30-90s for focused single-field queries.
 const CALL_TIMEOUTS_MS = Object.freeze({
-  locations:  { min: 45_000,  max: 120_000 },   // 0.75-2 min per standalone HQ or MFG call
+  locations:  { min: 45_000,  max: 180_000 },   // 0.75-3 min per standalone HQ or MFG call
   keywords:   { min: 90_000,  max: 180_000 },   // 1.5-3 min for product keywords (was 240s; 180s prevents keyword call from being parallel bottleneck)
   light:      { min: 45_000,  max: 90_000 },    // 0.75-1.5 min for tagline + industries (was 180s; if Grok can't find these in 90s, it won't)
   reviews:    { min: 90_000,  max: 180_000 },    // 1.5-3 min — single call, no browseAboutPage fallback
@@ -4169,7 +4169,12 @@ async function enrichCompanyFields({
   // Reserve for logo verification (~30s).
   const DOWNSTREAM_RESERVE_MS = 150_000;
 
-  const needHqRetry = wantLocations && !proposed.headquarters_location;
+  // Skip HQ retry if initial call timed out — retrying the same query against the same overloaded XAI infra is wasteful
+  const hqTimedOut = field_statuses.headquarters === "upstream_timeout";
+  const needHqRetry = wantLocations && !proposed.headquarters_location && !hqTimedOut;
+  if (hqTimedOut && !proposed.headquarters_location) {
+    console.log(`[enrichCompanyFields] Skipping HQ retry (initial timed out — back off and move on), run=${runId}`);
+  }
   // Skip MFG retry if Grok explicitly said "not_applicable" (retailer/marketplace)
   // Also skip if initial MFG call timed out — a second try won't find data that 118.8s couldn't
   const mfgExplicitlyEmpty = field_statuses.manufacturing === "not_applicable" || field_statuses.manufacturing === "not_disclosed";
