@@ -338,6 +338,12 @@ export default function ResultsPage() {
     await doSearch({ q, sort, country, state, city, take: PAGE_SIZE, skip: 0, location: searchLocation });
   }
 
+  // Lightweight auto-search: fetches results without updating URL (avoids input interruption)
+  function handleAutoSearch({ q, sort, country, state, city }) {
+    if (!q) return;
+    doSearch({ q, sort, country, state, city, take: PAGE_SIZE, skip: 0 });
+  }
+
   async function doSearch({ q, sort, country, state, city, take = PAGE_SIZE, skip = 0, location = null }) {
     setLoading(true);
     setStatus("Searching…");
@@ -583,6 +589,7 @@ export default function ResultsPage() {
       <div className="mt-6 mb-4">
         <SearchCard
           onSubmitParams={handleInlineSearch}
+          onAutoSearch={handleAutoSearch}
           filtersRightSlot={results.length > 0 ? languageSelector : null}
           containerClassName="max-w-none"
           searchHistory={searchHistory}

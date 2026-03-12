@@ -54,6 +54,7 @@ export default function SearchCard({
   onGoBack,
   onGoForward,
   onGoToIndex,
+  onAutoSearch,
 }) {
   const nav = useNavigate();
   const { search } = useLocation();
@@ -106,6 +107,7 @@ export default function SearchCard({
   const stateInputRef = useRef(null);
   const handleSubmitRef = useRef(null);
   const debounceSearchRef = useRef(null);
+  const debounceUrlRef = useRef(null);
   const lastSearchedQRef = useRef('');
 
   useEffect(() => {
@@ -185,11 +187,16 @@ export default function SearchCard({
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
 
-  // Search-as-you-type: works on both home page and results page
+  // Search-as-you-type: fires lightweight auto-search (no URL update) while typing,
+  // then updates the URL after 3 seconds of inactivity for shareability.
   useEffect(() => {
     if (debounceSearchRef.current) {
       clearTimeout(debounceSearchRef.current);
       debounceSearchRef.current = null;
+    }
+    if (debounceUrlRef.current) {
+      clearTimeout(debounceUrlRef.current);
+      debounceUrlRef.current = null;
     }
 
     const trimmed = q.trim();
@@ -200,13 +207,34 @@ export default function SearchCard({
 
     debounceSearchRef.current = setTimeout(() => {
       lastSearchedQRef.current = trimmed;
-      handleSubmitRef.current();
+      // Use lightweight auto-search if available (skips URL update), else fall back to full submit
+      if (onAutoSearch) {
+        onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city });
+      } else {
+        handleSubmitRef.current();
+      }
     }, 400);
+
+    // Delayed URL update: sync URL 3s after last keystroke for shareability
+    if (onAutoSearch) {
+      debounceUrlRef.current = setTimeout(() => {
+        const params = { q: trimmed, sort: sortBy, country, state: stateCode, city };
+        if (onSubmitParams) {
+          // Full submit updates URL + history
+          lastSearchedQRef.current = trimmed;
+          handleSubmitRef.current();
+        }
+      }, 3000);
+    }
 
     return () => {
       if (debounceSearchRef.current) {
         clearTimeout(debounceSearchRef.current);
         debounceSearchRef.current = null;
+      }
+      if (debounceUrlRef.current) {
+        clearTimeout(debounceUrlRef.current);
+        debounceUrlRef.current = null;
       }
     };
   }, [q]);
@@ -321,10 +349,14 @@ export default function SearchCard({
   };
 
   const handleSubmit = (overrideQ) => {
-    // Cancel any pending auto-search debounce
+    // Cancel any pending auto-search and URL update debounces
     if (debounceSearchRef.current) {
       clearTimeout(debounceSearchRef.current);
       debounceSearchRef.current = null;
+    }
+    if (debounceUrlRef.current) {
+      clearTimeout(debounceUrlRef.current);
+      debounceUrlRef.current = null;
     }
 
     const rawQ = (overrideQ !== undefined ? overrideQ : q).trim();
