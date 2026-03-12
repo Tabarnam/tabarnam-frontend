@@ -1278,8 +1278,8 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   const xCount = curated_reviews.filter((r) => isXUrl(r?.source_url)).length;
   const blogCount = curated_reviews.length - youtubeCount - xCount;
 
-  // Target 2 reviews. 1 = incomplete, 2+ = ok (done).
-  const ok = curated_reviews.length >= 2;
+  // Target 2 reviews. 1 is acceptable (no retry path). 0 = not_found.
+  const ok = curated_reviews.length >= 1;
 
   if (!ok) {
     const reasonParts = [];
