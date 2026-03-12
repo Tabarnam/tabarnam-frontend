@@ -201,7 +201,7 @@ const CALL_TIMEOUTS_MS = Object.freeze({
   locations:  { min: 45_000,  max: 120_000 },   // 0.75-2 min per standalone HQ or MFG call
   keywords:   { min: 90_000,  max: 180_000 },   // 1.5-3 min for product keywords (was 240s; 180s prevents keyword call from being parallel bottleneck)
   light:      { min: 45_000,  max: 90_000 },    // 0.75-1.5 min for tagline + industries (was 180s; if Grok can't find these in 90s, it won't)
-  reviews:    { min: 90_000,  max: 120_000 },    // 1.5-2 min — fail fast so browseAboutPage fallback gets more budget
+  reviews:    { min: 90_000,  max: 180_000 },    // 1.5-3 min — single call, no browseAboutPage fallback
   structured: { min: 90_000,  max: 330_000 },    // Legacy — kept for retryMissingStructuredFields
 });
 // Backward compat alias
@@ -902,7 +902,7 @@ async function fetchCuratedReviews({
   xaiKey,
   model = "grok-4-latest",
   attempted_urls = [],
-  browseAboutPage = false,
+  browseAboutPage = false, // @deprecated — kept for signature compat, ignored
   signal,
 } = {}) {
   const started = Date.now();
@@ -931,15 +931,10 @@ async function fetchCuratedReviews({
 
   // Exclude company domain + Amazon/Google/Yelp from reviews via prompt text only
   // (NOT via the API excluded_domains filter, which causes XAI search to slow down).
-  // browseAboutPage needs the company domain open.
-  const promptExcludeDomains = browseAboutPage
-    ? []
-    : [domain, "amazon.com", "google.com", "yelp.com"].filter(Boolean);
+  const promptExcludeDomains = [domain, "amazon.com", "google.com", "yelp.com"].filter(Boolean);
 
-  // No SEARCH_PREAMBLE — the review prompt is self-contained and doesn't need
-  // browse_page verification instructions that force slow page-by-page crawling.
-  // On retry (browseAboutPage=true), simplified website-only fallback: browse company pages to constitute 1 review.
-  const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, promptExcludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)", { browseAboutPage })}
+  // Single-call prompt: third-party reviews + company website fallback in one shot.
+  const prompt = `${FIELD_GUIDANCE.reviews.rulesFull(name, promptExcludeDomains, attempted_urls, websiteUrlForPrompt || "(unknown website)")}
 ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
   // v3.0: use TWO_CALL_TIMEOUTS_MS for generous review timeout (3-5 min)
@@ -3930,7 +3925,7 @@ async function enrichCompanyFields({
         companyName, normalizedDomain: domain,
         budgetMs: Math.min(TWO_CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 5000),
         xaiUrl, xaiKey,
-        browseAboutPage: !!retryHints?.browseAboutPage,
+        // browseAboutPage removed — website fallback is now in the single-call prompt
       }).then((r) => ({ type: "reviews", result: r })));
     }
 
@@ -4092,7 +4087,7 @@ async function enrichCompanyFields({
         companyName, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey, signal,
-        browseAboutPage: !!retryHints?.browseAboutPage,
+        // browseAboutPage removed — website fallback is now in the single-call prompt
       }).then(async (result) => {
         if (result?.curated_reviews?.length > 0 && typeof onIntermediateSave === "function") {
           try {
@@ -4182,7 +4177,7 @@ async function enrichCompanyFields({
   // ── Location retry ──
   // If either standalone call failed (timeout/error), retry individually.
   // Cap retry budgets to reserve ≥150s for downstream work
-  // (reviews browseAboutPage fallback ~120s + logo verification ~30s).
+  // Reserve for logo verification (~30s).
   const DOWNSTREAM_RESERVE_MS = 150_000;
 
   const needHqRetry = wantLocations && !proposed.headquarters_location;
@@ -4384,92 +4379,15 @@ async function enrichCompanyFields({
     }
   }
 
-  // Merge reviews
+  // Merge reviews — single call, no browseAboutPage retry (website fallback is in the prompt)
   if (reviews?.curated_reviews?.length > 0) {
     proposed.reviews = reviews.curated_reviews;
     field_statuses.reviews = reviews.reviews_stage_status || "ok";
-
-    // If first attempt found 1-2 reviews ("incomplete") and budget allows,
-    // supplement with browseAboutPage to add a website review
-    if (field_statuses.reviews === "incomplete"
-        && !retryHints?.browseAboutPage
-        && getRemainingMs() > CALL_TIMEOUTS_MS.reviews.min + 15_000) {
-      const incReason = reviews?.diagnostics?.reason || "insufficient_verified_reviews";
-      console.log(`[enrichCompanyFields] Reviews incomplete (${proposed.reviews.length} found, reason=${incReason}), supplementing with browseAboutPage, budget_remaining=${getRemainingMs()}ms, run=${runId}`);
-      const retryStarted = Date.now();
-      const retryResult = await fetchCuratedReviews({
-        companyName, normalizedDomain: domain,
-        budgetMs: Math.min(CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
-        xaiUrl, xaiKey,
-        browseAboutPage: true,
-      });
-      const retryElapsed = Date.now() - retryStarted;
-
-      if (retryResult?.curated_reviews?.length > 0) {
-        const existingUrls = new Set(proposed.reviews.map(r => r?.source_url).filter(Boolean));
-        const newReviews = retryResult.curated_reviews.filter(r => !existingUrls.has(r?.source_url));
-        proposed.reviews = proposed.reviews.concat(newReviews);
-        console.log(`[enrichCompanyFields] browseAboutPage supplement SUCCESS: +${newReviews.length} new (total=${proposed.reviews.length}), elapsed=${retryElapsed}ms, run=${runId}`);
-      } else {
-        console.log(`[enrichCompanyFields] browseAboutPage supplement empty, elapsed=${retryElapsed}ms, run=${runId}`);
-      }
-      // Accept whatever total we have — browseAboutPage is best-effort supplement
-      field_statuses.reviews = "ok";
-
-      if (proposed.reviews.length > 0 && typeof onIntermediateSave === "function") {
-        try { await onIntermediateSave({ reviews: proposed.reviews }); }
-        catch (e) { console.warn(`[enrichCompanyFields] Supplemented reviews save failed: ${e?.message}, run=${runId}`); }
-      }
-    }
   } else if (wantReviews) {
+    proposed.reviews = [];
+    field_statuses.reviews = reviews?.reviews_stage_status || "empty";
     const reviewReason = reviews?.diagnostics?.reason || reviews?.reviews_stage_status || "unknown";
-    const reviewsTimedOut = reviews?.reviews_stage_status === "upstream_timeout";
-    const retryBudget = getRemainingMs();
-    // browseAboutPage is a DIFFERENT task (browse own website, ~15-30s) — allow it even after timeout.
-    // Only block if we already tried browseAboutPage (prevent double-retry).
-    const canRetry = !retryHints?.browseAboutPage   // prevent double-retry
-      && retryBudget > 45_000;                       // need at least 45s for browseAboutPage
-
-    if (canRetry) {
-      // When initial timed out, use a short budget (45s) — browseAboutPage just browses company pages
-      const aboutPageBudget = reviewsTimedOut
-        ? Math.min(45_000, retryBudget - 5_000)
-        : Math.min(CALL_TIMEOUTS_MS.reviews.max, retryBudget - 15_000);
-      console.log(`[enrichCompanyFields] Reviews ${reviewsTimedOut ? "timed out" : "empty"} (reason=${reviewReason}), attempting browseAboutPage fallback, budget=${aboutPageBudget}ms, run=${runId}`);
-      const retryStarted = Date.now();
-      const retryResult = await fetchCuratedReviews({
-        companyName, normalizedDomain: domain,
-        budgetMs: aboutPageBudget,
-        xaiUrl, xaiKey,
-        browseAboutPage: true,
-      });
-      const retryElapsed = Date.now() - retryStarted;
-
-      if (retryResult?.curated_reviews?.length > 0) {
-        proposed.reviews = retryResult.curated_reviews;
-        // browseAboutPage is our last-resort retry — accept any reviews found (even 1).
-        // Don't pass through "incomplete" from fetchCuratedReviews (which wants 3+),
-        // or isRealValue will treat reviews as missing and trigger re-enrichment.
-        field_statuses.reviews = "ok";
-        console.log(`[enrichCompanyFields] browseAboutPage retry SUCCESS: ${retryResult.curated_reviews.length} reviews, elapsed=${retryElapsed}ms, run=${runId}`);
-        // Early save the retry reviews
-        if (typeof onIntermediateSave === "function") {
-          try {
-            await onIntermediateSave({ reviews: retryResult.curated_reviews });
-          } catch (e) {
-            console.warn(`[enrichCompanyFields] Retry reviews save failed: ${e?.message}, run=${runId}`);
-          }
-        }
-      } else {
-        proposed.reviews = [];
-        field_statuses.reviews = retryResult?.reviews_stage_status || "empty";
-        console.log(`[enrichCompanyFields] browseAboutPage retry also empty, elapsed=${retryElapsed}ms, run=${runId}`);
-      }
-    } else {
-      proposed.reviews = [];
-      field_statuses.reviews = reviews?.reviews_stage_status || "empty";
-      console.log(`[enrichCompanyFields] Reviews empty for "${companyName}": status=${field_statuses.reviews}, reason=${reviewReason}, canRetry=false (alreadyBrowsed=${!!retryHints?.browseAboutPage}, budget=${retryBudget}ms), run=${runId}`);
-    }
+    console.log(`[enrichCompanyFields] Reviews empty for "${companyName}": status=${field_statuses.reviews}, reason=${reviewReason}, run=${runId}`);
   }
 
   // Remap short field_statuses names → long names for runDirectEnrichment()

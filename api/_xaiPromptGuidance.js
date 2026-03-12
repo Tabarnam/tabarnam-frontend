@@ -250,7 +250,7 @@ SENTIMENT: Prefer reviews that are positive, neutral, or constructively critical
 Return up to 5 verified reviews. Quality over quantity.`;
     },
     // Full investigation rules for dedicated review fetcher (web_search includes page browsing)
-    rulesFull: (companyName, excludeDomains, attemptedUrls, websiteUrl, opts = {}) => {
+    rulesFull: (companyName, excludeDomains, attemptedUrls, websiteUrl) => {
       const attemptedExclusion =
         Array.isArray(attemptedUrls) && attemptedUrls.length > 0
           ? `\nPREVIOUSLY TRIED URLs (all failed verification — do NOT return any of these):\n${attemptedUrls.map((u) => `- ${u}`).join("\n")}\nFind DIFFERENT sources instead.\n`
@@ -261,37 +261,10 @@ Return up to 5 verified reviews. Quality over quantity.`;
           : "";
       const companyRef = websiteUrl ? `${companyName} (${websiteUrl})` : companyName;
 
-      // ── Fallback prompt: extract a "review" from the company's own website ──
-      if (opts.browseAboutPage) {
-        return `The standard review search for ${companyRef} did not find enough results.
-Create ONE review entry from the company's own website content.
-
-STEP 1 — Browse the HOMEPAGE at ${websiteUrl} FIRST.
-Many company homepages feature press mentions, magazine logos, award badges, customer testimonials, or review quotes directly on the landing page. Look for:
-- Press logos or "As seen in..." sections (e.g., Forbes, Men's Health, Food Magazine)
-- Customer testimonial sections with quotes
-- Award or competition mentions
-- "Featured in..." or "Press" sections
-If you find any of these on the homepage, use that content for your review entry.
-
-STEP 2 — Only if the homepage has NO review/press content, try these pages:
-- ${websiteUrl}/testimonials, /about, /our-story, /faq
-- ${websiteUrl}/pages/testimonials, /pages/about, /pages/our-story, /pages/faq
-- Check the site's navigation menu and footer for links to testimonials, about, or press pages.
-
-From the FIRST page with usable content, create ONE review entry:
-- source_name: "Website - [page type]" (e.g., "Website - Home", "Website - Testimonials", "Website - About")
-- excerpt: A press mention, customer testimonial, or the company's story/mission. Minimum 30 characters.
-- source_url: The actual page URL you visited
-- author: The customer name (for testimonials), publication name (for press mentions), or "${companyName}" (for about/mission content)
-
-Return exactly 1 review.
-${attemptedExclusion}`;
-      }
-
-      // ── Standard first-attempt prompt ──
+      // ── Single-call prompt: third-party reviews + company website fallback ──
       return `For the company: ${companyName} / ${websiteUrl || "(unknown website)"}
 Reviews: Find 2 unique, legitimate third-party reviews with working URLs. Use 1-2 YouTube reviews focused solely on the current company or its products; do not include unrelated reviews or reviews from or about previously discussed companies. The remaining reviews should be from X (Twitter), a magazine or blog, strictly related to the current company and its products, excluding any overlap with prior companies. Confirm all URLs are functional. Do not hallucinate or embellish. Do not include the same author or URL more than once. Accuracy is paramount.
+If fewer than 2 third-party reviews are found, supplement by browsing ${websiteUrl || "the company website"} for press mentions, testimonials, or "as seen in" sections. Use source_name "Website - [page type]" for these.
 ${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
 ${attemptedExclusion}`;
     },
