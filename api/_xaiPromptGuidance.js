@@ -40,51 +40,7 @@ const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url
 // ---------------------------------------------------------------------------
 const FIELD_GUIDANCE = {
   headquarters: {
-    rules: `Identify the CURRENT official headquarters location. Companies relocate — return the active, current address, NOT a previous or registered address. Having the actual cities within the United States is crucial. Be accurate. No guessing or hallucinating.
-
-STEP 1 — BROWSE THE COMPANY WEBSITE FIRST (mandatory, most authoritative source).
-- Use browse_page on the company URL. Check the homepage, footer, contact page, and about page.
-- Prioritize: /contact, /contact-us, then /about, /about-us, /our-story.
-- For Shopify sites, also try /pages/ variants: /pages/contact, /pages/about, /pages/our-story.
-- Look for: physical addresses in the footer or header, "headquartered in..." statements, contact page addresses, mailing addresses.
-- If the website clearly states an address with a city (e.g., in the footer, banner, or contact page), that IS the headquarters. Accept it and move to formatting — no cross-referencing needed.
-
-STEP 2 — WEB SEARCH (only if Step 1 found NO city-level address on the website).
-- Run web_search: "[Company Name] headquarters location"
-- Run web_search: "[Company Name] company profile site:linkedin.com OR site:crunchbase.com OR site:bloomberg.com"
-- Use browse_page on the top 2-3 results to extract and verify the city.
-- If the company may have been acquired, renamed, or operates as a subsidiary, also search: "[Company Name] parent company headquarters" or "[Previous Name] headquarters".
-
-STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
-- Website states a location → that is the answer. No further cross-verification needed.
-- CRITICAL — NAME COLLISIONS: Many brand names are shared by unrelated companies in different countries (e.g., "Uplift Desk" in Austin TX vs "Suzhou Uplift Intelligent Technology" in China). Always verify that the entity you are reporting on matches the EXACT website domain provided. If a similarly-named foreign entity appears in search results, explicitly confirm it is NOT the company being researched before including any of its locations.
-- CRITICAL — PARENT COMPANY CONTAMINATION: If the company is a subsidiary or was acquired (e.g., Hekman Furniture under Howard Miller), report ONLY the address that belongs to the specific brand at the given website domain. Do NOT return the parent company's HQ address as the brand's HQ. The parent's address is NOT the brand's address unless the brand's own website confirms it.
-- Website has no location info → search business directories for verified addresses:
-  Run web_search: "[Company Name] address site:yelp.com OR site:yellowpages.com OR site:bbb.org"
-  Require at least 2 independent external sources agreeing on the city. Prefer the most recently dated source.
-- If only a US state is found, search "[Company Name] address [State]" or check the LinkedIn company page to pin down the city.
-- When sources show different cities, look for dates — the most recently dated source with an address is more likely current. Companies relocate; older filings and directories may lag by years.
-- SOURCE TRUST HIERARCHY (use when website has no location and sources conflict):
-  1. Yelp, Yellow Pages, BBB verified business listings (actively maintained addresses)
-  2. SEC/government filings dated within last 2 years
-  3. Recent press releases or news articles (last 2 years)
-  4. LinkedIn, Crunchbase, Bloomberg company profiles
-  5. Business registration databases, WHOIS, older press releases
-  Always go with the highest-ranked source when they conflict.
-
-STEP 4 — HANDLE EDGE CASES (only if Steps 1-3 found nothing). Do NOT give up easily.
-- Small/private companies: search "[Company Name] [founder name] location" or "[Company Name] business registration [state]".
-- Subsidiaries or rebrands: search the parent company name if the brand itself has no disclosed HQ.
-- Try WHOIS or domain registration data: "[domain] WHOIS registrant" for last-resort city identification.
-
-FORMAT RULES:
-- Return ONLY the current, active headquarters address — never a previous or registered address.
-- City-level precision is crucial — do not return just a state or country if city-level data exists.
-- Use state/province abbreviations (e.g., "Austin, TX" not "Austin, Texas").
-- Format: "City, ST, USA" for US; "City, ST, Canada" for Canada; "City, Country" for international.
-- Always append the country. Use "USA" (not "United States" or "U.S.A.").
-- If only country is known, return just the country (e.g., "USA").
-- No explanatory text — just the location string.`,
+    rules: `Conduct thorough research using web_search and browse_page tools to identify the HQ location, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Use initials for states or provinces (e.g., City, State Initials, Country). Use USA, not US. No explanatory info — just the location. If multiple HQ locations, separate with semicolons. Format: City, ST, Country or City, ST, Country; City2, ST2, Country2`,
     jsonSchema: `"headquarters_location": "City, ST, USA"`,
     jsonSchemaWithSources: `{
   "headquarters_location": "...",
@@ -93,70 +49,7 @@ FORMAT RULES:
   },
 
   manufacturing: {
-    rules: `Identify ALL known CURRENT manufacturing locations worldwide. Include every city and country found. Be accurate. No guessing or hallucinating.
-
-STEP 1 — BROWSE THE COMPANY WEBSITE FIRST (mandatory, most authoritative source).
-- Use browse_page on the company URL. Check the homepage, footer, contact page, about page, FAQ, and shipping policy.
-- Also try /about, /about-us, /our-story, /faq, /sustainability, /contact, /shipping-policy.
-- For Shopify sites, also try /pages/ variants: /pages/about, /pages/our-story, /pages/faq, /pages/contact.
-- Look for: "manufactured in...", "produced at our facility in...", "Made in...", "sourced and processed in...", facility addresses, supply chain or sustainability pages.
-- Check product pages for descriptions that mention where the product is sourced, processed, cured, smoked, or packaged. For food companies, if raw materials are sourced AND processed at the same location, that location is a manufacturing site.
-- If the website clearly states manufacturing locations with city-level detail, accept them and move to formatting. Only do additional web searches if the website is silent or only names a country.
-
-EARLY EXIT — RETAILER / MARKETPLACE / RESELLER:
-If Step 1 reveals the company is a RETAILER, MARKETPLACE, or RESELLER that sells products from multiple OTHER brands (not its own), do NOT search for specific factory addresses. Instead:
-- If the website states a sourcing country (e.g., "America's Best", "Made in USA", "sourced from US makers"), return that country as a single manufacturing entry (e.g., country "USA" with empty city/state).
-- If no sourcing country is stated, return an empty array [].
-Either way, do NOT proceed to Step 2-4 web searches for retailers.
-
-SMALL / ARTISAN PRODUCERS: If the company is a small-batch, artisan, or craft producer and no separate manufacturing facility is mentioned anywhere on the website, the headquarters address IS the manufacturing location. Return the HQ address as the manufacturing location rather than spending time searching for a separate factory that does not exist.
-
-STEP 2 — WEB SEARCH (only if Step 1 found NO city-level manufacturing info on the website).
-- Run web_search: "[Company Name] manufacturing facilities locations"
-- Run web_search: "[Company Name] factory OR plant OR production facility"
-- For US companies, try: "[Company Name] manufacturing site:sec.gov OR site:fda.gov" (regulatory filings list facility addresses).
-- Also try: "[Company Name] supply chain report" or "[Company Name] where is it made" for lesser-known sites.
-- Search for contract/co-pack arrangements: "[Company Name] co-manufacturer OR co-packer OR contract manufacturer".
-- Use browse_page on the top 2-3 results to extract and verify cities.
-
-STEP 3 — VALIDATE AND RESOLVE CONFLICTS.
-- Website states manufacturing locations → accept them. No further cross-verification needed.
-- CRITICAL — NAME COLLISIONS: Many brand names are shared by unrelated companies in different countries. For example, "Uplift Desk" (upliftdesk.com, Austin TX) is a completely different entity from "Suzhou Uplift Intelligent Technology Co., Ltd" (a Chinese manufacturer). Always verify that any manufacturing location you report belongs to the EXACT company at the given website domain — NOT a similarly-named foreign entity. If a similarly-named company appears in search results, explicitly confirm it is the same entity before including its locations.
-- CRITICAL — PARENT COMPANY CONTAMINATION: If the company is a subsidiary or was acquired (e.g., Hekman Furniture under Howard Miller), report ONLY manufacturing locations that belong to the specific brand being researched. Do NOT include the parent company's factories, other subsidiaries' plants, or the parent's HQ as a manufacturing site. Only include a parent's facility if the brand's own website confirms that specific facility produces the brand's products.
-- CRITICAL — SHOWROOMS ARE NOT FACTORIES: Trade show locations (e.g., High Point Market NC, Las Vegas Market NV), showrooms, design centers, and sales offices are NOT manufacturing facilities. Do NOT include them as manufacturing locations.
-- Never assume or import a manufacturing city unless the official website itself names it, or you have confirmed the source refers to the exact same entity at the given domain.
-- Website has no manufacturing info → search business directories for verified addresses:
-  Run web_search: "[Company Name] address site:yelp.com OR site:yellowpages.com OR site:bbb.org"
-  Require at least 2 independent external sources agreeing, AND confirm they reference the exact same company (same domain/parent company).
-- For vague US locations (just a state), check SEC 10-K filings, LinkedIn, or Glassdoor job postings for exact city.
-- IMPORTANT: Verify locations are current — companies close or relocate facilities. Prefer the most recently dated sources.
-- SOURCE TRUST HIERARCHY (use when website has no manufacturing info and sources conflict):
-  1. Yelp, Yellow Pages, BBB verified business listings (actively maintained addresses)
-  2. SEC 10-K filings, FDA facility registrations dated within last 2 years
-  3. Recent news articles about factory openings/closings (last 2 years)
-  4. Trade directories, B2B databases, LinkedIn facility listings
-  5. Older filings, press releases, and business registrations
-  A location found ONLY in lower-ranked sources should be included only if the source is recent and specifically names this company.
-
-STEP 4 — DEEPER INVESTIGATION (only if Steps 1-3 found nothing). Do NOT give up easily.
-- Try at least 3 different search queries before returning empty.
-- Check: "[Company Name] made in USA", "[Company Name] production location", "[Company Name] where are products made".
-- Look for news articles about factory openings, expansions, or closures.
-- For international companies, try "[Company Name] manufacturing [country]" for key markets.
-- If ONLY country-level info exists (e.g., "Made in USA"), that is acceptable — include it.
-- If the company only states "Made in USA" or "assembled in the USA" with no specific city or facility name, return "USA" — do NOT guess a city.
-- If nothing is found after exhaustive searching, return an empty array [].
-
-FORMAT RULES:
-- List ALL known CURRENT manufacturing locations worldwide. Be exhaustive.
-- City-level precision is crucial for ALL locations worldwide — not just the USA. Always include the city and region/province when disclosed in any source (official website, SEC filings, news articles, or trade directories).
-- Use state/province abbreviations (e.g., "Los Angeles, CA" not "Los Angeles, California").
-- Format: "City, ST, USA" for US; "City, ST, Canada" for Canada; "City, Country" for international.
-- Always append the country. Use "USA" (not "United States" or "U.S.A.").
-- Return an array of locations. Include multiple entries when applicable.
-- Country-only entries are a LAST RESORT — acceptable ONLY after browsing the company website AND running at least 3 web searches that all fail to reveal a specific city. If any source names a city, you MUST include it (e.g., "Quito, Ecuador" not just "Ecuador").
-- No explanatory text — just location strings.
-- Provide the supporting URLs you used for the manufacturing determination.`,
+    rules: `Conduct thorough research using web_search and browse_page tools to identify all known manufacturing locations worldwide, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified." Separate each location with semicolons. Format: City, ST, Country; City2, ST2, Country2`,
     jsonSchema: `"manufacturing_locations": ["City, ST, USA", "City, Country"]`,
     jsonSchemaWithSources: `{
   "manufacturing_locations": ["City, ST, USA", "City, Country"],
@@ -176,34 +69,7 @@ mfg_status: use "ok" when manufacturing locations were found, "not_applicable" w
   },
 
   keywords: {
-    rules: `- STEP 1: Use browse_page on the company URL. Navigate to product, shop, or collections pages.
-  Also try these URL paths: /shop, /collections/all, /products, /all-products, /our-products.
-  Read ALL product names, product lines, flavors, varieties, and SKUs from every page.
-  If the catalog is organized into categories, browse EACH category page to capture all items.
-- STEP 2: Use web_search with at least 2 different queries:
-  Run web_search: "[Company Name] full product list"
-  Run web_search: "[Company Name] products catalog"
-  Also try: "[Company Name] flavors" or "[Company Name] all varieties" for food/beverage companies.
-  Use browse_page on retailer or distributor listings to find products not on the main site.
-- STEP 3: EXPAND collection names into individual products — but ONLY if the product pages show collection headers without listing individual items.
-  If the product pages already list individual products by name (e.g., "Original Beef Jerky", "Teriyaki Beef Jerky"), those ARE your keywords — no further expansion needed.
-  Only expand when the site shows generic collection names (e.g., "Classic Towels") without individual product listings underneath. In that case, combine the collection name with each product type (e.g., "Classic Bath Towel", "Classic Hand Towel").
-- STEP 4: VERIFY COMPLETENESS. Compare your list against what you saw on the shop/products pages.
-  If you found category pages with products you haven't listed, go back and add them.
-  If the product pages look complete (no pagination, no "load more" buttons, no unexplored categories), accept your list as complete — even if it is short.
-  Only expand product lines into variants (STEP 3) or search harder if there is clear evidence of missing products.
-- Keywords should be exhaustive, complete and all-inclusive of all products the company produces.
-- Return up to 100 of the company's most important products and product lines. Stop when you reach 100 or when you cannot find any more.
-- If a customer could search for it and find this company's product, include it.
-- Return ONLY actual products/product lines. Do NOT include:
-  Navigation labels: Shop All, Collections, New, Best Sellers, Sale, Limited Edition, All
-  Site features: Account, Cart, Store Locator, FAQ, Shipping, Returns, Contact, About, Blog
-  Generic category labels unless they ARE an actual product line name
-  Bundle/pack descriptors unless they are a named product (e.g. "Starter Kit" is OK if it's a real product name)
-- The list must be materially more complete than what appears in the site's top navigation.
-- If you are uncertain about completeness, expand your search. Check category pages, seasonal items, discontinued-but-listed products.
-- Set "completeness" to "incomplete" if you know there are more products you couldn't extract. Set to "complete" only if you are confident the list covers the full catalog.
-- No guessing or hallucinating. Only report verified product information.`,
+    rules: `Use browse_page on the company URL and its product/shop/collections pages to find all products. Use web_search "[Company Name] products" and "[Company Name] full product list" for completeness. Return an exhaustive, complete list of all products, product lines, flavors, and varieties the company produces — up to 100 items. Return ONLY actual products (not navigation labels, site features, or generic categories). Set "completeness" to "incomplete" if you know there are more products you couldn't extract. No guessing or hallucinating.`,
     jsonSchema: `"product_keywords": "comma-separated string"`,
     jsonSchemaArray: `"product_keywords": ["Product 1", "Product 2", "..."]`,
     jsonSchemaWithCompleteness: `{

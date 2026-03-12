@@ -1142,7 +1142,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
       return true;
     })
     // Exclude company's own domain — EXCEPT for website testimonial entries (strategy 5)
-    .filter((x) => x.is_website_testimonial || !excludeDomains.some((d) => x.source_url.includes(d)))
+    .filter((x) => x.is_website_testimonial || !promptExcludeDomains.some((d) => x.source_url.includes(d)))
     .filter((x) => {
       const len = (x.excerpt || "").length;
       const minLen = x.is_website_testimonial ? 30 : 100;
@@ -1278,8 +1278,8 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   const xCount = curated_reviews.filter((r) => isXUrl(r?.source_url)).length;
   const blogCount = curated_reviews.length - youtubeCount - xCount;
 
-  // Target 3 reviews. 1-2 = incomplete (triggers retry), 3+ = ok (done).
-  const ok = curated_reviews.length >= 3;
+  // Target 2 reviews. 1 = incomplete, 2+ = ok (done).
+  const ok = curated_reviews.length >= 2;
 
   if (!ok) {
     const reasonParts = [];
