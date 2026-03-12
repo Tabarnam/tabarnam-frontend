@@ -69,7 +69,7 @@ mfg_status: use "ok" when manufacturing locations were found, "not_applicable" w
   },
 
   keywords: {
-    rules: `Use browse_page on the company URL and its product/shop/collections pages to find all products. Use web_search "[Company Name] products" and "[Company Name] full product list" for completeness. Return an exhaustive, complete list of all products, product lines, flavors, and varieties the company produces — up to 100 items. Return ONLY actual products (not navigation labels, site features, or generic categories). Set "completeness" to "incomplete" if you know there are more products you couldn't extract. No guessing or hallucinating.`,
+    rules: `Use browse_page on the company URL and its product/shop/collections pages to find all products. Use web_search "[Company Name] products" for completeness. Return all products, product lines, flavors, and varieties — up to 100 items. IMPORTANT: If the catalog is large (30+ products), prioritize returning what you have found from the main product/shop/collections pages rather than spending time browsing every sub-page. Return ONLY actual products (not navigation labels, site features, or generic categories). Set "completeness" to "incomplete" if you know there are more products you couldn't extract. No guessing or hallucinating.`,
     jsonSchema: `"product_keywords": "comma-separated string"`,
     jsonSchemaArray: `"product_keywords": ["Product 1", "Product 2", "..."]`,
     jsonSchemaWithCompleteness: `{

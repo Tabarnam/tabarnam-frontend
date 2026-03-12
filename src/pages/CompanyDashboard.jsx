@@ -4635,6 +4635,21 @@ export default function CompanyDashboard() {
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), keywords: next }))}
                             placeholder="Add a keyword…"
                           />
+
+                          {editorDraft.keywords_completeness === "incomplete" && (
+                            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-1 ml-1">
+                              <Checkbox
+                                checked={Boolean(editorDraft.keywords_complete_acknowledged)}
+                                onCheckedChange={(v) =>
+                                  setEditorDraft((d) => ({
+                                    ...(d || {}),
+                                    keywords_complete_acknowledged: Boolean(v),
+                                  }))
+                                }
+                              />
+                              <span>Keywords Complete</span>
+                            </label>
+                          )}
                           </div>
                           </CollapsibleSection>
 

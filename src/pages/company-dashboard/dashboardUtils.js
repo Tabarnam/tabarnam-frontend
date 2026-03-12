@@ -469,6 +469,14 @@ export function getContractMissingFields(company) {
     }
   }
 
+  // Check for incomplete keywords (unless acknowledged by admin)
+  const kwIncomplete =
+    asString(company?.keywords_completeness).trim().toLowerCase() === "incomplete";
+  const kwAcknowledged = Boolean(company?.keywords_complete_acknowledged);
+  if (kwIncomplete && !kwAcknowledged) {
+    fields.push("+keywords");
+  }
+
   // Check for missing Amazon URL (unless marked as "no_amazon_store")
   const hasAmazonUrl = Boolean(asString(company?.amazon_url).trim());
   const noAmazonStore = Boolean(company?.no_amazon_store);

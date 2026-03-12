@@ -2733,7 +2733,7 @@ async function fetchKeywordFields({
       : "";
 
   const prompt = `For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
-Keywords: Provide an exhaustive, complete list of all products the company produces. Use browse_page on the company's shop/products/collections pages and web_search "[Company Name] products" for completeness. Include every named product, product line, flavor, and variety. Return up to 100. Do not include navigation labels, site features, or generic category names.
+Keywords: Provide a complete list of all products the company produces. Use browse_page on the company's shop/products/collections pages and web_search "[Company Name] products" for completeness. Include every named product, product line, flavor, and variety — up to 100. If the catalog is large (30+ products), prioritize returning what you've found from the main pages rather than browsing every sub-page. Do not include navigation labels, site features, or generic category names.
 If you don't find credible info, use [].
 Return STRICT JSON only:
 {
