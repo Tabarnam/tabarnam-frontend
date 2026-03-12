@@ -929,9 +929,12 @@ async function fetchCuratedReviews({
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  // Only exclude the company's own domain from reviews (not Amazon/Google/Yelp —
-  // those are fine review sources). browseAboutPage needs the company domain open.
-  const promptExcludeDomains = browseAboutPage ? [] : (domain ? [domain] : []);
+  // Exclude company domain + Amazon/Google/Yelp from reviews via prompt text only
+  // (NOT via the API excluded_domains filter, which causes XAI search to slow down).
+  // browseAboutPage needs the company domain open.
+  const promptExcludeDomains = browseAboutPage
+    ? []
+    : [domain, "amazon.com", "google.com", "yelp.com"].filter(Boolean);
 
   // No SEARCH_PREAMBLE — the review prompt is self-contained and doesn't need
   // browse_page verification instructions that force slow page-by-page crawling.
