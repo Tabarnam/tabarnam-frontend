@@ -3976,7 +3976,7 @@ async function enrichCompanyFields({
   const wantReviews = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("reviews");
   const wantLogo = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("logo") || fieldsToEnrich.includes("logo_url");
 
-  console.log(`[enrichCompanyFields] Five-call split for "${companyName}" (${domain}), budget=${budgetMs}ms, wantLocations=${wantLocations}, wantKeywords=${wantKeywords}, wantLight=${wantLight}, wantReviews=${wantReviews}, run=${runId}`);
+  console.log(`[enrichCompanyFields] Batched enrichment for "${companyName}" (${domain}), budget=${budgetMs}ms, wantLocations=${wantLocations}, wantKeywords=${wantKeywords}, wantLight=${wantLight}, wantReviews=${wantReviews}, run=${runId}`);
 
   // Each promise saves its results to Cosmos immediately via onIntermediateSave,
   // so that if Azure DrainMode kills the process mid-flight, data from whichever
@@ -3997,6 +3997,14 @@ async function enrichCompanyFields({
     }
     return result;
   };
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Batch 1: Light + HQ + MFG (3 concurrent calls — fast fields)
+  // xAI guidance: cap concurrent live-search requests at 3-5 to avoid
+  // upstream_timeout from 25-65 simultaneous web fetches.
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log(`[enrichCompanyFields] Batch 1 starting (light, hq, mfg), budget_remaining=${getRemainingMs()}ms, run=${runId}`);
+  const batch1Started = Date.now();
 
   // ── HQ promise — standalone call with early save ──
   const hqStartedAt = Date.now();
@@ -4052,14 +4060,6 @@ async function enrichCompanyFields({
       })
     : Promise.resolve(null);
 
-  const keywordPromise = wantKeywords
-    ? fetchKeywordFields({
-        companyName, websiteUrl, normalizedDomain: domain,
-        budgetMs: Math.min(CALL_TIMEOUTS_MS.keywords.max, getRemainingMs() - 15_000),
-        xaiUrl, xaiKey, signal,
-      }).then((r) => earlySave(r, "keywords", KEYWORD_OWNED_PARSED))
-    : Promise.resolve(null);
-
   const skipLogo = !!existingLogoUrl;
   const lightPromise = wantLight
     ? fetchLightFields({
@@ -4070,13 +4070,42 @@ async function enrichCompanyFields({
       }).then((r) => earlySave(r, "light", LIGHT_OWNED_PARSED))
     : Promise.resolve(null);
 
+  const [hqSettled, mfgSettled, lightSettled] = await raceTimeout(
+    Promise.allSettled([hqPromise, mfgPromise, lightPromise]),
+    getRemainingMs() + 10_000,
+    `enrichCompanyFields_batch1[${runId}]`
+  ).catch((e) => {
+    console.warn(`[enrichCompanyFields] Batch 1 watchdog fired: ${e.message}, run=${runId}`);
+    return [
+      { status: "rejected", reason: e },
+      { status: "rejected", reason: e },
+      { status: "rejected", reason: e },
+    ];
+  });
+
+  console.log(`[enrichCompanyFields] Batch 1 complete in ${Date.now() - batch1Started}ms, run=${runId}`);
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Batch 2: Keywords + Reviews (2 concurrent calls — heavy fields)
+  // Created AFTER Batch 1 settles so getRemainingMs() gives accurate budgets.
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log(`[enrichCompanyFields] Batch 2 starting (keywords, reviews), budget_remaining=${getRemainingMs()}ms, run=${runId}`);
+  const batch2Started = Date.now();
+
+  const keywordPromise = wantKeywords
+    ? fetchKeywordFields({
+        companyName, websiteUrl, normalizedDomain: domain,
+        budgetMs: Math.min(CALL_TIMEOUTS_MS.keywords.max, getRemainingMs() - 15_000),
+        xaiUrl, xaiKey, signal,
+      }).then((r) => earlySave(r, "keywords", KEYWORD_OWNED_PARSED))
+    : Promise.resolve(null);
+
   const reviewsStarted = Date.now();
   const reviewsPromise = wantReviews
     ? fetchCuratedReviews({
         companyName, normalizedDomain: domain,
         budgetMs: Math.min(CALL_TIMEOUTS_MS.reviews.max, getRemainingMs() - 15_000),
         xaiUrl, xaiKey, signal,
-        // browseAboutPage removed — website fallback is now in the single-call prompt
       }).then(async (result) => {
         if (result?.curated_reviews?.length > 0 && typeof onIntermediateSave === "function") {
           try {
@@ -4086,26 +4115,24 @@ async function enrichCompanyFields({
             console.warn(`[enrichCompanyFields] Early reviews save failed: ${e?.message}, run=${runId}`);
           }
         }
-        // Inject elapsed_ms for per-call breakdown logging
         if (result && typeof result === "object") result.elapsed_ms = Date.now() - reviewsStarted;
         return result;
       })
     : Promise.resolve(null);
 
-  const [hqSettled, mfgSettled, kwSettled, lightSettled, revSettled] = await raceTimeout(
-    Promise.allSettled([hqPromise, mfgPromise, keywordPromise, lightPromise, reviewsPromise]),
-    budgetMs + 10_000,
-    `enrichCompanyFields_five_call_split[${runId}]`
+  const [kwSettled, revSettled] = await raceTimeout(
+    Promise.allSettled([keywordPromise, reviewsPromise]),
+    getRemainingMs() + 10_000,
+    `enrichCompanyFields_batch2[${runId}]`
   ).catch((e) => {
-    console.warn(`[enrichCompanyFields] Five-call split watchdog fired (${budgetMs + 10000}ms): ${e.message}, run=${runId}`);
+    console.warn(`[enrichCompanyFields] Batch 2 watchdog fired: ${e.message}, run=${runId}`);
     return [
-      { status: "rejected", reason: e },
-      { status: "rejected", reason: e },
-      { status: "rejected", reason: e },
       { status: "rejected", reason: e },
       { status: "rejected", reason: e },
     ];
   });
+
+  console.log(`[enrichCompanyFields] Batch 2 complete in ${Date.now() - batch2Started}ms, run=${runId}`);
 
   // ── Merge results (order: HQ → MFG → keywords → light → reviews) ──
   const hqResult = hqSettled.status === "fulfilled" ? hqSettled.value : null;
