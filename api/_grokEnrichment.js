@@ -187,10 +187,10 @@ function resolveXaiStageTimeoutMaxMs(fallback = 330_000) {
 // Previous values were too aggressive and caused upstream_timeout errors.
 // With non-blocking import-one (no 4-min SWA gateway timeout), we can allow longer searches.
 const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
-  reviews: { min: 150_000, max: 240_000 },     // 2.5-4 minutes for reviews (candidate generation + URL verification)
-  keywords: { min: 90_000, max: 150_000 },     // 1.5-2.5 minutes for exhaustive keyword search
-  location: { min: 90_000, max: 150_000 },     // 1.5-2.5 minutes for thorough location research
-  light: { min: 30_000, max: 60_000 },         // 30s-1 min for simpler fields (tagline, industries)
+  reviews:  { min: 90_000,  max: 180_000 },    // inner clamp — must match CALL_TIMEOUTS_MS
+  keywords: { min: 90_000,  max: 180_000 },    // inner clamp — must match CALL_TIMEOUTS_MS
+  location: { min: 45_000,  max: 180_000 },    // inner clamp — must match CALL_TIMEOUTS_MS
+  light:    { min: 45_000,  max: 180_000 },    // inner clamp — must match CALL_TIMEOUTS_MS
 });
 
 // Five-Call Split timeouts (v5.0) — used by enrichCompanyFields() pipeline.
@@ -4175,6 +4175,9 @@ async function enrichCompanyFields({
     if (hqResult.headquarters_state_code) proposed.headquarters_state_code = hqResult.headquarters_state_code;
     if (hqResult.headquarters_country) proposed.headquarters_country = hqResult.headquarters_country;
     if (hqResult.headquarters_country_code) proposed.headquarters_country_code = hqResult.headquarters_country_code;
+  } else if (hqResult?.hq_status) {
+    // Propagate failure status (upstream_timeout, deferred, etc.) so logs show why HQ is missing
+    field_statuses.headquarters = hqResult.hq_status;
   }
 
   // Merge MFG result (standalone shape → proposed)
