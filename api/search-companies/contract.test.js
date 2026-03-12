@@ -282,29 +282,32 @@ test("fuzzyScore returns higher score for closer matches", () => {
 
 // ── keyword relevance scoring tests ──────────────────────────────────────
 
-test("computeKeywordMatchScore returns 100 for exact keyword match", () => {
+test("computeKeywordMatchScore returns 125 for exact keyword match with multi-term coupling", () => {
   const company = { product_keywords: ["body wash", "soap"] };
   const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
-  assert.equal(score, 100);
+  // base 100 + coupling bonus 25 (both "body" and "wash" covered)
+  assert.equal(score, 125);
 });
 
-test("computeKeywordMatchScore returns 60 for starts-with keyword match", () => {
+test("computeKeywordMatchScore returns 85 for starts-with keyword match with coupling", () => {
   const company = { product_keywords: ["body wash gel", "soap"] };
   const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
-  assert.equal(score, 60);
+  // base 60 + coupling bonus 25
+  assert.equal(score, 85);
 });
 
-test("computeKeywordMatchScore returns 70 for word-boundary substring match", () => {
+test("computeKeywordMatchScore returns 95 for word-boundary substring match with coupling", () => {
   const company = { product_keywords: ["organic body wash formula"] };
   const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
-  assert.equal(score, 70);
+  // base 70 + coupling bonus 25
+  assert.equal(score, 95);
 });
 
-test("computeKeywordMatchScore returns 60 when query starts with keyword", () => {
+test("computeKeywordMatchScore penalizes partial word coverage", () => {
   const company = { keywords: ["body"] };
   const score = _test.computeKeywordMatchScore(company, "body wash", "bodywash");
-  // "body wash" starts with "body" → 60 (starts-with match)
-  assert.equal(score, 60);
+  // "body" covers only 1 of 2 query words → partial penalty: 60 × 0.6 = 36
+  assert.equal(score, 36);
 });
 
 test("computeKeywordMatchScore returns 0 for no match", () => {
@@ -317,8 +320,8 @@ test("computeRelevanceScore combines name and keyword scores", () => {
   const company = { company_name: "Body Wash Co", product_keywords: ["body wash"] };
   const scores = _test.computeRelevanceScore(company, "body wash", "body wash", "bodywash");
   assert.equal(scores._nameMatchScore, 80); // starts-with
-  assert.equal(scores._keywordMatchScore, 100); // exact match
-  assert.equal(scores._relevanceScore, Math.round(80 * 0.7 + 100 * 0.3) + 20); // 106 (includes +20 name bonus)
+  assert.equal(scores._keywordMatchScore, 125); // exact match + coupling bonus
+  assert.equal(scores._relevanceScore, Math.round(80 * 0.7 + 125 * 0.3) + 20); // 114 (includes +20 name bonus)
 });
 
 test("computeRelevanceScore: partial keyword match scores lower than exact", () => {
@@ -502,10 +505,10 @@ test("search-companies skips word-boundary for short queries (< 3 chars)", async
 
 // ── word-boundary keyword scoring tests ──────────────────────────────────
 
-test("computeKeywordMatchScore returns 35 for compound substring (robes in bathrobes)", () => {
+test("computeKeywordMatchScore returns 20 for compound substring (robes in bathrobes)", () => {
   const company = { product_keywords: ["bathrobes"] };
   const score = _test.computeKeywordMatchScore(company, "robes", "robes");
-  assert.equal(score, 35, "robes inside bathrobes should score 35 (non-boundary substring)");
+  assert.equal(score, 20, "robes inside bathrobes should score 20 (non-boundary substring)");
 });
 
 test("computeKeywordMatchScore returns 70 for word-boundary substring (robes in silk robes)", () => {

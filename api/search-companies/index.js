@@ -295,14 +295,20 @@ function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
 
 /**
  * Compute a keyword-match relevance score for a company against the search query.
- * Checks product_keywords and industries for match quality.
+ * Checks product_keywords, keywords, and industries for match quality.
  *
+ * Base scores per keyword:
  *   100 = exact keyword match (query === keyword)
  *    70 = query appears at a word boundary in a multi-word keyword
  *    60 = keyword starts with query or query starts with keyword
- *    35 = query is a non-boundary substring of keyword (e.g., "robes" in "bathrobes")
+ *    20 = query is a non-boundary substring of keyword (e.g., "water" in "freshwater")
  *    25 = keyword is a substring of query
  *     0 = no keyword match
+ *
+ * Modifiers:
+ *   Frequency multiplier: more matching keywords → higher score (×1.0 / ×1.15 / ×1.3)
+ *   Multi-term coupling: "cotton sheets" → companies matching BOTH words get +25 bonus
+ *   Partial coverage penalty: matching only 1 of N query words → score × 0.6
  */
 function computeKeywordMatchScore(company, q_norm, q_compact) {
   if (!company || (!q_norm && !q_compact)) return 0;
@@ -310,28 +316,44 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
   const queryTerms = [q_norm, q_compact].filter(Boolean).map((t) => t.toLowerCase());
   if (!queryTerms.length) return 0;
 
+  // For multi-word coupling: split query into individual words
+  const queryWords = (q_norm || "").toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
+  const coveredWords = new Set();
+
   let best = 0;
+  let matchCount = 0;
 
   const checkField = (arr) => {
     for (const raw of arr) {
       const kw = asString(raw).toLowerCase().trim();
       if (!kw) continue;
+      let matched = false;
       for (const qt of queryTerms) {
         if (kw === qt) {
           best = Math.max(best, 100);
+          matched = true;
         } else if (kw.startsWith(qt) || qt.startsWith(kw)) {
           best = Math.max(best, 60);
+          matched = true;
         } else if (kw.includes(qt)) {
-          // Distinguish word-boundary substring from compound substring:
-          // "silk robes" contains "robes" at word boundary → 70
-          // "bathrobes" contains "robes" as non-boundary substring → 35
           const idx = kw.indexOf(qt);
           const atWordBoundary = idx === 0 || /\s/.test(kw[idx - 1]);
-          best = Math.max(best, atWordBoundary ? 70 : 35);
+          best = Math.max(best, atWordBoundary ? 70 : 20);
+          matched = true;
         } else if (qt.includes(kw)) {
           best = Math.max(best, 25);
+          matched = true;
         }
       }
+      // Track which individual query words this keyword covers
+      if (queryWords.length >= 2) {
+        for (const w of queryWords) {
+          if (kw === w || kw.includes(w)) {
+            coveredWords.add(w);
+          }
+        }
+      }
+      if (matched) matchCount++;
     }
   };
 
@@ -339,7 +361,24 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
   checkField(normalizeStringArray(company.keywords));
   checkField(normalizeStringArray(company.industries));
 
-  return best;
+  if (best === 0) return 0;
+
+  // Frequency multiplier: more matching keywords = more relevant
+  const freqMult = matchCount >= 3 ? 1.3 : matchCount >= 2 ? 1.15 : 1.0;
+
+  // Multi-term coupling bonus/penalty for multi-word queries
+  let couplingAdj = 0;
+  if (queryWords.length >= 2) {
+    if (coveredWords.size >= queryWords.length) {
+      // All query words covered by keywords → strong relevance signal
+      couplingAdj = 25;
+    } else if (coveredWords.size <= 1) {
+      // Only 1 (or 0) of N query words covered → weak match, penalize
+      return Math.round(best * 0.6);
+    }
+  }
+
+  return Math.min(130, Math.round(best * freqMult) + couplingAdj);
 }
 
 /**
@@ -349,14 +388,21 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
  * companies whose name matches the query always outrank keyword-only matches.
  * When no name match: keyword gets 60% weight to widen the scoring gap
  * (otherwise all keyword-only matches compress into 0-30 range).
+ * Industry exact match adds +15 bonus (companies categorized under the query term).
  */
 function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   const nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
   const keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
   const nameBonus = nameScore >= 60 ? 20 : 0;
+
+  // Industry exact match bonus: company categorized under the search term
+  const industries = normalizeStringArray(company.industries).map((s) => asString(s).toLowerCase().trim());
+  const qLower = (q_norm || "").toLowerCase().trim();
+  const industryBonus = qLower && industries.some((ind) => ind === qLower) ? 15 : 0;
+
   const relevanceScore = nameScore > 0
-    ? Math.round(nameScore * 0.7 + keywordScore * 0.3) + nameBonus
-    : Math.round(keywordScore * 0.6);
+    ? Math.round(nameScore * 0.7 + keywordScore * 0.3) + nameBonus + industryBonus
+    : Math.round(keywordScore * 0.6) + industryBonus;
   return { _nameMatchScore: nameScore, _keywordMatchScore: keywordScore, _relevanceScore: relevanceScore };
 }
 
