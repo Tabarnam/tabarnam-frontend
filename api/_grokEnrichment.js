@@ -1370,25 +1370,15 @@ async function fetchHeadquartersLocation({ companyName, normalizedDomain, budget
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   const prompt = `${SEARCH_PREAMBLE}
-${websiteUrlForPrompt ? `
-PRIORITY: Before any web searches, browse these pages of the company website first:
-- ${websiteUrlForPrompt}/pages/about-us
-- ${websiteUrlForPrompt}/pages/about
-- ${websiteUrlForPrompt}/about
-- ${websiteUrlForPrompt}/pages/contact
-If any of these pages contain headquarters or location information, accept it immediately and return the result. Only proceed to web searches if none of these pages have what you need.
-` : ""}
-For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the headquarters location.
 
-Task: Determine the company's HEADQUARTERS location.
+For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
+HQ: Conduct thorough research using web_search and browse_page tools to identify the HQ location, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Use initials for states or provinces (e.g., City, State Initials, Country). Use USA, not US. No explanatory info — just the location. If multiple HQ locations, separate with semicolons.
 
-Rules:
-${FIELD_GUIDANCE.headquarters.rules}
-- Output STRICT JSON only.
-
-Return:
+Return STRICT JSON only:
 ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
 `.trim();
+
+  console.log(`[fetchHeadquartersLocation] prompt_summary: company="${name}", domain="${domain}", prompt_chars=${prompt.length}, budget=${budgetMs}ms`);
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
 
@@ -1435,8 +1425,11 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
     search_parameters: { mode: "on" },
   });
 
+  const elapsedMs = Date.now() - started;
+
   if (!r.ok) {
     const failure = classifyXaiFailure(r);
+    console.log(`[fetchHeadquartersLocation] Failed: ${failure}, company="${name}", elapsed=${elapsedMs}ms`);
     return {
       headquarters_location: "",
       hq_status: failure,
@@ -1448,6 +1441,9 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
     };
   }
 
+  const rawText = asString(extractTextFromXaiResponse(r.resp));
+  console.log(`[fetchHeadquartersLocation] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
+
   const out = parseJsonFromXaiResponse(r.resp);
 
   if (
@@ -1456,7 +1452,7 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
     Array.isArray(out) ||
     !Object.prototype.hasOwnProperty.call(out, "headquarters_location")
   ) {
-    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    console.log(`[fetchHeadquartersLocation] Invalid JSON for "${name}", elapsed=${elapsedMs}ms`);
     return {
       headquarters_location: "",
       hq_status: "invalid_json",
@@ -1470,6 +1466,7 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
   }
 
   const value = asString(out?.headquarters_location).trim();
+  console.log(`[fetchHeadquartersLocation] Parsed: hq="${value || "(empty)"}", elapsed=${elapsedMs}ms`);
 
   const hq_source_urls_raw = Array.isArray(out?.location_source_urls?.hq_source_urls)
     ? out.location_source_urls.hq_source_urls
@@ -1542,30 +1539,17 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   const prompt = `${SEARCH_PREAMBLE}
-${websiteUrlForPrompt ? `
-PRIORITY: Before any web searches, browse these pages of the company website first:
-- ${websiteUrlForPrompt}/pages/about-us
-- ${websiteUrlForPrompt}/pages/about
-- ${websiteUrlForPrompt}/about
-- ${websiteUrlForPrompt}/pages/contact
-If any of these pages contain manufacturing or production location information (e.g., "Made in...", "sourced and made in..."), accept it immediately and return the result. Only proceed to web searches if none of these pages have what you need.
-` : ""}
-IMPORTANT: If the company website reveals this is a RETAILER, MARKETPLACE, or RESELLER selling products from multiple other brands — do NOT search for factory addresses. Instead, if the site states a sourcing country (e.g., "America's Best Craft Jerky", "Made in USA"), return that country: {"manufacturing_locations": [{"city": "", "state": "", "country": "USA"}], "mfg_status": "ok", "location_source_urls": {"mfg_source_urls": ["<url>"]}}.
-If no sourcing country is stated, return {"manufacturing_locations": [], "mfg_status": "not_applicable", "location_source_urls": {"mfg_source_urls": []}}.
 
-SMALL / ARTISAN PRODUCERS: If the company is a small-batch, artisan, or craft producer and no separate manufacturing facility is mentioned anywhere on the website, the headquarters address IS the manufacturing location. Return the HQ address as the manufacturing location rather than spending time searching for a separate factory that does not exist.
+For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
+Manufacturing: Conduct thorough research using web_search and browse_page tools to identify all known manufacturing locations worldwide, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified."
+For small/artisan producers with no separate facility, return the HQ address as the manufacturing location.
+For retailers/marketplaces, return the sourcing country if stated, or empty array with mfg_status "not_applicable".
 
-For the company ${name} (${websiteUrlForPrompt || "(unknown website)"}) determine the manufacturing locations.
-
-Task: Identify ALL known MANUFACTURING locations for this company worldwide.
-
-Rules:
-${FIELD_GUIDANCE.manufacturing.rules}
-- Output STRICT JSON only.
-
-Return:
+Return STRICT JSON only:
 ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
 `.trim();
+
+  console.log(`[fetchManufacturingLocations] prompt_summary: company="${name}", domain="${domain}", prompt_chars=${prompt.length}, budget=${budgetMs}ms`);
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
 
@@ -1612,8 +1596,11 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
     search_parameters: { mode: "on" },
   });
 
+  const elapsedMs = Date.now() - started;
+
   if (!r.ok) {
     const failure = classifyXaiFailure(r);
+    console.log(`[fetchManufacturingLocations] Failed: ${failure}, company="${name}", elapsed=${elapsedMs}ms`);
     return {
       manufacturing_locations: [],
       mfg_status: failure,
@@ -1626,6 +1613,9 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
     };
   }
 
+  const rawText = asString(extractTextFromXaiResponse(r.resp));
+  console.log(`[fetchManufacturingLocations] Raw response (${rawText.length} chars): ${rawText.slice(0, 500)}${rawText.length > 500 ? "..." : ""}`);
+
   const out = parseJsonFromXaiResponse(r.resp);
 
   if (
@@ -1634,7 +1624,7 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
     Array.isArray(out) ||
     !Object.prototype.hasOwnProperty.call(out, "manufacturing_locations")
   ) {
-    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    console.log(`[fetchManufacturingLocations] Invalid JSON for "${name}", elapsed=${elapsedMs}ms`);
     return {
       manufacturing_locations: [],
       mfg_status: "invalid_json",
@@ -1663,6 +1653,8 @@ ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
     .filter(Boolean)
     .map(normalizeLocationWithStateAbbrev)  // Normalize state names to abbreviations
     .map(normalizeCountryInLocation);       // Normalize "United States" → "USA"
+
+  console.log(`[fetchManufacturingLocations] Parsed: locations=${cleaned.length}, elapsed=${elapsedMs}ms`, { manufacturing_locations: cleaned, mfg_source_urls: source_urls });
 
   // Detect explicit "not_applicable" signal from Grok (retailer/marketplace, not a manufacturer)
   const grokMfgStatus = asString(out?.mfg_status).trim().toLowerCase();

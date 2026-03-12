@@ -290,26 +290,9 @@ ${attemptedExclusion}`;
       }
 
       // ── Standard first-attempt prompt ──
-      return `Find 2 unique, legitimate third-party reviews of ${companyRef}.
-
-BRAND DISAMBIGUATION:
-${companyName} must refer to the company at ${websiteUrl || "(see URL above)"}. Before including ANY review, verify it discusses products sold on that website — not a similarly-named company or unrelated brand.
-
-PRIMARY SUBJECT RULE:
-The review must be primarily ABOUT ${companyName}'s products. REJECT reviews where the company is merely mentioned in passing, appears as one item in a 10+ brand roundup, or is referenced as a partner in an article about another entity.
-Exception: "top 5"/"best of" lists with a dedicated section of 2+ sentences are acceptable.
-
-SEARCH STRATEGY — run 1-2 searches:
-1. web_search "${companyName} review" — look for YouTube videos, lifestyle blogs, food/drink magazines, and independent review sites
-2. Only if search 1 yields fewer than 2 results: web_search "${companyName} [flagship product] review"
-
-Do NOT use browse_page to verify candidate URLs — just return the best matches from search results.
-
-REJECT: reviews of a DIFFERENT company with a similar name, generic product listings without review content, predominantly negative reviews.
-
-SOURCE PREFERENCE: Prefer YouTube videos and written articles from magazines/blogs. Do not include the same author more than once.
+      return `For the company: ${companyName} / ${websiteUrl || "(unknown website)"}
+Reviews: Find 2 unique, legitimate third-party reviews with working URLs. Use 1-2 YouTube reviews focused solely on the current company or its products; do not include unrelated reviews or reviews from or about previously discussed companies. The remaining reviews should be from X (Twitter), a magazine or blog, strictly related to the current company and its products, excluding any overlap with prior companies. Confirm all URLs are functional. Do not hallucinate or embellish. Do not include the same author or URL more than once. Accuracy is paramount.
 ${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
-Return up to 2 reviews. Quality over quantity.
 ${attemptedExclusion}`;
     },
     // JSON shapes
