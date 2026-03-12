@@ -4439,20 +4439,21 @@ async function enrichCompanyFields({
     const reviewReason = reviews?.diagnostics?.reason || reviews?.reviews_stage_status || "unknown";
     const reviewsTimedOut = reviews?.reviews_stage_status === "upstream_timeout";
     const retryBudget = getRemainingMs();
+    // browseAboutPage is a DIFFERENT task (browse own website, ~15-30s) — allow it even after timeout.
+    // Only block if we already tried browseAboutPage (prevent double-retry).
     const canRetry = !retryHints?.browseAboutPage   // prevent double-retry
-      && !reviewsTimedOut                            // if XAI timed out, retry won't help — back off and move on
-      && retryBudget > CALL_TIMEOUTS_MS.reviews.min + 15_000;  // need 90s+15s = 105s minimum
+      && retryBudget > 45_000;                       // need at least 45s for browseAboutPage
 
-    if (reviewsTimedOut) {
-      proposed.reviews = [];
-      field_statuses.reviews = "upstream_timeout";
-      console.log(`[enrichCompanyFields] Skipping reviews browseAboutPage retry (initial timed out — back off and move on), run=${runId}`);
-    } else if (canRetry) {
-      console.log(`[enrichCompanyFields] Reviews empty (reason=${reviewReason}), attempting browseAboutPage retry, budget_remaining=${retryBudget}ms, run=${runId}`);
+    if (canRetry) {
+      // When initial timed out, use a short budget (45s) — browseAboutPage just browses company pages
+      const aboutPageBudget = reviewsTimedOut
+        ? Math.min(45_000, retryBudget - 5_000)
+        : Math.min(CALL_TIMEOUTS_MS.reviews.max, retryBudget - 15_000);
+      console.log(`[enrichCompanyFields] Reviews ${reviewsTimedOut ? "timed out" : "empty"} (reason=${reviewReason}), attempting browseAboutPage fallback, budget=${aboutPageBudget}ms, run=${runId}`);
       const retryStarted = Date.now();
       const retryResult = await fetchCuratedReviews({
         companyName, normalizedDomain: domain,
-        budgetMs: Math.min(CALL_TIMEOUTS_MS.reviews.max, retryBudget - 15_000),
+        budgetMs: aboutPageBudget,
         xaiUrl, xaiKey,
         browseAboutPage: true,
       });
