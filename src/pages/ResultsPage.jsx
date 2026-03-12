@@ -556,10 +556,22 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {/* Column Headers — uses same grid as ExpandableCompanyRow so labels align */}
+      {/* Column Headers + page info — same grid as ExpandableCompanyRow */}
       {results.length > 0 && (
         <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 mb-4 px-2 items-center">
-          <div className="col-span-6 lg:col-span-2" />
+          <div className="col-span-6 lg:col-span-2 text-sm text-muted-foreground">
+            {qParam && (
+              <>
+                {totalPages != null
+                  ? <>Page {pageParam} of {totalPages} for </>
+                  : hasMore || pageParam > 1
+                    ? <>Page {pageParam} for </>
+                    : <>Results for </>
+                }
+                <span className="font-medium text-foreground">"{qParam}"</span>
+              </>
+            )}
+          </div>
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
               colKey === "manu" ? "Manufacturing" :
@@ -599,19 +611,6 @@ export default function ResultsPage() {
             );
           })}
         </div>
-      )}
-
-      {/* Result count + query echo */}
-      {sorted.length > 0 && qParam && (
-        <p className="text-sm text-muted-foreground mb-3 px-1">
-          {totalPages != null
-            ? <>Page {pageParam} of {totalPages} for </>
-            : hasMore || pageParam > 1
-              ? <>Page {pageParam} for </>
-              : <>Results for </>
-          }
-          <span className="font-medium text-foreground">"{qParam}"</span>
-        </p>
       )}
 
       {/* Results List */}
