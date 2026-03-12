@@ -120,6 +120,7 @@ export async function searchCompanies(opts: SearchOptions) {
     return {
       items,
       count: Number(data?.count) || items.length,
+      hasMore: data?.hasMore === true,
       meta: data?.meta ?? { q: q_raw, sort },
     };
   } catch (e) {

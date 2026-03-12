@@ -959,7 +959,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const skipParam = toFiniteNumber(url.searchParams.get("skip"));
   const skip = Math.max(0, Math.floor(skipParam ?? 0));
 
-  const limit = clamp(skip + take, 1, 500);
+  const limit = clamp(skip + take + 1, 1, 501);
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
 
@@ -1352,6 +1352,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       }
 
       const paged = deduped.slice(skip, skip + take);
+      const hasMore = deduped.length > skip + take;
 
       return json(
         {
@@ -1359,7 +1360,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           success: true,
           ...(cosmosTarget ? cosmosTarget : {}),
           items: paged,
-          count: deduped.length,
+          count: paged.length,
+          hasMore,
           meta: { q: q_raw, sort, skip, take, user_location, _searchMode: usedFallback ? "contains" : "fts" },
         },
         200,

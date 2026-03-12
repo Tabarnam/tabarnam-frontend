@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { geocode } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
@@ -13,6 +13,8 @@ import { API_BASE } from "@/lib/api";
 import { getQQScore } from "@/lib/stars/qqRating";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const PAGE_SIZE = 50;
 
 /** Skeleton placeholder that mirrors the collapsed ExpandableCompanyRow grid */
 function SkeletonRow() {
@@ -53,6 +55,79 @@ function SkeletonRow() {
   );
 }
 
+/** Numbered page bar: < Previous  [1]  2  3  …  Next > */
+function Pagination({ currentPage, hasMore, onPageChange, disabled }) {
+  if (currentPage <= 1 && !hasMore) return null;
+
+  // Build visible page numbers: 1 through currentPage, plus next if hasMore
+  const lastKnown = hasMore ? currentPage + 1 : currentPage;
+  const pages = [];
+  const add = (n) => { if (n >= 1 && n <= lastKnown && !pages.includes(n)) pages.push(n); };
+  add(1);
+  add(currentPage - 1);
+  add(currentPage);
+  if (hasMore) add(currentPage + 1);
+  pages.sort((a, b) => a - b);
+
+  // Insert ellipsis markers (represented as null)
+  const items = [];
+  for (let i = 0; i < pages.length; i++) {
+    if (i > 0 && pages[i] - pages[i - 1] > 1) items.push(null);
+    items.push(pages[i]);
+  }
+
+  const btn = "inline-flex items-center justify-center min-w-[36px] h-9 px-3 text-sm rounded transition-colors select-none";
+
+  return (
+    <nav aria-label="Pagination" className="mt-6 flex justify-center">
+      <ul className="inline-flex items-center gap-1 border border-border rounded-lg px-2 py-1.5 bg-card">
+        <li>
+          <button
+            type="button"
+            disabled={disabled || currentPage <= 1}
+            onClick={() => onPageChange(currentPage - 1)}
+            className={cn(btn, "gap-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none")}
+          >
+            <ChevronLeft size={16} /> Previous
+          </button>
+        </li>
+        {items.map((page, idx) =>
+          page === null ? (
+            <li key={`e${idx}`} className="px-1 text-muted-foreground select-none">…</li>
+          ) : (
+            <li key={page}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => page !== currentPage && onPageChange(page)}
+                className={cn(
+                  btn,
+                  page === currentPage
+                    ? "border border-foreground font-semibold text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                )}
+                aria-current={page === currentPage ? "page" : undefined}
+              >
+                {page}
+              </button>
+            </li>
+          )
+        )}
+        <li>
+          <button
+            type="button"
+            disabled={disabled || !hasMore}
+            onClick={() => onPageChange(currentPage + 1)}
+            className={cn(btn, "gap-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none")}
+          >
+            Next <ChevronRight size={16} />
+          </button>
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
 // Countries that use miles (for distance unit inference)
 const milesCountries = new Set([
   "US","GB","LR","AG","BS","BB","BZ","VG","KY","DM","FK","GD","GU","MS","MP","KN",
@@ -70,12 +145,13 @@ export default function ResultsPage() {
   const cityParam = (searchParams.get("city") ?? "").toString();
   const latParam = (searchParams.get("lat") ?? "").toString();
   const lngParam = (searchParams.get("lng") ?? "").toString();
+  const pageParam = Math.max(1, Math.floor(Number(searchParams.get("page")) || 1));
   const debugScores = searchParams.get("debug") === "scores";
 
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
-  const [totalCount, setTotalCount] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
   const [sortBy, setSortBy] = useState(null);
@@ -181,20 +257,19 @@ export default function ResultsPage() {
           country: countryParam,
           state: stateParam,
           city: cityParam,
-          take: 50,
-          skip: 0,
-          append: false,
+          take: PAGE_SIZE,
+          skip: (pageParam - 1) * PAGE_SIZE,
           location: loc,
         });
       } else if (!cancelled) {
         setResults([]);
         setStatus("");
-        setTotalCount(null);
+        setHasMore(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam]);
+  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam]);
 
   // Called by the top search bar
   async function handleInlineSearch(params) {
@@ -211,6 +286,8 @@ export default function ResultsPage() {
     if (country) next.set("country", country);
     if (state) next.set("state", state);
     if (city) next.set("city", city);
+    // Reset to page 1 on new search
+    next.delete("page");
     skipUrlEffectRef.current = true;
     setSearchParams(next, { replace: true });
 
@@ -232,10 +309,10 @@ export default function ResultsPage() {
     }
 
     setSortBy(null);
-    await doSearch({ q, sort, country, state, city, take: 50, skip: 0, append: false, location: searchLocation });
+    await doSearch({ q, sort, country, state, city, take: PAGE_SIZE, skip: 0, location: searchLocation });
   }
 
-  async function doSearch({ q, sort, country, state, city, take = 50, skip = 0, append = false, location = null }) {
+  async function doSearch({ q, sort, country, state, city, take = PAGE_SIZE, skip = 0, location = null }) {
     setLoading(true);
     setStatus("Searching…");
     try {
@@ -258,11 +335,11 @@ export default function ResultsPage() {
         lng: effectiveLocation?.lng,
       });
 
-      // If no results, try alternative query forms (fallback retry)
-      if (!append && searchResult.items?.length === 0 && !skip) {
+      // If no results on page 1, try alternative query forms (fallback retry)
+      if (searchResult.items?.length === 0 && !skip) {
         const alternatives = generateQueryAlternatives(q);
         for (const altQuery of alternatives) {
-          if (altQuery !== q) {  // Don't retry the same query
+          if (altQuery !== q) {
             const altResult = await searchCompanies({
               q: altQuery,
               sort,
@@ -276,34 +353,31 @@ export default function ResultsPage() {
             });
             if (altResult.items?.length > 0) {
               searchResult = altResult;
-              break;  // Use first successful alternative
+              break;
             }
           }
         }
       }
 
-      const { items = [], meta } = searchResult;
+      const { items = [], hasMore: apiHasMore, meta } = searchResult;
       const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
       const withReviews = await loadReviews(withDistances);
 
-      const pageCount = withReviews.length;
-      const newTotal = append ? results.length + pageCount : pageCount;
-
-      setResults((prev) => (append ? [...prev, ...withReviews] : withReviews));
-      setTotalCount(newTotal);
+      setResults(withReviews);
+      setHasMore(apiHasMore === true);
 
       if (meta?.usingStubData) {
-        if (newTotal === 0) {
+        if (withReviews.length === 0) {
           setStatus("⚠️ Search API unavailable and no sample companies matched your search.");
         } else {
-          setStatus(`⚠️ Search API unavailable – showing ${newTotal} sample companies.`);
+          setStatus(`⚠️ Search API unavailable – showing ${withReviews.length} sample companies.`);
         }
-      } else if (!append && newTotal === 0) {
+      } else if (withReviews.length === 0) {
         setStatus("No companies found matching your criteria.");
       } else if (meta?.error) {
         setStatus(`⚠️ ${meta.error}`);
       } else {
-        setStatus(`Found ${newTotal} companies`);
+        setStatus("");
       }
     } catch (e) {
       setStatus(`❌ ${e?.message || "Search failed"}`);
@@ -360,7 +434,16 @@ export default function ResultsPage() {
   function handleKeywordSearch(keyword) {
     const next = new URLSearchParams(searchParams);
     next.set("q", keyword);
+    next.delete("page");
     setSearchParams(next, { replace: true });
+  }
+
+  function goToPage(page) {
+    const next = new URLSearchParams(searchParams);
+    if (page <= 1) next.delete("page");
+    else next.set("page", String(page));
+    setSearchParams(next, { replace: true });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   const SORT_LABELS = { manu: "Nearest Manufacturing", hq: "Nearest Headquarters", stars: "Highest Rated" };
@@ -510,7 +593,7 @@ export default function ResultsPage() {
       {/* Result count + query echo */}
       {sorted.length > 0 && qParam && (
         <p className="text-sm text-muted-foreground mb-3 px-1">
-          Showing {sorted.length}{totalCount && totalCount > sorted.length ? ` of ${totalCount}` : ""} result{sorted.length !== 1 ? "s" : ""} for <span className="font-medium text-foreground">"{qParam}"</span>
+          Page {pageParam} – showing {sorted.length} result{sorted.length !== 1 ? "s" : ""} for <span className="font-medium text-foreground">"{qParam}"</span>
         </p>
       )}
 
@@ -546,28 +629,13 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {totalCount != null && results.length > 0 && results.length < totalCount && (
-        <div className="mt-2 flex justify-center">
-          <button
-            type="button"
-            className="text-xs px-4 py-2 border border-border rounded hover:bg-accent text-foreground font-medium transition-colors disabled:opacity-60"
-            disabled={loading}
-            onClick={() =>
-              doSearch({
-                q: qParam,
-                sort: sortParam,
-                country: countryParam,
-                state: stateParam,
-                city: cityParam,
-                take: 50,
-                skip: results.length,
-                append: true,
-              })
-            }
-          >
-            Load more results
-          </button>
-        </div>
+      {(hasMore || pageParam > 1) && (
+        <Pagination
+          currentPage={pageParam}
+          hasMore={hasMore}
+          onPageChange={goToPage}
+          disabled={loading}
+        />
       )}
     </div>
   );
