@@ -1353,11 +1353,9 @@ async function fetchHeadquartersLocation({ companyName, normalizedDomain, budget
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `${SEARCH_PREAMBLE}
-
-For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
+  const prompt = `For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
 HQ: Conduct thorough research using web_search and browse_page tools to identify the HQ location, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Use initials for states or provinces (e.g., City, State Initials, Country). Use USA, not US. No explanatory info — just the location. If multiple HQ locations, separate with semicolons.
-
+If you don't find credible info, use "".
 Return STRICT JSON only:
 ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
 `.trim();
@@ -1522,13 +1520,9 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-  const prompt = `${SEARCH_PREAMBLE}
-
-For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
-Manufacturing: Conduct thorough research using web_search and browse_page tools to identify all known manufacturing locations worldwide, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified."
-For small/artisan producers with no separate facility, return the HQ address as the manufacturing location.
-For retailers/marketplaces, return the sourcing country if stated, or empty array with mfg_status "not_applicable".
-
+  const prompt = `For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
+Manufacturing: Conduct thorough research using web_search and browse_page tools to identify all known manufacturing locations worldwide, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified." For small/artisan producers with no separate facility, return the HQ address as the manufacturing location.
+If you don't find credible info, use [].
 Return STRICT JSON only:
 ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
 `.trim();
@@ -2738,14 +2732,9 @@ async function fetchKeywordFields({
       ? `https://${domain}`
       : "";
 
-  const prompt = `${SEARCH_PREAMBLE}
-
-For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, find all product keywords.
-
-PRODUCT KEYWORDS:
-${FIELD_GUIDANCE.keywords.rules}
-
-${QUALITY_RULES}
+  const prompt = `For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
+Keywords: Provide an exhaustive, complete list of all products the company produces. Use browse_page on the company's shop/products/collections pages and web_search "[Company Name] products" for completeness. Include every named product, product line, flavor, and variety. Return up to 100. Do not include navigation labels, site features, or generic category names.
+If you don't find credible info, use [].
 Return STRICT JSON only:
 {
   ${FIELD_GUIDANCE.keywords.jsonSchemaWithCompleteness}
@@ -2879,14 +2868,11 @@ ${FIELD_GUIDANCE.logo.rules}
   ${FIELD_GUIDANCE.logo.jsonSchema},
   "logo_source": "header" | "nav" | "footer" | "meta" | null`;
 
-  const prompt = `${SEARCH_PREAMBLE}
-
-For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
-
+  const prompt = `For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
 Provide the company's tagline, slogan, or motto.
 Provide the three primary industries in which the company participates.
 ${logoBlock}
-${QUALITY_RULES}
+If you don't find credible info for a field, use "" or [].
 Return STRICT JSON only:
 {
   ${FIELD_GUIDANCE.tagline.jsonSchema},
