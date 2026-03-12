@@ -127,10 +127,10 @@ Return up to 5 verified reviews. Quality over quantity.`;
           : "";
       const companyRef = websiteUrl ? `${companyName} (${websiteUrl})` : companyName;
 
-      // ── Single-call prompt: third-party reviews + company website fallback ──
+      // ── Single-call prompt: simplified to match working Grok pattern ──
       return `For the company: ${companyName} / ${websiteUrl || "(unknown website)"}
-Reviews: Find 2 unique, legitimate third-party reviews with working URLs. Use 1-2 YouTube reviews focused solely on the current company or its products; do not include unrelated reviews or reviews from or about previously discussed companies. The remaining reviews should be from X (Twitter), a magazine or blog, strictly related to the current company and its products, excluding any overlap with prior companies. Confirm all URLs are functional. Do not hallucinate or embellish. Do not include the same author or URL more than once. Accuracy is paramount.
-If fewer than 2 third-party reviews are found, supplement by browsing ${websiteUrl || "the company website"} for press mentions, testimonials, or "as seen in" sections. Use source_name "Website - [page type]" for these.
+Reviews: Find 2 unique, legitimate third-party reviews with working URLs. Use 1-2 YouTube reviews focused solely on this company or its products. The remaining reviews should be from a magazine, blog, or X (Twitter). If fewer than 2 third-party reviews exist, browse ${websiteUrl || "the company website"} for press mentions, testimonials, or "as seen in" sections instead.
+Confirm all URLs are functional. Do not hallucinate.
 ${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
 ${attemptedExclusion}`;
     },
