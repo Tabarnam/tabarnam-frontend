@@ -200,7 +200,7 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
 const CALL_TIMEOUTS_MS = Object.freeze({
   locations:  { min: 45_000,  max: 180_000 },   // 0.75-3 min per standalone HQ or MFG call
   keywords:   { min: 90_000,  max: 180_000 },   // 1.5-3 min for product keywords (was 240s; 180s prevents keyword call from being parallel bottleneck)
-  light:      { min: 45_000,  max: 90_000 },    // 0.75-1.5 min for tagline + industries (was 180s; if Grok can't find these in 90s, it won't)
+  light:      { min: 45_000,  max: 180_000 },   // 0.75-3 min for tagline + industries — matches other calls to survive XAI congestion
   reviews:    { min: 90_000,  max: 180_000 },    // 1.5-3 min — single call, no browseAboutPage fallback
   structured: { min: 90_000,  max: 330_000 },    // Legacy — kept for retryMissingStructuredFields
 });
