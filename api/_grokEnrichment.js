@@ -2905,14 +2905,10 @@ ${FIELD_GUIDANCE.logo.rules}
 
   const prompt = `${SEARCH_PREAMBLE}
 
-For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}, provide the following fields.
-IMPORTANT: When browsing the homepage, identify the tagline FIRST — it is the short phrase in the hero section, near the logo, or in the site's meta description. Return the exact text.
+For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
 
-TAGLINE:
-${FIELD_GUIDANCE.tagline.rules}
-
-INDUSTRIES:
-${FIELD_GUIDANCE.industries.rules}
+Provide the company's tagline, slogan, or motto.
+Provide the three primary industries in which the company participates.
 ${logoBlock}
 ${QUALITY_RULES}
 Return STRICT JSON only:
