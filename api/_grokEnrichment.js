@@ -4267,11 +4267,20 @@ async function fetchAllFieldsSinglePrompt({
             const stripped = stripHtmlToText(text, 4000);
             if (stripped.length > 50) {
               pageTexts.push(`<page:${path}>\n${stripped}\n</page:${path}>`);
+              console.log(`[fetchAllFieldsSinglePrompt] Phase 2 page ${path}: ${stripped.length} chars`);
+            } else {
+              console.log(`[fetchAllFieldsSinglePrompt] Phase 2 page ${path}: skipped/empty`);
             }
+          } else {
+            console.log(`[fetchAllFieldsSinglePrompt] Phase 2 page ${path}: fetch failed or empty`);
           }
         } catch (e) {
           console.warn(`[fetchAllFieldsSinglePrompt] Phase 2 fetch ${path} failed: ${e?.message}`);
         }
+      }
+
+      if (pageTexts.length === 0) {
+        console.warn(`[fetchAllFieldsSinglePrompt] Phase 2 skipped — no page text retrieved from ${pagePaths.length} paths for "${companyName}"`);
       }
 
       if (pageTexts.length > 0 && getRemainingMs() >= 10_000) {
@@ -4293,6 +4302,8 @@ HQ: [City, ST, Country]
 Manufacturing: [locations separated by semicolons, or "not_applicable"]${skipLogo ? "" : "\nLogo: {\"logo_url\": \"...\", \"logo_source\": \"...\"}"}
 Keywords: [comma-separated products]
 Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
+
+        console.log(`[fetchAllFieldsSinglePrompt] Phase 2 re-prompting xAI with ${pageTexts.length} pages, ${combinedText.length} chars, timeout=${Math.min(60_000, getRemainingMs() - 5_000)}ms`);
 
         const phase2Timeout = Math.min(60_000, getRemainingMs() - 5_000);
         const r2 = await xaiLiveSearchWithRetry({
@@ -4328,6 +4339,8 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
         }
       }
     }
+
+    console.log(`[fetchAllFieldsSinglePrompt] Phase 1+2 both failed for "${companyName}", returning ok=false, elapsed=${Date.now() - started}ms`);
 
     return {
       ok: false,

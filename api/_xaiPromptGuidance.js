@@ -177,6 +177,7 @@ FORMAT RULES:
 
     const logoSection = skipLogo ? "" : `
 Logo:
+Extract the logo from the very first homepage browse before moving to other fields.
 Browse ${url} and find the logo image in the header or navigation area.
 - Look for <img> tags with alt text containing "logo" or class/id like "logo", "header-logo", "brand-logo", "site-logo", or "wordmark".
 - Look for <img> tags inside <header>, <nav>, or the first <a> element that links to "/" or the homepage.
@@ -185,7 +186,8 @@ Browse ${url} and find the logo image in the header or navigation area.
 - If no suitable logo found after homepage browse, check /footer or meta tags only — do not browse additional pages.
 Return as JSON on a single line: {"logo_url": "https://...", "logo_source": "header|og:image|meta"}
 If no logo found, return: {"logo_url": null, "logo_source": null}
-Do NOT return favicon.ico or generic 16x16 favicons, product images, hero banners, or promotional graphics.`;
+Do NOT return favicon.ico or generic 16x16 favicons, product images, hero banners, or promotional graphics.
+- If logo is inline SVG with no separate image URL, return {"logo_url": null, "logo_source": null}.`;
 
     return `Research the company: ${name}
 Website: ${url}
@@ -226,6 +228,8 @@ Find manufacturing, facility, or "made in" information from ${url}.
 If not found on site, use web_search "${name} manufacturing locations" or "${name} factory".
 Format each location as City, ST, Country. Separate multiple locations with semicolons.
 For non-US, use full province/state names. If part of a location is unspecified, include only what is known.
+If only "Made in [Country]" is found without a specific city, return the country alone (e.g., "USA").
+If the company designs/creates their own products but outsources manufacturing, use the HQ location.
 If the company is a retailer/marketplace (not a manufacturer), return: not_applicable
 ${logoSection}
 
@@ -234,6 +238,8 @@ Browse ${url} product/shop/collections pages to find all products.
 Return all products, product lines, flavors, and varieties — up to 100 items.
 If the /products page is paginated or large, summarize groups (e.g., "Beef Jerky (various flavors)") to fit up to 100 items without deep crawling.
 Return ONLY actual products (not navigation labels, site features, or generic categories).
+Return product names in Title Case (e.g., "Nasturtium Pop-Up Card" not "NASTURTIUM").
+If the products page shows categories or collections, list individual product names from each category.
 Comma-separated on one line.
 
 Reviews:
