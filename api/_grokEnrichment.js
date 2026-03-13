@@ -1011,7 +1011,6 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
         maxTokens: 2000,
         model: asString(model).trim() || "grok-4-latest",
         xaiUrl, xaiKey, signal,
-        search_parameters: { mode: "on" },
         useTools: true,
       });
 
@@ -1469,7 +1468,6 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}`.trim();
         maxTokens: 400,
         model: resolveSearchModel(),
         xaiUrl, xaiKey, signal,
-        search_parameters: { mode: "on" },
         useTools: true,
       });
 
