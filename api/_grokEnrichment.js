@@ -4572,6 +4572,8 @@ async function enrichCompanyFields({
   if (SINGLE_PROMPT_MODE) {
     console.log(`[enrichCompanyFields] v6.0 single-prompt mode for "${companyName}" (${domain}), budget=${budgetMs}ms, run=${runId}`);
     const skipLogo = !!existingLogoUrl;
+    // wantLogo mirrors skipLogo logic for v6.0 — needed by logo verification block below
+    const wantLogo = !skipLogo;
 
     const singleResult = await fetchAllFieldsSinglePrompt({
       companyName,

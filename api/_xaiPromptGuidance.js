@@ -191,7 +191,8 @@ Do NOT return favicon.ico or generic 16x16 favicons, product images, hero banner
 Website: ${url}
 
 INSTRUCTIONS:
-- Use web_search to browse ${url} first. Prioritize official site content over external sources to minimize tool calls.
+- Use web_search to browse ${url} first. Prioritize official site content over external sources.
+- Limit to 3-5 total web_search calls across all fields. Prioritize: 1 for site browse (homepage), 1 for keywords (/products), 1 for reviews/external if needed. Max 6 calls — stop if exceeded.
 - If web_search yields no new info on a follow-up search, stop and use site data already gathered.
 - If a field lacks info after checking 2 sources, use empty value and move on — do not over-search.
 - Verify with official site domain only; ignore redirects to external sites.
