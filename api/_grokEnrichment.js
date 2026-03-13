@@ -1392,7 +1392,7 @@ async function fetchHeadquartersLocation({ companyName, normalizedDomain, budget
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   const prompt = `For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
-HQ: Conduct thorough research using web_search and browse_page tools to identify the HQ location, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Use initials for states or provinces (e.g., City, State Initials, Country). Use USA, not US. No explanatory info — just the location. If multiple HQ locations, separate with semicolons.
+HQ: Browse the company's contact, about, or footer pages to find the headquarters or mailing address. Use web_search "${name} headquarters" if not found on the website. Use initials for states or provinces (e.g., City, State Initials, Country). Use USA, not US. No explanatory info — just the location. If multiple HQ locations, separate with semicolons.
 If you don't find credible info, use "".
 Return STRICT JSON only:
 ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
@@ -1427,14 +1427,16 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearchWithRetry({
+  // ── Phase 1: web search + browse (capped at 120s) ──
+  const phase1MaxMs = 120_000;
+  let r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
       minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
-      maxMs: maxTimeoutMs,
+      maxMs: Math.min(phase1MaxMs, maxTimeoutMs),
       safetyMarginMs: 1_200,
-      label: "headquarters",
+      label: "headquarters_phase1",
     }),
     maxAttempts: 1, // outer enrichCompanyFields handles retries with budget management
     maxTokens: 400,
@@ -1444,6 +1446,42 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
     signal,
     search_parameters: { mode: "on" },
   });
+
+  // ── Phase 2: browse company contact/about page when Phase 1 times out ──
+  if (!r.ok) {
+    const failure = classifyXaiFailure(r);
+    const phase2Budget = budgetMs - (Date.now() - started);
+
+    if (failure === "upstream_timeout" && phase2Budget >= 30_000 && domain) {
+      console.log(`[fetchHeadquartersLocation] Phase 1 timed out. Phase 2: browsing contact page, budget=${phase2Budget}ms`);
+      const aboutPrompt = `For the company: ${name} / https://${domain}
+Use the browse_page tool to directly visit https://${domain}/contact (or https://${domain}/about or https://${domain}/about-us if contact page doesn't exist).
+Find the company's physical address, headquarters location, or mailing address.
+IMPORTANT: Do NOT use web_search. Only use browse_page on the company's own website.
+If you find an address, return it as City, ST, USA format. If not found, return "".
+Return STRICT JSON only:
+${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}`.trim();
+
+      const r2 = await xaiLiveSearchWithRetry({
+        prompt: aboutPrompt,
+        timeoutMs: Math.min(60_000, phase2Budget - 5_000),
+        maxAttempts: 1,
+        maxTokens: 400,
+        model: resolveSearchModel(),
+        xaiUrl, xaiKey, signal,
+        search_parameters: { mode: "on" },
+        useTools: true,
+      });
+
+      if (r2.ok) {
+        console.log(`[fetchHeadquartersLocation] Phase 2 response received, elapsed=${Date.now() - started}ms`);
+        r = r2;
+      } else {
+        const f2 = classifyXaiFailure(r2);
+        console.log(`[fetchHeadquartersLocation] Phase 2 also failed: ${f2}, elapsed=${Date.now() - started}ms`);
+      }
+    }
+  }
 
   const elapsedMs = Date.now() - started;
 
@@ -1559,7 +1597,7 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   const prompt = `For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
-Manufacturing: Conduct thorough research using web_search and browse_page tools to identify all known manufacturing locations worldwide, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified." For small/artisan producers with no separate facility, return the HQ address as the manufacturing location.
+Manufacturing: Browse the company website for manufacturing, facility, or "made in" information. Use web_search "${name} manufacturing locations" or "${name} factory" for additional locations. Include every city and country found, with a deep dive on any US sites to confirm actual cities. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified." For small/artisan producers with no separate facility, return the HQ address as the manufacturing location.
 If you don't find credible info, use [].
 Return STRICT JSON only:
 ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}

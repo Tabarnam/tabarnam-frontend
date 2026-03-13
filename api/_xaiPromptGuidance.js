@@ -40,7 +40,7 @@ const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url
 // ---------------------------------------------------------------------------
 const FIELD_GUIDANCE = {
   headquarters: {
-    rules: `Conduct thorough research using web_search and browse_page tools to identify the HQ location, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Use initials for states or provinces (e.g., City, State Initials, Country). Use USA, not US. No explanatory info — just the location. If multiple HQ locations, separate with semicolons. Format: City, ST, Country or City, ST, Country; City2, ST2, Country2`,
+    rules: `Browse the company's contact, about, or footer pages to find the headquarters or mailing address. Use web_search "[Company Name] headquarters" if not found on the website. Use initials for states or provinces (e.g., City, State Initials, Country). Use USA, not US. No explanatory info — just the location. If multiple HQ locations, separate with semicolons. Format: City, ST, Country or City, ST, Country; City2, ST2, Country2`,
     jsonSchema: `"headquarters_location": "City, ST, USA"`,
     jsonSchemaWithSources: `{
   "headquarters_location": "...",
@@ -49,7 +49,7 @@ const FIELD_GUIDANCE = {
   },
 
   manufacturing: {
-    rules: `Conduct thorough research using web_search and browse_page tools to identify all known manufacturing locations worldwide, cross-verifying across at least 3 independent sources (e.g., official website, company profiles like LinkedIn or Crunchbase, and recent articles or filings) and resolving any discrepancies. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified." Separate each location with semicolons. Format: City, ST, Country; City2, ST2, Country2`,
+    rules: `Browse the company website for manufacturing, facility, or "made in" information. Use web_search "[Company Name] manufacturing locations" or "[Company Name] factory" for additional locations. Include every city and country found, with a deep dive on any US sites to confirm actual cities. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified." Separate each location with semicolons. Format: City, ST, Country; City2, ST2, Country2`,
     jsonSchema: `"manufacturing_locations": ["City, ST, USA", "City, Country"]`,
     jsonSchemaWithSources: `{
   "manufacturing_locations": ["City, ST, USA", "City, Country"],
@@ -106,14 +106,8 @@ RULES:
     // Compact rules for unified prompts (enrichment) — accepts company name and URL for brand disambiguation
     rulesCompact: (companyName, websiteUrl) => {
       const nameRef = companyName || "this company";
-      const urlRef = websiteUrl || "(see URL above)";
-      return `Find 5 unique, legitimate third-party reviews of ${nameRef} using web_search.
-CRITICAL — BRAND DISAMBIGUATION: Verify each review is actually about ${nameRef} at ${urlRef} — not a similarly-named company, different brand, or unrelated product. Do NOT include reviews of products by other companies that happen to share a word in the name.
-PRIMARY SUBJECT: Each review must be primarily ABOUT ${nameRef}'s products. REJECT articles that merely mention the company in passing, as a partner/sponsor, or in a large roundup. A valid review = a reader would say "this article is ABOUT ${nameRef}."
-For each candidate, use browse_page to confirm: (1) the URL loads, (2) it contains a substantive review or opinion, (3) it is about this company's products specifically, (4) the article's primary subject is ${nameRef}.
-SOURCE PREFERENCE: Strongly prefer reviews from magazines, YouTube, blogs, and X (Twitter). Other sources (news sites, Facebook, forums) are acceptable only if preferred source coverage is unavailable.
-SENTIMENT: Prefer reviews that are positive, neutral, or constructively critical. Do NOT include reviews whose primary message is that the product is bad, disliked, or not recommended.
-Return up to 5 verified reviews. Quality over quantity.`;
+      const urlRef = websiteUrl || "(unknown website)";
+      return `Find 2 unique, legitimate third-party reviews of ${nameRef} (${urlRef}) with working URLs. Prefer YouTube reviews and magazine/blog articles. Confirm all URLs are functional. Do not hallucinate.`;
     },
     // Full investigation rules for dedicated review fetcher (web_search includes page browsing)
     rulesFull: (companyName, excludeDomains, attemptedUrls, websiteUrl) => {
