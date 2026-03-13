@@ -123,7 +123,7 @@ RULES:
 
       // ── Single-call prompt: simplified to match working Grok pattern ──
       return `For the company: ${companyName} / ${websiteUrl || "(unknown website)"}
-Find 2 unique, legitimate third-party reviews with working URLs. If fewer than 2 third-party reviews exist, browse ${websiteUrl || "the company website"} for press mentions, testimonials, or "as seen in" sections instead.
+Find 2 unique, legitimate third-party reviews with working URLs. If fewer than 2 third-party reviews exist, browse ${websiteUrl || "the company website"} for testimonials, press mentions, "as seen in" sections, FAQ highlights, mission statements, or user testimonials and use those as reviews instead.
 Do not hallucinate.
 ${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
 ${attemptedExclusion}`;

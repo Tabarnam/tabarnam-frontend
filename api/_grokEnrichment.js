@@ -1023,10 +1023,10 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     if (failure === "upstream_timeout" && phase2Budget >= 30_000 && domain) {
       console.log(`[fetchCuratedReviews] Phase 1 timed out. Phase 2: fetching about page directly, budget=${phase2Budget}ms`);
 
-      // Try /about-us first (more likely to have testimonials), then /about, then homepage
+      // Try pages most likely to have testimonials/press, fall back to homepage
       let pageText = null;
       let fetchedPath = null;
-      for (const path of ["/about-us", "/about", "/"]) {
+      for (const path of ["/about-us", "/about", "/faq", "/our-story", "/our-mission", "/"]) {
         try {
           const { ok, text } = await fetchText(`https://${domain}${path}`, 10_000);
           if (ok && text && text.length > 200) {
@@ -1047,7 +1047,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 ${pageText}
 ---
 
-Extract any press mentions, testimonials, "as seen in" references, media coverage, or customer quotes from the above text. Return 1-2 reviews or testimonials if found.
+Extract any press mentions, testimonials, "as seen in" references, media coverage, customer quotes, FAQ highlights, or mission statements from the above text. Return 1-2 reviews or testimonials if found.
 If nothing found, return empty.
 ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
