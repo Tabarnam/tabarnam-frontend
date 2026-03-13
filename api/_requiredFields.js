@@ -194,6 +194,14 @@ function sanitizeIndustries(value) {
     console.log(`[sanitizeIndustries] input=${JSON.stringify(raw)}, output=${JSON.stringify(valid)}, rejected=${JSON.stringify(rejected)}`);
   }
 
+  // Fallback: generic industries are better than none.
+  // If the model returned data but ALL were rejected, keep the originals title-cased.
+  if (valid.length === 0 && raw.length > 0) {
+    const fallback = raw.map(toTitleCase);
+    console.log(`[sanitizeIndustries] fallback: all ${raw.length} industries rejected, keeping originals as title-cased: ${JSON.stringify(fallback)}`);
+    return fallback;
+  }
+
   return valid;
 }
 

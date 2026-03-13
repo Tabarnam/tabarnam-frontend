@@ -61,8 +61,8 @@ mfg_status: use "ok" when manufacturing locations were found, "not_applicable" w
 
   industries: {
     rules: `- Use web_search "[Company Name] [Website URL] industry" or "[Company Name] company profile" to find industry classifications.
-- Return an array of up to 3 specific, descriptive industry labels that describe what the company actually manufactures or sells (e.g., "Home Textiles Manufacturing", "Bedding Products", "Bath Linens").
-- Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce".
+- Return an array of up to 3 specific, descriptive industry labels that describe what the company actually manufactures or sells. Be specific to the company's niche (e.g., "Hawaiian Snack Foods" not "Food", "Artisan Beef Jerky" not "Retail", "Specialty Pet Nutrition" not "E-Commerce").
+- Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce", "Food", "Shopping".
 - Maximum 3 industries. Pick the most specific and descriptive ones.
 - No guessing or hallucinating. Only report verified information.`,
     jsonSchema: `"industries": ["Industry 1", "Industry 2", "..."]`,
