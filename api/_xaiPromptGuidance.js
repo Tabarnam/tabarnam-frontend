@@ -168,6 +168,88 @@ FORMAT RULES:
     jsonSchema: `"logo_url": "https://..." | null`,
   },
 
+  // ── v6.0: Single-Prompt Unified Template ──────────────────────────────
+  // Replaces the 5-call batch pipeline with a single xAI call that extracts
+  // all fields in one pass. Toggle via SINGLE_PROMPT_MODE=1 env var.
+  unified: (companyName, websiteUrl, { skipLogo = false } = {}) => {
+    const name = companyName || "(unknown company)";
+    const url = websiteUrl || "(unknown website)";
+
+    const logoSection = skipLogo ? "" : `
+Logo:
+Browse ${url} and find the logo image in the header or navigation area.
+- Look for <img> tags with alt text containing "logo" or class/id like "logo", "header-logo", "brand-logo", "site-logo", or "wordmark".
+- Look for <img> tags inside <header>, <nav>, or the first <a> element that links to "/" or the homepage.
+- Check <meta property="og:image"> for a social sharing image that may be the logo.
+- Use view_image only if an <img> tag suggests a logo but needs confirmation — do not view_image on every image.
+- If no suitable logo found after homepage browse, check /footer or meta tags only — do not browse additional pages.
+Return as JSON on a single line: {"logo_url": "https://...", "logo_source": "header|og:image|meta"}
+If no logo found, return: {"logo_url": null, "logo_source": null}
+Do NOT return favicon.ico or generic 16x16 favicons, product images, hero banners, or promotional graphics.`;
+
+    return `Research the company: ${name}
+Website: ${url}
+
+INSTRUCTIONS:
+- Use web_search to browse ${url} first. Prioritize official site content over external sources to minimize tool calls.
+- If web_search yields no new info on a follow-up search, stop and use site data already gathered.
+- If a field lacks info after checking 2 sources, use empty value and move on — do not over-search.
+- Verify with official site domain only; ignore redirects to external sites.
+- If a tool call fails (e.g., page not found), fall back to web_search "[query]" only.
+- Do not hallucinate. If you cannot find credible info for a field, use empty string or empty value.
+- Do NOT use any markdown formatting (no bold, no headers, no asterisks, no bullet points).
+- Output each section with its label on its own line, followed by the value.
+
+Extract the following fields:
+
+Tagline:
+Find the company's tagline, slogan, or motto from the homepage hero section, header, footer, meta description, og:description, or <title> tag.
+If no explicit tagline, check About page or social media bios for a concise brand description (under 15 words).
+Return the exact text as displayed, or empty string if not found.
+
+Industries:
+Return up to 3 specific, descriptive industry labels that describe what ${name} actually manufactures or sells.
+Be specific to the company's niche (e.g., "Artisan Beef Jerky" not "Food", "Specialty Pet Nutrition" not "E-Commerce").
+Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce".
+Comma-separated on one line.
+
+HQ:
+Find the headquarters or mailing address from contact, about, or footer pages on ${url}.
+If not found on the website, use web_search "${name} headquarters" and cross-check with one external source.
+If location is vague (e.g., "USA"), cross-check with one external source but default to site if consistent.
+Format: City, ST, USA (use state initials, use "USA" not "US"). For non-US, use full province/state names (e.g., "Calgary, Alberta, Canada").
+Return just the location string, no explanatory info.
+
+Manufacturing:
+Find manufacturing, facility, or "made in" information from ${url}.
+If not found on site, use web_search "${name} manufacturing locations" or "${name} factory".
+Format each location as City, ST, Country. Separate multiple locations with semicolons.
+For non-US, use full province/state names. If part of a location is unspecified, include only what is known.
+If the company is a retailer/marketplace (not a manufacturer), return: not_applicable
+${logoSection}
+
+Keywords:
+Browse ${url} product/shop/collections pages to find all products.
+Return all products, product lines, flavors, and varieties — up to 100 items.
+If the /products page is paginated or large, summarize groups (e.g., "Beef Jerky (various flavors)") to fit up to 100 items without deep crawling.
+Return ONLY actual products (not navigation labels, site features, or generic categories).
+Comma-separated on one line.
+
+Reviews:
+Find 2-3 unique, legitimate third-party reviews of ${name} with working URLs.
+Prefer YouTube reviews, magazine articles, and blog reviews.
+If fewer than 2 third-party reviews exist, browse ${url} for testimonials, press mentions, "as seen in" sections, FAQ highlights, mission statements, or user testimonials and use those instead.
+Do not hallucinate.
+Output each review in this exact format, separated by a blank line:
+
+Source: [Name of publication, channel, or website]
+Author: [Author or channel name]
+URL: [Direct URL to the review/article/video, not the site root]
+Title: [Exact title as published]
+Date: [Publication date, any format]
+Text: [1-3 sentence excerpt or summary of the review]`;
+  },
+
   contactInfo: {
     jsonSchema: `"company_contact_info": { "contact_page_url": "https://...", "contact_email": "name@example.com" }`,
   },

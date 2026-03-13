@@ -3924,6 +3924,467 @@ async function fillMissingFieldsIndividually(missingFields, {
   return { filled, field_statuses };
 }
 
+// ============================================================================
+// v6.0 Single-Prompt Enrichment
+// ============================================================================
+
+const { sanitizeIndustries, sanitizeKeywords } = require("./_requiredFields");
+
+/**
+ * Parse a unified plain-text response from the single-prompt xAI call.
+ * Splits on label boundaries and extracts structured data per field.
+ *
+ * @param {string} rawText - Raw text from xAI response
+ * @returns {{ parsed_fields: object, field_statuses: object, diagnostics: object }}
+ */
+function parseUnifiedPlainTextResponse(rawText) {
+  const parsed_fields = {};
+  const field_statuses = {};
+  const diagnostics = { malformed_fields: [], incomplete_fields: [] };
+
+  if (!rawText || typeof rawText !== "string") {
+    return {
+      parsed_fields,
+      field_statuses: { global: "malformed_response" },
+      diagnostics: { ...diagnostics, reason: "empty_response" },
+    };
+  }
+
+  // Pre-processing: strip unexpected markdown bold markers
+  const text = rawText.replace(/\*\*/g, "");
+
+  // Split on label boundaries
+  const labelRegex = /^(Tagline:|Industries:|Logo:|HQ:|Manufacturing:|Keywords:|Reviews:)/gm;
+  const labels = [];
+  let match;
+  while ((match = labelRegex.exec(text)) !== null) {
+    labels.push({ label: match[1].replace(":", ""), index: match.index, endIndex: match.index + match[0].length });
+  }
+
+  if (labels.length === 0) {
+    return {
+      parsed_fields,
+      field_statuses: { global: "malformed_response" },
+      diagnostics: { ...diagnostics, reason: "no_labels_detected" },
+    };
+  }
+
+  // Extract value for each label (text between this label and the next)
+  const sections = {};
+  for (let i = 0; i < labels.length; i++) {
+    const start = labels[i].endIndex;
+    const end = i + 1 < labels.length ? labels[i + 1].index : text.length;
+    sections[labels[i].label] = text.slice(start, end).trim();
+  }
+
+  // ── Tagline ──
+  if ("Tagline" in sections) {
+    const val = sections.Tagline.split("\n")[0].trim();
+    parsed_fields.tagline = val;
+    field_statuses.tagline = val ? "ok" : "empty";
+  } else {
+    field_statuses.tagline = "missing_from_response";
+    diagnostics.incomplete_fields.push("tagline");
+  }
+
+  // ── Industries ──
+  if ("Industries" in sections) {
+    const raw = sections.Industries.split("\n")[0].trim();
+    if (raw) {
+      const arr = raw.split(",").map((s) => s.trim()).filter(Boolean);
+      const sanitized = sanitizeIndustries(arr);
+      parsed_fields.industries = sanitized;
+      field_statuses.industries = sanitized.length > 0 ? "ok" : "empty";
+    } else {
+      parsed_fields.industries = [];
+      field_statuses.industries = "empty";
+    }
+  } else {
+    field_statuses.industries = "missing_from_response";
+    diagnostics.incomplete_fields.push("industries");
+  }
+
+  // ── Logo ──
+  if ("Logo" in sections) {
+    const logoRaw = sections.Logo.trim();
+    let logoParsed = null;
+
+    // Try JSON.parse first
+    try {
+      const jsonMatch = logoRaw.match(/\{[\s\S]*?\}/);
+      if (jsonMatch) {
+        logoParsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // JSON parse failed — try regex fallback
+    }
+
+    if (!logoParsed) {
+      // Regex fallback for malformed JSON
+      const urlMatch = logoRaw.match(/"logo_url"\s*:\s*"([^"]+)"/);
+      const sourceMatch = logoRaw.match(/"logo_source"\s*:\s*"([^"]+)"/);
+      if (urlMatch) {
+        logoParsed = { logo_url: urlMatch[1], logo_source: sourceMatch ? sourceMatch[1] : null };
+        diagnostics.malformed_fields.push("logo");
+      }
+    }
+
+    if (logoParsed && logoParsed.logo_url && logoParsed.logo_url !== "null") {
+      parsed_fields.logo_url = logoParsed.logo_url;
+      parsed_fields.logo_source = logoParsed.logo_source || null;
+      field_statuses.logo_url = "ok";
+    } else {
+      parsed_fields.logo_url = null;
+      parsed_fields.logo_source = null;
+      field_statuses.logo_url = "empty";
+    }
+  } else {
+    // Logo section may be intentionally skipped (skipLogo mode)
+    field_statuses.logo_url = "missing_from_response";
+  }
+
+  // ── HQ ──
+  if ("HQ" in sections) {
+    let hqVal = sections.HQ.split("\n")[0].trim();
+    if (hqVal) {
+      hqVal = normalizeLocationWithStateAbbrev(hqVal);
+      hqVal = normalizeCountryInLocation(hqVal);
+      // Append country if missing
+      const inferred = inferCountryFromStateAbbreviation(hqVal);
+      if (inferred) {
+        hqVal = inferred.formatted;
+        parsed_fields.headquarters_city = inferred.city;
+        parsed_fields.headquarters_state_code = inferred.state_code;
+        parsed_fields.headquarters_country = inferred.country;
+        parsed_fields.headquarters_country_code = inferred.country_code;
+      }
+      parsed_fields.headquarters_location = hqVal;
+      field_statuses.headquarters_location = "ok";
+    } else {
+      parsed_fields.headquarters_location = "";
+      field_statuses.headquarters_location = "empty";
+    }
+  } else {
+    field_statuses.headquarters_location = "missing_from_response";
+    diagnostics.incomplete_fields.push("headquarters_location");
+  }
+
+  // ── Manufacturing ──
+  if ("Manufacturing" in sections) {
+    const mfgVal = sections.Manufacturing.split("\n")[0].trim();
+    if (mfgVal.toLowerCase() === "not_applicable" || mfgVal.toLowerCase() === "n/a") {
+      parsed_fields.manufacturing_locations = [];
+      parsed_fields.mfg_status = "not_applicable";
+      field_statuses.manufacturing_locations = "ok";
+    } else if (mfgVal) {
+      const locs = mfgVal.split(";").map((loc) => {
+        let l = loc.trim();
+        l = normalizeLocationWithStateAbbrev(l);
+        l = normalizeCountryInLocation(l);
+        const inf = inferCountryFromStateAbbreviation(l);
+        return inf ? inf.formatted : l;
+      }).filter(Boolean);
+      parsed_fields.manufacturing_locations = locs;
+      field_statuses.manufacturing_locations = locs.length > 0 ? "ok" : "empty";
+    } else {
+      parsed_fields.manufacturing_locations = [];
+      field_statuses.manufacturing_locations = "empty";
+    }
+  } else {
+    field_statuses.manufacturing_locations = "missing_from_response";
+    diagnostics.incomplete_fields.push("manufacturing_locations");
+  }
+
+  // ── Keywords ──
+  if ("Keywords" in sections) {
+    const kwRaw = sections.Keywords.split("\n")[0].trim();
+    if (kwRaw) {
+      const kwResult = sanitizeKeywords({ product_keywords: kwRaw });
+      parsed_fields.product_keywords = kwResult.sanitized || [];
+      field_statuses.product_keywords = (kwResult.sanitized || []).length > 0 ? "ok" : "empty";
+    } else {
+      parsed_fields.product_keywords = [];
+      field_statuses.product_keywords = "empty";
+    }
+  } else {
+    field_statuses.product_keywords = "missing_from_response";
+    diagnostics.incomplete_fields.push("product_keywords");
+  }
+
+  // ── Reviews ──
+  if ("Reviews" in sections) {
+    const reviewsText = sections.Reviews;
+    const reviewCandidates = [];
+
+    if (/\bSource:\s*.+/i.test(reviewsText)) {
+      const blocks = reviewsText.split(/(?:^|\n)(?=Source:\s)/i).filter((b) => b.trim());
+      for (const block of blocks) {
+        const getField = (label) => {
+          const m = block.match(new RegExp(`^${label}:\\s*(.+)`, "im"));
+          return m ? m[1].trim() : "";
+        };
+        const sourceUrl = getField("URL");
+        const sourceName = getField("Source") || null;
+        const author = getField("Author") || null;
+        const title = getField("Title") || null;
+        const date = getField("Date") || null;
+        const excerpt = getField("Text") || null;
+
+        if (sourceUrl || sourceName || excerpt) {
+          reviewCandidates.push({
+            source_url: sourceUrl || null,
+            source_name: sourceName,
+            author,
+            title,
+            date,
+            excerpt,
+            link_status: sourceUrl ? "ok" : "missing_url",
+            match_confidence: 1.0,
+            show_to_users: true,
+            is_public: true,
+          });
+        }
+      }
+    } else if (reviewsText.trim().length > 20) {
+      // Freeform text — no Source: blocks detected
+      diagnostics.malformed_fields.push("reviews");
+      field_statuses.reviews = "partial_unstructured";
+    }
+
+    if (reviewCandidates.length > 0) {
+      parsed_fields.reviews = reviewCandidates;
+      field_statuses.reviews = "ok";
+    } else if (!field_statuses.reviews) {
+      parsed_fields.reviews = [];
+      field_statuses.reviews = "empty";
+    }
+  } else {
+    field_statuses.reviews = "missing_from_response";
+    diagnostics.incomplete_fields.push("reviews");
+  }
+
+  // ── Truncation detection ──
+  if (diagnostics.incomplete_fields.length > 0) {
+    // Check if response ended mid-stream (last label found but content empty)
+    const lastLabel = labels[labels.length - 1]?.label;
+    if (lastLabel && sections[lastLabel] !== undefined && !sections[lastLabel].trim()) {
+      field_statuses.global = "truncated";
+    }
+  }
+
+  return { parsed_fields, field_statuses, diagnostics };
+}
+
+/**
+ * Count tool usage from xAI /v1/responses output array.
+ * @param {object} resp - Raw xAI response (or axios-wrapped)
+ * @returns {{ web_search: number, view_image: number, total: number }}
+ */
+function countToolUsage(resp) {
+  const counts = { web_search: 0, view_image: 0, total: 0 };
+  const data = resp?.data || resp;
+  if (!Array.isArray(data?.output)) return counts;
+  for (const item of data.output) {
+    if (!item || !item.type) continue;
+    if (item.type === "web_search_call") { counts.web_search++; counts.total++; }
+    else if (item.type === "view_image") { counts.view_image++; counts.total++; }
+    else if (item.type !== "message" && item.type !== "output_text") { counts.total++; }
+  }
+  return counts;
+}
+
+/**
+ * v6.0: Single-prompt enrichment — one xAI call replaces 5.
+ * Toggle via SINGLE_PROMPT_MODE=1 env var.
+ */
+async function fetchAllFieldsSinglePrompt({
+  companyName,
+  websiteUrl,
+  normalizedDomain,
+  budgetMs = 210_000,
+  xaiUrl,
+  xaiKey,
+  skipLogo = false,
+  signal,
+} = {}) {
+  const started = Date.now();
+  const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
+  const domain = normalizedDomain || normalizeDomain(websiteUrl);
+
+  console.log(`[fetchAllFieldsSinglePrompt] Starting for "${companyName}" (${domain}), budget=${budgetMs}ms, skipLogo=${skipLogo}`);
+
+  // 1. Build prompt
+  const prompt = FIELD_GUIDANCE.unified(companyName, websiteUrl, { skipLogo });
+
+  // 2. Build search params (excluded domains)
+  const { search_parameters, excluded_domains } = buildSearchParameters({
+    companyWebsiteHost: null,
+  });
+
+  // 3. Single xAI call
+  const timeoutMs = clampStageTimeoutMs({
+    remainingMs: getRemainingMs(),
+    minMs: 90_000,
+    maxMs: 210_000,
+    safetyMarginMs: 5_000,
+    label: "single_prompt",
+  });
+
+  const r = await xaiLiveSearchWithRetry({
+    prompt,
+    timeoutMs,
+    maxAttempts: 1,
+    xaiUrl,
+    xaiKey,
+    search_parameters: { mode: "on", excluded_domains },
+    useTools: true,
+    enableImageUnderstanding: !skipLogo,
+    signal,
+  });
+
+  const phase1Elapsed = Date.now() - started;
+  console.log(`[fetchAllFieldsSinglePrompt] Phase 1 xAI call completed in ${phase1Elapsed}ms, ok=${r.ok}`);
+
+  // Handle failure
+  if (!r.ok) {
+    const errorCode = r.error_code || classifyXaiFailure(r);
+    console.warn(`[fetchAllFieldsSinglePrompt] Phase 1 failed: ${r.error}, error_code=${errorCode}`);
+
+    // ── Phase 2 fallback on timeout: direct HTTP fetch + toolless re-prompt ──
+    if (errorCode === "upstream_timeout" && getRemainingMs() >= 30_000) {
+      console.log(`[fetchAllFieldsSinglePrompt] Phase 2 fallback starting, remaining=${getRemainingMs()}ms`);
+
+      const pagePaths = ["/about-us", "/about", "/contact", "/products"];
+      if (!skipLogo) pagePaths.push("/");
+      const pageTexts = [];
+
+      for (const path of pagePaths) {
+        if (getRemainingMs() < 15_000) break;
+        try {
+          const pageUrl = `https://${domain}${path}`;
+          const { ok, text } = await fetchText(pageUrl, 10_000);
+          if (ok && text) {
+            const stripped = stripHtmlToText(text, 4000);
+            if (stripped.length > 50) {
+              pageTexts.push(`<page:${path}>\n${stripped}\n</page:${path}>`);
+            }
+          }
+        } catch (e) {
+          console.warn(`[fetchAllFieldsSinglePrompt] Phase 2 fetch ${path} failed: ${e?.message}`);
+        }
+      }
+
+      if (pageTexts.length > 0 && getRemainingMs() >= 10_000) {
+        // Truncate total text if too large
+        let combinedText = pageTexts.join("\n\n");
+        if (combinedText.length > 10_000) {
+          combinedText = pageTexts.map((t) => t.slice(0, 2000)).join("\n\n");
+        }
+
+        const phase2Prompt = `Extract the following fields from this page text for the company "${companyName}" (${websiteUrl}).
+Focus on relevant sections per page tag. Use the same output format as before.
+
+${combinedText}
+
+Output each section with its label on its own line:
+Tagline: [value]
+Industries: [comma-separated]
+HQ: [City, ST, Country]
+Manufacturing: [locations separated by semicolons, or "not_applicable"]${skipLogo ? "" : "\nLogo: {\"logo_url\": \"...\", \"logo_source\": \"...\"}"}
+Keywords: [comma-separated products]
+Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
+
+        const phase2Timeout = Math.min(60_000, getRemainingMs() - 5_000);
+        const r2 = await xaiLiveSearchWithRetry({
+          prompt: phase2Prompt,
+          timeoutMs: phase2Timeout,
+          maxAttempts: 1,
+          xaiUrl,
+          xaiKey,
+          useTools: false,
+          signal,
+        });
+
+        if (r2.ok) {
+          const rawText2 = extractTextFromXaiResponse(r2.resp);
+          const parsed2 = parseUnifiedPlainTextResponse(rawText2);
+
+          // Mark all fields as ok_from_fallback
+          for (const [k, v] of Object.entries(parsed2.field_statuses)) {
+            if (v === "ok") parsed2.field_statuses[k] = "ok_from_fallback";
+          }
+
+          console.log(`[fetchAllFieldsSinglePrompt] Phase 2 fallback succeeded, fields=${Object.keys(parsed2.parsed_fields).join(", ")}`);
+          return {
+            ok: true,
+            method: "single_prompt_phase2",
+            parsed_fields: parsed2.parsed_fields,
+            field_statuses: parsed2.field_statuses,
+            elapsed_ms: Date.now() - started,
+            diagnostics: { ...parsed2.diagnostics, phase: 2, pages_fetched: pageTexts.length },
+          };
+        } else {
+          console.warn(`[fetchAllFieldsSinglePrompt] Phase 2 also failed: ${r2.error}`);
+        }
+      }
+    }
+
+    return {
+      ok: false,
+      method: "single_prompt",
+      error: r.error,
+      error_code: errorCode,
+      parsed_fields: {},
+      field_statuses: {},
+      elapsed_ms: Date.now() - started,
+      diagnostics: r.diagnostics || {},
+    };
+  }
+
+  // 4. Extract text and parse
+  const rawText = extractTextFromXaiResponse(r.resp);
+  const parsed = parseUnifiedPlainTextResponse(rawText);
+
+  // 5. Log tool usage
+  const toolCounts = countToolUsage(r.resp);
+  parsed.diagnostics.tool_counts = toolCounts;
+
+  if (toolCounts.web_search > 3) {
+    parsed.diagnostics.over_tool_usage = true;
+    console.warn(`[fetchAllFieldsSinglePrompt] ALERT: ${toolCounts.web_search} web_search calls (>3) for "${companyName}" — consider prompt tuning`);
+  }
+  if (toolCounts.view_image > 2) {
+    parsed.diagnostics.excessive_view_image = true;
+    console.warn(`[fetchAllFieldsSinglePrompt] ALERT: ${toolCounts.view_image} view_image calls (>2) for "${companyName}"`);
+  }
+
+  // 6. Check for malformed response (no labels)
+  if (parsed.field_statuses.global === "malformed_response") {
+    console.warn(`[fetchAllFieldsSinglePrompt] Malformed response for "${companyName}": ${parsed.diagnostics.reason}`);
+    return {
+      ok: false,
+      method: "single_prompt",
+      error: "malformed_response",
+      error_code: "malformed_response",
+      parsed_fields: {},
+      field_statuses: parsed.field_statuses,
+      elapsed_ms: Date.now() - started,
+      diagnostics: parsed.diagnostics,
+    };
+  }
+
+  console.log(`[fetchAllFieldsSinglePrompt] Success for "${companyName}" in ${Date.now() - started}ms, fields=${Object.keys(parsed.parsed_fields).join(", ")}, tool_calls=${toolCounts.total}`);
+
+  return {
+    ok: true,
+    method: "single_prompt",
+    parsed_fields: parsed.parsed_fields,
+    field_statuses: parsed.field_statuses,
+    elapsed_ms: Date.now() - started,
+    diagnostics: parsed.diagnostics,
+  };
+}
+
 /**
  * Main enrichment orchestrator.
  * Phase 1: Unified Grok prompt (single call, all fields)
@@ -4103,6 +4564,117 @@ async function enrichCompanyFields({
       elapsed_ms: Date.now() - started,
       remaining_budget_ms: getRemainingMs(),
     };
+  }
+
+  // ── v6.0: Single-Prompt Mode ──────────────────────────────────────────
+  const SINGLE_PROMPT_MODE = process.env.SINGLE_PROMPT_MODE === "1";
+
+  if (SINGLE_PROMPT_MODE) {
+    console.log(`[enrichCompanyFields] v6.0 single-prompt mode for "${companyName}" (${domain}), budget=${budgetMs}ms, run=${runId}`);
+    const skipLogo = !!existingLogoUrl;
+
+    const singleResult = await fetchAllFieldsSinglePrompt({
+      companyName,
+      websiteUrl,
+      normalizedDomain: domain,
+      budgetMs: getRemainingMs() - 30_000, // Reserve 30s for logo verification + save
+      xaiUrl,
+      xaiKey,
+      skipLogo,
+      signal,
+    });
+
+    if (singleResult.ok) {
+      let proposed = singleResult.parsed_fields;
+      let field_statuses = { ...singleResult.field_statuses };
+
+      // Remap short status names to long names
+      remapFieldStatuses(field_statuses);
+
+      // Intermediate save after single call
+      if (typeof onIntermediateSave === "function" && Object.keys(proposed).length > 0) {
+        try {
+          await onIntermediateSave(proposed);
+          console.log(`[enrichCompanyFields] v6.0 intermediate save OK, run=${runId}`);
+        } catch (e) {
+          console.warn(`[enrichCompanyFields] v6.0 intermediate save failed: ${e?.message}, run=${runId}`);
+        }
+      }
+
+      // ── Logo verification (reuses same logic as v5.0) ──
+      if (wantLogo) {
+        if (!proposed.logo_url) {
+          console.log(`[enrichCompanyFields] v6.0 Logo: no URL from single prompt for "${companyName}", will try homepage scraper, run=${runId}`);
+        }
+        if (proposed.logo_url) {
+          const logoCheck = await verifyLogoUrl(proposed.logo_url);
+          if (!logoCheck.ok) {
+            console.log(`[enrichCompanyFields] v6.0 Logo URL verification failed for "${companyName}": ${logoCheck.reason} — clearing, run=${runId}`);
+            proposed.logo_url = null;
+            field_statuses.logo_url = `url_dead_${logoCheck.reason}`;
+          }
+        }
+        // Homepage scraper fallback
+        if (!proposed.logo_url && getRemainingMs() > 15_000) {
+          try {
+            console.log(`[enrichCompanyFields] v6.0 Logo fallback: trying homepage scraper for "${companyName}", remaining=${getRemainingMs()}ms, run=${runId}`);
+            const scraperResult = await discoverLogoSourceUrl(
+              { domain, websiteUrl, companyName },
+              console,
+              { budgetMs: Math.min(12_000, getRemainingMs() - 5_000) },
+            );
+            if (scraperResult?.ok && scraperResult.logo_source_url) {
+              const scraperCheck = await verifyLogoUrl(scraperResult.logo_source_url);
+              if (scraperCheck.ok) {
+                proposed.logo_url = scraperResult.logo_source_url;
+                proposed.logo_source = scraperResult.strategy || "homepage_scraper";
+                field_statuses.logo_url = "ok";
+                console.log(`[enrichCompanyFields] v6.0 Logo fallback SUCCESS: url=${scraperResult.logo_source_url}, run=${runId}`);
+              }
+            }
+          } catch (e) {
+            console.warn(`[enrichCompanyFields] v6.0 Logo fallback error: ${e?.message || e}, run=${runId}`);
+          }
+        }
+      } else {
+        delete proposed.logo_url;
+        delete proposed.logo_source;
+      }
+
+      const totalElapsed = Date.now() - started;
+      const missingAtEnd = Object.entries(field_statuses).filter(([, v]) => v !== "ok" && v !== "ok_from_fallback").map(([k, v]) => `${k}=${v}`);
+      console.log(`[enrichCompanyFields] v6.0 Done for "${companyName}" (${domain}). reviews=${Array.isArray(proposed.reviews) ? proposed.reviews.length : 0}, logo=${field_statuses.logo_url || "n/a"}, missing=[${missingAtEnd.join(", ")}], elapsed=${totalElapsed}ms, method=${singleResult.method}, run=${runId}`);
+
+      return {
+        ok: true,
+        method: singleResult.method || "single_prompt",
+        proposed,
+        raw_response: "",
+        field_statuses,
+        elapsed_ms: totalElapsed,
+        reviews_attempted_urls: [],
+        diagnostics: singleResult.diagnostics,
+      };
+    }
+
+    // v6.0 failed — check if we have budget for v5.0 fallback
+    const remaining = getRemainingMs();
+    if (remaining >= 120_000) {
+      console.log(`[enrichCompanyFields] v6.0 failed (${singleResult.error_code}), falling back to v5.0 batch, remaining=${remaining}ms, run=${runId}`);
+      // Fall through to v5.0 pipeline below
+    } else {
+      console.log(`[enrichCompanyFields] v6.0 failed, insufficient budget for v5.0 fallback (${remaining}ms), run=${runId}`);
+      return {
+        ok: false,
+        method: "single_prompt",
+        proposed: {},
+        raw_response: "",
+        field_statuses: {},
+        elapsed_ms: Date.now() - started,
+        reviews_attempted_urls: [],
+        diagnostics: singleResult.diagnostics || {},
+      };
+    }
   }
 
   // ── Five-Call Split Pipeline (v5.0) ─────────────────────────────────────
@@ -4474,6 +5046,9 @@ module.exports = {
   retryMissingStructuredFields,
   parseStructuredResponse,
   verifyLogoUrl,
+  // v6.0: Single-prompt enrichment
+  parseUnifiedPlainTextResponse,
+  fetchAllFieldsSinglePrompt,
   // Enrichment orchestrator
   verifyEnrichmentFields,
   enrichCompanyFields,
