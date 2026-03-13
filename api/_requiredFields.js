@@ -170,7 +170,7 @@ function sanitizeIndustries(value) {
     if (INDUSTRY_MARKETPLACE_BUCKETS.has(key)) { rejected.push({ item, reason: "marketplace_bucket" }); continue; }
 
     // Reject obvious navigation labels.
-    if (INDUSTRY_NAV_TERMS.some((t) => key.includes(t))) { rejected.push({ item, reason: "nav_label" }); continue; }
+    if (INDUSTRY_NAV_TERMS.some((t) => key === t)) { rejected.push({ item, reason: "nav_label" }); continue; }
 
     // Title-case the raw value — preserve specific labels from xAI as-is.
     const candidate = toTitleCase(item);

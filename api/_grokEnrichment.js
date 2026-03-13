@@ -997,7 +997,10 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     if (failure === "upstream_timeout" && phase2Budget >= 30_000 && domain) {
       console.log(`[fetchCuratedReviews] Phase 1 timed out. Phase 2: browsing about page, budget=${phase2Budget}ms`);
       const aboutPrompt = `For the company: ${name} / https://${domain}
-Browse https://${domain}/about or https://${domain}/about-us for press mentions, testimonials, "as seen in" sections, or media coverage. Return any 1-2 reviews or testimonials found.
+Use the browse_page tool to directly visit https://${domain}/about-us (or https://${domain}/about if that fails).
+Look for: press mentions, testimonials, "as seen in" sections, media coverage, or customer quotes.
+Return any 1-2 reviews or testimonials found.
+IMPORTANT: Do NOT use web_search. Only use browse_page on the company's own website.
 If nothing found, return empty.
 ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
