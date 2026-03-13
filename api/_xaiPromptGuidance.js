@@ -123,8 +123,8 @@ RULES:
 
       // ── Single-call prompt: simplified to match working Grok pattern ──
       return `For the company: ${companyName} / ${websiteUrl || "(unknown website)"}
-Reviews: Find 2 unique, legitimate third-party reviews with working URLs. Use 1-2 YouTube reviews focused solely on this company or its products. The remaining reviews should be from a magazine, blog, or X (Twitter). If fewer than 2 third-party reviews exist, browse ${websiteUrl || "the company website"} for press mentions, testimonials, or "as seen in" sections instead.
-Confirm all URLs are functional. Do not hallucinate.
+Find 2 unique, legitimate third-party reviews with working URLs. If fewer than 2 third-party reviews exist, browse ${websiteUrl || "the company website"} for press mentions, testimonials, or "as seen in" sections instead.
+Do not hallucinate.
 ${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
 ${attemptedExclusion}`;
     },

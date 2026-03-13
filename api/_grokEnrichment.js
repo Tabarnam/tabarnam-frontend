@@ -955,7 +955,7 @@ async function fetchCuratedReviews({
 
   // Exclude company domain + Amazon/Google/Yelp from reviews via prompt text only
   // (NOT via the API excluded_domains filter, which causes XAI search to slow down).
-  const promptExcludeDomains = [domain, "amazon.com", "google.com", "yelp.com"].filter(Boolean);
+  const promptExcludeDomains = ["amazon.com", "google.com", "yelp.com"];
 
   // No API-level search filter — stub for telemetry fields in return values.
   const searchBuild = { telemetry: null, excluded_hosts: null };
