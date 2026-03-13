@@ -966,16 +966,18 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
+  // ── Phase 1: third-party review search (capped at 120s) ──
   // No excluded_domains API filter — let XAI search freely like a direct Grok query.
   // Domain exclusion is handled in the prompt text (company domain only).
-  const r = await xaiLiveSearchWithRetry({
+  const phase1MaxMs = 120_000;
+  let r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
       minMs: Math.min(stageTimeout.min, Math.max(2_500, remaining - 1_200)),
-      maxMs: maxTimeoutMs,
+      maxMs: Math.min(phase1MaxMs, maxTimeoutMs),
       safetyMarginMs: 1_200,
-      label: "reviews",
+      label: "reviews_phase1",
     }),
     maxAttempts: 1,
     maxTokens: 2000,
@@ -986,6 +988,39 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     search_parameters: { mode: "on" },
     useTools: true,
   });
+
+  // ── Phase 2: browse company about page when Phase 1 times out ──
+  if (!r.ok) {
+    const failure = classifyXaiFailure(r);
+    const phase2Budget = budgetMs - (Date.now() - started);
+
+    if (failure === "upstream_timeout" && phase2Budget >= 30_000 && domain) {
+      console.log(`[fetchCuratedReviews] Phase 1 timed out. Phase 2: browsing about page, budget=${phase2Budget}ms`);
+      const aboutPrompt = `For the company: ${name} / https://${domain}
+Browse https://${domain}/about or https://${domain}/about-us for press mentions, testimonials, "as seen in" sections, or media coverage. Return any 1-2 reviews or testimonials found.
+If nothing found, return empty.
+${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
+
+      const r2 = await xaiLiveSearchWithRetry({
+        prompt: aboutPrompt,
+        timeoutMs: Math.min(60_000, phase2Budget - 5_000),
+        maxAttempts: 1,
+        maxTokens: 2000,
+        model: asString(model).trim() || "grok-4-latest",
+        xaiUrl, xaiKey, signal,
+        search_parameters: { mode: "on" },
+        useTools: true,
+      });
+
+      if (r2.ok) {
+        console.log(`[fetchCuratedReviews] Phase 2 response received, elapsed=${Date.now() - started}ms`);
+        r = r2; // Let existing parse/verify pipeline process Phase 2 response
+      } else {
+        const f2 = classifyXaiFailure(r2);
+        console.log(`[fetchCuratedReviews] Phase 2 also failed: ${f2}, elapsed=${Date.now() - started}ms`);
+      }
+    }
+  }
 
   if (!r.ok) {
     const failure = classifyXaiFailure(r);
