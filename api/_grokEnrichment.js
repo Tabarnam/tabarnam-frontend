@@ -1023,10 +1023,10 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     if (failure === "upstream_timeout" && phase2Budget >= 30_000 && domain) {
       console.log(`[fetchCuratedReviews] Phase 1 timed out. Phase 2: fetching about page directly, budget=${phase2Budget}ms`);
 
-      // Try /about-us first (more likely to have testimonials), then /about
+      // Try /about-us first (more likely to have testimonials), then /about, then homepage
       let pageText = null;
       let fetchedPath = null;
-      for (const path of ["/about-us", "/about"]) {
+      for (const path of ["/about-us", "/about", "/"]) {
         try {
           const { ok, text } = await fetchText(`https://${domain}${path}`, 10_000);
           if (ok && text && text.length > 200) {
@@ -1506,7 +1506,7 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
 
       let pageText = null;
       let fetchedPath = null;
-      for (const path of ["/contact", "/about-us", "/about"]) {
+      for (const path of ["/contact", "/about-us", "/about", "/"]) {
         try {
           const { ok, text } = await fetchText(`https://${domain}${path}`, 10_000);
           if (ok && text && text.length > 200) {
