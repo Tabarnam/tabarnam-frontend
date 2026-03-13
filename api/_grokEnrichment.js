@@ -6,7 +6,7 @@ const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE } = require("./_xaiPromptGuidance");
 const { SENTINEL_STRINGS, PLACEHOLDER_STRINGS } = require("./_requiredFields");
-const { discoverLogoSourceUrl } = require("./_logoImport");
+const { discoverLogoSourceUrl, fetchText } = require("./_logoImport");
 
 // ============================================================================
 // Module-level bypass flag for admin refresh
@@ -31,6 +31,30 @@ function raceTimeout(promise, ms, label = "operation") {
     tid = setTimeout(() => reject(new Error(`${label} exceeded ${ms}ms`)), Math.max(1000, ms));
   });
   return Promise.race([promise, tp]).finally(() => clearTimeout(tid));
+}
+
+/**
+ * Strip HTML to plain text for passing page content to xAI as context.
+ * Removes scripts, styles, nav, footer, then all remaining tags.
+ * Decodes common HTML entities and collapses whitespace.
+ * @param {string} html - Raw HTML string
+ * @param {number} maxChars - Cap output length (default 4000)
+ * @returns {string} Plain text
+ */
+function stripHtmlToText(html, maxChars = 4000) {
+  if (!html || typeof html !== "string") return "";
+  let t = html;
+  // Remove script, style, nav, footer, header blocks entirely
+  t = t.replace(/<(script|style|nav|footer|header|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, " ");
+  // Remove all remaining HTML tags
+  t = t.replace(/<[^>]+>/g, " ");
+  // Decode common HTML entities
+  t = t.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ")
+    .replace(/&#\d+;/g, " ").replace(/&\w+;/g, " ");
+  // Collapse whitespace
+  t = t.replace(/\s+/g, " ").trim();
+  return t.length > maxChars ? t.slice(0, maxChars) : t;
 }
 
 const DEFAULT_REVIEW_EXCLUDE_DOMAINS = [
@@ -989,37 +1013,63 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     useTools: true,
   });
 
-  // ── Phase 2: browse company about page when Phase 1 times out ──
+  // ── Phase 2: fetch about page ourselves, extract reviews with no tools ──
+  // The model ignores prompt instructions to use browse_page (does web_search instead,
+  // causing no_synthesis). Instead, we HTTP-fetch the about page and pass text as context.
   if (!r.ok) {
     const failure = classifyXaiFailure(r);
     const phase2Budget = budgetMs - (Date.now() - started);
 
     if (failure === "upstream_timeout" && phase2Budget >= 30_000 && domain) {
-      console.log(`[fetchCuratedReviews] Phase 1 timed out. Phase 2: browsing about page, budget=${phase2Budget}ms`);
-      const aboutPrompt = `For the company: ${name} / https://${domain}
-Use the browse_page tool to directly visit https://${domain}/about-us (or https://${domain}/about if that fails).
-Look for: press mentions, testimonials, "as seen in" sections, media coverage, or customer quotes.
-Return any 1-2 reviews or testimonials found.
-IMPORTANT: Do NOT use web_search. Only use browse_page on the company's own website.
+      console.log(`[fetchCuratedReviews] Phase 1 timed out. Phase 2: fetching about page directly, budget=${phase2Budget}ms`);
+
+      // Try /about-us first (more likely to have testimonials), then /about
+      let pageText = null;
+      let fetchedPath = null;
+      for (const path of ["/about-us", "/about"]) {
+        try {
+          const { ok, text } = await fetchText(`https://${domain}${path}`, 10_000);
+          if (ok && text && text.length > 200) {
+            pageText = stripHtmlToText(text, 4000);
+            fetchedPath = path;
+            console.log(`[fetchCuratedReviews] Phase 2: fetched ${path}, ${pageText.length} chars of text`);
+            break;
+          }
+        } catch (e) {
+          console.log(`[fetchCuratedReviews] Phase 2: fetch ${path} failed: ${e?.message || e}`);
+        }
+      }
+
+      if (pageText) {
+        const extractPrompt = `Here is the about page content for ${name} (${domain}):
+
+---
+${pageText}
+---
+
+Extract any press mentions, testimonials, "as seen in" references, media coverage, or customer quotes from the above text. Return 1-2 reviews or testimonials if found.
 If nothing found, return empty.
 ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
-      const r2 = await xaiLiveSearchWithRetry({
-        prompt: aboutPrompt,
-        timeoutMs: Math.min(60_000, phase2Budget - 5_000),
-        maxAttempts: 1,
-        maxTokens: 2000,
-        model: asString(model).trim() || "grok-4-latest",
-        xaiUrl, xaiKey, signal,
-        useTools: true,
-      });
+        const r2 = await xaiLiveSearchWithRetry({
+          prompt: extractPrompt,
+          timeoutMs: Math.min(30_000, phase2Budget - 10_000),
+          maxAttempts: 1,
+          maxTokens: 2000,
+          model: asString(model).trim() || "grok-4-latest",
+          xaiUrl, xaiKey, signal,
+          // NO useTools, NO search_parameters — pure text extraction
+        });
 
-      if (r2.ok) {
-        console.log(`[fetchCuratedReviews] Phase 2 response received, elapsed=${Date.now() - started}ms`);
-        r = r2; // Let existing parse/verify pipeline process Phase 2 response
+        if (r2.ok) {
+          console.log(`[fetchCuratedReviews] Phase 2 extraction complete (${fetchedPath}), elapsed=${Date.now() - started}ms`);
+          r = r2; // Let existing parse/verify pipeline process Phase 2 response
+        } else {
+          const f2 = classifyXaiFailure(r2);
+          console.log(`[fetchCuratedReviews] Phase 2 extraction failed: ${f2}, elapsed=${Date.now() - started}ms`);
+        }
       } else {
-        const f2 = classifyXaiFailure(r2);
-        console.log(`[fetchCuratedReviews] Phase 2 also failed: ${f2}, elapsed=${Date.now() - started}ms`);
+        console.log(`[fetchCuratedReviews] Phase 2: no about page found for ${domain}`);
       }
     }
   }
@@ -1446,37 +1496,61 @@ ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}
     search_parameters: { mode: "on" },
   });
 
-  // ── Phase 2: browse company contact/about page when Phase 1 times out ──
+  // ── Phase 2: fetch contact/about page ourselves, extract HQ with no tools ──
   if (!r.ok) {
     const failure = classifyXaiFailure(r);
     const phase2Budget = budgetMs - (Date.now() - started);
 
     if (failure === "upstream_timeout" && phase2Budget >= 30_000 && domain) {
-      console.log(`[fetchHeadquartersLocation] Phase 1 timed out. Phase 2: browsing contact page, budget=${phase2Budget}ms`);
-      const aboutPrompt = `For the company: ${name} / https://${domain}
-Use the browse_page tool to directly visit https://${domain}/contact (or https://${domain}/about or https://${domain}/about-us if contact page doesn't exist).
-Find the company's physical address, headquarters location, or mailing address.
-IMPORTANT: Do NOT use web_search. Only use browse_page on the company's own website.
-If you find an address, return it as City, ST, USA format. If not found, return "".
+      console.log(`[fetchHeadquartersLocation] Phase 1 timed out. Phase 2: fetching contact/about page directly, budget=${phase2Budget}ms`);
+
+      let pageText = null;
+      let fetchedPath = null;
+      for (const path of ["/contact", "/about-us", "/about"]) {
+        try {
+          const { ok, text } = await fetchText(`https://${domain}${path}`, 10_000);
+          if (ok && text && text.length > 200) {
+            pageText = stripHtmlToText(text, 4000);
+            fetchedPath = path;
+            console.log(`[fetchHeadquartersLocation] Phase 2: fetched ${path}, ${pageText.length} chars of text`);
+            break;
+          }
+        } catch (e) {
+          console.log(`[fetchHeadquartersLocation] Phase 2: fetch ${path} failed: ${e?.message || e}`);
+        }
+      }
+
+      if (pageText) {
+        const extractPrompt = `Here is website content for ${name} (${domain}):
+
+---
+${pageText}
+---
+
+Find the company's physical address, headquarters location, or mailing address from the above text.
+Return as City, ST, USA format. If not found, return "".
 Return STRICT JSON only:
 ${FIELD_GUIDANCE.headquarters.jsonSchemaWithSources}`.trim();
 
-      const r2 = await xaiLiveSearchWithRetry({
-        prompt: aboutPrompt,
-        timeoutMs: Math.min(60_000, phase2Budget - 5_000),
-        maxAttempts: 1,
-        maxTokens: 400,
-        model: resolveSearchModel(),
-        xaiUrl, xaiKey, signal,
-        useTools: true,
-      });
+        const r2 = await xaiLiveSearchWithRetry({
+          prompt: extractPrompt,
+          timeoutMs: Math.min(30_000, phase2Budget - 10_000),
+          maxAttempts: 1,
+          maxTokens: 400,
+          model: resolveSearchModel(),
+          xaiUrl, xaiKey, signal,
+          // NO useTools, NO search_parameters — pure text extraction
+        });
 
-      if (r2.ok) {
-        console.log(`[fetchHeadquartersLocation] Phase 2 response received, elapsed=${Date.now() - started}ms`);
-        r = r2;
+        if (r2.ok) {
+          console.log(`[fetchHeadquartersLocation] Phase 2 extraction complete (${fetchedPath}), elapsed=${Date.now() - started}ms`);
+          r = r2;
+        } else {
+          const f2 = classifyXaiFailure(r2);
+          console.log(`[fetchHeadquartersLocation] Phase 2 extraction failed: ${f2}, elapsed=${Date.now() - started}ms`);
+        }
       } else {
-        const f2 = classifyXaiFailure(r2);
-        console.log(`[fetchHeadquartersLocation] Phase 2 also failed: ${f2}, elapsed=${Date.now() - started}ms`);
+        console.log(`[fetchHeadquartersLocation] Phase 2: no contact/about page found for ${domain}`);
       }
     }
   }

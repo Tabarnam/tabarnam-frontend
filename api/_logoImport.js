@@ -2436,6 +2436,7 @@ module.exports = {
   importCompanyLogo,
   uploadSvgToBlob,
   looksLikeUnsafeSvg,
+  fetchText,
   _test: {
     normalizeDomain,
     absolutizeUrl,
