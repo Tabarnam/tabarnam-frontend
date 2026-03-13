@@ -469,14 +469,11 @@ export function getContractMissingFields(company) {
     }
   }
 
-  // Check for incomplete keywords (unless acknowledged by admin or 30+ keywords already captured)
+  // Check for incomplete keywords (unless acknowledged by admin)
   const kwIncomplete =
     asString(company?.keywords_completeness).trim().toLowerCase() === "incomplete";
   const kwAcknowledged = Boolean(company?.keywords_complete_acknowledged);
-  const kwCount = Array.isArray(company?.product_keywords)
-    ? company.product_keywords.length
-    : asString(company?.product_keywords).split(",").filter(s => s.trim()).length;
-  if (kwIncomplete && !kwAcknowledged && kwCount < 30) {
+  if (kwIncomplete && !kwAcknowledged) {
     fields.push("+keywords");
   }
 

@@ -69,7 +69,7 @@ mfg_status: use "ok" when manufacturing locations were found, "not_applicable" w
   },
 
   keywords: {
-    rules: `Use browse_page on the company URL and its product/shop/collections pages to find all products. Use web_search "[Company Name] products" for completeness. Return all products, product lines, flavors, and varieties — up to 100 items. IMPORTANT: If the catalog is large (30+ products), prioritize returning what you have found from the main product/shop/collections pages rather than spending time browsing every sub-page. Return ONLY actual products (not navigation labels, site features, or generic categories). No guessing or hallucinating.`,
+    rules: `Use browse_page on the company URL and its product/shop/collections pages to find all products. Use web_search "[Company Name] products" for completeness. Return all products, product lines, flavors, and varieties — up to 100 items. IMPORTANT: If the catalog is large (30+ products), prioritize returning what you have found from the main product/shop/collections pages rather than spending time browsing every sub-page. Return ONLY actual products (not navigation labels, site features, or generic categories). Set "completeness" to "incomplete" if you know there are more products you couldn't extract. No guessing or hallucinating.`,
     jsonSchema: `"product_keywords": "comma-separated string"`,
     jsonSchemaArray: `"product_keywords": ["Product 1", "Product 2", "..."]`,
     jsonSchemaWithCompleteness: `{
@@ -119,6 +119,8 @@ RULES:
         Array.isArray(excludeDomains) && excludeDomains.length > 0
           ? excludeDomains.join(", ")
           : "";
+      const companyRef = websiteUrl ? `${companyName} (${websiteUrl})` : companyName;
+
       // ── Single-call prompt: simplified to match working Grok pattern ──
       return `For the company: ${companyName} / ${websiteUrl || "(unknown website)"}
 Find 2 unique, legitimate third-party reviews with working URLs. If fewer than 2 third-party reviews exist, browse ${websiteUrl || "the company website"} for testimonials, press mentions, "as seen in" sections, FAQ highlights, mission statements, or user testimonials and use those as reviews instead.
