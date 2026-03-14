@@ -22,6 +22,11 @@ export default function HomePage() {
           />
         </Link>
 
+        {/* Tagline */}
+        <p className="mb-8 -mt-4 text-base sm:text-lg text-muted-foreground italic">
+          ...but where was it made?
+        </p>
+
         {/* Two-row search bar */}
         <SearchCard autoFocus />
       </main>
