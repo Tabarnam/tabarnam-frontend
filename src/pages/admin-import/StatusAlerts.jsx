@@ -107,7 +107,7 @@ export default function StatusAlerts({
             title="Replay notification sound"
           >
             <Volume2 className="h-4 w-4 shrink-0" />
-            {lastPlayed && <span className="text-xs truncate max-w-[180px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
+            {lastPlayed && <span className="text-xs line-clamp-3 max-w-[200px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
           </button>
         </div>
       ) : null}
@@ -205,7 +205,7 @@ export default function StatusAlerts({
               title="Replay notification sound"
             >
               <Volume2 className="h-4 w-4 shrink-0" />
-              {lastPlayed && <span className="text-xs truncate max-w-[180px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
+              {lastPlayed && <span className="text-xs line-clamp-3 max-w-[200px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
             </button>
           </div>
         );
