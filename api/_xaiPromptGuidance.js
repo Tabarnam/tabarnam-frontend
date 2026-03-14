@@ -194,7 +194,8 @@ Website: ${url}
 
 INSTRUCTIONS:
 - Use web_search to browse ${url} first. Prioritize official site content over external sources.
-- Limit to 3-5 total web_search calls across all fields. Prioritize: 1 for site browse (homepage), 1 for keywords (/products), 1 for reviews/external if needed. Max 6 calls — stop if exceeded.
+- You have a STRICT budget of 5 web_search calls total. Allocate: 2 for site browsing/verification, up to 3 for reviews/keywords. After 5 calls, STOP and use data already gathered. Do NOT exceed 5 calls under any circumstances.
+- For reviews: Limit external searches to 1 call max after site browse.
 - If web_search yields no new info on a follow-up search, stop and use site data already gathered.
 - If a field lacks info after checking 2 sources, use empty value and move on — do not over-search.
 - Verify with official site domain only; ignore redirects to external sites.
@@ -243,10 +244,11 @@ If the products page shows categories or collections, list individual product na
 Comma-separated on one line.
 
 Reviews:
-Find 2-3 unique, legitimate third-party reviews of ${name} with working URLs.
-Prefer YouTube reviews, magazine articles, and blog reviews.
-If fewer than 2 third-party reviews exist, browse ${url} for testimonials, press mentions, "as seen in" sections, FAQ highlights, mission statements, or user testimonials and use those instead.
-Do not hallucinate.
+First, browse ${url} for testimonials, customer reviews, press mentions, "as seen in" sections, FAQ highlights, or mission statements. Format these as reviews using Source: [Company Name] Website.
+Then, if you have web_search calls remaining, find 1-2 external third-party reviews (YouTube, blogs, magazines) using at most 1 external search call (e.g., "${name} reviews 2026").
+Always return at least 1 review. If the site has no testimonials or press, extract 1-2 sentences from the About page, mission statement, or FAQ as a "Company Perspective" review (Source: ${name} Website, Author: N/A, Title: "Company Statement", Text: [excerpt]).
+Example fallback: For a mission statement like "We create witty cards for all occasions", format as: Source: ${name} Website, Author: N/A, URL: ${url}/pages/about, Title: "Company Mission", Date: N/A, Text: "The company emphasizes creating witty cards for all occasions, bringing joy to customers."
+Do not hallucinate. Do not invent reviews.
 Output each review in this exact format, separated by a blank line:
 
 Source: [Name of publication, channel, or website]

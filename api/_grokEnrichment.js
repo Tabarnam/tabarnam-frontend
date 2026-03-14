@@ -4157,6 +4157,12 @@ function parseUnifiedPlainTextResponse(rawText) {
     } else if (!field_statuses.reviews) {
       parsed_fields.reviews = [];
       field_statuses.reviews = "empty";
+      if (reviewsText.trim()) {
+        console.log(`[parseUnifiedPlainTextResponse] Reviews section present but no Source: blocks found. Raw text (first 200 chars): "${reviewsText.trim().slice(0, 200)}"`);
+        if (!reviewsText.includes('Source:')) {
+          console.warn(`[parseUnifiedPlainTextResponse] Reviews fallback needed — no Source: labels in response`);
+        }
+      }
     }
   } else {
     field_statuses.reviews = "missing_from_response";
@@ -4362,9 +4368,12 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
   const toolCounts = countToolUsage(r.resp);
   parsed.diagnostics.tool_counts = toolCounts;
 
-  if (toolCounts.web_search > 3) {
+  if (toolCounts.web_search > 5) {
     parsed.diagnostics.over_tool_usage = true;
-    console.warn(`[fetchAllFieldsSinglePrompt] ALERT: ${toolCounts.web_search} web_search calls (>3) for "${companyName}" — consider prompt tuning`);
+    console.warn(`[fetchAllFieldsSinglePrompt] ALERT: ${toolCounts.web_search} web_search calls (>5) for "${companyName}" — exceeds strict budget of 5`);
+  }
+  if (toolCounts.web_search > 10) {
+    console.error(`[fetchAllFieldsSinglePrompt] CRITICAL: ${toolCounts.web_search} web_search calls for "${companyName}" — far exceeds budget`);
   }
   if (toolCounts.view_image > 2) {
     parsed.diagnostics.excessive_view_image = true;
