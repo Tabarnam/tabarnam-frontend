@@ -573,16 +573,19 @@ function buildVariantContainsClauses(phrases, q_norm, params) {
   });
 
   // 2. Per-word matching for multi-word queries.
-  //    "monster beverage" → check "monster" and "beverage" individually.
+  //    "monster beverage" → check "monster" AND "beverage" together.
   //    This ensures "Monster Energy" is found even though the full phrase
-  //    "monster beverage" doesn't appear in the document.
+  //    "monster beverage" doesn't appear in the document, while preventing
+  //    single-word matches (e.g., "bone broth" matching a company with just "bone").
   const words = q_norm.split(/\s+/).filter((w) => w.length >= 3);
   if (words.length >= 2) {
+    const wordClauses = [];
     words.forEach((word, i) => {
       const paramName = `@q_w${i}`;
       params.push({ name: paramName, value: word });
-      variantClauses.push(`CONTAINS(c.search_text_norm, ${paramName})`);
+      wordClauses.push(`CONTAINS(c.search_text_norm, ${paramName})`);
     });
+    variantClauses.push(`(${wordClauses.join(" AND ")})`);
   }
 
   if (variantClauses.length === 0) return "";
