@@ -948,6 +948,9 @@ function mapCompanyToPublic(doc) {
     location_sources: doc.location_sources,
     show_location_sources_to_users: doc.show_location_sources_to_users,
     visibility: doc.visibility,
+
+    // Flags
+    limited_manufacturing: doc.limited_manufacturing || undefined,
   };
 }
 
