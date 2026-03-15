@@ -4607,6 +4607,19 @@ export default function CompanyDashboard() {
                             LocationStatusBadge={LocationStatusBadge}
                           />
 
+                          <StructuredLocationListEditor
+                            label="Manufacturing locations"
+                            value={editorDraft.manufacturing_locations}
+                            onChange={(next) => setEditorDraft((d) => {
+                              const updated = { ...(d || {}), manufacturing_locations: next };
+                              const mfgList = normalizeStructuredLocationList(next);
+                              const curRating = normalizeRating(d?.rating);
+                              updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: (mfgList.length > 0 || d?.limited_manufacturing) ? 1.0 : 0.0 } };
+                              return updated;
+                            })}
+                            LocationStatusBadge={LocationStatusBadge}
+                          />
+
                           <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-1 ml-1">
                             <Checkbox
                               checked={Boolean(editorDraft.limited_manufacturing)}
@@ -4623,19 +4636,6 @@ export default function CompanyDashboard() {
                             />
                             Limited Manufacturing
                           </label>
-
-                          <StructuredLocationListEditor
-                            label="Manufacturing locations"
-                            value={editorDraft.manufacturing_locations}
-                            onChange={(next) => setEditorDraft((d) => {
-                              const updated = { ...(d || {}), manufacturing_locations: next };
-                              const mfgList = normalizeStructuredLocationList(next);
-                              const curRating = normalizeRating(d?.rating);
-                              updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: (mfgList.length > 0 || d?.limited_manufacturing) ? 1.0 : 0.0 } };
-                              return updated;
-                            })}
-                            LocationStatusBadge={LocationStatusBadge}
-                          />
                           </div>
                           </CollapsibleSection>
 
