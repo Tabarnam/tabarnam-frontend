@@ -745,6 +745,64 @@ const SELECT_FIELDS = [
  * When multiple records share the same domain, keep the best one
  * (most reviews → most complete profile → most recently updated).
  */
+/**
+ * Map an ISO 3166-1 alpha-2 country code to lowercase tokens that commonly
+ * appear in free-text location strings (e.g. "San Francisco, CA, USA").
+ */
+function countryMatchTokens(isoCode) {
+  const code = (isoCode || "").toUpperCase();
+  if (!code) return [];
+  const MAP = {
+    US: ["usa", "united states", ", us"],
+    GB: ["uk", "united kingdom", "england", "scotland", "wales", "great britain"],
+    CA: ["canada"],
+    AU: ["australia"],
+    DE: ["germany", "deutschland"],
+    FR: ["france"],
+    IT: ["italy", "italia"],
+    ES: ["spain", "españa"],
+    JP: ["japan"],
+    CN: ["china"],
+    KR: ["south korea", "korea"],
+    IN: ["india"],
+    BR: ["brazil", "brasil"],
+    MX: ["mexico", "méxico"],
+    NL: ["netherlands", "holland"],
+    SE: ["sweden"],
+    NO: ["norway"],
+    DK: ["denmark"],
+    FI: ["finland"],
+    NZ: ["new zealand"],
+    IE: ["ireland"],
+    CH: ["switzerland"],
+    AT: ["austria"],
+    BE: ["belgium"],
+    PT: ["portugal"],
+    PL: ["poland"],
+    TR: ["turkey", "türkiye"],
+    TW: ["taiwan"],
+    TH: ["thailand"],
+    VN: ["vietnam"],
+    PH: ["philippines"],
+    ID: ["indonesia"],
+    IL: ["israel"],
+    ZA: ["south africa"],
+    CL: ["chile"],
+    CO: ["colombia"],
+    AR: ["argentina"],
+    PE: ["peru"],
+  };
+  const tokens = (MAP[code] || []).slice(); // clone
+  tokens.push(code.toLowerCase()); // always match the code itself (e.g. ", US")
+  return tokens;
+}
+
+function locationMatchesCountry(locString, tokens) {
+  if (!locString || !tokens.length) return false;
+  const lower = locString.toString().toLowerCase();
+  return tokens.some((t) => lower.includes(t));
+}
+
 function deduplicateByDomain(companies) {
   if (!Array.isArray(companies) || companies.length <= 1) return companies;
 
@@ -1019,6 +1077,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
   // Amazon-only filter: when &amazon=1, only return companies with an amazon_url
   const amazonOnly = url.searchParams.get("amazon") === "1";
+
+  // Country-based filters: only return companies with HQ/manufacturing in the specified country
+  const hqCountry = (url.searchParams.get("hqCountry") || "").toUpperCase().trim();
+  const mfgCountry = (url.searchParams.get("mfgCountry") || "").toUpperCase().trim();
 
   // For countOnly, fetch up to 500 to get accurate total; otherwise fetch just enough for the page.
   const limit = countOnly ? 500 : clamp(skip + take + 1, 1, 501);
@@ -1371,6 +1433,27 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // Amazon-only filter: keep only companies that have an amazon_url
       if (amazonOnly) {
         deduped = deduped.filter((c) => c.amazon_url && c.amazon_url.trim() !== "");
+      }
+
+      // HQ country filter: keep only companies with HQ in the specified country
+      if (hqCountry) {
+        const tokens = countryMatchTokens(hqCountry);
+        deduped = deduped.filter((c) => {
+          if (locationMatchesCountry(c.headquarters_location, tokens)) return true;
+          const hqArr = Array.isArray(c.headquarters) ? c.headquarters : [];
+          return hqArr.some((h) => locationMatchesCountry(h.formatted || h, tokens));
+        });
+      }
+
+      // Manufacturing country filter: keep only companies manufacturing in the specified country
+      if (mfgCountry) {
+        const tokens = countryMatchTokens(mfgCountry);
+        deduped = deduped.filter((c) => {
+          const locs = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
+          if (locs.some((l) => locationMatchesCountry(l, tokens))) return true;
+          const geos = Array.isArray(c.manufacturing_geocodes) ? c.manufacturing_geocodes : [];
+          return geos.some((g) => locationMatchesCountry(g.formatted, tokens));
+        });
       }
 
       // Attach relevance scores so the frontend can prioritise strong matches

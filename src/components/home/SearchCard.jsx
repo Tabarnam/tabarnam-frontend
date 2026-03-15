@@ -55,6 +55,7 @@ export default function SearchCard({
   onGoForward,
   onGoToIndex,
   onAutoSearch,
+  userCountryCode = "",
 }) {
   const nav = useNavigate();
   const { search } = useLocation();
@@ -66,6 +67,8 @@ export default function SearchCard({
   const [city, setCity] = useState('');
   const [sortBy, setSortBy] = useState('stars'); // default
   const [amazonOnly, setAmazonOnly] = useState(false);
+  const [hqInCountry, setHqInCountry] = useState(false);
+  const [mfgInCountry, setMfgInCountry] = useState(false);
   const [sortFilterOpen, setSortFilterOpen] = useState(false);
 
   const [countries, setCountries] = useState([]);
@@ -148,6 +151,8 @@ export default function SearchCard({
     if (p.has('city')) setCity(p.get('city') || '');
     if (p.has('sort')) setSortBy(p.get('sort') || 'stars');
     setAmazonOnly(p.get('amazon') === '1');
+    setHqInCountry(p.has('hqCountry'));
+    setMfgInCountry(p.has('mfgCountry'));
   }, [search]);
 
   useEffect(() => {
@@ -212,7 +217,7 @@ export default function SearchCard({
       lastSearchedQRef.current = trimmed;
       // Use lightweight auto-search if available (skips URL update), else fall back to full submit
       if (onAutoSearch) {
-        onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly });
+        onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly, hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' });
       } else {
         handleSubmitRef.current();
       }
@@ -221,7 +226,7 @@ export default function SearchCard({
     // Delayed URL update: sync URL 3s after last keystroke for shareability
     if (onAutoSearch) {
       debounceUrlRef.current = setTimeout(() => {
-        const params = { q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly };
+        const params = { q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly, hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' };
         if (onSubmitParams) {
           // Full submit updates URL + history
           lastSearchedQRef.current = trimmed;
@@ -242,14 +247,14 @@ export default function SearchCard({
     };
   }, [q]);
 
-  // Re-search when amazonOnly filter toggles (immediate submit, no debounce)
-  const amazonInitRef = useRef(true);
+  // Re-search when any filter checkbox toggles (immediate submit, no debounce)
+  const filterInitRef = useRef(true);
   useEffect(() => {
-    if (amazonInitRef.current) { amazonInitRef.current = false; return; }
+    if (filterInitRef.current) { filterInitRef.current = false; return; }
     const trimmed = q.trim();
     if (trimmed.length < 2) return;
     handleSubmitRef.current();
-  }, [amazonOnly]);
+  }, [amazonOnly, hqInCountry, mfgInCountry]);
 
   // Check if input might be a postal code and auto-fill country
   useEffect(() => {
@@ -386,7 +391,7 @@ export default function SearchCard({
     setShowRecent(false);
     setRecentSearches([]);
 
-    const params = { q: extracted, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly ? '1' : '' };
+    const params = { q: extracted, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly ? '1' : '', hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' };
     if (onSubmitParams) onSubmitParams(params);
     else nav(`/results?${toQs(params)}`);
   };
@@ -599,7 +604,7 @@ export default function SearchCard({
             >
               <ListFilter className="text-muted-foreground mr-2 shrink-0" size={18} />
               <span>{SORTS.find(s => s.value === sortBy)?.label || 'Sort Results'}</span>
-              {amazonOnly && <span className="ml-1.5 w-2 h-2 rounded-full bg-[#3F97A2] shrink-0" />}
+              {(amazonOnly || hqInCountry || mfgInCountry) && <span className="ml-1.5 w-2 h-2 rounded-full bg-[#3F97A2] shrink-0" />}
               <ChevronDown className="ml-2 h-4 w-4 text-muted-foreground shrink-0" />
             </button>
           </PopoverTrigger>
@@ -621,6 +626,36 @@ export default function SearchCard({
               </button>
             ))}
             <div className="my-1 border-t border-border" />
+            {userCountryCode && (
+              <>
+                <button
+                  type="button"
+                  className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"
+                  onClick={() => { setHqInCountry(!hqInCountry); setSortFilterOpen(false); }}
+                >
+                  <span className={cn(
+                    "mr-2 flex items-center justify-center w-4 h-4 rounded-sm border shrink-0",
+                    hqInCountry ? "bg-[#3F97A2] border-[#3F97A2]" : "border-muted-foreground/40"
+                  )}>
+                    {hqInCountry && <Check className="h-3 w-3 text-white" />}
+                  </span>
+                  HQ in {userCountryCode}
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"
+                  onClick={() => { setMfgInCountry(!mfgInCountry); setSortFilterOpen(false); }}
+                >
+                  <span className={cn(
+                    "mr-2 flex items-center justify-center w-4 h-4 rounded-sm border shrink-0",
+                    mfgInCountry ? "bg-[#3F97A2] border-[#3F97A2]" : "border-muted-foreground/40"
+                  )}>
+                    {mfgInCountry && <Check className="h-3 w-3 text-white" />}
+                  </span>
+                  Mfg in {userCountryCode}
+                </button>
+              </>
+            )}
             <button
               type="button"
               className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"

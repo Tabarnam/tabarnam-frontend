@@ -149,6 +149,8 @@ export default function ResultsPage() {
   const lngParam = (searchParams.get("lng") ?? "").toString();
   const pageParam = Math.max(1, Math.floor(Number(searchParams.get("page")) || 1));
   const amazonParam = searchParams.get("amazon") === "1";
+  const hqCountryParam = searchParams.get("hqCountry") || "";
+  const mfgCountryParam = searchParams.get("mfgCountry") || "";
   const debugScores = searchParams.get("debug") === "scores";
 
   const [results, setResults] = useState([]);
@@ -173,6 +175,7 @@ export default function ResultsPage() {
   const navigatingHistoryRef = useRef(false);
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
+  const [userCountryCode, setUserCountryCode] = useState("");
   const [sortBy, setSortBy] = useState(null);
 
   // Load reviews for companies
@@ -255,12 +258,12 @@ export default function ResultsPage() {
           const r = await geocode({ address: addr });
           loc = r?.best?.location || null;
           const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
-          if (cc) setUnit(milesCountries.has(cc) ? "mi" : "km");
+          if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
         } else {
           const r = await geocode({ ipLookup: true });
           loc = r?.best?.location || { lat: 34.0983, lng: -117.8076 };
           const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
-          if (cc) setUnit(milesCountries.has(cc) ? "mi" : "km");
+          if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
         }
       } catch {
         // ignore geocode errors
@@ -279,6 +282,8 @@ export default function ResultsPage() {
           state: stateParam,
           city: cityParam,
           amazon: amazonParam,
+          hqCountry: hqCountryParam,
+          mfgCountry: mfgCountryParam,
           take: PAGE_SIZE,
           skip: (pageParam - 1) * PAGE_SIZE,
           location: loc,
@@ -291,7 +296,7 @@ export default function ResultsPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam]);
+  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam]);
 
   // Called by the top search bar
   async function handleInlineSearch(params) {
@@ -301,6 +306,8 @@ export default function ResultsPage() {
     const state = (params.state ?? "").toString();
     const city = (params.city ?? "").toString();
     const amazon = params.amazon === "1" || params.amazon === true;
+    const hqCountry = (params.hqCountry ?? "").toString();
+    const mfgCountry = (params.mfgCountry ?? "").toString();
 
     // Update URL for shareability (don’t include empty keys to keep it tidy)
     const next = new URLSearchParams();
@@ -310,6 +317,8 @@ export default function ResultsPage() {
     if (state) next.set("state", state);
     if (city) next.set("city", city);
     if (amazon) next.set("amazon", "1");
+    if (hqCountry) next.set("hqCountry", hqCountry);
+    if (mfgCountry) next.set("mfgCountry", mfgCountry);
     // Reset to page 1 on new search
     next.delete("page");
     skipUrlEffectRef.current = true;
@@ -325,7 +334,7 @@ export default function ResultsPage() {
           searchLocation = loc;
           setUserLoc({ lat: loc.lat, lng: loc.lng });
           const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
-          if (cc) setUnit(milesCountries.has(cc) ? "mi" : "km");
+          if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
         }
       }
     } catch {
@@ -340,16 +349,16 @@ export default function ResultsPage() {
     }
     navigatingHistoryRef.current = false;
 
-    await doSearch({ q, sort, country, state, city, amazon, take: PAGE_SIZE, skip: 0, location: searchLocation });
+    await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, skip: 0, location: searchLocation });
   }
 
   // Lightweight auto-search: fetches results without updating URL (avoids input interruption)
-  function handleAutoSearch({ q, sort, country, state, city, amazon }) {
+  function handleAutoSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry }) {
     if (!q) return;
-    doSearch({ q, sort, country, state, city, amazon, take: PAGE_SIZE, skip: 0 });
+    doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, skip: 0 });
   }
 
-  async function doSearch({ q, sort, country, state, city, amazon, take = PAGE_SIZE, skip = 0, location = null }) {
+  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location = null }) {
     setLoading(true);
     setStatus("Searching…");
     try {
@@ -367,6 +376,8 @@ export default function ResultsPage() {
         state,
         city,
         amazon,
+        hqCountry,
+        mfgCountry,
         take,
         skip,
         lat: effectiveLocation?.lat,
@@ -385,6 +396,8 @@ export default function ResultsPage() {
               state,
               city,
               amazon,
+              hqCountry,
+              mfgCountry,
               take,
               skip,
               lat: effectiveLocation?.lat,
@@ -411,7 +424,7 @@ export default function ResultsPage() {
       } else {
         // Fire background count request (doesn't block UI)
         setTotalPages(null);
-        getSearchCount({ q, sort, country, state, city, amazon, take: PAGE_SIZE, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng })
+        getSearchCount({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng })
           .then((r) => { if (r) setTotalPages(r.totalPages); })
           .catch(() => {});
       }
@@ -606,6 +619,7 @@ export default function ResultsPage() {
           onGoBack={() => navigateHistory(historyIndex - 1)}
           onGoForward={() => navigateHistory(historyIndex + 1)}
           onGoToIndex={navigateHistory}
+          userCountryCode={userCountryCode}
         />
       </div>
 
