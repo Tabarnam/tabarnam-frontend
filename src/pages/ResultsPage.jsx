@@ -148,6 +148,7 @@ export default function ResultsPage() {
   const latParam = (searchParams.get("lat") ?? "").toString();
   const lngParam = (searchParams.get("lng") ?? "").toString();
   const pageParam = Math.max(1, Math.floor(Number(searchParams.get("page")) || 1));
+  const amazonParam = searchParams.get("amazon") === "1";
   const debugScores = searchParams.get("debug") === "scores";
 
   const [results, setResults] = useState([]);
@@ -277,6 +278,7 @@ export default function ResultsPage() {
           country: countryParam,
           state: stateParam,
           city: cityParam,
+          amazon: amazonParam,
           take: PAGE_SIZE,
           skip: (pageParam - 1) * PAGE_SIZE,
           location: loc,
@@ -289,7 +291,7 @@ export default function ResultsPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam]);
+  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam]);
 
   // Called by the top search bar
   async function handleInlineSearch(params) {
@@ -298,6 +300,7 @@ export default function ResultsPage() {
     const country = (params.country ?? "").toString();
     const state = (params.state ?? "").toString();
     const city = (params.city ?? "").toString();
+    const amazon = params.amazon === "1" || params.amazon === true;
 
     // Update URL for shareability (don’t include empty keys to keep it tidy)
     const next = new URLSearchParams();
@@ -306,6 +309,7 @@ export default function ResultsPage() {
     if (country) next.set("country", country);
     if (state) next.set("state", state);
     if (city) next.set("city", city);
+    if (amazon) next.set("amazon", "1");
     // Reset to page 1 on new search
     next.delete("page");
     skipUrlEffectRef.current = true;
@@ -336,16 +340,16 @@ export default function ResultsPage() {
     }
     navigatingHistoryRef.current = false;
 
-    await doSearch({ q, sort, country, state, city, take: PAGE_SIZE, skip: 0, location: searchLocation });
+    await doSearch({ q, sort, country, state, city, amazon, take: PAGE_SIZE, skip: 0, location: searchLocation });
   }
 
   // Lightweight auto-search: fetches results without updating URL (avoids input interruption)
-  function handleAutoSearch({ q, sort, country, state, city }) {
+  function handleAutoSearch({ q, sort, country, state, city, amazon }) {
     if (!q) return;
-    doSearch({ q, sort, country, state, city, take: PAGE_SIZE, skip: 0 });
+    doSearch({ q, sort, country, state, city, amazon, take: PAGE_SIZE, skip: 0 });
   }
 
-  async function doSearch({ q, sort, country, state, city, take = PAGE_SIZE, skip = 0, location = null }) {
+  async function doSearch({ q, sort, country, state, city, amazon, take = PAGE_SIZE, skip = 0, location = null }) {
     setLoading(true);
     setStatus("Searching…");
     try {
@@ -362,6 +366,7 @@ export default function ResultsPage() {
         country,
         state,
         city,
+        amazon,
         take,
         skip,
         lat: effectiveLocation?.lat,
@@ -379,6 +384,7 @@ export default function ResultsPage() {
               country,
               state,
               city,
+              amazon,
               take,
               skip,
               lat: effectiveLocation?.lat,
@@ -405,7 +411,7 @@ export default function ResultsPage() {
       } else {
         // Fire background count request (doesn't block UI)
         setTotalPages(null);
-        getSearchCount({ q, sort, country, state, city, take: PAGE_SIZE, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng })
+        getSearchCount({ q, sort, country, state, city, amazon, take: PAGE_SIZE, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng })
           .then((r) => { if (r) setTotalPages(r.totalPages); })
           .catch(() => {});
       }

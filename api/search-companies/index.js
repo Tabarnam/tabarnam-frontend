@@ -1014,6 +1014,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   // Are we just counting total results (no items returned)?
   const countOnly = url.searchParams.get("countOnly") === "1";
 
+  // Amazon-only filter: when &amazon=1, only return companies with an amazon_url
+  const amazonOnly = url.searchParams.get("amazon") === "1";
+
   // For countOnly, fetch up to 500 to get accurate total; otherwise fetch just enough for the page.
   const limit = countOnly ? 500 : clamp(skip + take + 1, 1, 501);
 
@@ -1360,7 +1363,12 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // Deduplicate by normalized_domain — keep only the best record per domain.
       // This prevents duplicate company records (same domain, different IDs) from
       // showing multiple times in search results.
-      const deduped = deduplicateByDomain(mapped);
+      let deduped = deduplicateByDomain(mapped);
+
+      // Amazon-only filter: keep only companies that have an amazon_url
+      if (amazonOnly) {
+        deduped = deduped.filter((c) => c.amazon_url && c.amazon_url.trim() !== "");
+      }
 
       // Attach relevance scores so the frontend can prioritise strong matches
       if (q_norm) {

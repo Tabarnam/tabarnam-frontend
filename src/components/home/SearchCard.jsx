@@ -1,11 +1,11 @@
 // src/components/home/SearchCard.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, MapPin, ListFilter, Loader2, X, Clock, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { Search, MapPin, ListFilter, Loader2, X, Clock, ChevronLeft, ChevronRight, ChevronDown, Check } from 'lucide-react';
 import { useSearchCache } from '@/hooks/useSearchCache';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// Select removed — sort/filter now uses Popover with radio buttons + checkbox
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { getCountries } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
@@ -65,6 +65,8 @@ export default function SearchCard({
   const [stateCode, setStateCode] = useState('');
   const [city, setCity] = useState('');
   const [sortBy, setSortBy] = useState('stars'); // default
+  const [amazonOnly, setAmazonOnly] = useState(false);
+  const [sortFilterOpen, setSortFilterOpen] = useState(false);
 
   const [countries, setCountries] = useState([]);
 
@@ -145,6 +147,7 @@ export default function SearchCard({
     if (p.has('state')) setStateCode(p.get('state') || '');
     if (p.has('city')) setCity(p.get('city') || '');
     if (p.has('sort')) setSortBy(p.get('sort') || 'stars');
+    setAmazonOnly(p.get('amazon') === '1');
   }, [search]);
 
   useEffect(() => {
@@ -209,7 +212,7 @@ export default function SearchCard({
       lastSearchedQRef.current = trimmed;
       // Use lightweight auto-search if available (skips URL update), else fall back to full submit
       if (onAutoSearch) {
-        onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city });
+        onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly });
       } else {
         handleSubmitRef.current();
       }
@@ -218,7 +221,7 @@ export default function SearchCard({
     // Delayed URL update: sync URL 3s after last keystroke for shareability
     if (onAutoSearch) {
       debounceUrlRef.current = setTimeout(() => {
-        const params = { q: trimmed, sort: sortBy, country, state: stateCode, city };
+        const params = { q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly };
         if (onSubmitParams) {
           // Full submit updates URL + history
           lastSearchedQRef.current = trimmed;
@@ -238,6 +241,15 @@ export default function SearchCard({
       }
     };
   }, [q]);
+
+  // Re-search when amazonOnly filter toggles (immediate submit, no debounce)
+  const amazonInitRef = useRef(true);
+  useEffect(() => {
+    if (amazonInitRef.current) { amazonInitRef.current = false; return; }
+    const trimmed = q.trim();
+    if (trimmed.length < 2) return;
+    handleSubmitRef.current();
+  }, [amazonOnly]);
 
   // Check if input might be a postal code and auto-fill country
   useEffect(() => {
@@ -374,7 +386,7 @@ export default function SearchCard({
     setShowRecent(false);
     setRecentSearches([]);
 
-    const params = { q: extracted, sort: sortBy, country, state: stateCode, city };
+    const params = { q: extracted, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly ? '1' : '' };
     if (onSubmitParams) onSubmitParams(params);
     else nav(`/results?${toQs(params)}`);
   };
@@ -572,12 +584,59 @@ export default function SearchCard({
         </Button>
       </div>
 
-      {/* Row 2: City/Postal Code, State/Province, Country, Sort Results */}
+      {/* Row 2: Sort/Filter, City/Postal Code, State/Province, Country */}
       <div
         className={filtersRightSlot
-          ? "grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3"
-          : "grid grid-cols-1 md:grid-cols-4 gap-3"}
+          ? "grid grid-cols-1 md:grid-cols-[auto_1fr_1fr_1fr_auto] gap-3"
+          : "grid grid-cols-1 md:grid-cols-[auto_1fr_1fr_1fr] gap-3"}
       >
+        {/* Sort & Filter popover */}
+        <Popover open={sortFilterOpen} onOpenChange={setSortFilterOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center h-11 px-3 rounded-md border border-input bg-background text-foreground text-sm hover:bg-accent transition-colors"
+            >
+              <ListFilter className="text-muted-foreground mr-2 shrink-0" size={18} />
+              <span>{SORTS.find(s => s.value === sortBy)?.label || 'Sort Results'}</span>
+              {amazonOnly && <span className="ml-1.5 w-2 h-2 rounded-full bg-[#3F97A2] shrink-0" />}
+              <ChevronDown className="ml-2 h-4 w-4 text-muted-foreground shrink-0" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" sideOffset={4} className="w-56 p-1">
+            {SORTS.map(s => (
+              <button
+                key={s.value}
+                type="button"
+                className={cn(
+                  "flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left",
+                  sortBy === s.value && "font-medium"
+                )}
+                onClick={() => { setSortBy(s.value); setSortFilterOpen(false); }}
+              >
+                {sortBy === s.value
+                  ? <Check className="mr-2 h-4 w-4 text-foreground shrink-0" />
+                  : <span className="mr-2 w-4 shrink-0" />}
+                {s.label}
+              </button>
+            ))}
+            <div className="my-1 border-t border-border" />
+            <button
+              type="button"
+              className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"
+              onClick={() => { setAmazonOnly(!amazonOnly); setSortFilterOpen(false); }}
+            >
+              <span className={cn(
+                "mr-2 flex items-center justify-center w-4 h-4 rounded-sm border shrink-0",
+                amazonOnly ? "bg-[#3F97A2] border-[#3F97A2]" : "border-muted-foreground/40"
+              )}>
+                {amazonOnly && <Check className="h-3 w-3 text-white" />}
+              </span>
+              Amazon Only
+            </button>
+          </PopoverContent>
+        </Popover>
+
         <Popover open={openCitySuggest && citySuggestions.length > 0}>
           <PopoverTrigger asChild>
             <div className="relative">
@@ -755,15 +814,7 @@ export default function SearchCard({
           </PopoverContent>
         </Popover>
 
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="h-11 bg-background border-input text-foreground">
-            <ListFilter className="text-muted-foreground mr-2 shrink-0" size={18} />
-            <SelectValue placeholder="Sort Results" />
-          </SelectTrigger>
-          <SelectContent position="popper" align="start" sideOffset={4} className="w-[var(--radix-select-trigger-width)]">
-            {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        {/* Sort/Filter dropdown moved to first position in grid */}
 
         {filtersRightSlot && (
           <div className="flex items-center md:justify-end">

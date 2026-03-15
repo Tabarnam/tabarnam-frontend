@@ -25,6 +25,7 @@ export interface SearchOptions {
   city?: unknown;
   lat?: unknown;
   lng?: unknown;
+  amazon?: boolean;
 }
 
 export interface Company {
@@ -78,6 +79,7 @@ export async function searchCompanies(opts: SearchOptions) {
   if (country) params.set("country", country);
   if (state) params.set("state", state);
   if (city) params.set("city", city);
+  if (opts.amazon) params.set("amazon", "1");
 
   const lat = Number(asStr(opts.lat));
   const lng = Number(asStr(opts.lng));
@@ -265,7 +267,7 @@ export async function getStateSuggestions(q: unknown, country?: string): Promise
  * Lightweight call that returns only totalCount/totalPages (no items).
  * Intended to be fired in the background after results are already displayed.
  */
-export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng"> & { take?: number }): Promise<{ totalCount: number; totalPages: number } | null> {
+export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon"> & { take?: number }): Promise<{ totalCount: number; totalPages: number } | null> {
   const q = asStr(opts.q).trim();
   if (!q) return null;
 
@@ -280,6 +282,7 @@ export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "c
   if (country) params.set("country", country);
   if (state) params.set("state", state);
   if (city) params.set("city", city);
+  if (opts.amazon) params.set("amazon", "1");
 
   const lat = Number(asStr(opts.lat));
   const lng = Number(asStr(opts.lng));
