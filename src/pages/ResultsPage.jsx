@@ -13,6 +13,7 @@ import { API_BASE } from "@/lib/api";
 import { getQQScore } from "@/lib/stars/qqRating";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import ShareButton from "@/components/ShareButton";
 
 const PAGE_SIZE = 50;
 
@@ -640,16 +641,26 @@ export default function ResultsPage() {
       {/* Column Headers + page info — same grid as ExpandableCompanyRow */}
       {results.length > 0 && (
         <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 mb-4 px-2 items-center">
-          <div className="col-span-6 lg:col-span-2 text-sm text-muted-foreground">
+          <div className="col-span-6 lg:col-span-2 text-sm text-muted-foreground flex items-center gap-1">
             {qParam && (
               <>
-                {totalPages != null
-                  ? <>Page {pageParam} of {totalPages} for </>
-                  : hasMore || pageParam > 1
-                    ? <>Page {pageParam} for </>
-                    : <>Results for </>
-                }
-                <span className="font-medium text-foreground">"{qParam}"</span>
+                <span>
+                  {totalPages != null
+                    ? <>Page {pageParam} of {totalPages} for </>
+                    : hasMore || pageParam > 1
+                      ? <>Page {pageParam} for </>
+                      : <>Results for </>
+                  }
+                  <span className="font-medium text-foreground">"{qParam}"</span>
+                </span>
+                <ShareButton
+                  title={`Search results for "${qParam}" on Tabarnam`}
+                  text={`Found results for "${qParam}" on Tabarnam`}
+                  url={window.location.href}
+                  label="Share these search results"
+                  dialogTitle="Share search results"
+                  className="w-8 h-8 min-w-[32px] min-h-[32px]"
+                />
               </>
             )}
           </div>

@@ -757,10 +757,10 @@ export default function SearchCard({
 
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="h-11 bg-background border-input text-foreground">
-            <ListFilter className="text-muted-foreground mr-2" size={18} />
-            <span className="text-foreground">Sort Results</span>
+            <ListFilter className="text-muted-foreground mr-2 shrink-0" size={18} />
+            <SelectValue placeholder="Sort Results" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent position="popper" align="start" sideOffset={4} className="w-[var(--radix-select-trigger-width)]">
             {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
           </SelectContent>
         </Select>

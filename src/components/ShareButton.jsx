@@ -34,20 +34,31 @@ async function copyToClipboard(text) {
   }
 }
 
-export default function ShareButton({ company, className = "" }) {
+export default function ShareButton({ company, title: titleProp, text: textProp, url: urlProp, label: labelProp, dialogTitle: dialogTitleProp, className = "" }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const companyName = getCompanyDisplayName(company) || "this company";
-  const tagline = (company?.tagline || "").trim();
-  const hqLocation = (company?.headquarters_location || "").trim();
-  const companyUrl = `${window.location.origin}/results?q=${encodeURIComponent(companyName)}`;
+  // Derive share data from company (legacy) or explicit props
+  const companyName = company ? (getCompanyDisplayName(company) || "this company") : "";
+  let shareTitle, shareText, shareUrl;
 
-  const shareTitle = `Check out ${companyName} on Tabarnam`;
-  const shareText = [tagline, hqLocation ? `HQ in ${hqLocation}.` : ""]
-    .filter(Boolean)
-    .join(". ");
-  const shareFullText = `${shareTitle}: ${shareText} More at ${companyUrl}`;
+  if (titleProp || textProp || urlProp) {
+    shareTitle = titleProp || "";
+    shareText = textProp || "";
+    shareUrl = urlProp || window.location.href;
+  } else {
+    const tagline = (company?.tagline || "").trim();
+    const hqLocation = (company?.headquarters_location || "").trim();
+    shareUrl = `${window.location.origin}/results?q=${encodeURIComponent(companyName)}`;
+    shareTitle = `Check out ${companyName} on Tabarnam`;
+    shareText = [tagline, hqLocation ? `HQ in ${hqLocation}.` : ""]
+      .filter(Boolean)
+      .join(". ");
+  }
+
+  const shareFullText = `${shareTitle}${shareText ? `: ${shareText}` : ""} More at ${shareUrl}`;
+  const buttonLabel = labelProp || `Share ${companyName} details`;
+  const buttonTitle = dialogTitleProp || (company ? "Share this company" : "Share");
 
   const handleShare = async (e) => {
     e.preventDefault();
@@ -58,7 +69,7 @@ export default function ShareButton({ company, className = "" }) {
         await navigator.share({
           title: shareTitle,
           text: shareText,
-          url: companyUrl,
+          url: shareUrl,
         });
       } catch (error) {
         if (error.name !== "AbortError") {
@@ -83,11 +94,11 @@ export default function ShareButton({ company, className = "" }) {
   };
 
   const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    `Check out ${companyName}: ${shareText}`
-  )}&url=${encodeURIComponent(companyUrl)}`;
+    shareTitle + (shareText ? `: ${shareText}` : "")
+  )}&url=${encodeURIComponent(shareUrl)}`;
 
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
-    companyUrl
+    shareUrl
   )}`;
 
   return (
@@ -96,8 +107,8 @@ export default function ShareButton({ company, className = "" }) {
         type="button"
         onClick={handleShare}
         className={`inline-flex items-center justify-center w-11 h-11 min-w-[44px] min-h-[44px] rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-[#3F97A2] focus:ring-offset-1 ${className}`}
-        aria-label={`Share ${companyName} details`}
-        title="Share this company"
+        aria-label={buttonLabel}
+        title={buttonTitle}
       >
         <Share className="w-[18px] h-[18px] text-[#3F97A2]" aria-hidden="true" />
       </button>
@@ -108,7 +119,7 @@ export default function ShareButton({ company, className = "" }) {
           onClick={(e) => e.stopPropagation()}
         >
           <DialogHeader>
-            <DialogTitle>Share this company</DialogTitle>
+            <DialogTitle>{buttonTitle}</DialogTitle>
             <DialogDescription>
               Copy the link below or share on social media.
             </DialogDescription>
