@@ -316,6 +316,10 @@ export default function ExpandableCompanyRow({
 
     if (list.length > 0) return list;
 
+    if (company?.limited_manufacturing) {
+      return [{ formatted: "Limited Manufacturing", distance: null, geocode_status: null, limitedMfg: true }];
+    }
+
     if (company?.mfg_unknown) {
       const reason =
         (typeof company?.mfg_unknown_reason === "string" && company.mfg_unknown_reason.trim()) ||
@@ -394,12 +398,16 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {visible.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {loc.formatted !== "—" && (
+              {loc.formatted !== "—" && !loc.limitedMfg && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
-                  {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
+                  {typeof loc.distance === "number"
+                    ? formatDistance(loc.distance, unit)
+                    : company?.limited_manufacturing
+                      ? "Limited Manufacturing"
+                      : "Distance unavailable"}
                 </div>
               )}
-              <div className="text-foreground">{loc.formatted}</div>
+              <div className={loc.limitedMfg ? "text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]" : "text-foreground"}>{loc.formatted}</div>
             </div>
           ))}
           {hiddenCount > 0 && (
@@ -433,12 +441,16 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {loc.formatted !== "—" && (
+              {loc.formatted !== "—" && !loc.limitedMfg && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
-                  {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
+                  {typeof loc.distance === "number"
+                    ? formatDistance(loc.distance, unit)
+                    : company?.limited_manufacturing
+                      ? "Limited Manufacturing"
+                      : "Distance unavailable"}
                 </div>
               )}
-              <div className="text-foreground">{loc.formatted}</div>
+              <div className={loc.limitedMfg ? "text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]" : "text-foreground"}>{loc.formatted}</div>
             </div>
           ))}
           {manuLocations.length === 0 && <div className="text-sm text-muted-foreground">—</div>}

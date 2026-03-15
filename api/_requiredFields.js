@@ -650,6 +650,7 @@ function isRealValue(field, value, doc) {
   if (f === "manufacturing_locations" || f === "mfg") {
     // Data-wins-over-flag: real location entries trump a stale mfg_unknown flag
     if (hasNonPlaceholderLocationEntry(value)) return true;
+    if (isTrueish(doc?.limited_manufacturing)) return true;
     if (isTrueish(doc?.mfg_unknown)) return false;
     return false;
   }

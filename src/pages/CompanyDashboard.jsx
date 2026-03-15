@@ -2380,7 +2380,7 @@ export default function CompanyDashboard() {
       const rating = normalizeRating(draftForSave.rating);
 
       // Auto-populate Mfg (star1) and HQ (star2) based on location presence
-      rating.star1 = { ...(rating.star1 || {}), value: manuLocations.length > 0 ? 1.0 : 0.0 };
+      rating.star1 = { ...(rating.star1 || {}), value: (manuLocations.length > 0 || draftForSave.limited_manufacturing) ? 1.0 : 0.0 };
       rating.star2 = { ...(rating.star2 || {}), value: hqLocations.length > 0 ? 1.0 : 0.0 };
 
       const notes_entries = normalizeCompanyNotes(draftForSave.notes_entries);
@@ -2405,6 +2405,7 @@ export default function CompanyDashboard() {
         headquarters: hqLocations,
         manufacturing_locations: manuLocations,
         manufacturing_geocodes: manuLocations,
+        limited_manufacturing: Boolean(draftForSave.limited_manufacturing),
         industries,
         keywords,
         product_keywords: keywords,
@@ -3391,6 +3392,7 @@ export default function CompanyDashboard() {
       !asString(editorDraft.headquarters_location).trim()
     ) missing.push("HQ location");
     if (
+      !editorDraft.limited_manufacturing &&
       !(Array.isArray(editorDraft.manufacturing_locations) && editorDraft.manufacturing_locations.length > 0) &&
       !(Array.isArray(editorDraft.manufacturing_geocodes) && editorDraft.manufacturing_geocodes.length > 0)
     ) missing.push("manufacturing");
@@ -4605,6 +4607,23 @@ export default function CompanyDashboard() {
                             LocationStatusBadge={LocationStatusBadge}
                           />
 
+                          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-1 ml-1">
+                            <Checkbox
+                              checked={Boolean(editorDraft.limited_manufacturing)}
+                              onCheckedChange={(v) =>
+                                setEditorDraft((d) => {
+                                  const updated = { ...(d || {}), limited_manufacturing: Boolean(v) };
+                                  if (v) {
+                                    const curRating = normalizeRating(d?.rating);
+                                    updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: 1.0 } };
+                                  }
+                                  return updated;
+                                })
+                              }
+                            />
+                            Limited Manufacturing
+                          </label>
+
                           <StructuredLocationListEditor
                             label="Manufacturing locations"
                             value={editorDraft.manufacturing_locations}
@@ -4612,7 +4631,7 @@ export default function CompanyDashboard() {
                               const updated = { ...(d || {}), manufacturing_locations: next };
                               const mfgList = normalizeStructuredLocationList(next);
                               const curRating = normalizeRating(d?.rating);
-                              updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: mfgList.length > 0 ? 1.0 : 0.0 } };
+                              updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: (mfgList.length > 0 || d?.limited_manufacturing) ? 1.0 : 0.0 } };
                               return updated;
                             })}
                             LocationStatusBadge={LocationStatusBadge}

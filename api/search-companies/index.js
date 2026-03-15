@@ -723,6 +723,9 @@ const SELECT_FIELDS = [
   "c.review_count_approved",
   "c.editorial_review_count",
 
+  // Flags
+  "c.limited_manufacturing",
+
   // UI / misc
   "c.profile_completeness",
   "c.profile_completeness_version",
