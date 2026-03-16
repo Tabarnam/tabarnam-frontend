@@ -152,6 +152,9 @@ export default function AdminHeader() {
               <NavLink to="/admin/import" className={navLinkClass}>
                 Import
               </NavLink>
+              <NavLink to="/admin/logos" className={navLinkClass}>
+                Logos
+              </NavLink>
               <NavLink to="/admin/diagnostics" className={navLinkClass}>
                 Diagnostics
               </NavLink>

@@ -14,6 +14,7 @@ import { logWiringDiagnostics } from "@/lib/diagnostics";
 import AdminPanel from "@pages/AdminPanel";
 import CompanyDashboard from "@pages/CompanyDashboard";
 import AdminImport from "@pages/AdminImport";
+import AdminLogoReview from "@pages/AdminLogoReview";
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
 import Login from "@pages/Login";
@@ -123,6 +124,14 @@ export default function App() {
                 element={
                   <AdminRoute>
                     <AdminImport />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/logos"
+                element={
+                  <AdminRoute>
+                    <AdminLogoReview />
                   </AdminRoute>
                 }
               />
