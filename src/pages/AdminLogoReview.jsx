@@ -4,6 +4,8 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   AlertTriangle,
   Check,
   Clock,
@@ -142,6 +144,7 @@ export default function AdminLogoReview() {
   const [error, setError] = useState(null);
   const [pendingPage, setPendingPage] = useState(0);
   const [approvedPage, setApprovedPage] = useState(0);
+  const [approvedOpen, setApprovedOpen] = useState(false);
   const [failedIds, setFailedIds] = useState(new Set());
   const [savingIds, setSavingIds] = useState(new Set());
 
@@ -149,7 +152,7 @@ export default function AdminLogoReview() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(`/xadmin-api-companies?take=1000`);
+      const res = await apiFetch(`/xadmin-api-companies?take=5000`);
       const data = await readJsonOrText(res);
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       const items = (data?.items || []).filter(
@@ -285,19 +288,30 @@ export default function AdminLogoReview() {
                 )}
               </section>
 
-              {/* Approved */}
+              {/* Approved — collapsed by default */}
               <section>
-                <div className="flex items-center gap-3 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setApprovedOpen((o) => !o)}
+                  className="flex items-center gap-3 mb-4 group cursor-pointer"
+                >
                   <Check className="w-5 h-5 text-emerald-400" />
-                  <h2 className="text-lg font-semibold text-white">
+                  <h2 className="text-lg font-semibold text-white group-hover:text-slate-300 transition-colors">
                     Approved
                     <span className="text-slate-400 font-normal text-sm ml-2">({approved.length})</span>
                   </h2>
-                </div>
-                {approved.length === 0 ? (
-                  <p className="text-slate-500 text-sm">No logos approved yet.</p>
-                ) : (
-                  renderGrid(approvedSlice, approvedPage, setApprovedPage, approvedTotalPages)
+                  {approvedOpen ? (
+                    <ChevronUp className="w-4 h-4 text-slate-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                  )}
+                </button>
+                {approvedOpen && (
+                  approved.length === 0 ? (
+                    <p className="text-slate-500 text-sm">No logos approved yet.</p>
+                  ) : (
+                    renderGrid(approvedSlice, approvedPage, setApprovedPage, approvedTotalPages)
+                  )
                 )}
               </section>
             </>
