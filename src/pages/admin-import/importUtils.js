@@ -290,11 +290,11 @@ export function extractSessionId(value) {
 }
 
 export const IMPORT_LIMIT_MIN = 1;
-export const IMPORT_LIMIT_MAX = 25;
+export const IMPORT_LIMIT_MAX = 10000;
 export const IMPORT_LIMIT_DEFAULT = 1;
 
 export const SUCCESSION_MIN = 1;
-export const SUCCESSION_MAX = 50;
+export const SUCCESSION_MAX = 10000;
 export const SUCCESSION_DEFAULT = 1;
 
 export const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
