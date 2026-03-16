@@ -14,9 +14,9 @@ import { placesAutocomplete, placeDetails } from '@/lib/google';
 import { cn } from '@/lib/utils';
 
 const SORTS = [
-  { value: 'manu',  label: 'Nearest Manufacturing' },
-  { value: 'hq',    label: 'Nearest Headquarters' },
-  { value: 'stars', label: 'Highest Rated' },
+  { value: 'manu',  label: 'Nearest manufacturing' },
+  { value: 'hq',    label: 'Nearest headquarters' },
+  { value: 'stars', label: 'Highest rated' },
 ];
 
 function toQs(o){ return new URLSearchParams(Object.entries(o).filter(([,v]) => v !== undefined && v !== '' && v !== null)).toString(); }
@@ -637,7 +637,7 @@ export default function SearchCard({
               )}>
                 {mfgInCountry && <Check className="h-3 w-3 text-white" />}
               </span>
-              In Country Manufacturing
+              In country manufacturing
             </button>
             <button
               type="button"
@@ -650,7 +650,7 @@ export default function SearchCard({
               )}>
                 {hqInCountry && <Check className="h-3 w-3 text-white" />}
               </span>
-              In Country Headquarters
+              In country headquarters
             </button>
             <button
               type="button"
@@ -663,7 +663,7 @@ export default function SearchCard({
               )}>
                 {amazonOnly && <Check className="h-3 w-3 text-white" />}
               </span>
-              Amazon Link
+              Amazon link
             </button>
           </PopoverContent>
         </Popover>
