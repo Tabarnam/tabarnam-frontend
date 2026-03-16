@@ -83,8 +83,6 @@ function LogoCard({ company, failed, onImgError, onToggleApproval, saving }) {
       <div className="w-full text-center min-h-[2.5rem]">
         <a
           href={`/admin?company_id=${encodeURIComponent(company.id)}`}
-          target="_blank"
-          rel="noopener noreferrer"
           className="text-sm text-teal-400 hover:text-teal-300 hover:underline font-medium line-clamp-2"
           title={company.company_name || company.id}
         >
