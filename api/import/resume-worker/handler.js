@@ -972,7 +972,7 @@ async function resumeWorkerHandler(req, context) {
   const noCosmosMode = String(url.searchParams.get("no_cosmos") || "").trim() === "1";
   const cosmosEnabled = !noCosmosMode;
 
-  const parseBoundedInt = (value, fallback, { min = 1, max = 50 } = {}) => {
+  const parseBoundedInt = (value, fallback, { min = 1, max = 10000 } = {}) => {
     // Handle null/undefined/empty string explicitly - these should use fallback
     if (value === null || value === undefined || value === "") return fallback;
     const n = Number(value);
@@ -997,7 +997,7 @@ async function resumeWorkerHandler(req, context) {
   const batchLimit = parseBoundedInt(
     body?.batch_limit ?? body?.batchLimit ?? url.searchParams.get("batch_limit") ?? url.searchParams.get("batchLimit"),
     25,
-    { min: 1, max: 50 }
+    { min: 1, max: 10000 }
   );
 
   // Default deadline is 15 minutes (900000ms) to allow thorough XAI enrichment.

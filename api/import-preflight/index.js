@@ -23,7 +23,6 @@ const { toNormalizedDomain } = require("../import-start/_importStartCompanyUtils
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "import-preflight";
-const MAX_ENTRIES = 50;
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -248,9 +247,7 @@ async function importPreflightHandler(req, context) {
   if (entries.length === 0) {
     return json({ ok: false, error: "No entries provided" }, 400);
   }
-  if (entries.length > MAX_ENTRIES) {
-    return json({ ok: false, error: `Too many entries (max ${MAX_ENTRIES})` }, 400);
-  }
+
 
   const container = getCompaniesContainer();
   if (!container) {
