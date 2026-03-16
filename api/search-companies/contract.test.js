@@ -260,17 +260,17 @@ test("levenshtein returns correct distance for substitution", () => {
 });
 
 test("maxEditDistance scales with word length", () => {
-  assert.equal(maxEditDistance(3), 0);
-  assert.equal(maxEditDistance(5), 1);
-  assert.equal(maxEditDistance(7), 2);
-  assert.equal(maxEditDistance(10), 3);
+  assert.equal(maxEditDistance(4), 0);
+  assert.equal(maxEditDistance(6), 1);
+  assert.equal(maxEditDistance(7), 1);
+  assert.equal(maxEditDistance(10), 2);
 });
 
 test("isFuzzyNameMatch matches within edit distance", () => {
-  assert.equal(isFuzzyNameMatch("Obrilo", "obrilio"), true);     // distance 1, max 2 for 7-char query
-  assert.equal(isFuzzyNameMatch("Obrilo", "obrilioxxyz"), false); // distance 5, max 3 for 11-char query
-  assert.equal(isFuzzyNameMatch("Alo", "alox"), true);           // distance 1, max 1 for 4-char query
-  assert.equal(isFuzzyNameMatch("Alo", "xyz"), false);           // distance 3, max 0 for 3-char query
+  assert.equal(isFuzzyNameMatch("Obrilo", "obrilio"), true);      // distance 1, max 1 for 7-char query
+  assert.equal(isFuzzyNameMatch("Obrilo", "obrilioxxyz"), false);  // distance 5, max 2 for 11-char query
+  assert.equal(isFuzzyNameMatch("Aloha", "alohx"), true);          // distance 1, max 1 for 5-char query
+  assert.equal(isFuzzyNameMatch("Alo", "xyz"), false);             // distance 3, max 0 for 3-char query
 });
 
 test("fuzzyScore returns higher score for closer matches", () => {

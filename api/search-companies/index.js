@@ -1363,7 +1363,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // fall back to prefix-based search with Levenshtein post-filter.
       // FTS built-in stemming handles many cases, but this catches edge cases
       // like typos in the first few characters.
-      if (items.length < 3 && q_norm && q_norm.length >= 4) {
+      if (items.length === 0 && q_norm && q_norm.length >= 4) {
         try {
           const basePrefix = q_norm.substring(0, Math.min(4, q_norm.length));
           const fuzzyParams = [
@@ -1487,6 +1487,13 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             }
           }
         }
+      }
+
+      // Filter out low-relevance results to prevent irrelevant matches
+      // (e.g., "granola" returning GRAMMER or Grado headphones)
+      const MIN_RELEVANCE = 5;
+      if (q_norm) {
+        deduped = deduped.filter((c) => (c._relevanceScore || 0) >= MIN_RELEVANCE);
       }
 
       if (sortField) {

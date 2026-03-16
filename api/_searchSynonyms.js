@@ -352,11 +352,18 @@ async function expandQueryTermsForFTS(q_norm, q_compact) {
     }
   }
 
-  // Compound word splits (only for single-word queries)
+  // Compound word splits — only use known dictionary matches (e.g., "bodywash" → "body wash")
+  // Arbitrary middle-splits (e.g., "granola" → "gra nola") generate noise
   if (q_norm && !q_norm.includes(" ") && q_norm.length > 4) {
-    const splits = buildCommonWordSplits(q_norm);
-    for (let i = 0; i < Math.min(3, splits.length); i++) {
-      phrases.add(splits[i]);
+    const knownSplits = {
+      bodywash: "body wash", bodywashe: "body wash", hairwash: "hair wash",
+      haircare: "hair care", skincare: "skin care", facewash: "face wash",
+      facecare: "face care", eyecare: "eye care", eyewash: "eye wash",
+      handwash: "hand wash", handcare: "hand care", lipscare: "lips care",
+      lipcare: "lip care",
+    };
+    if (knownSplits[q_norm]) {
+      phrases.add(knownSplits[q_norm]);
     }
   }
 

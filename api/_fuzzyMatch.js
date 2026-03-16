@@ -70,10 +70,9 @@ function levenshtein(a, b) {
  * Short words get less tolerance to avoid false positives.
  */
 function maxEditDistance(wordLength) {
-  if (wordLength <= 3) return 0;
-  if (wordLength <= 5) return 1;
-  if (wordLength <= 8) return 2;
-  return 3;
+  if (wordLength <= 4) return 0;
+  if (wordLength <= 7) return 1;
+  return 2;
 }
 
 /**
