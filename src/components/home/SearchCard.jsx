@@ -626,36 +626,32 @@ export default function SearchCard({
               </button>
             ))}
             <div className="my-1 border-t border-border" />
-            {userCountryCode && (
-              <>
-                <button
-                  type="button"
-                  className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"
-                  onClick={() => { setHqInCountry(!hqInCountry); setSortFilterOpen(false); }}
-                >
-                  <span className={cn(
-                    "mr-2 flex items-center justify-center w-4 h-4 rounded-sm border shrink-0",
-                    hqInCountry ? "bg-[#3F97A2] border-[#3F97A2]" : "border-muted-foreground/40"
-                  )}>
-                    {hqInCountry && <Check className="h-3 w-3 text-white" />}
-                  </span>
-                  HQ in {userCountryCode}
-                </button>
-                <button
-                  type="button"
-                  className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"
-                  onClick={() => { setMfgInCountry(!mfgInCountry); setSortFilterOpen(false); }}
-                >
-                  <span className={cn(
-                    "mr-2 flex items-center justify-center w-4 h-4 rounded-sm border shrink-0",
-                    mfgInCountry ? "bg-[#3F97A2] border-[#3F97A2]" : "border-muted-foreground/40"
-                  )}>
-                    {mfgInCountry && <Check className="h-3 w-3 text-white" />}
-                  </span>
-                  Mfg in {userCountryCode}
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"
+              onClick={() => { setMfgInCountry(!mfgInCountry); setSortFilterOpen(false); }}
+            >
+              <span className={cn(
+                "mr-2 flex items-center justify-center w-4 h-4 rounded-sm border shrink-0",
+                mfgInCountry ? "bg-[#3F97A2] border-[#3F97A2]" : "border-muted-foreground/40"
+              )}>
+                {mfgInCountry && <Check className="h-3 w-3 text-white" />}
+              </span>
+              In Country Manufacturing
+            </button>
+            <button
+              type="button"
+              className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"
+              onClick={() => { setHqInCountry(!hqInCountry); setSortFilterOpen(false); }}
+            >
+              <span className={cn(
+                "mr-2 flex items-center justify-center w-4 h-4 rounded-sm border shrink-0",
+                hqInCountry ? "bg-[#3F97A2] border-[#3F97A2]" : "border-muted-foreground/40"
+              )}>
+                {hqInCountry && <Check className="h-3 w-3 text-white" />}
+              </span>
+              In Country Headquarters
+            </button>
             <button
               type="button"
               className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"
@@ -667,7 +663,7 @@ export default function SearchCard({
               )}>
                 {amazonOnly && <Check className="h-3 w-3 text-white" />}
               </span>
-              Amazon Only
+              Amazon Link
             </button>
           </PopoverContent>
         </Popover>
