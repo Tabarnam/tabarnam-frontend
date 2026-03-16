@@ -9,6 +9,8 @@ import {
   AlertTriangle,
   Check,
   Clock,
+  Search,
+  X,
 } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
@@ -145,6 +147,7 @@ export default function AdminLogoReview() {
   const [pendingPage, setPendingPage] = useState(0);
   const [approvedPage, setApprovedPage] = useState(0);
   const [approvedOpen, setApprovedOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [failedIds, setFailedIds] = useState(new Set());
   const [savingIds, setSavingIds] = useState(new Set());
 
@@ -170,15 +173,26 @@ export default function AdminLogoReview() {
     fetchCompanies();
   }, [fetchCompanies]);
 
+  const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return companies;
+    return companies.filter((c) => {
+      const name = (c.company_name || "").toLowerCase();
+      const url = (c.website_url || "").toLowerCase();
+      const id = (c.id || "").toLowerCase();
+      return name.includes(q) || url.includes(q) || id.includes(q);
+    });
+  }, [companies, searchQuery]);
+
   const { pending, approved } = useMemo(() => {
     const p = [];
     const a = [];
-    for (const c of companies) {
+    for (const c of filtered) {
       if (c.logo_approved) a.push(c);
       else p.push(c);
     }
     return { pending: p, approved: a };
-  }, [companies]);
+  }, [filtered]);
 
   const pendingTotalPages = Math.ceil(pending.length / PAGE_SIZE);
   const approvedTotalPages = Math.ceil(approved.length / PAGE_SIZE);
@@ -216,7 +230,11 @@ export default function AdminLogoReview() {
     }
   }, []);
 
-  // Reset pages when items move between sections
+  // Reset pages when search changes or items move between sections
+  useEffect(() => {
+    setPendingPage(0);
+    setApprovedPage(0);
+  }, [searchQuery]);
   useEffect(() => {
     if (pendingPage > 0 && pendingPage >= pendingTotalPages) setPendingPage(Math.max(0, pendingTotalPages - 1));
   }, [pendingPage, pendingTotalPages]);
@@ -256,11 +274,36 @@ export default function AdminLogoReview() {
       <div className="bg-slate-950 min-h-screen p-6">
         <div className="max-w-[1600px] mx-auto">
           <h1 className="text-2xl font-bold text-white mb-1">Logo Review</h1>
-          <p className="text-slate-400 text-sm mb-8">
+          <p className="text-slate-400 text-sm mb-4">
             {companies.length} companies with logos &middot;{" "}
             <span className="text-amber-400">{pending.length} pending</span> &middot;{" "}
             <span className="text-emerald-400">{approved.length} approved</span>
+            {searchQuery && filtered.length !== companies.length && (
+              <span className="ml-2 text-slate-500">
+                (showing {filtered.length} matching &ldquo;{searchQuery}&rdquo;)
+              </span>
+            )}
           </p>
+
+          <div className="relative mb-8 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, website, or company ID…"
+              className="w-full bg-slate-900 border border-slate-700 rounded-md pl-9 pr-9 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
 
           {error && (
             <div className="bg-red-900/30 border border-red-700 text-red-300 rounded p-4 mb-6">
