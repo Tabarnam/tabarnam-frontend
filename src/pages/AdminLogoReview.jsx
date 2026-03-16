@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   Check,
   Clock,
+  ImageOff,
   Search,
   X,
 } from "lucide-react";
@@ -146,7 +147,9 @@ export default function AdminLogoReview() {
   const [error, setError] = useState(null);
   const [pendingPage, setPendingPage] = useState(0);
   const [approvedPage, setApprovedPage] = useState(0);
+  const [noLogoPage, setNoLogoPage] = useState(0);
   const [approvedOpen, setApprovedOpen] = useState(false);
+  const [noLogoOpen, setNoLogoOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [failedIds, setFailedIds] = useState(new Set());
   const [savingIds, setSavingIds] = useState(new Set());
@@ -159,7 +162,7 @@ export default function AdminLogoReview() {
       const data = await readJsonOrText(res);
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       const items = (data?.items || []).filter(
-        (c) => c && typeof c === "object" && c.logo_url
+        (c) => c && typeof c === "object"
       );
       setCompanies(items);
     } catch (e) {
@@ -184,20 +187,26 @@ export default function AdminLogoReview() {
     });
   }, [companies, searchQuery]);
 
-  const { pending, approved } = useMemo(() => {
+  const { pending, approved, noLogo } = useMemo(() => {
     const p = [];
     const a = [];
+    const n = [];
     for (const c of filtered) {
-      if (c.logo_approved) a.push(c);
+      if (!c.logo_url) n.push(c);
+      else if (c.logo_approved) a.push(c);
       else p.push(c);
     }
-    return { pending: p, approved: a };
+    return { pending: p, approved: a, noLogo: n };
   }, [filtered]);
+
+  const withLogos = pending.length + approved.length;
 
   const pendingTotalPages = Math.ceil(pending.length / PAGE_SIZE);
   const approvedTotalPages = Math.ceil(approved.length / PAGE_SIZE);
+  const noLogoTotalPages = Math.ceil(noLogo.length / PAGE_SIZE);
   const pendingSlice = pending.slice(pendingPage * PAGE_SIZE, (pendingPage + 1) * PAGE_SIZE);
   const approvedSlice = approved.slice(approvedPage * PAGE_SIZE, (approvedPage + 1) * PAGE_SIZE);
+  const noLogoSlice = noLogo.slice(noLogoPage * PAGE_SIZE, (noLogoPage + 1) * PAGE_SIZE);
 
   const handleImgError = useCallback((id) => {
     setFailedIds((prev) => new Set(prev).add(id));
@@ -234,6 +243,7 @@ export default function AdminLogoReview() {
   useEffect(() => {
     setPendingPage(0);
     setApprovedPage(0);
+    setNoLogoPage(0);
   }, [searchQuery]);
   useEffect(() => {
     if (pendingPage > 0 && pendingPage >= pendingTotalPages) setPendingPage(Math.max(0, pendingTotalPages - 1));
@@ -241,6 +251,58 @@ export default function AdminLogoReview() {
   useEffect(() => {
     if (approvedPage > 0 && approvedPage >= approvedTotalPages) setApprovedPage(Math.max(0, approvedTotalPages - 1));
   }, [approvedPage, approvedTotalPages]);
+  useEffect(() => {
+    if (noLogoPage > 0 && noLogoPage >= noLogoTotalPages) setNoLogoPage(Math.max(0, noLogoTotalPages - 1));
+  }, [noLogoPage, noLogoTotalPages]);
+
+  const renderNoLogoGrid = (items, page, setPage, totalPages) => (
+    <>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+        {items.map((c) => (
+          <div
+            key={c.id}
+            className="bg-slate-900 border border-slate-800 rounded-lg p-3 flex flex-col items-center gap-2"
+          >
+            <div className="w-full aspect-square flex items-center justify-center bg-slate-800 rounded">
+              <ImageOff className="w-10 h-10 text-slate-600" />
+            </div>
+            <div className="w-full text-center min-h-[2.5rem]">
+              <a
+                href={`/admin?company_id=${encodeURIComponent(c.id)}`}
+                className="text-sm text-teal-400 hover:text-teal-300 hover:underline font-medium line-clamp-2"
+                title={c.company_name || c.id}
+              >
+                {c.company_name || c.id}
+              </a>
+            </div>
+            {c.website_url && (
+              <a
+                href={
+                  c.website_url.startsWith("http")
+                    ? c.website_url
+                    : `https://${c.website_url}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-slate-500 hover:text-slate-300 flex items-center gap-1 truncate max-w-full"
+                title={c.website_url}
+              >
+                <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">
+                  {c.website_url.replace(/^https?:\/\//, "")}
+                </span>
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+      {totalPages > 1 && (
+        <div className="mt-4">
+          <Pagination page={page} totalPages={totalPages} setPage={setPage} />
+        </div>
+      )}
+    </>
+  );
 
   const renderGrid = (items, page, setPage, totalPages) => (
     <>
@@ -275,9 +337,12 @@ export default function AdminLogoReview() {
         <div className="max-w-[1600px] mx-auto">
           <h1 className="text-2xl font-bold text-white mb-1">Logo Review</h1>
           <p className="text-slate-400 text-sm mb-4">
-            {companies.length} companies with logos &middot;{" "}
-            <span className="text-amber-400">{pending.length} pending</span> &middot;{" "}
+            {companies.length} companies &middot;{" "}
+            {withLogos} with logos ({" "}
+            <span className="text-amber-400">{pending.length} pending</span>,{" "}
             <span className="text-emerald-400">{approved.length} approved</span>
+            {" "}) &middot;{" "}
+            <span className="text-slate-500">{noLogo.length} no logo</span>
             {searchQuery && filtered.length !== companies.length && (
               <span className="ml-2 text-slate-500">
                 (showing {filtered.length} matching &ldquo;{searchQuery}&rdquo;)
@@ -354,6 +419,33 @@ export default function AdminLogoReview() {
                     <p className="text-slate-500 text-sm">No logos approved yet.</p>
                   ) : (
                     renderGrid(approvedSlice, approvedPage, setApprovedPage, approvedTotalPages)
+                  )
+                )}
+              </section>
+
+              {/* No Logo — collapsed by default */}
+              <section>
+                <button
+                  type="button"
+                  onClick={() => setNoLogoOpen((o) => !o)}
+                  className="flex items-center gap-3 mb-4 group cursor-pointer"
+                >
+                  <ImageOff className="w-5 h-5 text-slate-500" />
+                  <h2 className="text-lg font-semibold text-white group-hover:text-slate-300 transition-colors">
+                    No Logo
+                    <span className="text-slate-400 font-normal text-sm ml-2">({noLogo.length})</span>
+                  </h2>
+                  {noLogoOpen ? (
+                    <ChevronUp className="w-4 h-4 text-slate-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                  )}
+                </button>
+                {noLogoOpen && (
+                  noLogo.length === 0 ? (
+                    <p className="text-slate-500 text-sm">All companies have logos.</p>
+                  ) : (
+                    renderNoLogoGrid(noLogoSlice, noLogoPage, setNoLogoPage, noLogoTotalPages)
                   )
                 )}
               </section>
