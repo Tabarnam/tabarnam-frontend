@@ -3542,6 +3542,8 @@ export default function CompanyDashboard() {
               paginationRowsPerPageOptions={[25, 50, 100, 250, 500, 1000]}
               onChangeRowsPerPage={(newPerPage) => setRowsPerPage(newPerPage)}
               paginationComponentOptions={{ selectAllRowsItem: true, selectAllRowsItemText: "All" }}
+              fixedHeader
+              fixedHeaderScrollHeight="calc(100vh - 220px)"
               highlightOnHover
               dense
               customStyles={tableTheme}
