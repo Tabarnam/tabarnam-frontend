@@ -45,6 +45,163 @@ for (const [full, abbrev] of Object.entries(BUSINESS_ABBREVIATIONS)) {
 }
 
 /**
+ * Product synonym groups — each array is a set of interchangeable terms.
+ * When a query contains any word in a group, we also search for the others.
+ * These are per-word replacements applied within multi-word queries.
+ */
+const PRODUCT_SYNONYM_GROUPS = [
+  // Cutting/trimming tools
+  ["clipper", "cutter", "trimmer"],
+  ["clippers", "cutters", "trimmers"],
+  // Containers
+  ["bottle", "flask", "canteen"],
+  ["bottles", "flasks", "canteens"],
+  ["cup", "mug", "tumbler"],
+  ["cups", "mugs", "tumblers"],
+  ["jar", "container", "canister"],
+  ["jars", "containers", "canisters"],
+  // Furniture
+  ["couch", "sofa", "loveseat"],
+  ["couches", "sofas", "loveseats"],
+  // Bags
+  ["bag", "sack", "pouch"],
+  ["bags", "sacks", "pouches"],
+  ["backpack", "rucksack", "daypack"],
+  ["backpacks", "rucksacks", "daypacks"],
+  ["purse", "handbag", "clutch"],
+  ["purses", "handbags", "clutches"],
+  // Footwear
+  ["sneakers", "trainers", "running shoes"],
+  ["shoes", "footwear"],
+  ["boots", "booties"],
+  ["sandals", "flip flops", "slides"],
+  // Clothing
+  ["shirt", "tee", "top"],
+  ["shirts", "tees", "tops"],
+  ["pants", "trousers", "slacks"],
+  ["jacket", "coat", "parka"],
+  ["jackets", "coats", "parkas"],
+  ["hoodie", "sweatshirt", "pullover"],
+  ["hoodies", "sweatshirts", "pullovers"],
+  ["sweater", "jumper", "knit"],
+  ["sweaters", "jumpers", "knits"],
+  ["beanie", "knit cap", "toque"],
+  ["beanies", "knit caps", "toques"],
+  // Bedding/linens
+  ["blanket", "throw", "comforter"],
+  ["blankets", "throws", "comforters"],
+  ["pillow", "cushion"],
+  ["pillows", "cushions"],
+  ["sheets", "bedding", "linens"],
+  ["towel", "washcloth"],
+  ["towels", "washcloths"],
+  // Kitchen
+  ["pan", "skillet", "frying pan"],
+  ["pot", "saucepan", "stockpot"],
+  ["knife", "blade"],
+  ["knives", "blades"],
+  ["spatula", "turner", "flipper"],
+  ["cutting board", "chopping board"],
+  // Personal care
+  ["soap", "cleanser", "wash"],
+  ["shampoo", "hair wash"],
+  ["lotion", "moisturizer", "cream"],
+  ["lotions", "moisturizers", "creams"],
+  ["deodorant", "antiperspirant"],
+  ["toothbrush", "dental brush"],
+  ["toothpaste", "dental paste"],
+  ["razor", "shaver"],
+  ["razors", "shavers"],
+  // Food/drink
+  ["candy", "sweets", "confection"],
+  ["soda", "pop", "soft drink"],
+  ["chips", "crisps"],
+  ["cookies", "biscuits"],
+  ["jerky", "dried meat"],
+  ["jam", "jelly", "preserves"],
+  ["granola", "muesli", "cereal"],
+  // Materials
+  ["cloth", "fabric", "textile"],
+  ["leather", "hide"],
+  ["wood", "timber", "lumber"],
+  // Baby
+  ["stroller", "pram", "buggy"],
+  ["strollers", "prams", "buggies"],
+  ["pacifier", "dummy", "binky"],
+  ["diaper", "nappy"],
+  ["diapers", "nappies"],
+  // Electronics
+  ["headphones", "earphones", "earbuds"],
+  ["charger", "adapter", "power supply"],
+  ["cable", "cord", "wire"],
+  ["cables", "cords", "wires"],
+  // Misc
+  ["rug", "carpet", "mat"],
+  ["rugs", "carpets", "mats"],
+  ["candle", "taper", "votive"],
+  ["candles", "tapers", "votives"],
+  ["sunglasses", "shades", "sunnies"],
+  ["umbrella", "parasol"],
+  ["wallet", "billfold"],
+  ["wallets", "billfolds"],
+];
+
+// Build a fast lookup: word → [synonym1, synonym2, ...]
+const PRODUCT_SYNONYM_MAP = {};
+for (const group of PRODUCT_SYNONYM_GROUPS) {
+  for (const word of group) {
+    const key = word.toLowerCase();
+    if (!PRODUCT_SYNONYM_MAP[key]) PRODUCT_SYNONYM_MAP[key] = [];
+    for (const other of group) {
+      const otherLower = other.toLowerCase();
+      if (otherLower !== key && !PRODUCT_SYNONYM_MAP[key].includes(otherLower)) {
+        PRODUCT_SYNONYM_MAP[key].push(otherLower);
+      }
+    }
+  }
+}
+
+/**
+ * Expand a phrase by replacing individual words with product synonyms.
+ * "nail clipper" → ["nail cutter", "nail trimmer"]
+ * Multi-word synonyms are handled: "flip flops" in query → "sandals"
+ */
+function expandProductSynonyms(phrase) {
+  if (!phrase) return [];
+  const variants = new Set();
+  const lower = phrase.toLowerCase();
+
+  // Check for multi-word synonym matches first (e.g., "flip flops" → "sandals")
+  for (const group of PRODUCT_SYNONYM_GROUPS) {
+    for (const term of group) {
+      if (term.includes(" ") && lower.includes(term)) {
+        // Replace this multi-word term with each synonym
+        for (const other of group) {
+          if (other !== term) {
+            variants.add(lower.replace(term, other));
+          }
+        }
+      }
+    }
+  }
+
+  // Single-word replacement: swap each word with its synonyms
+  const words = lower.split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
+    const syns = PRODUCT_SYNONYM_MAP[words[i]];
+    if (syns) {
+      for (const syn of syns) {
+        const variant = [...words];
+        variant[i] = syn;
+        variants.add(variant.join(" "));
+      }
+    }
+  }
+
+  return Array.from(variants);
+}
+
+/**
  * Generate variants of a phrase by swapping business abbreviations.
  * "rocky mountain soda company" → ["rocky mountain soda co"]
  * "rocky mountain soda co" → ["rocky mountain soda company"]
@@ -195,6 +352,15 @@ async function expandQueryTerms(q_norm, q_compact) {
   // "rocky mountain soda company" → also search "rocky mountain soda co" (and vice versa)
   for (const term of [...terms_norm]) {
     for (const variant of expandBusinessAbbreviations(term)) {
+      terms_norm.add(variant);
+      const compact = variant.replace(/\s+/g, "");
+      if (compact) terms_compact.add(compact);
+    }
+  }
+
+  // Product synonym expansion (e.g., "nail clipper" → "nail cutter", "nail trimmer")
+  for (const term of [...terms_norm]) {
+    for (const variant of expandProductSynonyms(term)) {
       terms_norm.add(variant);
       const compact = variant.replace(/\s+/g, "");
       if (compact) terms_compact.add(compact);
@@ -352,6 +518,13 @@ async function expandQueryTermsForFTS(q_norm, q_compact) {
     }
   }
 
+  // Product synonym expansion (e.g., "nail clipper" → "nail cutter", "nail trimmer")
+  for (const phrase of [...phrases]) {
+    for (const variant of expandProductSynonyms(phrase)) {
+      phrases.add(variant);
+    }
+  }
+
   // Compound word splits — only use known dictionary matches (e.g., "bodywash" → "body wash")
   // Arbitrary middle-splits (e.g., "granola" → "gra nola") generate noise
   if (q_norm && !q_norm.includes(" ") && q_norm.length > 4) {
@@ -380,4 +553,5 @@ module.exports = {
   expandQueryTerms,
   expandQueryTermsForFTS,
   expandBusinessAbbreviations,
+  expandProductSynonyms,
 };
