@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   Check,
   Clock,
+  Copy,
   ImageOff,
   Search,
   X,
@@ -58,6 +59,32 @@ function Pagination({ page, totalPages, setPage }) {
   );
 }
 
+function CopyNameButton({ name }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(name).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="ml-1 inline-flex items-center text-slate-500 hover:text-slate-300 flex-shrink-0"
+      title="Copy company name"
+    >
+      {copied ? (
+        <Check className="w-3 h-3 text-emerald-400" />
+      ) : (
+        <Copy className="w-3 h-3" />
+      )}
+    </button>
+  );
+}
+
 function LogoCard({ company, failed, onImgError, onToggleApproval, saving }) {
   const logoUrl = getCompanyLogoUrl(company);
   const approved = !!company.logo_approved;
@@ -85,7 +112,7 @@ function LogoCard({ company, failed, onImgError, onToggleApproval, saving }) {
         )}
       </div>
 
-      <div className="w-full text-center min-h-[2.5rem]">
+      <div className="w-full flex items-center justify-center gap-1 min-h-[2.5rem]">
         <a
           href={`/admin?company_id=${encodeURIComponent(company.id)}`}
           className="text-sm text-teal-400 hover:text-teal-300 hover:underline font-medium line-clamp-2"
@@ -93,6 +120,7 @@ function LogoCard({ company, failed, onImgError, onToggleApproval, saving }) {
         >
           {company.company_name || company.id}
         </a>
+        <CopyNameButton name={company.company_name || company.id} />
       </div>
 
       {company.website_url && (
@@ -266,7 +294,7 @@ export default function AdminLogoReview() {
             <div className="w-full aspect-square flex items-center justify-center bg-slate-800 rounded">
               <ImageOff className="w-10 h-10 text-slate-600" />
             </div>
-            <div className="w-full text-center min-h-[2.5rem]">
+            <div className="w-full flex items-center justify-center gap-1 min-h-[2.5rem]">
               <a
                 href={`/admin?company_id=${encodeURIComponent(c.id)}`}
                 className="text-sm text-teal-400 hover:text-teal-300 hover:underline font-medium line-clamp-2"
@@ -274,6 +302,7 @@ export default function AdminLogoReview() {
               >
                 {c.company_name || c.id}
               </a>
+              <CopyNameButton name={c.company_name || c.id} />
             </div>
             {c.website_url && (
               <a
