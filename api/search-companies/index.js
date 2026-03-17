@@ -1359,42 +1359,50 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       }
 
-      // Fuzzy fallback: when FTS yields < 3 results and query is long enough,
+      // Fuzzy fallback: when primary search yields 0 results and query is long enough,
       // fall back to prefix-based search with Levenshtein post-filter.
-      // FTS built-in stemming handles many cases, but this catches edge cases
-      // like typos in the first few characters.
+      // Tries a 4-char prefix first, then falls back to 3-char prefix if no candidates
+      // are found (handles typos in the 4th character, e.g., "lilipad" → "lillipad").
       if (items.length === 0 && q_norm && q_norm.length >= 4) {
         try {
-          const basePrefix = q_norm.substring(0, Math.min(4, q_norm.length));
-          const fuzzyParams = [
-            { name: "@fuzzyTake", value: limit },
-            { name: "@prefix", value: basePrefix },
-          ];
-
-          const fuzzySql = `
-            SELECT TOP @fuzzyTake ${SELECT_FIELDS}
-            FROM c
-            WHERE (
-              (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), @prefix)) OR
-              (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND STARTSWITH(LOWER(c.display_name), @prefix)) OR
-              (IS_DEFINED(c.name) AND IS_STRING(c.name) AND STARTSWITH(LOWER(c.name), @prefix)) OR
-              (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND STARTSWITH(LOWER(c.normalized_domain), @prefix))
-            ) AND ${softDeleteFilter}
-            ORDER BY c._ts DESC
-          `;
-          const fuzzyRes = await container.items
-            .query({ query: fuzzySql, parameters: fuzzyParams }, { enableCrossPartitionQuery: true })
-            .fetchAll();
-          const fuzzyCandidates = fuzzyRes.resources || [];
+          const prefixLengths = [4, 3]; // try longer prefix first for precision, then shorter
           const existingIds = new Set(items.map((i) => i.id));
-          for (const candidate of fuzzyCandidates) {
-            if (existingIds.has(candidate.id)) continue;
-            const names = [candidate.company_name, candidate.display_name, candidate.name, candidate.normalized_domain].filter(Boolean);
-            if (names.some((n) => isFuzzyNameMatch(n, q_norm))) {
-              candidate._fuzzyMatch = true;
-              items.push(candidate);
-              existingIds.add(candidate.id);
+
+          for (const prefixLen of prefixLengths) {
+            const prefix = q_norm.substring(0, Math.min(prefixLen, q_norm.length));
+            const fuzzyParams = [
+              { name: "@fuzzyTake", value: limit },
+              { name: "@prefix", value: prefix },
+            ];
+
+            const fuzzySql = `
+              SELECT TOP @fuzzyTake ${SELECT_FIELDS}
+              FROM c
+              WHERE (
+                (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), @prefix)) OR
+                (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND STARTSWITH(LOWER(c.display_name), @prefix)) OR
+                (IS_DEFINED(c.name) AND IS_STRING(c.name) AND STARTSWITH(LOWER(c.name), @prefix)) OR
+                (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND STARTSWITH(LOWER(c.normalized_domain), @prefix))
+              ) AND ${softDeleteFilter}
+              ORDER BY c._ts DESC
+            `;
+            const fuzzyRes = await container.items
+              .query({ query: fuzzySql, parameters: fuzzyParams }, { enableCrossPartitionQuery: true })
+              .fetchAll();
+            const fuzzyCandidates = fuzzyRes.resources || [];
+
+            for (const candidate of fuzzyCandidates) {
+              if (existingIds.has(candidate.id)) continue;
+              const names = [candidate.company_name, candidate.display_name, candidate.name, candidate.normalized_domain].filter(Boolean);
+              if (names.some((n) => isFuzzyNameMatch(n, q_norm))) {
+                candidate._fuzzyMatch = true;
+                items.push(candidate);
+                existingIds.add(candidate.id);
+              }
             }
+
+            // If we found matches with this prefix length, no need to try shorter
+            if (items.length > 0) break;
           }
         } catch (fuzzyErr) {
           // Fuzzy fallback is best-effort; don't fail the search
