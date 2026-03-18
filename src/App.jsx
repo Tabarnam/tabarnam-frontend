@@ -27,6 +27,7 @@ import AuthKeepAlive from "@/components/AuthKeepAlive";
 import BetaBadge from "@/components/BetaBadge";
 import ThemeProvider from "@/components/ThemeProvider";
 import ThemeToggle from "@/components/ThemeToggle";
+import PrivacyBadge from "@/components/PrivacyBadge";
 
 // Main application component with routing, layout management, and error handling
 // Simple error boundary
@@ -74,6 +75,7 @@ function Layout({ children }) {
       {showLayout && <FeedbackWidget />}
       {showLayout && <Footer />}
       <ThemeToggle />
+      <PrivacyBadge />
     </div>
   );
 }
