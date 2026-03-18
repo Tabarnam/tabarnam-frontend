@@ -18,6 +18,7 @@ import AdminLogoReview from "@pages/AdminLogoReview";
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
 import Login from "@pages/Login";
+import PrivacyPage from "@pages/PrivacyPage";
 
 import SiteHeader from "@/components/SiteHeader";
 import FeedbackWidget from "@/components/FeedbackWidget";
@@ -108,6 +109,7 @@ export default function App() {
               {/* public */}
               <Route path="/" element={<HomePage />} />
               <Route path="/results" element={<ResultsPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
 
               {/* auth */}
               <Route path="/login" element={<Login />} />

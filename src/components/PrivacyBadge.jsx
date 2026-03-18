@@ -1,46 +1,23 @@
-import { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
+import { ShieldCheck } from 'lucide-react';
 
 export default function PrivacyBadge() {
   const { pathname } = useLocation();
-  const [hovered, setHovered] = useState(false);
 
   // Only show on homepage
   if (pathname !== '/') return null;
 
   return (
-    <div
-      className="fixed bottom-4 left-4 z-50"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      {/* Expanded image - appears on hover */}
-      <div
-        className={`absolute bottom-12 left-0 transition-all duration-300 origin-bottom-left ${
-          hovered
-            ? 'opacity-100 scale-100'
-            : 'opacity-0 scale-0 pointer-events-none'
-        }`}
+    <div className="fixed bottom-4 left-4 z-50">
+      <Link
+        to="/privacy"
+        className="flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 shadow-lg backdrop-blur transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
       >
-        <img
-          src="/not collecting your data II.jpg"
-          alt="Not collecting your data"
-          style={{ width: '20rem', maxWidth: 'none' }}
-          className="rounded-lg shadow-xl border border-border"
-        />
-      </div>
-
-      {/* Tiny badge icon */}
-      <div className="flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 shadow-lg backdrop-blur cursor-default">
-        <img
-          src="/not collecting your data II.jpg"
-          alt="Not collecting your data"
-          className="h-5 w-5 rounded-full object-cover"
-        />
+        <ShieldCheck size={14} className="text-primary" />
         <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
-          No tracking
+          Not Collecting Your Data
         </span>
-      </div>
+      </Link>
     </div>
   );
 }
