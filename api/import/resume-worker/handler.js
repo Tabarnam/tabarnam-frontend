@@ -1295,7 +1295,7 @@ async function resumeWorkerHandler(req, context) {
     if (resumeInvocationMode === "resume_worker" && resumeStatus === "in_progress") {
       const heartbeatAt = Date.parse(String(resumeDoc?.resume_worker_heartbeat_at || "")) || 0;
       const heartbeatAgeMs = heartbeatAt ? Date.now() - heartbeatAt : Infinity;
-      const enrichmentStaleMs = 210_000; // 210s = 7× heartbeat interval (30s); allows 170s+ xAI calls + Cosmos I/O contention
+      const enrichmentStaleMs = 60_000; // 60s = 2× heartbeat interval (30s); fast recovery from dead workers
 
       if (heartbeatAgeMs >= enrichmentStaleMs || (enrichmentAgeMs >= 420_000 && !heartbeatAt)) {
         console.warn(`[resume-worker] stale resume_worker detected for session=${sessionId}`

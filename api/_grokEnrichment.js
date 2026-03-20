@@ -4432,6 +4432,47 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
     };
   }
 
+  // 7. Keywords fallback — if product_keywords is empty, trigger a narrow follow-up
+  const kw = parsed.parsed_fields.product_keywords;
+  const kwEmpty = !kw || (typeof kw === "string" && !kw.trim()) || (Array.isArray(kw) && kw.length === 0);
+  if (kwEmpty && getRemainingMs() >= 15_000) {
+    console.log(`[fetchAllFieldsSinglePrompt] product_keywords empty for "${companyName}", triggering keywords follow-up`);
+    try {
+      const kwPrompt = `Research ${websiteUrl || companyName}. You have the main products/shop/collections page URL. Extract only core product keywords and categories. Return JSON array "product_keywords" containing 8-15 precise terms. No generic words. No additional tools. Output JSON only.`;
+      const kwTimeout = Math.min(30_000, getRemainingMs() - 5_000);
+      const kwResult = await xaiLiveSearchWithRetry({
+        prompt: kwPrompt,
+        timeoutMs: kwTimeout,
+        maxAttempts: 1,
+        xaiUrl,
+        xaiKey,
+        search_parameters: { mode: "on", excluded_domains },
+        useTools: true,
+        signal,
+      });
+      if (kwResult.ok) {
+        const kwText = extractTextFromXaiResponse(kwResult.resp);
+        // Try to parse JSON array from response
+        const jsonMatch = kwText.match(/\[[\s\S]*?\]/);
+        if (jsonMatch) {
+          try {
+            const kwArr = JSON.parse(jsonMatch[0]);
+            if (Array.isArray(kwArr) && kwArr.length > 0) {
+              parsed.parsed_fields.product_keywords = kwArr.join(", ");
+              parsed.field_statuses.product_keywords = "ok_from_followup";
+              parsed.diagnostics.keywords_followup = true;
+              console.log(`[fetchAllFieldsSinglePrompt] Keywords follow-up returned ${kwArr.length} terms for "${companyName}"`);
+            }
+          } catch (parseErr) {
+            console.warn(`[fetchAllFieldsSinglePrompt] Keywords follow-up JSON parse failed: ${parseErr?.message}`);
+          }
+        }
+      }
+    } catch (kwErr) {
+      console.warn(`[fetchAllFieldsSinglePrompt] Keywords follow-up failed for "${companyName}": ${kwErr?.message}`);
+    }
+  }
+
   console.log(`[fetchAllFieldsSinglePrompt] Success for "${companyName}" in ${Date.now() - started}ms, fields=${Object.keys(parsed.parsed_fields).join(", ")}, tool_calls=${toolCounts.total}`);
 
   return {
