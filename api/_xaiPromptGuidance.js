@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.8.0";
+const PROMPT_GUIDANCE_VERSION = "3.9.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -177,6 +177,7 @@ FORMAT RULES:
 
     const logoSection = skipLogo ? "" : `
 Logo:
+First check JSON-LD for imageObject with logo or og:image. If found, output only the direct URL — do not browse extra pages for it.
 Extract the logo from the very first homepage browse before moving to other fields.
 Browse ${url} and find the logo image in the header or navigation area.
 - Look for <img> tags with alt text containing "logo" or class/id like "logo", "header-logo", "brand-logo", "site-logo", or "wordmark".
@@ -194,24 +195,21 @@ Website: ${url}
 
 INSTRUCTIONS:
 
-CRITICAL TOOL CONSTRAINT — You have a strict maximum of 5 web_search calls total. You must plan your calls in advance and list the planned URLs before making the first call.
+CRITICAL TOOL CONSTRAINT — You have a strict maximum of 5 web_search calls total. Plan your calls in advance.
+CRITICAL: You MUST stop after exactly 5 browse_page or web_search calls. If you reach 5, output ONLY what you have so far — no more tool calls.
 
 Priority order:
 - Call 1: Homepage ${url} (tagline, logo clues, HQ hints, overall tone)
-- Call 2: Main products / shop / collections page (core keywords and offerings) — browse ONE page only
-- Call 3: About / our-story / pages/about-us / contact page (HQ details and manufacturing location)
-- Calls 4-5: ONLY if critical fields (especially manufacturing location) are still missing — one targeted additional subpage or external verification
+- Call 2: Main products / shop / collections page — browse ONE page only
+- Call 3: About / our-story / contact page (HQ and manufacturing location)
+- Calls 4-5: ONLY if critical fields are still missing
 
 Rules:
-- If you have solid data for name, domain, tagline, HQ, MFG, and industries after 3 or 4 calls, STOP immediately. Do not use all 5 calls.
+- If you have solid data after 3 or 4 calls, STOP immediately.
 - Never browse individual product detail pages.
-- Prefer common small-business paths (/collections, /pages/about-us, /faqs) when the obvious ones do not exist.
 - For reviews: Limit external searches to 1 call max after site browse.
-- Verify with official site domain only; ignore redirects to external sites.
-- If a tool call fails (e.g., page not found), fall back to web_search "[query]" only.
-- Do not hallucinate. If you cannot find credible info for a field, use empty string or empty value.
-- Do NOT use any markdown formatting (no bold, no headers, no asterisks, no bullet points).
-- Output each section with its label on its own line, followed by the value.
+- Do not hallucinate. Use empty string for fields you cannot verify.
+- No markdown formatting. Output each section with its label on its own line.
 
 Extract the following fields:
 
@@ -234,13 +232,8 @@ Format: City, ST, USA (use state initials, use "USA" not "US"). For non-US, use 
 Return just the location string, no explanatory info.
 
 Manufacturing:
-Find manufacturing, facility, or "made in" information from ${url}.
-If not found on site, use web_search "${name} manufacturing locations" or "${name} factory".
-Format each location as City, ST, Country. Separate multiple locations with semicolons.
-For non-US, use full province/state names. If part of a location is unspecified, include only what is known.
-If only "Made in [Country]" is found without a specific city, return the country alone (e.g., "USA").
-If the company designs/creates their own products but outsources manufacturing, use the HQ location.
-If the company is a retailer/marketplace (not a manufacturer), return: not_applicable
+Find manufacturing or "made in" info from ${url}. Format: City, ST, Country; separate with semicolons.
+If only country known, return country alone (e.g., "USA"). If outsourced, use HQ location. If retailer/marketplace, return: not_applicable
 ${logoSection}
 
 Keywords:
@@ -253,19 +246,15 @@ If the products page shows categories or collections, list individual product na
 Comma-separated on one line.
 
 Reviews:
-First, browse ${url} for testimonials, customer reviews, press mentions, "as seen in" sections, FAQ highlights, or mission statements. Format these as reviews using Source: [Company Name] Website.
-Then, if you have web_search calls remaining, find 1-2 external third-party reviews (YouTube, blogs, magazines) using at most 1 external search call (e.g., "${name} reviews 2026").
-Always return at least 1 review. If the site has no testimonials or press, extract 1-2 sentences from the About page, mission statement, or FAQ as a "Company Perspective" review (Source: ${name} Website, Author: N/A, Title: "Company Statement", Text: [excerpt]).
-Example fallback: For a mission statement like "We create witty cards for all occasions", format as: Source: ${name} Website, Author: N/A, URL: ${url}/pages/about, Title: "Company Mission", Date: N/A, Text: "The company emphasizes creating witty cards for all occasions, bringing joy to customers."
-Do not hallucinate. Do not invent reviews.
-Output each review in this exact format, separated by a blank line:
+Find 1-2 reviews: first check ${url} for testimonials or press mentions, then use at most 1 external search if calls remain. If none found, extract a short excerpt from the About page or mission statement.
+Do not hallucinate. Output each review in this format (separated by blank line):
 
-Source: [Name of publication, channel, or website]
-Author: [Author or channel name]
-URL: [Direct URL to the review/article/video, not the site root]
-Title: [Exact title as published]
-Date: [Publication date, any format]
-Text: [1-3 sentence excerpt or summary of the review]`;
+Source: [publication/website]
+Author: [author]
+URL: [direct URL]
+Title: [title]
+Date: [date]
+Text: [1-3 sentence excerpt]`;
   },
 
   contactInfo: {

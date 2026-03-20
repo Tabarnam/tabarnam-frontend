@@ -506,7 +506,262 @@ async function xaiLiveSearch({
   }
 }
 
+/**
+ * Streaming variant of xaiLiveSearch with a hard tool-call cap.
+ * Uses SSE streaming to count web_search/browse_page calls in real time
+ * and aborts the connection when the cap is exceeded.
+ *
+ * Falls back to null if streaming is unsupported (non-responses endpoint).
+ * Caller should fall back to xaiLiveSearch when this returns null.
+ *
+ * @param {object} opts
+ * @param {number} opts.maxToolCalls - Hard cap on web_search/browse_page calls (default 5)
+ * @returns {Promise<object|null>} Same shape as xaiLiveSearch result, or null if unsupported
+ */
+async function xaiLiveSearchStreaming({
+  prompt,
+  timeoutMs = 210000,
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
+  xaiUrl,
+  xaiKey,
+  search_parameters,
+  enableImageUnderstanding = false,
+  signal,
+  maxToolCalls = 5,
+} = {}) {
+  const configuredModel = asString(
+    process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
+  ).trim();
+  const resolvedModel = asString(model).trim() || configuredModel || "grok-4-latest";
+  const resolvedBase = asString(xaiUrl).trim() || asString(getXAIEndpoint()).trim();
+  const key = asString(xaiKey).trim() || asString(getXAIKey()).trim();
+  const url = resolveXaiEndpointForModel(resolvedBase, resolvedModel);
+
+  if (!url || !key) {
+    return { ok: false, error: "missing_xai_config", diagnostics: { streaming: true } };
+  }
+
+  // Streaming only supported for /v1/responses endpoint
+  if (!isResponsesEndpoint(url)) {
+    console.log("[xaiLiveSearchStreaming] Not a /v1/responses endpoint — returning null for fallback");
+    return null;
+  }
+
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  let abortTimerFired = false;
+  const timeoutUsedMs = Math.max(1000, Math.trunc(Number(timeoutMs) || 210000));
+  const timer = setTimeout(() => { abortTimerFired = true; controller.abort(); }, timeoutUsedMs);
+
+  // Link external abort signal
+  if (signal) {
+    if (signal.aborted) { controller.abort(); }
+    else { signal.addEventListener("abort", () => controller.abort(), { once: true }); }
+  }
+
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (isAzureWebsitesUrl(url)) {
+      headers["x-functions-key"] = key;
+    } else {
+      headers.Authorization = `Bearer ${key}`;
+    }
+
+    const payload = {
+      model: resolvedModel,
+      input: [{ role: "user", content: asString(prompt) }],
+      tools: buildToolsArray(search_parameters, { enableImageUnderstanding }),
+      stream: true,
+    };
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: `upstream_http_${res.status}`,
+        diagnostics: {
+          elapsed_ms: Date.now() - startedAt,
+          upstream_http_status: res.status,
+          streaming: true,
+        },
+      };
+    }
+
+    // Parse SSE stream
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let toolCalls = 0;
+    let accumulatedText = "";
+    const outputItems = [];
+    let abortedByToolCap = false;
+    let completedResponse = null;
+
+    try {
+      reading:
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE events (separated by double newline)
+        let boundary;
+        while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+
+          let eventType = "";
+          let dataStr = "";
+          for (const line of block.split("\n")) {
+            if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+            else if (line.startsWith("data: ")) dataStr += line.slice(6);
+            else if (line.startsWith("data:")) dataStr += line.slice(5);
+          }
+
+          if (!dataStr || dataStr.trim() === "[DONE]") continue;
+
+          let parsed;
+          try { parsed = JSON.parse(dataStr); } catch { continue; }
+
+          // response.completed contains the full output array
+          if (eventType === "response.completed" || (parsed.type === "response.completed")) {
+            completedResponse = parsed.response || parsed;
+            break reading;
+          }
+
+          // Detect tool calls (web_search_call items in output)
+          const item = parsed.item || parsed;
+          if (
+            (eventType === "response.output_item.added" || eventType === "") &&
+            (item.type === "web_search_call" || item.type === "browse_page_call")
+          ) {
+            toolCalls++;
+            outputItems.push({ type: item.type, id: item.id || null });
+            console.log(`[xaiLiveSearchStreaming] ${item.type} #${toolCalls} detected`);
+
+            if (toolCalls > maxToolCalls) {
+              console.log(`[xaiLiveSearchStreaming] ABORTING: tool call ${toolCalls} exceeds cap ${maxToolCalls}`);
+              abortedByToolCap = true;
+              controller.abort();
+              break reading;
+            }
+          }
+
+          // Accumulate text deltas
+          if (
+            eventType === "response.output_text.delta" ||
+            parsed.type === "response.output_text.delta"
+          ) {
+            const delta = parsed.delta || "";
+            if (typeof delta === "string") accumulatedText += delta;
+          }
+
+          // Also catch output_text items directly
+          if (item.type === "output_text" && typeof item.text === "string") {
+            accumulatedText += item.text;
+          }
+        }
+      }
+    } finally {
+      try { reader.releaseLock(); } catch {}
+    }
+
+    const elapsedMs = Date.now() - startedAt;
+
+    // If we got a completed response, use it directly (model stayed within budget)
+    if (completedResponse) {
+      return {
+        ok: true,
+        resp: completedResponse,
+        diagnostics: {
+          elapsed_ms: elapsedMs,
+          tool_calls_counted: toolCalls,
+          streaming: true,
+          aborted_by_us: false,
+          abort_timer_fired: abortTimerFired,
+        },
+      };
+    }
+
+    // If aborted by tool cap, build partial response from accumulated data
+    if (abortedByToolCap) {
+      const resp = {
+        output: [
+          ...outputItems,
+          ...(accumulatedText ? [{ type: "output_text", text: accumulatedText }] : []),
+        ],
+      };
+      const hasText = accumulatedText.length > 50;
+      console.log(
+        `[xaiLiveSearchStreaming] Tool cap abort: ${toolCalls} calls, ` +
+        `${accumulatedText.length} chars text, ok=${hasText}`
+      );
+      return {
+        ok: hasText,
+        resp,
+        error: hasText ? undefined : "tool_cap_abort_no_text",
+        error_code: hasText ? undefined : "tool_cap_abort",
+        diagnostics: {
+          elapsed_ms: elapsedMs,
+          tool_calls_counted: toolCalls,
+          tool_cap_aborted: true,
+          text_length: accumulatedText.length,
+          streaming: true,
+          aborted_by_us: true,
+          abort_timer_fired: abortTimerFired,
+        },
+      };
+    }
+
+    // Stream ended without completed event — use accumulated text
+    const resp = {
+      output: [
+        ...outputItems,
+        ...(accumulatedText ? [{ type: "output_text", text: accumulatedText }] : []),
+      ],
+    };
+    return {
+      ok: accumulatedText.length > 50,
+      resp,
+      diagnostics: {
+        elapsed_ms: elapsedMs,
+        tool_calls_counted: toolCalls,
+        streaming: true,
+        aborted_by_us: false,
+        abort_timer_fired: abortTimerFired,
+      },
+    };
+  } catch (err) {
+    const message = asString(err?.message || err) || "streaming_failed";
+    const elapsedMs = Date.now() - startedAt;
+    return {
+      ok: false,
+      error: message,
+      error_code:
+        isTimeoutLikeMessage(message) || abortTimerFired || controller.signal.aborted
+          ? "upstream_timeout"
+          : "streaming_error",
+      diagnostics: {
+        elapsed_ms: elapsedMs,
+        tool_calls_counted: 0,
+        streaming: true,
+        aborted_by_us: Boolean(controller.signal.aborted),
+        abort_timer_fired: abortTimerFired,
+      },
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 module.exports = {
   xaiLiveSearch,
+  xaiLiveSearchStreaming,
   extractTextFromXaiResponse,
 };

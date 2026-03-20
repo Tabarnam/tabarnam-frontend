@@ -1,7 +1,7 @@
 // api/_grokEnrichment.js
 // Overwrite file
 
-const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
+const { xaiLiveSearch, xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE } = require("./_xaiPromptGuidance");
@@ -4046,6 +4046,7 @@ function parseUnifiedPlainTextResponse(rawText) {
   // ── HQ ──
   if ("HQ" in sections) {
     let hqVal = sections.HQ.split("\n")[0].trim();
+    hqVal = sanitizeGrokLocation(hqVal);
     if (hqVal) {
       hqVal = normalizeLocationWithStateAbbrev(hqVal);
       hqVal = normalizeCountryInLocation(hqVal);
@@ -4078,7 +4079,7 @@ function parseUnifiedPlainTextResponse(rawText) {
       field_statuses.manufacturing_locations = "ok";
     } else if (mfgVal) {
       const locs = mfgVal.split(";").map((loc) => {
-        let l = loc.trim();
+        let l = sanitizeGrokLocation(loc.trim());
         l = normalizeLocationWithStateAbbrev(l);
         l = normalizeCountryInLocation(l);
         const inf = inferCountryFromStateAbbreviation(l);
@@ -4182,6 +4183,25 @@ function parseUnifiedPlainTextResponse(rawText) {
 }
 
 /**
+ * Sanitize Grok location strings — strips markdown citations, raw URLs,
+ * and <grok:render> tags that sometimes leak into HQ/MFG fields.
+ * @param {string} loc - Raw location string from xAI response
+ * @returns {string} Cleaned location string
+ */
+function sanitizeGrokLocation(loc) {
+  if (!loc || typeof loc !== "string") return loc;
+  // Remove Grok citation patterns: [[1]](url), [text](url)
+  loc = loc.replace(/\[\[?\d*\]?\]\([^)]+\)/g, "");
+  // Remove <grok:render ...>...</grok:render> tags
+  loc = loc.replace(/<grok:render[^>]*>[\s\S]*?<\/grok:render>/g, "");
+  // Remove raw URLs
+  loc = loc.replace(/https?:\/\/\S+/g, "");
+  // Remove orphaned brackets and collapse whitespace
+  loc = loc.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim();
+  return loc;
+}
+
+/**
  * Count tool usage from xAI /v1/responses output array.
  * @param {object} resp - Raw xAI response (or axios-wrapped)
  * @returns {{ web_search: number, view_image: number, total: number }}
@@ -4227,7 +4247,7 @@ async function fetchAllFieldsSinglePrompt({
     companyWebsiteHost: null,
   });
 
-  // 3. Single xAI call
+  // 3. Single xAI call — try streaming with tool-call cap first
   const timeoutMs = clampStageTimeoutMs({
     remainingMs: getRemainingMs(),
     minMs: 90_000,
@@ -4236,17 +4256,34 @@ async function fetchAllFieldsSinglePrompt({
     label: "single_prompt",
   });
 
-  const r = await xaiLiveSearchWithRetry({
+  // Attempt streaming mode for hard tool-call enforcement (max 5 web_search calls).
+  // Falls back to non-streaming if endpoint doesn't support it.
+  let r = await xaiLiveSearchStreaming({
     prompt,
     timeoutMs,
-    maxAttempts: 1,
     xaiUrl,
     xaiKey,
     search_parameters: { mode: "on", excluded_domains },
-    useTools: true,
     enableImageUnderstanding: !skipLogo,
     signal,
+    maxToolCalls: 5,
   });
+
+  // If streaming returned null (unsupported endpoint), fall back to non-streaming
+  if (r === null) {
+    console.log(`[fetchAllFieldsSinglePrompt] Streaming unsupported — falling back to non-streaming for "${companyName}"`);
+    r = await xaiLiveSearchWithRetry({
+      prompt,
+      timeoutMs,
+      maxAttempts: 1,
+      xaiUrl,
+      xaiKey,
+      search_parameters: { mode: "on", excluded_domains },
+      useTools: true,
+      enableImageUnderstanding: !skipLogo,
+      signal,
+    });
+  }
 
   const phase1Elapsed = Date.now() - started;
   console.log(`[fetchAllFieldsSinglePrompt] Phase 1 xAI call completed in ${phase1Elapsed}ms, ok=${r.ok}`);
