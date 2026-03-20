@@ -23,7 +23,7 @@ const {
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 60_000;
 
 const STAGE_MAX_MS = {
-  primary: 60_000,
+  primary: 3_000,
   keywords: 60_000,
   reviews: 90_000,
   location: 60_000,

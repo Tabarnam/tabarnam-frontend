@@ -193,11 +193,20 @@ Do NOT return favicon.ico or generic 16x16 favicons, product images, hero banner
 Website: ${url}
 
 INSTRUCTIONS:
-- Use web_search to browse ${url} first. Prioritize official site content over external sources.
-- You have a STRICT budget of 5 web_search calls total. Allocate: 2 for site browsing/verification, up to 3 for reviews/keywords. After 5 calls, STOP and use data already gathered. Do NOT exceed 5 calls under any circumstances.
+
+CRITICAL TOOL CONSTRAINT — You have a strict maximum of 5 web_search calls total. You must plan your calls in advance and list the planned URLs before making the first call.
+
+Priority order:
+- Call 1: Homepage ${url} (tagline, logo clues, HQ hints, overall tone)
+- Call 2: Main products / shop / collections page (core keywords and offerings) — browse ONE page only
+- Call 3: About / our-story / pages/about-us / contact page (HQ details and manufacturing location)
+- Calls 4-5: ONLY if critical fields (especially manufacturing location) are still missing — one targeted additional subpage or external verification
+
+Rules:
+- If you have solid data for name, domain, tagline, HQ, MFG, and industries after 3 or 4 calls, STOP immediately. Do not use all 5 calls.
+- Never browse individual product detail pages.
+- Prefer common small-business paths (/collections, /pages/about-us, /faqs) when the obvious ones do not exist.
 - For reviews: Limit external searches to 1 call max after site browse.
-- If web_search yields no new info on a follow-up search, stop and use site data already gathered.
-- If a field lacks info after checking 2 sources, use empty value and move on — do not over-search.
 - Verify with official site domain only; ignore redirects to external sites.
 - If a tool call fails (e.g., page not found), fall back to web_search "[query]" only.
 - Do not hallucinate. If you cannot find credible info for a field, use empty string or empty value.
