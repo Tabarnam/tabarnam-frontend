@@ -645,8 +645,8 @@ async function xaiLiveSearchStreaming({
             outputItems.push({ type: item.type, id: item.id || null });
             console.log(`[xaiLiveSearchStreaming] ${item.type} #${toolCalls} detected`);
 
-            if (toolCalls >= maxToolCalls) {
-              console.log(`[xaiLiveSearchStreaming] ABORTING: tool call ${toolCalls} reached cap ${maxToolCalls}`);
+            if (toolCalls > maxToolCalls) {
+              console.log(`[xaiLiveSearchStreaming] ABORTING: tool call ${toolCalls} exceeds cap ${maxToolCalls}`);
               abortedByToolCap = true;
               controller.abort();
               break reading;
