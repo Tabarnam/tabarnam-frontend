@@ -387,7 +387,26 @@ export default function AdminImport() {
         `Company ${i + 1}`;
       const isCurrent = isSuccessionRunning && i === successionIndex;
       const status = result ? result.status : isCurrent ? "running" : "pending";
-      return { index: i, companyName, companyUrl: item.companyUrl, status, sessionId: result?.sessionId || null };
+
+      // Timing data from run history
+      let startedAt = null;
+      let updatedAt = null;
+      let trt = null;
+      if (run) {
+        startedAt = run.startedAt ? new Date(run.startedAt) : null;
+        updatedAt = run.updatedAt ? new Date(run.updatedAt) : null;
+        if (startedAt && updatedAt && (run.completed || run.stopped || run.timedOut)) {
+          const ms = (run.elapsed_ms > 0 ? run.elapsed_ms : null) ?? (updatedAt - startedAt);
+          if (ms > 0) {
+            const totalSec = Math.round(ms / 1000);
+            const m = Math.floor(totalSec / 60);
+            const s = totalSec % 60;
+            trt = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+          }
+        }
+      }
+
+      return { index: i, companyName, companyUrl: item.companyUrl, status, sessionId: result?.sessionId || null, startedAt, updatedAt, trt };
     });
   }, [showSuccessionPanel, successionQueue, successionResults, successionIndex, runs, isSuccessionRunning]);
 
@@ -4166,20 +4185,48 @@ export default function AdminImport() {
                       ? `Importing ${successionIndex + 1} of ${successionQueue.length} companies`
                       : `Succession complete: ${successionResults.length} imports processed`}
                   </div>
-                  {successionCompleted ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={() => {
-                        setSuccessionResults([]);
-                        setSuccessionQueue([]);
-                      }}
-                    >
-                      Dismiss
-                    </Button>
-                  ) : null}
+                  <div className="flex items-center gap-1">
+                    {successionCompleted ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          const header = "Name\tWebsite\tDate\tStart\tEnd\tTRT";
+                          const rows = successionRunDetails
+                            .filter((item) => item.status === "done" || item.status === "error")
+                            .map((item) => {
+                              const date = item.startedAt ? item.startedAt.toLocaleDateString() : "";
+                              const start = item.startedAt ? item.startedAt.toLocaleTimeString() : "";
+                              const end = item.updatedAt ? item.updatedAt.toLocaleTimeString() : "";
+                              return `${item.companyName}\t${item.companyUrl || ""}\t${date}\t${start}\t${end}\t${item.trt || ""}`;
+                            });
+                          navigator.clipboard.writeText([header, ...rows].join("\n")).then(() => {
+                            // Brief visual feedback via button text swap
+                            const btn = document.activeElement;
+                            if (btn) { const orig = btn.textContent; btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = orig; }, 1500); }
+                          }).catch(() => {});
+                        }}
+                      >
+                        Copy table
+                      </Button>
+                    ) : null}
+                    {successionCompleted ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          setSuccessionResults([]);
+                          setSuccessionQueue([]);
+                        }}
+                      >
+                        Dismiss
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
 
                 {/* Progress bar */}
@@ -4224,7 +4271,7 @@ export default function AdminImport() {
                         )}
                       </div>
 
-                      {/* Company name + URL */}
+                      {/* Company name + URL + timing */}
                       <div className="flex-1 min-w-0 truncate">
                         <span
                           className={`font-medium ${
@@ -4238,8 +4285,17 @@ export default function AdminImport() {
                           {item.companyName}
                         </span>
                         {item.companyUrl ? (
-                          <span className="ml-2 text-xs text-slate-500 dark:text-muted-foreground truncate">
+                          <span className="ml-2 text-xs text-slate-500 dark:text-muted-foreground">
                             {item.companyUrl}
+                          </span>
+                        ) : null}
+                        {item.startedAt && item.updatedAt && item.trt ? (
+                          <span className="ml-3 text-xs text-slate-400 dark:text-muted-foreground">
+                            {item.startedAt.toLocaleDateString()}{" "}
+                            {item.startedAt.toLocaleTimeString()}
+                            {" \u2192 "}
+                            {item.updatedAt.toLocaleTimeString()}
+                            <span className="ml-1.5 font-mono text-emerald-600 dark:text-emerald-400">TRT: {item.trt}</span>
                           </span>
                         ) : null}
                       </div>
