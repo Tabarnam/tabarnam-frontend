@@ -4198,6 +4198,22 @@ function sanitizeGrokLocation(loc) {
   loc = loc.replace(/https?:\/\/\S+/g, "");
   // Remove orphaned brackets and collapse whitespace
   loc = loc.replace(/[[\]]/g, "").replace(/\s+/g, " ").trim();
+
+  // Reject prose/marketing phrases that aren't real locations.
+  // Real locations: "City, ST, USA" or "USA" — short, comma-separated.
+  // Prose: "Made right here in the Valley", "Handcrafted in our kitchen"
+  if (loc.length > 0) {
+    const lower = loc.toLowerCase();
+    const proseIndicators = ["made ", "right here", "handcrafted", "crafted in", "produced in our", "baked in", "brewed in our", "from our ", "in the ", "in our "];
+    const looksLikeProse = proseIndicators.some((p) => lower.includes(p));
+    const wordCount = loc.split(/\s+/).length;
+    const hasComma = loc.includes(",");
+    if (looksLikeProse || (wordCount >= 5 && !hasComma)) {
+      console.warn(`[sanitizeGrokLocation] Rejected prose location: "${loc}"`);
+      return "";
+    }
+  }
+
   return loc;
 }
 
