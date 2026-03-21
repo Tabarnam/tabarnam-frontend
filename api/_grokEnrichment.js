@@ -4239,15 +4239,42 @@ async function fetchAllFieldsSinglePrompt({
 
   console.log(`[fetchAllFieldsSinglePrompt] Starting for "${companyName}" (${domain}), budget=${budgetMs}ms, skipLogo=${skipLogo}`);
 
-  // 1. Build prompt
-  const prompt = FIELD_GUIDANCE.unified(companyName, websiteUrl, { skipLogo });
+  // 1. Pre-fetch about/contact pages for HQ/MFG extraction (parallel, best-effort)
+  let prefetchedAboutHtml = "";
+  try {
+    const aboutPaths = ["/about", "/contact", "/pages/about-us", "/our-story"];
+    const fetchPromises = aboutPaths.map((path) =>
+      fetchText(`https://${domain}${path}`, 5_000)
+        .then(({ ok, text }) => {
+          if (ok && text) {
+            const stripped = stripHtmlToText(text, 3000);
+            return stripped.length > 80 ? `[${path}]\n${stripped}` : null;
+          }
+          return null;
+        })
+        .catch(() => null)
+    );
+    const results = await Promise.all(fetchPromises);
+    const validPages = results.filter(Boolean);
+    if (validPages.length > 0) {
+      prefetchedAboutHtml = validPages.join("\n\n").slice(0, 6000);
+      console.log(`[fetchAllFieldsSinglePrompt] Pre-fetched ${validPages.length} about/contact page(s) for "${companyName}" (${prefetchedAboutHtml.length} chars)`);
+    } else {
+      console.log(`[fetchAllFieldsSinglePrompt] No about/contact pages found for "${companyName}" — proceeding without pre-fetch`);
+    }
+  } catch (prefetchErr) {
+    console.warn(`[fetchAllFieldsSinglePrompt] Pre-fetch failed for "${companyName}": ${prefetchErr?.message}`);
+  }
 
-  // 2. Build search params (excluded domains)
+  // 2. Build prompt (with pre-fetched content if available)
+  const prompt = FIELD_GUIDANCE.unified(companyName, websiteUrl, { skipLogo, prefetchedAboutHtml });
+
+  // 3. Build search params (excluded domains)
   const { search_parameters, excluded_domains } = buildSearchParameters({
     companyWebsiteHost: null,
   });
 
-  // 3. Single xAI call — try streaming with tool-call cap first
+  // 4. Single xAI call — try streaming with tool-call cap first
   const timeoutMs = clampStageTimeoutMs({
     remainingMs: getRemainingMs(),
     minMs: 90_000,
@@ -4470,6 +4497,80 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
       }
     } catch (kwErr) {
       console.warn(`[fetchAllFieldsSinglePrompt] Keywords follow-up failed for "${companyName}": ${kwErr?.message}`);
+    }
+  }
+
+  // 8. Targeted follow-up for empty HQ, MFG, or tagline
+  const hq = parsed.parsed_fields.headquarters_location;
+  const mfg = parsed.parsed_fields.manufacturing_locations;
+  const tag = parsed.parsed_fields.tagline;
+  const hqEmpty = !hq || (typeof hq === "string" && !hq.trim());
+  const mfgEmpty = !mfg || (typeof mfg === "string" && !mfg.trim()) || (Array.isArray(mfg) && mfg.length === 0);
+  const tagEmpty = !tag || (typeof tag === "string" && !tag.trim());
+  const missingCritical = [];
+  if (hqEmpty) missingCritical.push("HQ (headquarters location — City, ST, USA format)");
+  if (mfgEmpty) missingCritical.push("Manufacturing (manufacturing/facility locations — City, ST, Country; semicolons between multiple)");
+  if (tagEmpty) missingCritical.push("Tagline (company tagline, slogan, or motto)");
+
+  if (missingCritical.length > 0 && getRemainingMs() >= 15_000) {
+    console.log(`[fetchAllFieldsSinglePrompt] ${missingCritical.length} critical field(s) empty for "${companyName}" (${missingCritical.map((f) => f.split(" (")[0]).join(", ")}), triggering follow-up`);
+    try {
+      const followupPrompt = `Research ${companyName} (${websiteUrl || domain}).
+The following fields could not be determined from the initial research. Find them now.
+
+${missingCritical.map((f, i) => `${i + 1}. ${f}`).join("\n")}
+
+Output each field on its own line with the label followed by the value. Example:
+HQ: City, ST, USA
+Manufacturing: City, ST, Country
+Tagline: The company slogan
+
+Do not hallucinate. Use empty string if truly not findable.`;
+
+      const followupTimeout = Math.min(45_000, getRemainingMs() - 5_000);
+      const followupResult = await xaiLiveSearchWithRetry({
+        prompt: followupPrompt,
+        timeoutMs: followupTimeout,
+        maxAttempts: 1,
+        xaiUrl,
+        xaiKey,
+        search_parameters: { mode: "on", excluded_domains },
+        useTools: true,
+        signal,
+      });
+
+      if (followupResult.ok) {
+        const followupText = extractTextFromXaiResponse(followupResult.resp);
+        // Parse labeled fields from plain-text response
+        const hqMatch = followupText.match(/^HQ:\s*(.+)/mi);
+        const mfgMatch = followupText.match(/^Manufacturing:\s*(.+)/mi);
+        const tagMatch = followupText.match(/^Tagline:\s*(.+)/mi);
+
+        let patched = 0;
+        if (hqEmpty && hqMatch && hqMatch[1].trim() && hqMatch[1].trim() !== '""') {
+          parsed.parsed_fields.headquarters_location = sanitizeGrokLocation(hqMatch[1].trim());
+          parsed.field_statuses.headquarters = "ok_from_followup";
+          patched++;
+        }
+        if (mfgEmpty && mfgMatch && mfgMatch[1].trim() && mfgMatch[1].trim() !== '""') {
+          const mfgVal = sanitizeGrokLocation(mfgMatch[1].trim());
+          parsed.parsed_fields.manufacturing_locations = mfgVal.includes(";") ? mfgVal.split(";").map((s) => s.trim()) : [mfgVal];
+          parsed.field_statuses.manufacturing = "ok_from_followup";
+          patched++;
+        }
+        if (tagEmpty && tagMatch && tagMatch[1].trim() && tagMatch[1].trim() !== '""') {
+          parsed.parsed_fields.tagline = tagMatch[1].trim().replace(/^["']|["']$/g, "");
+          parsed.field_statuses.tagline = "ok_from_followup";
+          patched++;
+        }
+
+        parsed.diagnostics.critical_followup = true;
+        parsed.diagnostics.critical_followup_patched = patched;
+        parsed.diagnostics.critical_followup_requested = missingCritical.length;
+        console.log(`[fetchAllFieldsSinglePrompt] Critical follow-up patched ${patched}/${missingCritical.length} fields for "${companyName}"`);
+      }
+    } catch (followupErr) {
+      console.warn(`[fetchAllFieldsSinglePrompt] Critical follow-up failed for "${companyName}": ${followupErr?.message}`);
     }
   }
 

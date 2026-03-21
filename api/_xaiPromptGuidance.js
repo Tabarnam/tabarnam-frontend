@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "3.9.0";
+const PROMPT_GUIDANCE_VERSION = "4.0.0";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -171,7 +171,7 @@ FORMAT RULES:
   // ── v6.0: Single-Prompt Unified Template ──────────────────────────────
   // Replaces the 5-call batch pipeline with a single xAI call that extracts
   // all fields in one pass. Toggle via SINGLE_PROMPT_MODE=1 env var.
-  unified: (companyName, websiteUrl, { skipLogo = false } = {}) => {
+  unified: (companyName, websiteUrl, { skipLogo = false, prefetchedAboutHtml = "" } = {}) => {
     const name = companyName || "(unknown company)";
     const url = websiteUrl || "(unknown website)";
 
@@ -190,19 +190,24 @@ If no logo found, return: {"logo_url": null, "logo_source": null}
 Do NOT return favicon.ico or generic 16x16 favicons, product images, hero banners, or promotional graphics.
 - If logo is inline SVG with no separate image URL, return {"logo_url": null, "logo_source": null}.`;
 
+    const prefetchBlock = prefetchedAboutHtml ? `
+PRE-FETCHED ABOUT/CONTACT PAGE (do not browse this page again — extract HQ and Manufacturing from here first):
+<about_page>
+${prefetchedAboutHtml}
+</about_page>
+` : "";
+
     return `Research the company: ${name}
 Website: ${url}
 
 INSTRUCTIONS:
 
-CRITICAL TOOL CONSTRAINT — You have a strict maximum of 5 web_search calls total. Plan your calls in advance.
-CRITICAL: You MUST stop after exactly 5 browse_page or web_search calls. If you reach 5, output ONLY what you have so far — no more tool calls.
-
-Priority order:
-- Call 1: Homepage ${url} (tagline, logo clues, HQ hints, overall tone)
-- Call 2: Main products / shop / collections page — browse ONE page only
-- Call 3: About / our-story / contact page (HQ and manufacturing location)
-- Calls 4-5: ONLY if critical fields are still missing
+CRITICAL TOOL CONSTRAINT — Maximum of 5 tool calls total.
+You MUST stop after exactly 5 browse_page or web_search calls. If you reach 5, output ONLY what you have so far.
+Allocate calls as:
+1. Homepage ${url} (tagline, logo clues, HQ hints, overall tone)
+2. Products/shop/collections (ONE page only)
+3-5. Only if HQ or Manufacturing are still missing after reading the pre-fetched content below
 
 Rules:
 - If you have solid data after 3 or 4 calls, STOP immediately.
@@ -210,8 +215,19 @@ Rules:
 - For reviews: Limit external searches to 1 call max after site browse.
 - Do not hallucinate. Use empty string for fields you cannot verify.
 - No markdown formatting. Output each section with its label on its own line.
+${prefetchBlock}
+Extract the following fields IN THIS EXACT ORDER (highest priority first):
 
-Extract the following fields:
+HQ:
+Find the headquarters or mailing address from the pre-fetched about/contact content above, or from contact/about/footer pages on ${url}.
+If not found, use web_search "${name} headquarters" and cross-check with one external source.
+Format: City, ST, USA (use state initials, use "USA" not "US"). For non-US, use full province/state names (e.g., "Calgary, Alberta, Canada").
+Return just the location string, no explanatory info.
+
+Manufacturing:
+Find manufacturing or "made in" info from the pre-fetched content above or from ${url}.
+Format: City, ST, Country; separate with semicolons.
+If only country known, return country alone (e.g., "USA"). If outsourced, use HQ location. If retailer/marketplace, return: not_applicable
 
 Tagline:
 Find the company's tagline, slogan, or motto from the homepage hero section, header, footer, meta description, og:description, or <title> tag.
@@ -223,30 +239,16 @@ Return up to 3 specific, descriptive industry labels that describe what ${name} 
 Be specific to the company's niche (e.g., "Artisan Beef Jerky" not "Food", "Specialty Pet Nutrition" not "E-Commerce").
 Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce".
 Comma-separated on one line.
-
-HQ:
-Find the headquarters or mailing address from contact, about, or footer pages on ${url}.
-If not found on the website, use web_search "${name} headquarters" and cross-check with one external source.
-If location is vague (e.g., "USA"), cross-check with one external source but default to site if consistent.
-Format: City, ST, USA (use state initials, use "USA" not "US"). For non-US, use full province/state names (e.g., "Calgary, Alberta, Canada").
-Return just the location string, no explanatory info.
-
-Manufacturing:
-Find manufacturing or "made in" info from ${url}. Format: City, ST, Country; separate with semicolons.
-If only country known, return country alone (e.g., "USA"). If outsourced, use HQ location. If retailer/marketplace, return: not_applicable
 ${logoSection}
 
 Keywords:
 Browse ${url} product/shop/collections pages to find all products.
 Return all products, product lines, flavors, and varieties — up to 100 items.
-If the /products page is paginated or large, summarize groups (e.g., "Beef Jerky (various flavors)") to fit up to 100 items without deep crawling.
-Return ONLY actual products (not navigation labels, site features, or generic categories).
-Return product names in Title Case (e.g., "Nasturtium Pop-Up Card" not "NASTURTIUM").
-If the products page shows categories or collections, list individual product names from each category.
-Comma-separated on one line.
+If paginated or large, summarize groups to fit up to 100 items without deep crawling.
+Return ONLY actual products in Title Case. Comma-separated on one line.
 
 Reviews:
-Find 1-2 reviews: first check ${url} for testimonials or press mentions, then use at most 1 external search if calls remain. If none found, extract a short excerpt from the About page or mission statement.
+Find 1-2 reviews: first check ${url} for testimonials or press mentions, then use at most 1 external search if calls remain.
 Do not hallucinate. Output each review in this format (separated by blank line):
 
 Source: [publication/website]
