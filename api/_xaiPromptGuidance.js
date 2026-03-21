@@ -248,7 +248,9 @@ If paginated or large, summarize groups to fit up to 100 items without deep craw
 Return ONLY actual products in Title Case. Comma-separated on one line.
 
 Reviews:
-Find 1-2 reviews: first check ${url} for testimonials or press mentions, then use at most 1 external search if calls remain.
+Always return at least 1 review. First check ${url} for testimonials, press mentions, "as seen in" sections, or customer reviews.
+If none found, extract 1-2 sentences from the About page, mission statement, or FAQ as a review (Source: ${name} Website, Author: N/A, Title: "Company Statement").
+Then, if you have web_search calls remaining, find 1 external third-party review using at most 1 search call.
 Do not hallucinate. Output each review in this format (separated by blank line):
 
 Source: [publication/website]
