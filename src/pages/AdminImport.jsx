@@ -3643,9 +3643,11 @@ export default function AdminImport() {
     }
   }, [bulkUrls, bulkEnqueueLoading]);
 
-  // Poll for batch status
+  // Poll for batch status with exponential backoff (5s → 10s → 20s → 30s cap)
   useEffect(() => {
     if (!activeBatchId) return;
+    let cancelled = false;
+    let timer = null;
 
     const pollBatchStatus = async () => {
       try {
@@ -3653,7 +3655,6 @@ export default function AdminImport() {
         const data = await res.json();
         if (data.ok && data.jobs) {
           setBatchJobs(data.jobs);
-          // Stop polling when all complete
           if (data.summary?.queued === 0 && data.summary?.running === 0) {
             return true; // Done polling
           }
@@ -3664,18 +3665,30 @@ export default function AdminImport() {
       return false;
     };
 
-    // Initial poll
-    pollBatchStatus();
+    const BATCH_POLL_INITIAL_MS = 5_000;
+    const BATCH_POLL_MAX_MS = 30_000;
+    const BATCH_POLL_FACTOR = 1.5;
 
-    // Set up interval
-    const interval = setInterval(async () => {
-      const done = await pollBatchStatus();
-      if (done) {
-        clearInterval(interval);
-      }
-    }, 5000);
+    const scheduleNext = (delayMs) => {
+      if (cancelled) return;
+      timer = setTimeout(async () => {
+        if (cancelled) return;
+        const done = await pollBatchStatus();
+        if (!done && !cancelled) {
+          scheduleNext(Math.min(delayMs * BATCH_POLL_FACTOR, BATCH_POLL_MAX_MS));
+        }
+      }, delayMs);
+    };
 
-    return () => clearInterval(interval);
+    // Initial poll, then start backoff
+    pollBatchStatus().then((done) => {
+      if (!done && !cancelled) scheduleNext(BATCH_POLL_INITIAL_MS);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [activeBatchId]);
 
   return (

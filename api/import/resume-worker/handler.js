@@ -2137,32 +2137,64 @@ async function resumeWorkerHandler(req, context) {
       }
     }, HEARTBEAT_INTERVAL_MS);
 
+    // Concurrency limit: process up to 3 companies in parallel to improve
+    // throughput while avoiding XAI rate limits and Azure Function resource
+    // exhaustion. Each company's enrichment is independent (writes to its own
+    // doc and progress key), so concurrent I/O is safe in single-threaded Node.
+    const ENRICHMENT_CONCURRENCY_LIMIT = 3;
+
     // eslint-disable-next-line no-constant-condition
     while (true) {
     // Recalculate per-doc budget based on CURRENT remaining budget (shrinks on internal retries)
     const perDocBudgetMs = budgetRemainingMs();
 
-    for (const entry of plannedByCompany) {
+    // Process companies in batches of ENRICHMENT_CONCURRENCY_LIMIT
+    let batchBreakEarly = false;
+    for (let batchStart = 0; batchStart < plannedByCompany.length && !batchBreakEarly; batchStart += ENRICHMENT_CONCURRENCY_LIMIT) {
+      // Pre-batch checks (session stopped, aborted, hard timeout)
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
       if (aborted) {
         console.log(`[resume-worker] aborting enrichment loop — superseded by newer worker, session=${sessionId}`);
         return gracefulExit("aborted_superseded");
       }
-
-      // Hard timeout check: exit loop before Azure Function timeout kills us
       const handlerElapsed = Date.now() - handlerStartedAt;
       if (handlerElapsed > HANDLER_HARD_TIMEOUT_MS) {
         console.log(`[resume-worker] hard_timeout_reached`, {
           session_id: sessionId,
           elapsed_ms: handlerElapsed,
           hard_timeout_ms: HANDLER_HARD_TIMEOUT_MS,
-          companies_remaining: plannedByCompany.length - plannedByCompany.indexOf(entry),
+          companies_remaining: plannedByCompany.length - batchStart,
         });
-        break; // Exit enrichment loop gracefully, let next invocation continue
+        batchBreakEarly = true;
+        break;
+      }
+      if (budgetRemainingMs() < perDocBudgetMs * 0.5) {
+        console.log(`[resume-worker] deferring_remaining_companies`, {
+          session_id: sessionId,
+          budget_remaining_ms: budgetRemainingMs(),
+          per_doc_budget_ms: perDocBudgetMs,
+          companies_deferred: plannedByCompany.length - batchStart,
+        });
+        batchBreakEarly = true;
+        break;
       }
 
-      // Per-company wall-clock cap: if total enrichment time across all cycles exceeds
-      // the cap, skip this company to avoid one slow company stalling the entire batch.
+      const batch = plannedByCompany.slice(batchStart, batchStart + ENRICHMENT_CONCURRENCY_LIMIT);
+      const batchSize = batch.length;
+      if (batchSize > 1) {
+        console.log(`[resume-worker] concurrent_batch_start`, {
+          session_id: sessionId,
+          batch_offset: batchStart,
+          batch_size: batchSize,
+          company_ids: batch.map((e) => String(e?.company_id || "").trim()),
+        });
+      }
+
+      // Write heartbeat to session doc periodically to signal progress
+      await maybeWriteHeartbeat();
+
+      const batchResults = await Promise.allSettled(batch.map(async (entry) => {
+      // Per-company wall-clock cap
       const enrichmentFirstStarted = Date.parse(String(resumeDoc?.enrichment_started_at || "")) || 0;
       if (enrichmentFirstStarted && cycleCount > 0) {
         const totalElapsedMs = Date.now() - enrichmentFirstStarted;
@@ -2174,25 +2206,9 @@ async function resumeWorkerHandler(req, context) {
             cap_ms: MAX_ENRICHMENT_WALL_CLOCK_MS,
             cycle_count: cycleCount,
           });
-          continue;
+          return;
         }
       }
-
-      // Full-budget check: each company deserves near-full enrichment budget.
-      // If remaining budget is < half the per-doc budget, defer remaining
-      // companies to the next invocation (which starts fresh with full budget).
-      if (budgetRemainingMs() < perDocBudgetMs * 0.5) {
-        console.log(`[resume-worker] deferring_remaining_companies`, {
-          session_id: sessionId,
-          budget_remaining_ms: budgetRemainingMs(),
-          per_doc_budget_ms: perDocBudgetMs,
-          companies_deferred: plannedByCompany.length - plannedByCompany.indexOf(entry),
-        });
-        break;
-      }
-
-      // Write heartbeat to session doc periodically to signal progress
-      await maybeWriteHeartbeat();
 
       const companyId = String(entry?.company_id || "").trim();
       if (!companyId) continue;
@@ -2661,7 +2677,28 @@ async function resumeWorkerHandler(req, context) {
       }
 
       docsById.set(companyId, doc);
-    }
+    })); // end Promise.allSettled callback
+
+      // Log any rejected promises from the batch
+      for (const r of batchResults) {
+        if (r.status === "rejected") {
+          console.error(`[resume-worker] concurrent_batch_company_error`, {
+            session_id: sessionId,
+            error: r.reason?.message || String(r.reason),
+          });
+        }
+      }
+
+      if (batchSize > 1) {
+        console.log(`[resume-worker] concurrent_batch_end`, {
+          session_id: sessionId,
+          batch_offset: batchStart,
+          batch_size: batchSize,
+          fulfilled: batchResults.filter((r) => r.status === "fulfilled").length,
+          rejected: batchResults.filter((r) => r.status === "rejected").length,
+        });
+      }
+    } // end batch for loop
 
     // Defensive: enqueue retry EARLY, before post-enrichment doc writes that Azure may kill.
     // If any field is retryable, queue a retry immediately. The regular self-enqueue at the

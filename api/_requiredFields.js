@@ -373,7 +373,20 @@ function isKeywordJunk(keyword) {
   return false;
 }
 
+// Module-level cache for sanitizeKeywords — avoids recomputation when
+// called repeatedly with identical inputs (e.g. during status polling).
+const _sanitizeKwCache = new Map();
+const _SANITIZE_KW_CACHE_MAX = 200;
+
 function sanitizeKeywords({ product_keywords, keywords }) {
+  // Build cache key from inputs
+  const pkStr = typeof product_keywords === "string" ? product_keywords : "";
+  const kwStr = Array.isArray(keywords) ? keywords.join("|") : "";
+  const cacheKey = `${pkStr}|||${kwStr}`;
+
+  const cached = _sanitizeKwCache.get(cacheKey);
+  if (cached) return cached;
+
   const rawFromProductKeywords = splitKeywordString(product_keywords);
   const rawFromKeywords = Array.isArray(keywords) ? keywords : [];
 
@@ -406,12 +419,21 @@ function sanitizeKeywords({ product_keywords, keywords }) {
     console.log(`[sanitizeKeywords] raw_count=${total_raw}, sanitized_count=${sanitized.length}, rejected: junk=${junkCount}, duplicate=${dupCount}, sample_rejected=${JSON.stringify(sampleRejected)}`);
   }
 
-  return {
+  const result = {
     total_raw,
     sanitized,
     sanitized_count: sanitized.length,
     product_relevant_count: sanitized.length,
   };
+
+  // Evict oldest entries when cache is full
+  if (_sanitizeKwCache.size >= _SANITIZE_KW_CACHE_MAX) {
+    const first = _sanitizeKwCache.keys().next().value;
+    _sanitizeKwCache.delete(first);
+  }
+  _sanitizeKwCache.set(cacheKey, result);
+
+  return result;
 }
 
 function asMeaningfulString(value) {
@@ -594,7 +616,8 @@ function isRealValue(field, value, doc) {
     // identical data, so cache the result on the doc object.
     const rawStr = typeof value === "string" ? value : Array.isArray(value) ? value.join(", ") : "";
     const kwArr = doc?.keywords;
-    const cacheKey = `${rawStr.length}|${(Array.isArray(kwArr) ? kwArr.length : 0)}`;
+    const kwArrStr = Array.isArray(kwArr) ? kwArr.join("|") : "";
+    const cacheKey = `${rawStr}|||${kwArrStr}`;
     if (doc && doc._kwCacheKey === cacheKey && doc._kwRelevantCount != null) {
       return doc._kwRelevantCount >= 1;
     }
