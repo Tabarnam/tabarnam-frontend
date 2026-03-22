@@ -4248,6 +4248,7 @@ async function fetchAllFieldsSinglePrompt({
   xaiKey,
   skipLogo = false,
   signal,
+  onIntermediateSave,
 } = {}) {
   const started = Date.now();
   const getRemainingMs = () => Math.max(0, budgetMs - (Date.now() - started));
@@ -4473,6 +4474,17 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
       elapsed_ms: Date.now() - started,
       diagnostics: parsed.diagnostics,
     };
+  }
+
+  // 6b. Intermediate save after Phase 1 — persist whatever we got before follow-up calls.
+  // If the Azure worker is killed during follow-ups, at least Phase 1 data survives.
+  if (typeof onIntermediateSave === "function" && Object.keys(parsed.parsed_fields).length > 0) {
+    try {
+      await onIntermediateSave(parsed.parsed_fields);
+      console.log(`[fetchAllFieldsSinglePrompt] Phase 1 intermediate save OK for "${companyName}"`);
+    } catch (e) {
+      console.warn(`[fetchAllFieldsSinglePrompt] Phase 1 intermediate save failed for "${companyName}": ${e?.message}`);
+    }
   }
 
   // 7. Keywords fallback — if product_keywords is empty, trigger a narrow follow-up
@@ -4801,6 +4813,7 @@ async function enrichCompanyFields({
       xaiKey,
       skipLogo,
       signal,
+      onIntermediateSave,
     });
 
     if (singleResult.ok) {
