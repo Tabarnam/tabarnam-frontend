@@ -1411,12 +1411,17 @@ export default function AdminImport() {
 
           // General backoff: if enrichment is still running (no resume path),
           // back off gradually instead of hammering at 2.5s.
+          // During succession, cap at 10s so completion is detected quickly
+          // (reduces inter-pair gap from ~25s to ~10s).
           const statusStr = asString(latestBody?.status).trim().toLowerCase();
           if (statusStr === "running" || statusStr === "in_progress" || statusStr === "enriching") {
+            const maxBackoffMs = isSuccessionRunningRef.current ? 10_000 : undefined;
+            const backoffArray = GENERAL_RUNNING_BACKOFF_MS;
             const currentIndex = pollBackoffRef.current.get(sid) || 0;
-            const idx = Math.max(0, Math.min(currentIndex, GENERAL_RUNNING_BACKOFF_MS.length - 1));
-            pollBackoffRef.current.set(sid, Math.min(idx + 1, GENERAL_RUNNING_BACKOFF_MS.length - 1));
-            return GENERAL_RUNNING_BACKOFF_MS[idx];
+            const idx = Math.max(0, Math.min(currentIndex, backoffArray.length - 1));
+            pollBackoffRef.current.set(sid, Math.min(idx + 1, backoffArray.length - 1));
+            const delayMs = backoffArray[idx];
+            return maxBackoffMs ? Math.min(delayMs, maxBackoffMs) : delayMs;
           }
 
           pollBackoffRef.current.delete(sid);
@@ -1653,7 +1658,7 @@ export default function AdminImport() {
           return;
         }
 
-        // Compute next delay with backoff
+        // Compute next delay with backoff (capped at 10s during succession)
         const latestBody = result?.body || null;
         const statusStr = asString(latestBody?.status).trim().toLowerCase();
         let nextDelayMs = DEFAULT_POLL_INTERVAL_MS;
@@ -1661,7 +1666,7 @@ export default function AdminImport() {
           const currentIndex = shadowPollBackoffRef.current.get(sid) || 0;
           const idx = Math.max(0, Math.min(currentIndex, GENERAL_RUNNING_BACKOFF_MS.length - 1));
           shadowPollBackoffRef.current.set(sid, Math.min(idx + 1, GENERAL_RUNNING_BACKOFF_MS.length - 1));
-          nextDelayMs = GENERAL_RUNNING_BACKOFF_MS[idx];
+          nextDelayMs = Math.min(GENERAL_RUNNING_BACKOFF_MS[idx], 10_000);
         }
 
         scheduleShadowPoll({ session_id: sid, delayMs: nextDelayMs });

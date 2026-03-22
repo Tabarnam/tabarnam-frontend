@@ -5471,21 +5471,22 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   `[import-start] session=${sessionId} FAST PATH 202: returning 202 Accepted, firing enrichment async for ${mandatoryCompanyIds.length} companies`
                 );
 
-                // Safety net: queue a delayed resume-worker message so enrichment recovers
-                // even if the fire-and-forget call below is killed by Azure host recycling.
-                // Delay = 3 minutes — enough for inline enrichment (150s budget) to finish.
-                // If it does finish, the resume-worker finds all fields present and exits (no-op).
+                // Enqueue resume-worker with short delay BEFORE returning 202.
+                // The fire-and-forget call below also enqueues, but Azure may kill
+                // the execution context after the 202 response, causing the
+                // fire-and-forget enqueue to be lost. This guarantees the queue
+                // message exists regardless.
                 try {
                   await enqueueResumeRun({
                     session_id: sessionId,
                     company_ids: mandatoryCompanyIds,
-                    reason: "fast_path_202_safety_net",
+                    reason: "fast_path_202_primary",
                     requested_by: "import_start",
                     enqueue_at: new Date().toISOString(),
                     cycle_count: 0,
-                    run_after_ms: mandatoryCompanyIds.length * 360_000, // 6 min per company (5-min budget + 1-min buffer)
+                    run_after_ms: 1000, // 1s delay — seed is already saved
                   }).catch(() => null);
-                  console.log(`[import-start] session=${sessionId} safety-net resume enqueued (${mandatoryCompanyIds.length * 360}s delay, ${mandatoryCompanyIds.length} companies)`);
+                  console.log(`[import-start] session=${sessionId} resume enqueued (1s delay, ${mandatoryCompanyIds.length} companies)`);
                 } catch {}
 
                 // Fire-and-forget: run enrichment asynchronously.

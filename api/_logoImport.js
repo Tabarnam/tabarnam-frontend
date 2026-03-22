@@ -25,6 +25,33 @@ function clampNumber(n, min, max, fallback) {
   return Math.max(min, Math.min(max, v));
 }
 
+// Strip CDN resize parameters from logo URLs to fetch the full-size image.
+// Shopify, BigCommerce, and similar CDNs serve resized versions when width/height
+// params are present (e.g. ?crop=center&height=48&width=48). Removing these lets
+// the dimension check see the actual logo size, not the thumbnail.
+const CDN_RESIZE_PARAMS = new Set(["width", "height", "w", "h", "crop", "fit", "quality", "q", "resize", "size", "dpr"]);
+function stripCdnResizeParams(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    let changed = false;
+    for (const key of [...u.searchParams.keys()]) {
+      if (CDN_RESIZE_PARAMS.has(key.toLowerCase())) {
+        u.searchParams.delete(key);
+        changed = true;
+      }
+    }
+    // Strip fm= param on SVG URLs (e.g. imgix fm=webp forces raster conversion)
+    const ext = getFileExt(urlStr);
+    if (ext === "svg" && u.searchParams.has("fm")) {
+      u.searchParams.delete("fm");
+      changed = true;
+    }
+    return changed ? u.toString() : urlStr;
+  } catch {
+    return urlStr;
+  }
+}
+
 function createTimeBudget(budgetMs, { defaultMs = 20_000, maxMs = 25_000 } = {}) {
   const cap = clampNumber(budgetMs, 0, maxMs, defaultMs);
   const startMs = Date.now();
@@ -295,35 +322,8 @@ function getFileExt(url) {
  *    e.g. `?crop=center&height=32&width=32` on cdn.shopify.com URLs
  * 2. SVG format override — strip `fm=` param (e.g. imgix fm=webp) on any host
  */
-const CDN_RESIZE_PARAMS = ["width", "height", "crop", "w", "h", "fit"];
-const CDN_RESIZE_HOSTS = [".shopify.com", ".shopifycdn.net"];
-
-function stripCdnResizeParams(url) {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.toLowerCase();
-    const isCdnResizeHost = CDN_RESIZE_HOSTS.some(
-      (p) => host === p.slice(1) || host.endsWith(p)
-    );
-    if (isCdnResizeHost) {
-      let changed = false;
-      for (const p of CDN_RESIZE_PARAMS) {
-        if (u.searchParams.has(p)) {
-          u.searchParams.delete(p);
-          changed = true;
-        }
-      }
-      if (changed) return u.toString();
-    }
-    // Original SVG fm= stripping for any host
-    const ext = getFileExt(url);
-    if (ext === "svg" && u.searchParams.has("fm")) {
-      u.searchParams.delete("fm");
-      return u.toString();
-    }
-  } catch {}
-  return url;
-}
+// Old host-specific CDN resize stripping replaced by the universal
+// stripCdnResizeParams() defined at the top of the file (handles all CDNs).
 
 function extScore(ext) {
   switch (ext) {
@@ -1127,8 +1127,11 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
     return { ok: false, reason: `unsupported_extension_${urlExt}` };
   }
 
+  // Strip CDN resize params to fetch full-size image instead of thumbnail
+  const fetchUrl = stripCdnResizeParams(sourceUrl);
+
   const headTimeoutMs = computeBudgetedTimeoutMs(budget, 6000, { minMs: 900, marginMs: 400, maxMs: 8000 });
-  const head = await headProbeImage(sourceUrl, { timeoutMs: headTimeoutMs });
+  const head = await headProbeImage(fetchUrl, { timeoutMs: headTimeoutMs });
   const probedType = String(head.contentType || "").toLowerCase();
 
   if (!head.ok) {
@@ -1155,7 +1158,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console, options = 
   try {
     const fetchTimeoutMs = computeBudgetedTimeoutMs(budget, 8000, { minMs: 1400, marginMs: 650, maxMs: 12_000 });
 
-    const { buf, contentType, finalUrl } = await fetchImageBufferWithRetries(sourceUrl, {
+    const { buf, contentType, finalUrl } = await fetchImageBufferWithRetries(fetchUrl, {
       retries: 1,
       timeoutMs: fetchTimeoutMs,
       maxBytes: 6 * 1024 * 1024,
