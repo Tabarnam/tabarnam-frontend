@@ -469,6 +469,13 @@ export function getContractMissingFields(company) {
     }
   }
 
+  // Drop "manufacturing" if admin marked the company as limited manufacturing
+  if (company?.limited_manufacturing) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] === "manufacturing") fields.splice(i, 1);
+    }
+  }
+
   // Check for incomplete keywords (unless acknowledged by admin)
   const kwIncomplete =
     asString(company?.keywords_completeness).trim().toLowerCase() === "incomplete";
