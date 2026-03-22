@@ -920,10 +920,10 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       company_ids: ids,
       reason: reason || "enrichment_queued",
       requested_by: "import_start",
-      run_after_ms: 5000, // 5-second delay
+      run_after_ms: 1000, // 1-second delay (reduced from 5s — import-start has already saved the seed)
     });
     queued = true;
-    console.log(`[import-start] session=${sessionId} resume-worker enqueued (5s delay, ${ids.length} companies)`);
+    console.log(`[import-start] session=${sessionId} resume-worker enqueued (1s delay, ${ids.length} companies)`);
   } catch (qErr) {
     console.warn(`[import-start] session=${sessionId} resume-worker enqueue failed: ${qErr?.message || qErr}`);
   }

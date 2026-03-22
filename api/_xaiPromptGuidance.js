@@ -202,17 +202,18 @@ Website: ${url}
 
 INSTRUCTIONS:
 
-CRITICAL TOOL CONSTRAINT — Maximum of 5 tool calls total.
-You MUST stop after exactly 5 browse_page or web_search calls. If you reach 5, output ONLY what you have so far.
+CRITICAL TOOL CONSTRAINT — Target 3 tool calls. Hard maximum 5.
+You MUST stop and output results after 3 calls unless HQ or Manufacturing are still completely empty.
 Allocate calls as:
-1. Homepage ${url} (tagline, logo clues, HQ hints, overall tone)
-2. Products/shop/collections (ONE page only)
-3-5. Only if HQ or Manufacturing are still missing after reading the pre-fetched content below
+1. Homepage ${url} (tagline, logo, HQ hints, industries)
+2. Products/shop/collections page (keywords — ONE page only)
+3. ONLY if HQ or Manufacturing still empty: web_search or contact page
+Stop here if all fields have data. Calls 4-5 are ONLY for reviews if zero reviews found.
 
 Rules:
-- If you have solid data after 3 or 4 calls, STOP immediately.
+- STOP AND OUTPUT as soon as you have data for all fields. Do not use extra calls to "improve" answers.
 - Never browse individual product detail pages.
-- For reviews: Limit external searches to 1 call max after site browse.
+- For reviews: use at most 1 external search, and only if no testimonials/press found on site.
 - Do not hallucinate. Use empty string for fields you cannot verify.
 - No markdown formatting. Output each section with its label on its own line.
 ${prefetchBlock}
