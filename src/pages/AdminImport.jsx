@@ -115,6 +115,18 @@ export default function AdminImport() {
   const successionTriggerRef = useRef(false);
   const successionCount = normalizeSuccessionCount(successionCountInput);
 
+  // Concurrent succession: shadow slot (slot B) for parallel imports
+  // Set to 1 to instantly disable concurrent imports (revert to sequential)
+  const SUCCESSION_CONCURRENCY = 2;
+  const [shadowSessionId, setShadowSessionId] = useState(null);
+  const [shadowStatus, setShadowStatus] = useState("idle"); // idle | running | done | error
+  const shadowPollTimerRef = useRef(null);
+  const shadowPollAttemptsRef = useRef(new Map());
+  const shadowPollBackoffRef = useRef(new Map());
+  const shadowAbortRef = useRef(null);
+  const shadowStatusRef = useRef("idle");
+  shadowStatusRef.current = shadowStatus;
+
   // Preflight duplicate check state
   const [preflightResults, setPreflightResults] = useState(null);
   const [preflightLoading, setPreflightLoading] = useState(false);
@@ -386,7 +398,8 @@ export default function AdminImport() {
         item.companyUrl ||
         `Company ${i + 1}`;
       const isCurrent = isSuccessionRunning && i === successionIndex;
-      const status = result ? result.status : isCurrent ? "running" : "pending";
+      const isShadow = isSuccessionRunning && SUCCESSION_CONCURRENCY >= 2 && i === successionIndex + 1 && shadowSessionId;
+      const status = result ? result.status : (isCurrent || isShadow) ? "running" : "pending";
 
       // Timing data from run history
       let startedAt = null;
@@ -509,6 +522,16 @@ export default function AdminImport() {
     if (pollTimerRef.current) {
       clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
+    }
+  }, []);
+
+  // Shadow slot polling (slot B) — simplified version of schedulePoll for concurrent succession.
+  // Uses its own timer, attempts counter, and status setter. pollProgress is reused since it
+  // updates runs[] by session_id and is fully parameterized.
+  const stopShadowPolling = useCallback(() => {
+    if (shadowPollTimerRef.current) {
+      clearTimeout(shadowPollTimerRef.current);
+      shadowPollTimerRef.current = null;
     }
   }, []);
 
@@ -1591,6 +1614,60 @@ export default function AdminImport() {
       }, initialDelay);
     },
     [pollProgress, scheduleTerminalRefresh, stopPolling]
+  );
+
+  // Shadow poll scheduler — simplified version of schedulePoll for slot B.
+  // Reuses pollProgress (which updates runs[] by session_id). Only difference:
+  // sets shadowStatus instead of activeStatus, uses shadow timer/attempts refs.
+  const scheduleShadowPoll = useCallback(
+    ({ session_id, delayMs } = {}) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
+      stopShadowPolling();
+
+      const initialDelay = Number.isFinite(Number(delayMs)) ? Math.max(500, Number(delayMs)) : DEFAULT_POLL_INTERVAL_MS;
+
+      shadowPollTimerRef.current = setTimeout(async () => {
+        const prevAttempts = shadowPollAttemptsRef.current.get(sid) || 0;
+        const nextAttempts = prevAttempts + 1;
+        shadowPollAttemptsRef.current.set(sid, nextAttempts);
+
+        const result = await pollProgress({ session_id: sid }).catch((e) => ({ shouldStop: false, error: e }));
+
+        // Max attempts — treat as done
+        if (nextAttempts > POLL_MAX_ATTEMPTS) {
+          setShadowStatus("done");
+          stopShadowPolling();
+          return;
+        }
+
+        if (result?.shouldStop) {
+          stopShadowPolling();
+          shadowPollBackoffRef.current.delete(sid);
+          const body = result?.body;
+          const status = asString(body?.status).trim();
+          const stageBeacon = asString(body?.stage_beacon).trim();
+          const isError = status === "error" || stageBeacon === "error";
+          setShadowStatus(isError ? "error" : "done");
+          return;
+        }
+
+        // Compute next delay with backoff
+        const latestBody = result?.body || null;
+        const statusStr = asString(latestBody?.status).trim().toLowerCase();
+        let nextDelayMs = DEFAULT_POLL_INTERVAL_MS;
+        if (statusStr === "running" || statusStr === "in_progress" || statusStr === "enriching") {
+          const currentIndex = shadowPollBackoffRef.current.get(sid) || 0;
+          const idx = Math.max(0, Math.min(currentIndex, GENERAL_RUNNING_BACKOFF_MS.length - 1));
+          shadowPollBackoffRef.current.set(sid, Math.min(idx + 1, GENERAL_RUNNING_BACKOFF_MS.length - 1));
+          nextDelayMs = GENERAL_RUNNING_BACKOFF_MS[idx];
+        }
+
+        scheduleShadowPoll({ session_id: sid, delayMs: nextDelayMs });
+      }, initialDelay);
+    },
+    [pollProgress, stopShadowPolling]
   );
 
   const isUrlLikeQuery = useMemo(() => looksLikeUrlOrDomain(query), [query]);
@@ -2762,6 +2839,142 @@ export default function AdminImport() {
     urlTypeValidationError,
   ]);
 
+  // Shadow import (slot B) — simplified version of beginImport for concurrent succession.
+  // Does NOT touch activeSessionId, activeStatus, or primary poll state.
+  const beginImportShadow = useCallback(async (shadowCompanyName, shadowCompanyUrl) => {
+    if (!importConfigured) return;
+
+    const sid = globalThis.crypto?.randomUUID
+      ? globalThis.crypto.randomUUID()
+      : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
+
+    const newRun = {
+      session_id: sid,
+      session_id_confirmed: false,
+      ui_session_id_before: sid,
+      query: shadowCompanyName,
+      queryTypes: selectedTypes,
+      location: asString(location).trim() || "",
+      limit: 1,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      start_request_payload: null,
+      stage_calls: [],
+      last_status_http_status: null,
+      last_status_checked_at: null,
+      last_status_body: null,
+      items: [],
+      saved: 0,
+      saved_companies: [],
+      completed: false,
+      timedOut: false,
+      stopped: false,
+      job_state: "",
+      stage_beacon: "",
+      last_stage_beacon: "",
+      final_stage_beacon: "",
+      final_job_state: "",
+      final_last_error_code: "",
+      elapsed_ms: null,
+      remaining_budget_ms: null,
+      upstream_calls_made: 0,
+      companies_candidates_found: 0,
+      early_exit_triggered: false,
+      last_error: null,
+      async_primary_active: false,
+      async_primary_timeout_ms: null,
+      start_error: null,
+      start_error_details: null,
+      progress_error: null,
+      progress_notice: null,
+      polling_exhausted: false,
+      accepted_reason: null,
+      save_result: null,
+      save_error: null,
+    };
+
+    setRuns((prev) => [newRun, ...prev]);
+    setShadowSessionId(sid);
+    setShadowStatus("running");
+
+    shadowAbortRef.current?.abort?.();
+    const abort = new AbortController();
+    shadowAbortRef.current = abort;
+
+    try {
+      const urlHint =
+        shadowCompanyUrl && looksLikeUrlOrDomain(shadowCompanyUrl)
+          ? shadowCompanyUrl
+          : undefined;
+
+      const requestPayload = {
+        session_id: sid,
+        query: shadowCompanyName,
+        queryTypes: selectedTypes,
+        company_url_hint: urlHint,
+        location: asString(location).trim() || undefined,
+        limit: 1,
+        expand_if_few: true,
+        dry_run: false,
+        fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
+      };
+
+      setRuns((prev) =>
+        prev.map((r) => (r.session_id === sid ? { ...r, start_request_payload: requestPayload } : r))
+      );
+
+      const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
+        method: "POST",
+        body: requestPayload,
+        signal: abort.signal,
+      });
+
+      const body = await readJsonOrText(res);
+
+      // Reconcile session ID if backend returns a different one
+      const headerSid = (() => {
+        try {
+          return String(res?.headers?.get?.("x-session-id") || "").trim();
+        } catch { return ""; }
+      })();
+      const canonicalSid = headerSid || asString(body?.session_id).trim() || sid;
+
+      if (canonicalSid !== sid) {
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === sid
+              ? { ...r, session_id: canonicalSid, session_id_confirmed: true }
+              : r
+          )
+        );
+        setShadowSessionId(canonicalSid);
+      }
+
+      if (!res.ok && !(body && typeof body === "object" && body.ok !== false)) {
+        const msg = toErrorString(body?.error || body?.message || `Shadow import failed (HTTP ${res.status})`);
+        setRuns((prev) =>
+          prev.map((r) => (r.session_id === (canonicalSid || sid) ? { ...r, start_error: msg } : r))
+        );
+        setShadowStatus("error");
+        return;
+      }
+
+      // Start shadow polling
+      shadowPollAttemptsRef.current.set(canonicalSid, 0);
+      shadowPollBackoffRef.current.delete(canonicalSid);
+      scheduleShadowPoll({ session_id: canonicalSid, delayMs: 3000 });
+    } catch (e) {
+      if (e?.name === "AbortError") return;
+      const msg = toErrorString(e) || "Shadow import failed";
+      setRuns((prev) =>
+        prev.map((r) => (r.session_id === sid ? { ...r, start_error: msg } : r))
+      );
+      setShadowStatus("error");
+    }
+  }, [importConfigured, queryTypes, location, enrichFields, scheduleShadowPoll]);
+
   const explainImportPayload = useCallback(async () => {
     const q = query.trim();
     if (!q) {
@@ -2856,6 +3069,27 @@ export default function AdminImport() {
         )
       );
 
+      // Stop shadow slot too if active
+      stopShadowPolling();
+      shadowAbortRef.current?.abort?.();
+      if (shadowSessionId) {
+        try {
+          await apiFetch("/import/stop", {
+            method: "POST",
+            body: { session_id: shadowSessionId },
+          });
+        } catch {}
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === shadowSessionId
+              ? { ...r, stopped: true, progress_notice: "Import stopped by user" }
+              : r
+          )
+        );
+      }
+      setShadowSessionId(null);
+      setShadowStatus("idle");
+
       // Brief delay to show "Stopping..." state, then set to idle
       setTimeout(() => {
         stopPolling();
@@ -2866,7 +3100,7 @@ export default function AdminImport() {
       toast.error(toErrorString(e) || "Stop failed");
       setActiveStatus("running"); // Revert on error
     }
-  }, [activeSessionId, stopPolling]);
+  }, [activeSessionId, shadowSessionId, stopPolling, stopShadowPolling]);
 
   const saveResults = useCallback(async () => {
     if (!activeRun) {
@@ -3547,7 +3781,15 @@ export default function AdminImport() {
     setQuery(first.companyName);
     setCompanyUrl(first.companyUrl);
     successionTriggerRef.current = true;
-  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged, preflightResults]);
+
+    // Launch shadow slot (slot B) for second company with 2s stagger
+    if (SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1) {
+      const second = validRows[1];
+      setTimeout(() => {
+        beginImportShadow(second.companyName, second.companyUrl);
+      }, 2000);
+    }
+  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged, preflightResults, beginImportShadow, SUCCESSION_CONCURRENCY]);
 
   // Import Now: proceeds with import after duplicate dialog confirmation
   const handleImportNow = useCallback(() => {
@@ -3575,7 +3817,15 @@ export default function AdminImport() {
     setQuery(first.companyName);
     setCompanyUrl(first.companyUrl);
     successionTriggerRef.current = true;
-  }, [successionCount, successionRows, handleStartImportStaged]);
+
+    // Launch shadow slot (slot B) for second company with 2s stagger
+    if (SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1) {
+      const second = validRows[1];
+      setTimeout(() => {
+        beginImportShadow(second.companyName, second.companyUrl);
+      }, 2000);
+    }
+  }, [successionCount, successionRows, handleStartImportStaged, beginImportShadow, SUCCESSION_CONCURRENCY]);
 
   // Succession import: trigger effect — fires the import after state has updated
   useEffect(() => {
@@ -3587,36 +3837,66 @@ export default function AdminImport() {
     handleStartImportStaged();
   }, [successionIndex, query, companyUrl, handleStartImportStaged, successionQueue]);
 
-  // Succession import: advancement effect — when current import completes, start next
+  // Succession import: advancement effect — when current import completes, start next.
+  // With SUCCESSION_CONCURRENCY >= 2, waits for BOTH primary and shadow slots to finish.
   useEffect(() => {
     if (successionIndex < 0) return;
-    if (activeStatus !== "done" && activeStatus !== "error") return;
-    // Guard: the trigger effect (above) fires in the same render commit and calls
+    // Guard: the trigger effect fires in the same render commit and calls
     // beginImport(), whose setActiveStatus("running") is batched and NOT yet committed.
-    // Without this guard the advancement effect sees stale activeStatus === "done",
-    // records a phantom result for the just-queued company, and skips every other import.
     if (startImportRequestInFlightRef.current) return;
 
-    setSuccessionResults((prev) => [
-      ...prev,
-      { index: successionIndex, status: activeStatus === "done" ? "done" : "error", sessionId: activeSessionId },
-    ]);
+    const primaryDone = activeStatus === "done" || activeStatus === "error";
+    if (!primaryDone) return;
 
-    const nextIndex = successionIndex + 1;
+    // Determine if shadow slot was active for this batch
+    const hasShadow = SUCCESSION_CONCURRENCY >= 2 && successionIndex + 1 < successionQueue.length;
+    const shadowDone = !hasShadow || shadowStatus === "done" || shadowStatus === "error" || shadowStatus === "idle";
+    if (!shadowDone) return;
+
+    // Record results for both slots
+    const batchSize = hasShadow ? 2 : 1;
+    const newResults = [
+      { index: successionIndex, status: activeStatus === "done" ? "done" : "error", sessionId: activeSessionId },
+    ];
+    if (hasShadow) {
+      newResults.push({
+        index: successionIndex + 1,
+        status: shadowStatus === "done" ? "done" : "error",
+        sessionId: shadowSessionId,
+      });
+    }
+
+    setSuccessionResults((prev) => [...prev, ...newResults]);
+
+    // Reset shadow state
+    stopShadowPolling();
+    setShadowSessionId(null);
+    setShadowStatus("idle");
+
+    const nextIndex = successionIndex + batchSize;
 
     if (nextIndex >= successionQueue.length) {
-      const doneCount = successionResults.length + 1;
+      const doneCount = successionResults.length + batchSize;
       setSuccessionIndex(-1);
       toast.success(`Succession import complete: ${doneCount} imports processed`);
       return;
     }
 
-    const next = successionQueue[nextIndex];
-    setQuery(next.companyName);
-    setCompanyUrl(next.companyUrl);
+    // Set up next batch — slot A (primary)
+    const nextA = successionQueue[nextIndex];
+    setQuery(nextA.companyName);
+    setCompanyUrl(nextA.companyUrl);
     setSuccessionIndex(nextIndex);
     successionTriggerRef.current = true;
-  }, [activeStatus, successionIndex, successionQueue, activeSessionId, successionResults]);
+
+    // Launch shadow slot (slot B) for next pair if available
+    if (SUCCESSION_CONCURRENCY >= 2 && nextIndex + 1 < successionQueue.length) {
+      const nextB = successionQueue[nextIndex + 1];
+      setTimeout(() => {
+        beginImportShadow(nextB.companyName, nextB.companyUrl);
+      }, 2000);
+    }
+  }, [activeStatus, shadowStatus, successionIndex, successionQueue, activeSessionId, shadowSessionId, successionResults, beginImportShadow, stopShadowPolling, SUCCESSION_CONCURRENCY]);
 
   // Bulk import handlers
   const bulkUrlCount = useMemo(() => {
@@ -4208,7 +4488,9 @@ export default function AdminImport() {
                     }`}
                   >
                     {isSuccessionRunning
-                      ? `Importing ${successionIndex + 1} of ${successionQueue.length} companies`
+                      ? SUCCESSION_CONCURRENCY >= 2 && shadowSessionId && successionIndex + 1 < successionQueue.length
+                        ? `Importing ${successionIndex + 1}-${successionIndex + 2} of ${successionQueue.length} companies`
+                        : `Importing ${successionIndex + 1} of ${successionQueue.length} companies`
                       : `Succession complete: ${successionResults.length} imports processed`}
                   </div>
                   <div className="flex items-center gap-1">
@@ -4263,7 +4545,7 @@ export default function AdminImport() {
                     }`}
                     style={{
                       width: `${Math.round(
-                        ((successionResults.length + (isSuccessionRunning ? 0.5 : 0)) / successionQueue.length) * 100
+                        ((successionResults.length + (isSuccessionRunning ? (shadowSessionId ? 1 : 0.5) : 0)) / successionQueue.length) * 100
                       )}%`,
                     }}
                   />
