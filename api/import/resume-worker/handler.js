@@ -2211,10 +2211,10 @@ async function resumeWorkerHandler(req, context) {
       }
 
       const companyId = String(entry?.company_id || "").trim();
-      if (!companyId) continue;
+      if (!companyId) return;
 
       let doc = docsById.get(companyId) || null;
-      if (!doc) continue;
+      if (!doc) return;
 
       const companyName = String(doc.company_name || doc.name || "").trim();
       const normalizedDomain = String(doc.normalized_domain || "").trim();
