@@ -2142,10 +2142,14 @@ async function resumeWorkerHandler(req, context) {
     // Recalculate per-doc budget based on CURRENT remaining budget (shrinks on internal retries)
     const perDocBudgetMs = budgetRemainingMs();
 
-    // Process companies sequentially to avoid overloading XAI rate limits
-    let seqBreakEarly = false;
-    for (let entryIdx = 0; entryIdx < plannedByCompany.length && !seqBreakEarly; entryIdx++) {
-      // Pre-entry checks (session stopped, aborted, hard timeout)
+    // Process companies in pairs (concurrency=2) with a 15s stagger between
+    // starts within a batch to avoid hammering xAI rate limits simultaneously.
+    const ENRICHMENT_CONCURRENCY = 2;
+    const ENRICHMENT_STAGGER_MS = 15_000;
+
+    let batchBreakEarly = false;
+    for (let batchStart = 0; batchStart < plannedByCompany.length && !batchBreakEarly; batchStart += ENRICHMENT_CONCURRENCY) {
+      // Pre-batch checks (session stopped, aborted, hard timeout)
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
       if (aborted) {
         console.log(`[resume-worker] aborting enrichment loop — superseded by newer worker, session=${sessionId}`);
@@ -2157,9 +2161,9 @@ async function resumeWorkerHandler(req, context) {
           session_id: sessionId,
           elapsed_ms: handlerElapsed,
           hard_timeout_ms: HANDLER_HARD_TIMEOUT_MS,
-          companies_remaining: plannedByCompany.length - entryIdx,
+          companies_remaining: plannedByCompany.length - batchStart,
         });
-        seqBreakEarly = true;
+        batchBreakEarly = true;
         break;
       }
       if (budgetRemainingMs() < perDocBudgetMs * 0.5) {
@@ -2167,16 +2171,31 @@ async function resumeWorkerHandler(req, context) {
           session_id: sessionId,
           budget_remaining_ms: budgetRemainingMs(),
           per_doc_budget_ms: perDocBudgetMs,
-          companies_deferred: plannedByCompany.length - entryIdx,
+          companies_deferred: plannedByCompany.length - batchStart,
         });
-        seqBreakEarly = true;
+        batchBreakEarly = true;
         break;
       }
 
       // Write heartbeat to session doc periodically to signal progress
       await maybeWriteHeartbeat();
 
-      const entry = plannedByCompany[entryIdx];
+      const batch = plannedByCompany.slice(batchStart, batchStart + ENRICHMENT_CONCURRENCY);
+      if (batch.length > 1) {
+        console.log(`[resume-worker] staggered_batch_start`, {
+          session_id: sessionId,
+          batch_offset: batchStart,
+          batch_size: batch.length,
+          stagger_ms: ENRICHMENT_STAGGER_MS,
+          company_ids: batch.map((e) => String(e?.company_id || "").trim()),
+        });
+      }
+
+      const batchResults = await Promise.allSettled(batch.map(async (entry, idxInBatch) => {
+      // Stagger: second company in the batch waits before starting
+      if (idxInBatch > 0) {
+        await new Promise((r) => setTimeout(r, ENRICHMENT_STAGGER_MS * idxInBatch));
+      }
       {
       // Per-company wall-clock cap
       const enrichmentFirstStarted = Date.parse(String(resumeDoc?.enrichment_started_at || "")) || 0;
@@ -2662,7 +2681,28 @@ async function resumeWorkerHandler(req, context) {
 
       docsById.set(companyId, doc);
       } // end per-company block
-    } // end sequential for loop
+    })); // end Promise.allSettled
+
+      // Log batch results
+      for (const r of batchResults) {
+        if (r.status === "rejected") {
+          console.error(`[resume-worker] batch_company_error`, {
+            session_id: sessionId,
+            error: r.reason?.message || String(r.reason),
+          });
+        }
+      }
+
+      if (batch.length > 1) {
+        console.log(`[resume-worker] staggered_batch_end`, {
+          session_id: sessionId,
+          batch_offset: batchStart,
+          batch_size: batch.length,
+          fulfilled: batchResults.filter((r) => r.status === "fulfilled").length,
+          rejected: batchResults.filter((r) => r.status === "rejected").length,
+        });
+      }
+    } // end batch for loop
 
     // Defensive: enqueue retry EARLY, before post-enrichment doc writes that Azure may kill.
     // If any field is retryable, queue a retry immediately. The regular self-enqueue at the
