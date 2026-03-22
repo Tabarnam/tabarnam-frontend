@@ -3876,6 +3876,18 @@ export default function AdminImport() {
 
     setSuccessionResults((prev) => [...prev, ...newResults]);
 
+    // Fire-and-forget enrichment verification for completed sessions.
+    // If a session's enrichment was queued but the resume-worker never picked it up,
+    // this import-status poll triggers the watchdog/HTTP self-invocation as a safety net.
+    // Two polls: immediate (triggers watchdog) + delayed 15s (ensures re-queue happened).
+    for (const nr of newResults) {
+      if (nr.sessionId) {
+        const statusUrl = join(API_BASE, `/import-status?session_id=${encodeURIComponent(nr.sessionId)}`);
+        apiFetch(statusUrl).then(() => {}).catch(() => {});
+        setTimeout(() => { apiFetch(statusUrl).then(() => {}).catch(() => {}); }, 15_000);
+      }
+    }
+
     // Reset shadow state
     stopShadowPolling();
     setShadowSessionId(null);

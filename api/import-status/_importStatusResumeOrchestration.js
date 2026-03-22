@@ -42,7 +42,7 @@ async function runBlockedStateAutoRetry(ctx, { currentResume, resumeDoc }) {
   if (resumeErr === "resume_no_progress_no_attempts") {
     const stuckWindowMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
       ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-      : 180_000;
+      : 60_000; // 60s — matches heartbeat staleness threshold
 
     const plannedReason = normalizeKey(
       activeResume?.planned_fields_reason ||
@@ -123,7 +123,7 @@ async function runWatchdogStuckDetection(ctx, opts) {
 
   const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
     ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
-    : 180_000;
+    : 60_000; // 60s — matches heartbeat staleness threshold for fast orphan recovery
 
   let watchdog_stuck_queued = false;
   let watchdog_last_finished_at = null;
