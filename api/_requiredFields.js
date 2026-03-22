@@ -619,8 +619,10 @@ function isRealValue(field, value, doc) {
     const kwArrStr = Array.isArray(kwArr) ? kwArr.join("|") : "";
     const cacheKey = `${rawStr}|||${kwArrStr}`;
     if (doc && doc._kwCacheKey === cacheKey && doc._kwRelevantCount != null) {
+      // Cache hit — skip expensive sanitizeKeywords re-computation
       return doc._kwRelevantCount >= 1;
     }
+    // Cache miss — will compute and store result on doc object
 
     const stats = sanitizeKeywords({
       product_keywords: rawStr,

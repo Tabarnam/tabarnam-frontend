@@ -2137,21 +2137,15 @@ async function resumeWorkerHandler(req, context) {
       }
     }, HEARTBEAT_INTERVAL_MS);
 
-    // Concurrency limit: process up to 3 companies in parallel to improve
-    // throughput while avoiding XAI rate limits and Azure Function resource
-    // exhaustion. Each company's enrichment is independent (writes to its own
-    // doc and progress key), so concurrent I/O is safe in single-threaded Node.
-    const ENRICHMENT_CONCURRENCY_LIMIT = 3;
-
     // eslint-disable-next-line no-constant-condition
     while (true) {
     // Recalculate per-doc budget based on CURRENT remaining budget (shrinks on internal retries)
     const perDocBudgetMs = budgetRemainingMs();
 
-    // Process companies in batches of ENRICHMENT_CONCURRENCY_LIMIT
-    let batchBreakEarly = false;
-    for (let batchStart = 0; batchStart < plannedByCompany.length && !batchBreakEarly; batchStart += ENRICHMENT_CONCURRENCY_LIMIT) {
-      // Pre-batch checks (session stopped, aborted, hard timeout)
+    // Process companies sequentially to avoid overloading XAI rate limits
+    let seqBreakEarly = false;
+    for (let entryIdx = 0; entryIdx < plannedByCompany.length && !seqBreakEarly; entryIdx++) {
+      // Pre-entry checks (session stopped, aborted, hard timeout)
       if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
       if (aborted) {
         console.log(`[resume-worker] aborting enrichment loop — superseded by newer worker, session=${sessionId}`);
@@ -2163,9 +2157,9 @@ async function resumeWorkerHandler(req, context) {
           session_id: sessionId,
           elapsed_ms: handlerElapsed,
           hard_timeout_ms: HANDLER_HARD_TIMEOUT_MS,
-          companies_remaining: plannedByCompany.length - batchStart,
+          companies_remaining: plannedByCompany.length - entryIdx,
         });
-        batchBreakEarly = true;
+        seqBreakEarly = true;
         break;
       }
       if (budgetRemainingMs() < perDocBudgetMs * 0.5) {
@@ -2173,27 +2167,17 @@ async function resumeWorkerHandler(req, context) {
           session_id: sessionId,
           budget_remaining_ms: budgetRemainingMs(),
           per_doc_budget_ms: perDocBudgetMs,
-          companies_deferred: plannedByCompany.length - batchStart,
+          companies_deferred: plannedByCompany.length - entryIdx,
         });
-        batchBreakEarly = true;
+        seqBreakEarly = true;
         break;
-      }
-
-      const batch = plannedByCompany.slice(batchStart, batchStart + ENRICHMENT_CONCURRENCY_LIMIT);
-      const batchSize = batch.length;
-      if (batchSize > 1) {
-        console.log(`[resume-worker] concurrent_batch_start`, {
-          session_id: sessionId,
-          batch_offset: batchStart,
-          batch_size: batchSize,
-          company_ids: batch.map((e) => String(e?.company_id || "").trim()),
-        });
       }
 
       // Write heartbeat to session doc periodically to signal progress
       await maybeWriteHeartbeat();
 
-      const batchResults = await Promise.allSettled(batch.map(async (entry) => {
+      const entry = plannedByCompany[entryIdx];
+      {
       // Per-company wall-clock cap
       const enrichmentFirstStarted = Date.parse(String(resumeDoc?.enrichment_started_at || "")) || 0;
       if (enrichmentFirstStarted && cycleCount > 0) {
@@ -2677,28 +2661,8 @@ async function resumeWorkerHandler(req, context) {
       }
 
       docsById.set(companyId, doc);
-    })); // end Promise.allSettled callback
-
-      // Log any rejected promises from the batch
-      for (const r of batchResults) {
-        if (r.status === "rejected") {
-          console.error(`[resume-worker] concurrent_batch_company_error`, {
-            session_id: sessionId,
-            error: r.reason?.message || String(r.reason),
-          });
-        }
-      }
-
-      if (batchSize > 1) {
-        console.log(`[resume-worker] concurrent_batch_end`, {
-          session_id: sessionId,
-          batch_offset: batchStart,
-          batch_size: batchSize,
-          fulfilled: batchResults.filter((r) => r.status === "fulfilled").length,
-          rejected: batchResults.filter((r) => r.status === "rejected").length,
-        });
-      }
-    } // end batch for loop
+      } // end per-company block
+    } // end sequential for loop
 
     // Defensive: enqueue retry EARLY, before post-enrichment doc writes that Azure may kill.
     // If any field is retryable, queue a retry immediately. The regular self-enqueue at the

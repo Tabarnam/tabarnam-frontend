@@ -923,6 +923,9 @@ export default function AdminImport() {
   const RESUME_POLL_IN_PROGRESS_MS = [3_000, 5_000, 5_000, 10_000, 10_000];
   // When resume is queued but worker not yet triggered, use slower backoff.
   const RESUME_POLL_QUEUED_BACKOFF_MS = [15_000, 30_000, 60_000, 120_000];
+  // General backoff when enrichment is actively running (not resume-specific).
+  // Progression: 3s → 5s → 8s → 12s → 18s → 25s → 30s (capped)
+  const GENERAL_RUNNING_BACKOFF_MS = [3_000, 5_000, 8_000, 12_000, 18_000, 25_000, 30_000];
   const STATUS_POLL_TIMEOUT_MS = 180_000; // 3 min — generous for inline worker, short enough to recover from hung connections
 
   const resetPollAttempts = useCallback((session_id) => {
@@ -1381,6 +1384,16 @@ export default function AdminImport() {
             pollAttemptsRef.current.set(sid, 0);
 
             return RESUME_POLL_QUEUED_BACKOFF_MS[idx];
+          }
+
+          // General backoff: if enrichment is still running (no resume path),
+          // back off gradually instead of hammering at 2.5s.
+          const statusStr = asString(latestBody?.status).trim().toLowerCase();
+          if (statusStr === "running" || statusStr === "in_progress" || statusStr === "enriching") {
+            const currentIndex = pollBackoffRef.current.get(sid) || 0;
+            const idx = Math.max(0, Math.min(currentIndex, GENERAL_RUNNING_BACKOFF_MS.length - 1));
+            pollBackoffRef.current.set(sid, Math.min(idx + 1, GENERAL_RUNNING_BACKOFF_MS.length - 1));
+            return GENERAL_RUNNING_BACKOFF_MS[idx];
           }
 
           pollBackoffRef.current.delete(sid);
