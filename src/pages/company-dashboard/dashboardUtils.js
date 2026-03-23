@@ -537,6 +537,31 @@ export function toDisplayDate(value) {
   return d.toLocaleString();
 }
 
+/** Short date: MM/DD/YY */
+export function toShortDate(value) {
+  const s = asString(value).trim();
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${mm}/${dd}/${yy}`;
+}
+
+/** Full date for tooltip: MM/DD/YYYY, h:mm:ss AM/PM */
+export function toFullDate(value) {
+  const s = asString(value).trim();
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const time = d.toLocaleTimeString();
+  return `${mm}/${dd}/${yyyy}, ${time}`;
+}
+
 export function validateCompanyDraft(draft) {
   const name = asString(draft?.company_name).trim();
   const url = getCompanyUrl(draft);

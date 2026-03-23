@@ -97,6 +97,8 @@ import {
   formatContractMissingField,
   toIssueTags,
   toDisplayDate,
+  toShortDate,
+  toFullDate,
   validateCompanyDraft,
   normalizeCompanyNotes,
   mergeCuratedReviews,
@@ -2957,7 +2959,7 @@ export default function CompanyDashboard() {
         selector: (row) => getCompanyName(row),
         sortable: true,
         wrap: true,
-        grow: 2,
+        grow: 1.5,
         cell: (row) => {
           const name = getCompanyName(row);
           return (
@@ -3142,13 +3144,26 @@ export default function CompanyDashboard() {
         },
       },
       {
+        name: "Created",
+        selector: (row) => asString(row?.created_at).trim(),
+        sortable: true,
+        cell: (row) => (
+          <span className="text-xs text-slate-700 dark:text-muted-foreground" title={toFullDate(row?.created_at)}>
+            {toShortDate(row?.created_at)}
+          </span>
+        ),
+        width: "95px",
+      },
+      {
         name: "Updated",
         selector: (row) => asString(row?.updated_at || row?.created_at).trim(),
         sortable: true,
         cell: (row) => (
-          <span className="text-xs text-slate-700 dark:text-muted-foreground">{toDisplayDate(row?.updated_at || row?.created_at)}</span>
+          <span className="text-xs text-slate-700 dark:text-muted-foreground" title={toFullDate(row?.updated_at || row?.created_at)}>
+            {toShortDate(row?.updated_at || row?.created_at)}
+          </span>
         ),
-        width: "160px",
+        width: "95px",
       },
       {
         name: "Issues",
