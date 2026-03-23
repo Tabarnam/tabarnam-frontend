@@ -3306,7 +3306,7 @@ export default function CompanyDashboard() {
       headCells: {
         style: {
           fontWeight: 600,
-          fontSize: "12px",
+          fontSize: "10px",
           textTransform: "uppercase",
           letterSpacing: "0.06em",
           color: isDark ? "hsl(187 15% 55%)" : undefined,
