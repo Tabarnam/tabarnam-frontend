@@ -3144,7 +3144,7 @@ export default function CompanyDashboard() {
         },
       },
       {
-        name: "Created",
+        name: <span className="text-[10px]">Created</span>,
         selector: (row) => asString(row?.created_at).trim(),
         sortable: true,
         cell: (row) => (
@@ -3155,7 +3155,7 @@ export default function CompanyDashboard() {
         width: "95px",
       },
       {
-        name: "Updated",
+        name: <span className="text-[10px]">Updated</span>,
         selector: (row) => asString(row?.updated_at || row?.created_at).trim(),
         sortable: true,
         cell: (row) => (
