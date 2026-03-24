@@ -179,13 +179,13 @@ FORMAT RULES:
 Logo:
 First check JSON-LD for imageObject with logo or og:image. If found, output only the direct URL — do not browse extra pages for it.
 Extract the logo from the very first homepage browse before moving to other fields.
-Browse ${url} and find the logo image in the header or navigation area.
+Browse ${url} and find the logo image in the header, navigation, or footer area.
 - Look for <img> tags with alt text containing "logo" or class/id like "logo", "header-logo", "brand-logo", "site-logo", or "wordmark".
-- Look for <img> tags inside <header>, <nav>, or the first <a> element that links to "/" or the homepage.
+- Also check the src/filename of <img> tags — if the filename contains "logo" (e.g., "footer-logo.png", "logo-dark.svg"), it is likely the logo even if alt and class are empty.
+- Look for <img> tags inside <header>, <nav>, <footer>, or the first <a> element that links to "/" or the homepage.
 - Check <meta property="og:image"> for a social sharing image that may be the logo.
 - Use view_image only if an <img> tag suggests a logo but needs confirmation — do not view_image on every image.
-- If no suitable logo found after homepage browse, check /footer or meta tags only — do not browse additional pages.
-Return as JSON on a single line: {"logo_url": "https://...", "logo_source": "header|og:image|meta"}
+Return as JSON on a single line: {"logo_url": "https://...", "logo_source": "header|footer|og:image|meta"}
 If no logo found, return: {"logo_url": null, "logo_source": null}
 Do NOT return favicon.ico or generic 16x16 favicons, product images, hero banners, or promotional graphics.
 - If logo is inline SVG with no separate image URL, return {"logo_url": null, "logo_source": null}.`;
