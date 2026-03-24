@@ -9,6 +9,7 @@ import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchCompanies, getSearchCount } from "@/lib/searchCompanies";
+import { getCountries } from "@/lib/location";
 import { API_BASE } from "@/lib/api";
 import { getQQScore } from "@/lib/stars/qqRating";
 import { cn } from "@/lib/utils";
@@ -136,6 +137,20 @@ const milesCountries = new Set([
   "LC","VC","WS","TC","VI","AI","GI","IM","JE","GG","SH","AS","PR"
 ]);
 
+// Resolve a 2-letter ISO code (e.g. "GB") to its full name ("United Kingdom")
+// for better geocoding accuracy. Falls back to the code if lookup fails.
+let _countryNameCache = null;
+async function resolveCountryName(code) {
+  if (!code || code.length !== 2) return code;
+  try {
+    if (!_countryNameCache) {
+      const list = await getCountries();
+      _countryNameCache = new Map(list.map(c => [c.code, c.name]));
+    }
+    return _countryNameCache.get(code.toUpperCase()) || code;
+  } catch { return code; }
+}
+
 export default function ResultsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -254,8 +269,9 @@ export default function ResultsPage() {
         if (latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam))) {
           loc = { lat: Number(latParam), lng: Number(lngParam) };
         } else if (cityParam || stateParam || countryParam) {
-          const addr = [cityParam, stateParam, countryParam].filter(Boolean).join(", ");
-          const r = await geocode({ address: addr });
+          const countryName = countryParam ? await resolveCountryName(countryParam) : "";
+          const addr = [cityParam, stateParam, countryName].filter(Boolean).join(", ");
+          const r = await geocode({ address: addr, ipLookup: false });
           loc = r?.best?.location || null;
           const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
           if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
@@ -328,7 +344,8 @@ export default function ResultsPage() {
     let searchLocation = null;
     try {
       if (city || state || country) {
-        const r = await geocode({ address: [city, state, country].filter(Boolean).join(", ") });
+        const countryName = country ? await resolveCountryName(country) : "";
+        const r = await geocode({ address: [city, state, countryName].filter(Boolean).join(", "), ipLookup: false });
         const loc = r?.best?.location;
         if (loc) {
           searchLocation = loc;

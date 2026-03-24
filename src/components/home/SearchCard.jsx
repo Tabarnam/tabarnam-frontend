@@ -333,18 +333,39 @@ export default function SearchCard({
     setCity(cityName);
     setCitySuggestions([]);
     setOpenCitySuggest(false);
+    // Trigger search with new geo filter
+    if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
   };
 
   const handleStateSelect = (stateName) => {
     setStateCode(stateName);
     setStateSuggestions([]);
     setOpenStateSuggest(false);
+    // Trigger search with new geo filter
+    if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
+  };
+
+  // Aliases for common subdivision names that users type as "countries"
+  const COUNTRY_ALIASES = {
+    GB: ['scotland', 'england', 'wales', 'northern ireland', 'great britain', 'britain'],
+    US: ['america', 'usa', 'united states of america'],
+    CN: ['china', 'prc'],
+    KR: ['south korea'],
+    KP: ['north korea'],
+    RU: ['russia'],
+    TW: ['taiwan'],
+    AE: ['uae', 'emirates', 'dubai'],
   };
 
   const filteredCountries = countries
-    .filter(c =>
-      countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
-    )
+    .filter(c => {
+      if (countrySearch.trim() === '') return true;
+      const s = countrySearch.toLowerCase();
+      if (c.name.toLowerCase().includes(s) || c.code.toLowerCase().includes(s)) return true;
+      // Check aliases
+      const aliases = COUNTRY_ALIASES[c.code];
+      return aliases?.some(a => a.includes(s)) ?? false;
+    })
     .sort((a, b) => {
       // Put US at the top
       if (a.code === 'US') return -1;
@@ -694,7 +715,7 @@ export default function SearchCard({
               {city && (
                 <button
                   type="button"
-                  onClick={()=>{ setCity(''); cityInputRef.current?.focus(); }}
+                  onClick={()=>{ setCity(''); cityInputRef.current?.focus(); if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0); }}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
                   aria-label="Clear city"
                 >
@@ -751,7 +772,7 @@ export default function SearchCard({
               {stateCode && (
                 <button
                   type="button"
-                  onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); }}
+                  onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0); }}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
                   aria-label="Clear state"
                 >
@@ -808,6 +829,8 @@ export default function SearchCard({
                       setCountrySearch('');
                     } else {
                       setCountry('');
+                      // Trigger search with cleared country
+                      if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
                     }
                   }}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
@@ -833,6 +856,8 @@ export default function SearchCard({
                     setCountry(c.code);
                     setCountrySearch('');
                     setOpenCountryDropdown(false);
+                    // Trigger search with new geo filter
+                    if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
                   }}
                 >
                   {c.code === 'US' && <span className="font-semibold">{c.name}</span>}

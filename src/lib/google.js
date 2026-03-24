@@ -18,7 +18,7 @@ const _set = (k, d) => {
   _geoCache.set(k, { t: _now(), d });
 };
 
-export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
+export async function geocode({ address, lat, lng, ipLookup = false } = {}) {
   const key = JSON.stringify({ address, lat, lng, ipLookup });
   const hit = _get(key);
   if (hit) return hit;
