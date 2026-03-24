@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 // Select removed — sort/filter now uses Popover with radio buttons + checkbox
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { getCountries } from '@/lib/location';
+import { getCountries, resolveCountryText } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
 import { extractSearchTermFromUrl } from '@/lib/queryNormalizer';
 import { placesAutocomplete, placeDetails } from '@/lib/google';
@@ -105,7 +105,6 @@ export default function SearchCard({
   const [stateSuggestions, setStateSuggestions] = useState([]);
   const [openStateSuggest, setOpenStateSuggest] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
-  const [openCountryDropdown, setOpenCountryDropdown] = useState(false);
 
   const inputRef = useRef(null);
   const cityInputRef = useRef(null);
@@ -345,34 +344,6 @@ export default function SearchCard({
     if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
   };
 
-  // Aliases for common subdivision names that users type as "countries"
-  const COUNTRY_ALIASES = {
-    GB: ['scotland', 'england', 'wales', 'northern ireland', 'great britain', 'britain'],
-    US: ['america', 'usa', 'united states of america'],
-    CN: ['china', 'prc'],
-    KR: ['south korea'],
-    KP: ['north korea'],
-    RU: ['russia'],
-    TW: ['taiwan'],
-    AE: ['uae', 'emirates', 'dubai'],
-  };
-
-  const filteredCountries = countries
-    .filter(c => {
-      if (countrySearch.trim() === '') return true;
-      const s = countrySearch.toLowerCase();
-      if (c.name.toLowerCase().includes(s) || c.code.toLowerCase().includes(s)) return true;
-      // Check aliases
-      const aliases = COUNTRY_ALIASES[c.code];
-      return aliases?.some(a => a.includes(s)) ?? false;
-    })
-    .sort((a, b) => {
-      // Put US at the top
-      if (a.code === 'US') return -1;
-      if (b.code === 'US') return 1;
-      return a.name.localeCompare(b.name);
-    });
-
   const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
 
   const onKeyDown = (e) => {
@@ -381,12 +352,11 @@ export default function SearchCard({
       handleSubmit();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      setOpenCountryDropdown(false);
       setCountrySearch('');
     }
   };
 
-  const handleSubmit = (overrideQ) => {
+  const handleSubmit = async (overrideQ) => {
     // Cancel any pending auto-search and URL update debounces
     if (debounceSearchRef.current) {
       clearTimeout(debounceSearchRef.current);
@@ -412,7 +382,18 @@ export default function SearchCard({
     setShowRecent(false);
     setRecentSearches([]);
 
-    const params = { q: extracted, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly ? '1' : '', hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' };
+    // Resolve free-text country input to ISO code if not already resolved
+    let resolvedCountry = country;
+    if (!country && countrySearch.trim()) {
+      const match = await resolveCountryText(countrySearch.trim());
+      if (match) {
+        resolvedCountry = match.code;
+        setCountry(match.code);
+        setCountrySearch('');
+      }
+    }
+
+    const params = { q: extracted, sort: sortBy, country: resolvedCountry, state: stateCode, city, amazon: amazonOnly ? '1' : '', hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' };
     if (onSubmitParams) onSubmitParams(params);
     else nav(`/results?${toQs(params)}`);
   };
@@ -803,72 +784,46 @@ export default function SearchCard({
           </PopoverContent>
         </Popover>
 
-        <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
-          <PopoverTrigger asChild>
-            <div className="relative">
-              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
-              <Input
-                value={countrySearch === '' && country ? selectedCountryName : countrySearch}
-                onChange={(e) => {
-                  setCountrySearch(e.target.value);
-                  if (e.target.value.trim().length > 0) {
-                    setOpenCountryDropdown(true);
-                  }
-                }}
-                onFocus={() => setOpenCountryDropdown(true)}
-                onKeyDown={onKeyDown}
-                placeholder="Country"
-                className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
-                autoComplete="off"
-              />
-              {(country || countrySearch) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (countrySearch) {
-                      setCountrySearch('');
-                    } else {
-                      setCountry('');
-                      // Trigger search with cleared country
-                      if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
-                    }
-                  }}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
-                  aria-label="Clear country"
-                >
-                  <X size={16} />
-                </button>
-              )}
-            </div>
-          </PopoverTrigger>
-          <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1 max-h-72 overflow-y-auto"
-            align="start"
-            onOpenAutoFocus={(e)=>e.preventDefault()}
-          >
-            {filteredCountries.length > 0 ? (
-              filteredCountries.slice(0, 50).map((c) => (
-                <button
-                  key={c.code}
-                  className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent border-b border-border last:border-b-0"
-                  onMouseDown={(e)=>e.preventDefault()}
-                  onClick={() => {
-                    setCountry(c.code);
-                    setCountrySearch('');
-                    setOpenCountryDropdown(false);
-                    // Trigger search with new geo filter
-                    if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
-                  }}
-                >
-                  {c.code === 'US' && <span className="font-semibold">{c.name}</span>}
-                  {c.code !== 'US' && <span>{c.name}</span>}
-                </button>
-              ))
-            ) : (
-              <div className="px-4 py-2 text-sm text-muted-foreground">No countries found</div>
-            )}
-          </PopoverContent>
-        </Popover>
+        {/* Country — free-text input, resolved on submit/blur */}
+        <div className="relative">
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
+          <Input
+            value={countrySearch || (country ? selectedCountryName : '')}
+            onChange={(e) => {
+              setCountrySearch(e.target.value);
+              // Clear the resolved code while the user is editing
+              if (country) setCountry('');
+            }}
+            onBlur={async () => {
+              const text = countrySearch.trim();
+              if (!text) return;
+              const match = await resolveCountryText(text);
+              if (match) {
+                setCountry(match.code);
+                setCountrySearch('');
+                if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
+              }
+            }}
+            onKeyDown={onKeyDown}
+            placeholder="Country"
+            className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
+            autoComplete="off"
+          />
+          {(country || countrySearch) && (
+            <button
+              type="button"
+              onClick={() => {
+                setCountrySearch('');
+                setCountry('');
+                if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
+              }}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
+              aria-label="Clear country"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
 
         {/* Sort/Filter dropdown moved to first position in grid */}
 

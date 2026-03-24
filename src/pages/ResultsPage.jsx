@@ -9,7 +9,7 @@ import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchCompanies, getSearchCount } from "@/lib/searchCompanies";
-import { getCountries } from "@/lib/location";
+import { getCountries, getCountryCentroid } from "@/lib/location";
 import { API_BASE } from "@/lib/api";
 import { getQQScore } from "@/lib/stars/qqRating";
 import { cn } from "@/lib/utils";
@@ -272,9 +272,25 @@ export default function ResultsPage() {
           const countryName = countryParam ? await resolveCountryName(countryParam) : "";
           const addr = [cityParam, stateParam, countryName].filter(Boolean).join(", ");
           const r = await geocode({ address: addr, ipLookup: false });
-          loc = r?.best?.location || null;
+          const geoLoc = r?.best?.location || null;
           const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
-          if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
+
+          // Detect San Dimas fallback (API failure)
+          const isFallback = countryParam && cc === "US" && countryParam !== "US" &&
+            geoLoc && Math.abs(geoLoc.lat - 34.0983) < 0.01 && Math.abs(geoLoc.lng - (-117.8076)) < 0.01;
+
+          if (geoLoc && !isFallback) {
+            loc = geoLoc;
+            if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
+          } else if (countryParam) {
+            // Use static centroid as fallback
+            const centroid = getCountryCentroid(countryParam);
+            if (centroid) {
+              loc = centroid;
+              setUnit(milesCountries.has(countryParam) ? "mi" : "km");
+              setUserCountryCode(countryParam);
+            }
+          }
         } else {
           const r = await geocode({ ipLookup: true });
           loc = r?.best?.location || { lat: 34.0983, lng: -117.8076 };
@@ -347,15 +363,40 @@ export default function ResultsPage() {
         const countryName = country ? await resolveCountryName(country) : "";
         const r = await geocode({ address: [city, state, countryName].filter(Boolean).join(", "), ipLookup: false });
         const loc = r?.best?.location;
-        if (loc) {
+        const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+
+        // Detect if geocode silently fell back to San Dimas (API failure).
+        // If we asked for a specific country but got "US" back (and didn't ask for US),
+        // the API likely failed. Use country centroid instead.
+        const isFallback = country && cc === "US" && country !== "US" &&
+          loc && Math.abs(loc.lat - 34.0983) < 0.01 && Math.abs(loc.lng - (-117.8076)) < 0.01;
+
+        if (loc && !isFallback) {
           searchLocation = loc;
           setUserLoc({ lat: loc.lat, lng: loc.lng });
-          const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
           if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
+        } else if (country) {
+          // Geocode failed or returned wrong country — use static centroid
+          const centroid = getCountryCentroid(country);
+          if (centroid) {
+            searchLocation = centroid;
+            setUserLoc({ lat: centroid.lat, lng: centroid.lng });
+            setUnit(milesCountries.has(country) ? "mi" : "km");
+            setUserCountryCode(country);
+          }
         }
       }
     } catch {
-      // ignore
+      // Last resort: try centroid
+      if (country) {
+        const centroid = getCountryCentroid(country);
+        if (centroid) {
+          searchLocation = centroid;
+          setUserLoc({ lat: centroid.lat, lng: centroid.lng });
+          setUnit(milesCountries.has(country) ? "mi" : "km");
+          setUserCountryCode(country);
+        }
+      }
     }
 
     setSortBy(null);
