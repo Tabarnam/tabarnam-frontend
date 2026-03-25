@@ -366,8 +366,6 @@ export default function ResultsPage() {
         const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
 
         // Detect if geocode silently fell back to San Dimas (API failure).
-        // If we asked for a specific country but got "US" back (and didn't ask for US),
-        // the API likely failed. Use country centroid instead.
         const isFallback = country && cc === "US" && country !== "US" &&
           loc && Math.abs(loc.lat - 34.0983) < 0.01 && Math.abs(loc.lng - (-117.8076)) < 0.01;
 
@@ -376,7 +374,6 @@ export default function ResultsPage() {
           setUserLoc({ lat: loc.lat, lng: loc.lng });
           if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
         } else if (country) {
-          // Geocode failed or returned wrong country — use static centroid
           const centroid = getCountryCentroid(country);
           if (centroid) {
             searchLocation = centroid;
@@ -385,9 +382,22 @@ export default function ResultsPage() {
             setUserCountryCode(country);
           }
         }
+      } else {
+        // No geo filters — reset to user's IP-based or default location.
+        // Without this, stale userLoc from a previous country filter persists.
+        setUserLoc(null);
+        try {
+          const r = await geocode({ ipLookup: true });
+          const loc = r?.best?.location;
+          if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+            searchLocation = loc;
+            setUserLoc({ lat: loc.lat, lng: loc.lng });
+            const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+            if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
+          }
+        } catch { /* will use fallback in doSearch */ }
       }
     } catch {
-      // Last resort: try centroid
       if (country) {
         const centroid = getCountryCentroid(country);
         if (centroid) {
