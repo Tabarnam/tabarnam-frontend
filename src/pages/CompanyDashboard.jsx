@@ -548,7 +548,7 @@ export default function CompanyDashboard() {
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
