@@ -170,6 +170,10 @@ function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
+function clean(value) {
+  return asString(value).trim();
+}
+
 function joinedLower(arr) {
   if (!Array.isArray(arr)) return "";
   return arr.map((s) => asString(s).trim()).filter(Boolean).join(", ").toLowerCase();
