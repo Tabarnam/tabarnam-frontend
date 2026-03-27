@@ -1208,7 +1208,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     return json({ ok: false, success: false, error: "Method Not Allowed" }, 405, req);
   }
 
-  const url = new URL(req.url);
+  const url = new URL(req.url || "https://localhost/api/search-companies");
 
   // Support both old style (q param) and new style (raw, norm, compact params)
   const qRawParam = url.searchParams.get("raw") || url.searchParams.get("q") || "";
