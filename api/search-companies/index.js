@@ -797,10 +797,183 @@ function countryMatchTokens(isoCode) {
   return tokens;
 }
 
+const COUNTRY_ALIAS_MAP = {
+  usa: ["united states", "united states of america", "us"],
+  us: ["united states", "united states of america", "usa"],
+  uk: ["united kingdom", "great britain", "britain", "gb"],
+  gb: ["united kingdom", "great britain", "britain", "uk"],
+  gbr: ["united kingdom", "great britain", "britain", "uk"],
+  uae: ["united arab emirates"],
+};
+
+const STATE_ALIAS_MAP = {
+  cali: ["california"],
+  ca: ["california"],
+  ny: ["new york"],
+  nj: ["new jersey"],
+  pa: ["pennsylvania"],
+  mo: ["missouri"],
+  tx: ["texas"],
+  fl: ["florida"],
+  il: ["illinois"],
+  ga: ["georgia"],
+  va: ["virginia"],
+  wa: ["washington"],
+  or: ["oregon"],
+  az: ["arizona"],
+  co: ["colorado"],
+  nc: ["north carolina"],
+  sc: ["south carolina"],
+  tn: ["tennessee"],
+  mi: ["michigan"],
+  oh: ["ohio"],
+  ma: ["massachusetts"],
+  md: ["maryland"],
+};
+
+const CITY_ALIAS_MAP = {
+  la: ["los angeles"],
+  "l a": ["los angeles"],
+  sf: ["san francisco"],
+  "s f": ["san francisco"],
+  philly: ["philadelphia"],
+  nyc: ["new york city"],
+  "n y c": ["new york city"],
+};
+
+function locationTextKey(value) {
+  return clean(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s,]+/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitLocationParts(value) {
+  return clean(value)
+    .split(",")
+    .map((part) => locationTextKey(part))
+    .filter(Boolean);
+}
+
+function initialismForValue(value) {
+  return locationTextKey(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0] || "")
+    .join("");
+}
+
+function addAliasTokens(targets, map, base) {
+  const aliases = map[base] || [];
+  aliases.forEach((alias) => {
+    const normalized = locationTextKey(alias);
+    if (normalized) targets.add(normalized);
+  });
+}
+
+function locationInputTokens(value, field) {
+  const base = locationTextKey(value);
+  if (!base) return [];
+
+  const targets = new Set([base]);
+
+  if (field === "country") {
+    addAliasTokens(targets, COUNTRY_ALIAS_MAP, base);
+    if (/^[a-z]{2,3}$/.test(base)) {
+      countryMatchTokens(base.toUpperCase()).forEach((token) => {
+        const normalized = locationTextKey(token);
+        if (normalized) targets.add(normalized);
+      });
+    }
+    return Array.from(targets);
+  }
+
+  addAliasTokens(targets, CITY_ALIAS_MAP, base);
+  addAliasTokens(targets, STATE_ALIAS_MAP, base);
+  addAliasTokens(targets, COUNTRY_ALIAS_MAP, base);
+
+  return Array.from(targets);
+}
+
 function locationMatchesCountry(locString, tokens) {
   if (!locString || !tokens.length) return false;
   const lower = locString.toString().toLowerCase();
   return tokens.some((t) => lower.includes(t));
+}
+
+function locationMatchesInput(locString, input, field) {
+  const hay = locationTextKey(locString);
+  if (!hay) return false;
+
+  const hayParts = splitLocationParts(locString);
+  const hayInitials = initialismForValue(locString);
+  const tokens = locationInputTokens(input, field);
+
+  return tokens.some((target) => {
+    if (!target) return false;
+    if (hay === target) return true;
+    if (hay.includes(target)) return true;
+    if (hayParts.includes(target)) return true;
+    if (target.length <= 3 && hayInitials.includes(target.replace(/\s+/g, ""))) return true;
+    return false;
+  });
+}
+
+function collectCompanyLocationStrings(company) {
+  const values = [];
+  const push = (value) => {
+    const raw =
+      typeof value === "string"
+        ? clean(value)
+        : typeof value?.formatted === "string"
+          ? clean(value.formatted)
+          : typeof value?.geocode_formatted_address === "string"
+            ? clean(value.geocode_formatted_address)
+            : clean([
+                value?.address,
+                value?.city,
+                value?.region || value?.state,
+                value?.country,
+              ]
+                .filter(Boolean)
+                .join(", "));
+
+    if (raw) values.push(raw);
+  };
+
+  push(company.headquarters_location);
+  (Array.isArray(company.headquarters) ? company.headquarters : []).forEach(push);
+  (Array.isArray(company.headquarters_locations) ? company.headquarters_locations : []).forEach(push);
+  (Array.isArray(company.manufacturing_locations) ? company.manufacturing_locations : []).forEach(push);
+  (Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : []).forEach(push);
+  (Array.isArray(company.manufacturing_sites) ? company.manufacturing_sites : []).forEach(push);
+
+  return values;
+}
+
+function companyMatchesLocationFilters(company, filters) {
+  const country = clean(filters.country);
+  const state = clean(filters.state);
+  const city = clean(filters.city);
+  if (!country && !state && !city) return true;
+
+  const locations = collectCompanyLocationStrings(company);
+  if (!locations.length) return false;
+
+  if (country && !locations.some((location) => locationMatchesInput(location, country, "country"))) {
+    return false;
+  }
+
+  if (state && !locations.some((location) => locationMatchesInput(location, state, "state"))) {
+    return false;
+  }
+
+  if (city && !locations.some((location) => locationMatchesInput(location, city, "city"))) {
+    return false;
+  }
+
+  return true;
 }
 
 function deduplicateByDomain(companies) {
@@ -1081,6 +1254,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   // Country-based filters: only return companies with HQ/manufacturing in the specified country
   const hqCountry = (url.searchParams.get("hqCountry") || "").toUpperCase().trim();
   const mfgCountry = (url.searchParams.get("mfgCountry") || "").toUpperCase().trim();
+  const country = clean(url.searchParams.get("country") || "");
+  const state = clean(url.searchParams.get("state") || url.searchParams.get("region") || "");
+  const city = clean(url.searchParams.get("city") || "");
 
   // For countOnly, fetch up to 500 to get accurate total; otherwise fetch just enough for the page.
   const limit = countOnly ? 500 : clamp(skip + take + 1, 1, 501);
@@ -1441,6 +1617,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // Amazon-only filter: keep only companies that have an amazon_url
       if (amazonOnly) {
         deduped = deduped.filter((c) => c.amazon_url && c.amazon_url.trim() !== "");
+      }
+
+      if (country || state || city) {
+        deduped = deduped.filter((c) => companyMatchesLocationFilters(c, { country, state, city }));
       }
 
       // HQ country filter: keep only companies with HQ in the specified country
