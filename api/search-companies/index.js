@@ -876,6 +876,17 @@ function addAliasTokens(targets, map, base) {
   });
 }
 
+function addReverseAliasTokens(targets, map, base) {
+  for (const [key, aliases] of Object.entries(map)) {
+    const normalizedKey = locationTextKey(key);
+    const normalizedAliases = Array.isArray(aliases) ? aliases.map((alias) => locationTextKey(alias)).filter(Boolean) : [];
+    if (normalizedKey === base || normalizedAliases.includes(base)) {
+      if (normalizedKey) targets.add(normalizedKey);
+      normalizedAliases.forEach((alias) => targets.add(alias));
+    }
+  }
+}
+
 function locationInputTokens(value, field) {
   const base = locationTextKey(value);
   if (!base) return [];
@@ -884,6 +895,7 @@ function locationInputTokens(value, field) {
 
   if (field === "country") {
     addAliasTokens(targets, COUNTRY_ALIAS_MAP, base);
+    addReverseAliasTokens(targets, COUNTRY_ALIAS_MAP, base);
     if (/^[a-z]{2,3}$/.test(base)) {
       countryMatchTokens(base.toUpperCase()).forEach((token) => {
         const normalized = locationTextKey(token);
@@ -894,8 +906,11 @@ function locationInputTokens(value, field) {
   }
 
   addAliasTokens(targets, CITY_ALIAS_MAP, base);
+  addReverseAliasTokens(targets, CITY_ALIAS_MAP, base);
   addAliasTokens(targets, STATE_ALIAS_MAP, base);
+  addReverseAliasTokens(targets, STATE_ALIAS_MAP, base);
   addAliasTokens(targets, COUNTRY_ALIAS_MAP, base);
+  addReverseAliasTokens(targets, COUNTRY_ALIAS_MAP, base);
 
   return Array.from(targets);
 }
@@ -911,14 +926,19 @@ function locationMatchesInput(locString, input, field) {
   if (!hay) return false;
 
   const hayParts = splitLocationParts(locString);
+  const hayWords = hay
+    .split(/[\s,]+/)
+    .map((part) => locationTextKey(part))
+    .filter(Boolean);
   const hayInitials = initialismForValue(locString);
   const tokens = locationInputTokens(input, field);
 
   return tokens.some((target) => {
     if (!target) return false;
     if (hay === target) return true;
-    if (hay.includes(target)) return true;
     if (hayParts.includes(target)) return true;
+    if (hayWords.includes(target)) return true;
+    if (target.length > 3 && hay.includes(target)) return true;
     if (target.length <= 3 && hayInitials.includes(target.replace(/\s+/g, ""))) return true;
     return false;
   });
