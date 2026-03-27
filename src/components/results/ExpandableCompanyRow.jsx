@@ -675,7 +675,7 @@ export default function ExpandableCompanyRow({
 
           <div className="col-span-2 lg:col-span-1">
             {shouldShowLogo ? (
-              <div className="rounded-md bg-white p-2 inline-flex items-center justify-center">
+              <div className="rounded-md bg-gray-100 dark:bg-gray-700 p-2 inline-flex items-center justify-center">
                 {websiteUrl ? (
                   <a
                     href={websiteUrl}
@@ -911,7 +911,7 @@ export default function ExpandableCompanyRow({
       {/* Logo Column */}
       <div className="col-span-2 lg:col-span-1 flex items-center justify-center">
         {shouldShowLogo ? (
-          <div className="rounded-md bg-white p-2 inline-flex items-center justify-center">
+          <div className="rounded-md bg-gray-100 dark:bg-gray-700 p-2 inline-flex items-center justify-center">
             {websiteUrl ? (
               <a
                 href={websiteUrl}

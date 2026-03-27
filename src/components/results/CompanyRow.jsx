@@ -190,7 +190,7 @@ const CompanyRow = ({
         {/* Logo column with admin Add button if missing */}
         <td className="p-4 align-top">
           {shouldShowLogo ? (
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-md bg-white p-1 flex items-center justify-center">
+            <div className="w-16 h-16 md:w-20 md:h-20 rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex items-center justify-center">
               <img
                 src={logoUrl}
                 alt={`${displayName || "Company"} logo`}
@@ -288,7 +288,7 @@ const CompanyRow = ({
                 </div>
                 <div className="col-[2] row-[1]/row-[span_3] flex items-start">
                   {logoUrl ? (
-                    <div className="w-20 h-20 rounded-md bg-white p-1 flex items-center justify-center">
+                    <div className="w-20 h-20 rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex items-center justify-center">
                       <img
                         src={logoUrl}
                         alt={`${displayName || "Company"} logo`}
