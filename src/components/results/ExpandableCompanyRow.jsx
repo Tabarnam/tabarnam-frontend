@@ -675,29 +675,31 @@ export default function ExpandableCompanyRow({
 
           <div className="col-span-2 lg:col-span-1">
             {shouldShowLogo ? (
-              websiteUrl ? (
-                <a
-                  href={websiteUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="block"
-                >
+              <div className="rounded-md bg-white p-2 inline-flex items-center justify-center">
+                {websiteUrl ? (
+                  <a
+                    href={websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="block"
+                  >
+                    <img
+                      src={logoUrl}
+                      alt={displayName}
+                      className="w-full max-h-56 h-auto object-contain"
+                      onError={() => setLogoFailed(true)}
+                    />
+                  </a>
+                ) : (
                   <img
                     src={logoUrl}
                     alt={displayName}
-                    className="w-full max-h-60 h-auto object-contain"
+                    className="w-full max-h-56 h-auto object-contain"
                     onError={() => setLogoFailed(true)}
                   />
-                </a>
-              ) : (
-                <img
-                  src={logoUrl}
-                  alt={displayName}
-                  className="w-full max-h-60 h-auto object-contain"
-                  onError={() => setLogoFailed(true)}
-                />
-              )
+                )}
+              </div>
             ) : (
               <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
                 {logoStatus === "not_found_on_site" ? (
@@ -909,29 +911,31 @@ export default function ExpandableCompanyRow({
       {/* Logo Column */}
       <div className="col-span-2 lg:col-span-1 flex items-center justify-center">
         {shouldShowLogo ? (
-          websiteUrl ? (
-            <a
-              href={websiteUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="block"
-            >
+          <div className="rounded-md bg-white p-2 inline-flex items-center justify-center">
+            {websiteUrl ? (
+              <a
+                href={websiteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="block"
+              >
+                <img
+                  src={logoUrl}
+                  alt={displayName}
+                  className="w-full max-h-56 h-auto object-contain"
+                  onError={() => setLogoFailed(true)}
+                />
+              </a>
+            ) : (
               <img
                 src={logoUrl}
                 alt={displayName}
-                className="w-full max-h-60 h-auto object-contain"
+                className="w-full max-h-56 h-auto object-contain"
                 onError={() => setLogoFailed(true)}
               />
-            </a>
-          ) : (
-            <img
-              src={logoUrl}
-              alt={displayName}
-              className="w-full max-h-60 h-auto object-contain"
-              onError={() => setLogoFailed(true)}
-            />
-          )
+            )}
+          </div>
         ) : (
           <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
             {logoStatus === "not_found_on_site" ? (
