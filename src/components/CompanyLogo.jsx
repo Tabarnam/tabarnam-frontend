@@ -5,28 +5,26 @@ import { getCompanyLogoUrl } from "@/lib/logoUrl";
 /**
  * Theme-aware company logo.
  *
- * - If a distinct dark variant exists, switches logo based on theme.
- * - If no dark variant, wraps logo in a neutral gray pill in dark mode
- *   so both black and white logos remain visible.
- * - In light mode, renders the logo as-is.
+ * In dark mode: always wraps logo in a neutral gray pill for contrast,
+ * since we can't predict if a logo is light or dark colored.
+ * In light mode: renders the logo as-is.
+ *
+ * The logo_url_dark field is reserved for future admin-uploaded dark
+ * variants but is not consumed here until manual review is in place.
  */
 export default function CompanyLogo({ company, className, alt, ...props }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const lightUrl = getCompanyLogoUrl(company, "light");
-  const darkUrl = getCompanyLogoUrl(company, "dark");
-  const hasDarkVariant = darkUrl && darkUrl !== lightUrl;
-
-  const logoUrl = isDark && hasDarkVariant ? darkUrl : lightUrl;
+  const logoUrl = getCompanyLogoUrl(company, "light");
   if (!logoUrl) return null;
 
   const altText = alt || `${company?.company_name || company?.display_name || "Company"} logo`;
 
-  // Dark mode without a distinct dark variant → neutral gray pill for contrast
-  if (isDark && !hasDarkVariant) {
+  // Dark mode → neutral gray pill so both black and white logos stay visible
+  if (isDark) {
     return (
-      <div className="rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex items-center justify-center">
+      <div className="rounded-md bg-gray-300 p-1 flex items-center justify-center">
         <img
           src={logoUrl}
           alt={altText}
