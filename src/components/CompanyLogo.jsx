@@ -21,26 +21,16 @@ export default function CompanyLogo({ company, className, alt, ...props }) {
 
   const altText = alt || `${company?.company_name || company?.display_name || "Company"} logo`;
 
-  // Dark mode → neutral gray pill so both black and white logos stay visible
-  if (isDark) {
-    return (
-      <div className="rounded-md bg-gray-300 p-1 flex items-center justify-center">
-        <img
-          src={logoUrl}
-          alt={altText}
-          className={className}
-          {...props}
-        />
-      </div>
-    );
-  }
-
+  // Neutral gray pill in both modes — provides contrast for black logos
+  // on dark backgrounds and white logos on light backgrounds
   return (
-    <img
-      src={logoUrl}
-      alt={altText}
-      className={className}
-      {...props}
-    />
+    <div className={`rounded-md p-1 flex items-center justify-center ${isDark ? "bg-gray-600" : "bg-gray-200"}`}>
+      <img
+        src={logoUrl}
+        alt={altText}
+        className={className}
+        {...props}
+      />
+    </div>
   );
 }
