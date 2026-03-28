@@ -19,7 +19,6 @@ import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { apiFetch, readJsonOrText } from "@/lib/api";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
-import CompanyLogo from "@/components/CompanyLogo";
 
 const PAGE_SIZE = 60;
 
@@ -87,9 +86,7 @@ function CopyNameButton({ name }) {
 }
 
 function LogoCard({ company, failed, onImgError, onToggleApproval, saving }) {
-  const logoUrl = getCompanyLogoUrl(company, "light");
-  const logoUrlDark = getCompanyLogoUrl(company, "dark");
-  const hasDarkVariant = logoUrlDark && logoUrlDark !== logoUrl;
+  const logoUrl = getCompanyLogoUrl(company);
   const approved = !!company.logo_approved;
 
   return (
@@ -98,32 +95,20 @@ function LogoCard({ company, failed, onImgError, onToggleApproval, saving }) {
         approved ? "border-emerald-700/50" : "border-slate-800"
       }`}
     >
-      <div className={`w-full flex gap-1 ${hasDarkVariant ? "" : "aspect-square"}`}>
-        <div className={`flex-1 ${hasDarkVariant ? "aspect-square" : "w-full h-full"} flex items-center justify-center bg-white rounded overflow-hidden relative`}>
-          {failed ? (
-            <div className="flex flex-col items-center gap-1 text-slate-400">
-              <AlertTriangle className="w-8 h-8" />
-              <span className="text-xs">Broken</span>
-            </div>
-          ) : (
-            <img
-              src={logoUrl}
-              alt={company.company_name || company.id}
-              className="max-w-full max-h-full object-contain p-2"
-              loading="lazy"
-              onError={() => onImgError(company.id)}
-            />
-          )}
-        </div>
-        {hasDarkVariant && !failed && (
-          <div className="flex-1 aspect-square flex items-center justify-center bg-slate-800 rounded overflow-hidden relative">
-            <img
-              src={logoUrlDark}
-              alt={`${company.company_name || company.id} (dark)`}
-              className="max-w-full max-h-full object-contain p-2"
-              loading="lazy"
-            />
+      <div className="w-full aspect-square flex items-center justify-center bg-white rounded overflow-hidden relative">
+        {failed ? (
+          <div className="flex flex-col items-center gap-1 text-slate-400">
+            <AlertTriangle className="w-8 h-8" />
+            <span className="text-xs">Broken</span>
           </div>
+        ) : (
+          <img
+            src={logoUrl}
+            alt={company.company_name || company.id}
+            className="max-w-full max-h-full object-contain p-2"
+            loading="lazy"
+            onError={() => onImgError(company.id)}
+          />
         )}
       </div>
 

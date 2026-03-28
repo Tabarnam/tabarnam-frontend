@@ -11,7 +11,6 @@ import { calcStars } from "@/lib/stars/calcStars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
-import CompanyLogo from "@/components/CompanyLogo";
 import { getProfileCompleteness, getProfileCompletenessLabel } from "@/lib/profileCompleteness";
 import { normalizeCountryDisplay, normalizeLocationString } from "@/lib/location";
 
@@ -191,8 +190,8 @@ const CompanyRow = ({
         {/* Logo column with admin Add button if missing */}
         <td className="p-4 align-top">
           {shouldShowLogo ? (
-            <CompanyLogo
-              company={company}
+            <img
+              src={logoUrl}
               alt={`${displayName || "Company"} logo`}
               className="w-16 h-16 md:w-20 md:h-20 rounded-md object-contain bg-muted"
               loading="lazy"
@@ -287,8 +286,8 @@ const CompanyRow = ({
                 </div>
                 <div className="col-[2] row-[1]/row-[span_3] flex items-start">
                   {logoUrl ? (
-                    <CompanyLogo
-                      company={company}
+                    <img
+                      src={logoUrl}
                       alt={`${displayName || "Company"} logo`}
                       className="w-20 h-20 rounded-md object-contain bg-muted"
                       loading="lazy"
