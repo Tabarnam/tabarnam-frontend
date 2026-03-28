@@ -95,7 +95,7 @@ function LogoCard({ company, failed, onImgError, onToggleApproval, saving }) {
         approved ? "border-emerald-700/50" : "border-slate-800"
       }`}
     >
-      <div className="w-full aspect-square flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded overflow-hidden relative">
+      <div className="w-full aspect-square flex items-center justify-center bg-white rounded overflow-hidden relative">
         {failed ? (
           <div className="flex flex-col items-center gap-1 text-slate-400">
             <AlertTriangle className="w-8 h-8" />

@@ -190,17 +190,15 @@ const CompanyRow = ({
         {/* Logo column with admin Add button if missing */}
         <td className="p-4 align-top">
           {shouldShowLogo ? (
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex items-center justify-center">
-              <img
-                src={logoUrl}
-                alt={`${displayName || "Company"} logo`}
-                className="max-w-full max-h-full rounded object-contain"
-                loading="lazy"
-                decoding="async"
-                onClick={(e) => e.stopPropagation()}
-                onError={() => setLogoFailed(true)}
-              />
-            </div>
+            <img
+              src={logoUrl}
+              alt={`${displayName || "Company"} logo`}
+              className="w-16 h-16 md:w-20 md:h-20 rounded-md object-contain bg-muted"
+              loading="lazy"
+              decoding="async"
+              onClick={(e) => e.stopPropagation()}
+              onError={() => setLogoFailed(true)}
+            />
           ) : (
             <div className="w-16 h-16 md:w-20 md:h-20 rounded-md bg-muted flex items-center justify-center text-xs text-muted-foreground relative">
               {missingLogoLabel}
@@ -288,14 +286,12 @@ const CompanyRow = ({
                 </div>
                 <div className="col-[2] row-[1]/row-[span_3] flex items-start">
                   {logoUrl ? (
-                    <div className="w-20 h-20 rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex items-center justify-center">
-                      <img
-                        src={logoUrl}
-                        alt={`${displayName || "Company"} logo`}
-                        className="max-w-full max-h-full rounded object-contain"
-                        loading="lazy"
-                      />
-                    </div>
+                    <img
+                      src={logoUrl}
+                      alt={`${displayName || "Company"} logo`}
+                      className="w-20 h-20 rounded-md object-contain bg-muted"
+                      loading="lazy"
+                    />
                   ) : (
                     <div className="w-20 h-20 rounded-md bg-muted flex items-center justify-center text-xs text-muted-foreground relative">
                       {missingLogoLabel}

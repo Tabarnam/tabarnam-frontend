@@ -571,7 +571,7 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-[5px] border-tabarnam-blue dark:border-primary rounded-lg p-2 bg-card cursor-default relative"
+        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-default relative"
       >
         {/* Collapse chevron + share button row */}
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
@@ -675,31 +675,29 @@ export default function ExpandableCompanyRow({
 
           <div className="col-span-2 lg:col-span-1">
             {shouldShowLogo ? (
-              <div className="rounded-md bg-gray-100 dark:bg-gray-700 p-2 inline-flex items-center justify-center">
-                {websiteUrl ? (
-                  <a
-                    href={websiteUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="block"
-                  >
-                    <img
-                      src={logoUrl}
-                      alt={displayName}
-                      className="w-full max-h-56 h-auto object-contain"
-                      onError={() => setLogoFailed(true)}
-                    />
-                  </a>
-                ) : (
+              websiteUrl ? (
+                <a
+                  href={websiteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="block"
+                >
                   <img
                     src={logoUrl}
                     alt={displayName}
-                    className="w-full max-h-56 h-auto object-contain"
+                    className="w-full max-h-60 h-auto object-contain"
                     onError={() => setLogoFailed(true)}
                   />
-                )}
-              </div>
+                </a>
+              ) : (
+                <img
+                  src={logoUrl}
+                  alt={displayName}
+                  className="w-full max-h-60 h-auto object-contain"
+                  onError={() => setLogoFailed(true)}
+                />
+              )
             ) : (
               <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
                 {logoStatus === "not_found_on_site" ? (
@@ -802,7 +800,7 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border-[2.5px] border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer transition-colors relative"
+      className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
     >
       <div className="col-span-4 lg:col-span-1">
         <h2 className="font-bold text-foreground flex items-center gap-0.5">
@@ -911,31 +909,29 @@ export default function ExpandableCompanyRow({
       {/* Logo Column */}
       <div className="col-span-2 lg:col-span-1 flex items-center justify-center">
         {shouldShowLogo ? (
-          <div className="rounded-md bg-gray-100 dark:bg-gray-700 p-2 inline-flex items-center justify-center">
-            {websiteUrl ? (
-              <a
-                href={websiteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="block"
-              >
-                <img
-                  src={logoUrl}
-                  alt={displayName}
-                  className="w-full max-h-56 h-auto object-contain"
-                  onError={() => setLogoFailed(true)}
-                />
-              </a>
-            ) : (
+          websiteUrl ? (
+            <a
+              href={websiteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="block"
+            >
               <img
                 src={logoUrl}
                 alt={displayName}
-                className="w-full max-h-56 h-auto object-contain"
+                className="w-full max-h-60 h-auto object-contain"
                 onError={() => setLogoFailed(true)}
               />
-            )}
-          </div>
+            </a>
+          ) : (
+            <img
+              src={logoUrl}
+              alt={displayName}
+              className="w-full max-h-60 h-auto object-contain"
+              onError={() => setLogoFailed(true)}
+            />
+          )
         ) : (
           <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
             {logoStatus === "not_found_on_site" ? (
