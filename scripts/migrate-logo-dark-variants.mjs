@@ -245,10 +245,11 @@ async function main() {
             if (!pk || String(pk).trim() === "") {
               pk = toNormalizedDomain(doc.website_url || doc.url || doc.domain || "");
             }
-            await container.items.upsert(
-              { ...doc, logo_url_dark: logoUrl, updated_at: new Date().toISOString() },
-              { partitionKey: pk },
-            );
+            // PATCH: only set logo_url_dark, never touch other fields
+            await container.item(doc.id, pk).patch([
+              { op: "set", path: "/logo_url_dark", value: logoUrl },
+              { op: "set", path: "/updated_at", value: new Date().toISOString() },
+            ]);
           }
           counters.same_url++;
           continue;
@@ -289,10 +290,12 @@ async function main() {
           if (!pk || String(pk).trim() === "") {
             pk = toNormalizedDomain(doc.website_url || doc.url || doc.domain || "");
           }
-          await container.items.upsert(
-            { ...doc, logo_url: finalLogoUrl, logo_url_dark: finalLogoUrlDark, updated_at: new Date().toISOString() },
-            { partitionKey: pk },
-          );
+          // PATCH: only set logo_url and logo_url_dark, never touch other fields
+          await container.item(doc.id, pk).patch([
+            { op: "set", path: "/logo_url", value: finalLogoUrl },
+            { op: "set", path: "/logo_url_dark", value: finalLogoUrlDark },
+            { op: "set", path: "/updated_at", value: new Date().toISOString() },
+          ]);
         }
 
         console.log(`  [variant] ${companyId}: isDark=${detection.isDark}, dominantColor=rgb(${detection.dominantColor.r},${detection.dominantColor.g},${detection.dominantColor.b})`);
