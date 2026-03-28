@@ -571,7 +571,7 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-default relative"
+        className="border-[5px] border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-default relative"
       >
         {/* Collapse chevron + share button row */}
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
@@ -802,7 +802,7 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
+      className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border-[2.5px] border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
     >
       <div className="col-span-4 lg:col-span-1">
         <h2 className="font-bold text-foreground flex items-center gap-0.5">
