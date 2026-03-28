@@ -5,6 +5,7 @@ const {
   BlobSASPermissions,
 } = require("@azure/storage-blob");
 const { tryLoadSharp } = require("./_shared");
+const { processLogoVariants } = require("./_logoVariant");
 const { v4: uuidv4 } = require("uuid");
 
 // Load sharp safely - will be null if unavailable
@@ -1922,7 +1923,7 @@ async function rasterizeToPng(buf, { maxSize = 500, isSvg = false } = {}) {
   }
 }
 
-async function uploadBufferToBlob({ companyId, buffer, ext, contentType }, logger = console, { force = false } = {}) {
+async function uploadBufferToBlob({ companyId, buffer, ext, contentType, variant }, logger = console, { force = false } = {}) {
   const { accountName, accountKey } = getStorageCredentials();
   if (!accountName || !accountKey) {
     throw new Error("storage not configured");
@@ -1945,7 +1946,9 @@ async function uploadBufferToBlob({ companyId, buffer, ext, contentType }, logge
     logger?.warn?.(`[logoImport] container create/exists failed: ${e?.message || e}`);
   }
 
-  const blobName = `${companyId}/logo.${safeExt}`;
+  const blobName = variant
+    ? `${companyId}/logo-${variant}.${safeExt}`
+    : `${companyId}/logo.${safeExt}`;
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
   // Overwrite guard: don't replace a larger existing blob with a smaller one
@@ -2334,18 +2337,34 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
 
       try {
         let logoUrl = null;
+        let processedBuffer = null;
 
         if (evalResult.isSvg) {
           logoUrl = await uploadSvgToBlob({ companyId, svgBuffer: evalResult.buf }, logger);
+          processedBuffer = evalResult.buf;
         } else {
           const pngBuffer = await rasterizeToPng(evalResult.buf, { maxSize: 500, isSvg: false });
           logoUrl = await uploadPngToBlob({ companyId, pngBuffer }, logger);
+          processedBuffer = pngBuffer;
         }
+
+        // Generate dark-mode variant if the logo is monochrome on transparent bg
+        const variants = await processLogoVariants({
+          buffer: processedBuffer,
+          isSvg: evalResult.isSvg,
+          companyId,
+          ext: evalResult.isSvg ? "svg" : "png",
+          contentType: evalResult.isSvg ? "image/svg+xml" : "image/png",
+          originalUrl: logoUrl,
+          uploadFn: uploadBufferToBlob,
+          logger,
+        });
 
         try {
           logger?.log?.("logo_uploaded_ok", {
             company_id: companyId,
-            logo_url: logoUrl,
+            logo_url: variants.logoUrl,
+            logo_url_dark: variants.logoUrlDark,
             tier,
           });
         } catch {
@@ -2368,7 +2387,8 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
           logo_source_location: candidate.location || null,
           logo_source_domain: candidate.logo_source_domain || discovered?.allowed_host_root || null,
           logo_source_type: toLogoSourceType(candidate.source),
-          logo_url: logoUrl,
+          logo_url: variants.logoUrl,
+          logo_url_dark: variants.logoUrlDark,
           logo_discovery_strategy: candidate.source || "",
           logo_discovery_page_url: candidate.page_url || discovered?.page_url || "",
           logo_telemetry: finalizeTelemetry(),
@@ -2438,6 +2458,7 @@ module.exports = {
   discoverLogoSourceUrl,
   importCompanyLogo,
   uploadSvgToBlob,
+  uploadBufferToBlob,
   looksLikeUnsafeSvg,
   fetchText,
   _test: {

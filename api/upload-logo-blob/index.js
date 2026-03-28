@@ -7,6 +7,7 @@ try {
 const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
 const { tryLoadSharp } = require("../_shared");
+const { isMonochromeTransparent, generateInvertedVariant } = require("../_logoVariant");
 const { v4: uuidv4 } = require("uuid");
 
 // Load sharp safely - will be null if unavailable
@@ -265,9 +266,35 @@ async function uploadLogoBlobHandler(req, ctx) {
       });
 
       // Public container (Blob) + stable URL (no SAS). This URL should not expire.
-      const logoUrl = blockBlobClient.url;
+      let logoUrl = blockBlobClient.url;
+      let logoUrlDark = logoUrl;
 
       ctx.log(`[upload-logo-blob] Uploaded logo (public URL) for company ${companyId}`);
+
+      // Generate dark-mode variant if the logo is monochrome on transparent bg
+      try {
+        const detection = await isMonochromeTransparent(processedBuffer);
+        if (detection.needsVariant) {
+          ctx.log(`[upload-logo-blob] Monochrome-transparent detected (isDark=${detection.isDark}), generating variant`);
+          const invertedBuffer = await generateInvertedVariant(processedBuffer);
+          const darkBlobName = `${companyId}/${uuidv4()}-dark.${blobExt === "svg" ? "png" : blobExt}`;
+          const darkBlobClient = containerClient.getBlockBlobClient(darkBlobName);
+          await darkBlobClient.upload(invertedBuffer, invertedBuffer.length, {
+            blobHTTPHeaders: { blobContentType: "image/png" },
+          });
+          if (detection.isDark) {
+            // Original is dark (for light bg), inverted is light (for dark bg)
+            logoUrlDark = darkBlobClient.url;
+          } else {
+            // Original is light (for dark bg), inverted is dark (for light bg)
+            logoUrlDark = logoUrl;
+            logoUrl = darkBlobClient.url;
+          }
+          ctx.log(`[upload-logo-blob] Variant uploaded: logo_url=${logoUrl}, logo_url_dark=${logoUrlDark}`);
+        }
+      } catch (variantErr) {
+        ctx.warn?.(`[upload-logo-blob] Variant generation failed, using same URL for both: ${variantErr?.message || variantErr}`);
+      }
 
       // Persist the logo URL to Cosmos DB (required for admin logo persistence)
       const cosmosContainer = getCosmosContainer(ctx);
@@ -311,6 +338,7 @@ async function uploadLogoBlobHandler(req, ctx) {
       const updatedDoc = {
         ...doc,
         logo_url: logoUrl,
+        logo_url_dark: logoUrlDark,
         logo_status: "imported",
         logo_import_status: "imported",
         logo_source_url: doc.logo_source_url || null,
@@ -344,7 +372,7 @@ async function uploadLogoBlobHandler(req, ctx) {
       }
 
       return json(
-        { ok: true, logo_url: logoUrl, message: "Logo uploaded successfully" },
+        { ok: true, logo_url: logoUrl, logo_url_dark: logoUrlDark, message: "Logo uploaded successfully" },
         200,
         req
       );

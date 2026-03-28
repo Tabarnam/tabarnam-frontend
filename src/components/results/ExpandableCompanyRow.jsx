@@ -10,6 +10,7 @@ import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQScore } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
+import CompanyLogo from "@/components/CompanyLogo";
 import { normalizeCountryDisplay, normalizeLocationString } from "@/lib/location";
 
 // Renders text with URLs converted to clickable links
@@ -683,16 +684,16 @@ export default function ExpandableCompanyRow({
                   onClick={(e) => e.stopPropagation()}
                   className="block"
                 >
-                  <img
-                    src={logoUrl}
+                  <CompanyLogo
+                    company={company}
                     alt={displayName}
                     className="w-full max-h-60 h-auto object-contain"
                     onError={() => setLogoFailed(true)}
                   />
                 </a>
               ) : (
-                <img
-                  src={logoUrl}
+                <CompanyLogo
+                  company={company}
                   alt={displayName}
                   className="w-full max-h-60 h-auto object-contain"
                   onError={() => setLogoFailed(true)}
@@ -917,16 +918,16 @@ export default function ExpandableCompanyRow({
               onClick={(e) => e.stopPropagation()}
               className="block"
             >
-              <img
-                src={logoUrl}
+              <CompanyLogo
+                company={company}
                 alt={displayName}
                 className="w-full max-h-60 h-auto object-contain"
                 onError={() => setLogoFailed(true)}
               />
             </a>
           ) : (
-            <img
-              src={logoUrl}
+            <CompanyLogo
+              company={company}
               alt={displayName}
               className="w-full max-h-60 h-auto object-contain"
               onError={() => setLogoFailed(true)}

@@ -824,11 +824,17 @@ function normalizeCompanyForResponse(doc) {
       ? proxyAzureCompanyLogoUrlForClient(doc.logo_url)
       : "";
 
+  const normalizedLogoUrlDark =
+    typeof doc.logo_url_dark === "string"
+      ? proxyAzureCompanyLogoUrlForClient(doc.logo_url_dark)
+      : "";
+
   return {
     ...doc,
     company_id,
     ...(display_name ? { display_name } : {}),
     ...(typeof doc.logo_url === "string" ? { logo_url: normalizedLogoUrl } : {}),
+    ...(typeof doc.logo_url_dark === "string" ? { logo_url_dark: normalizedLogoUrlDark } : {}),
   };
 }
 

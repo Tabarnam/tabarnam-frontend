@@ -128,17 +128,27 @@ function buildCompanyLogoUrlFromFallback(companyId, rawLogoUrl) {
 /**
  * Returns the best logo URL for a company.
  *
+ * @param {object} company  Company document
+ * @param {"light"|"dark"} [variant="light"]  Which theme variant to return.
+ *   "dark" reads company.logo_url_dark first, falling back to logo_url.
+ *
  * Supports:
- * - Fully-qualified URLs stored in company.logo_url
+ * - Fully-qualified URLs stored in company.logo_url / company.logo_url_dark
  * - Local public assets (/logos/...)
  * - Relative Azure paths like:
  *   - company_123/uuid.png
  *   - company-logos/company_123/uuid.png
  */
-export function getCompanyLogoUrl(company) {
-  const rawLogo = typeof company?.logo_url === "string" ? company.logo_url : "";
+export function getCompanyLogoUrl(company, variant = "light") {
+  const field = variant === "dark" ? "logo_url_dark" : "logo_url";
+  const rawLogo = typeof company?.[field] === "string" ? company[field] : "";
   const normalized = normalizeRawLogoUrl(rawLogo);
   if (normalized) return maybeProxyAzureCompanyLogoUrl(normalized);
+
+  // Fallback: if requesting dark variant but it's empty, fall back to light
+  if (variant === "dark") {
+    return getCompanyLogoUrl(company, "light");
+  }
 
   const companyId =
     (typeof company?.company_id === "string" && company.company_id.trim()) ||
