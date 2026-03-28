@@ -2337,34 +2337,18 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
 
       try {
         let logoUrl = null;
-        let processedBuffer = null;
 
         if (evalResult.isSvg) {
           logoUrl = await uploadSvgToBlob({ companyId, svgBuffer: evalResult.buf }, logger);
-          processedBuffer = evalResult.buf;
         } else {
           const pngBuffer = await rasterizeToPng(evalResult.buf, { maxSize: 500, isSvg: false });
           logoUrl = await uploadPngToBlob({ companyId, pngBuffer }, logger);
-          processedBuffer = pngBuffer;
         }
-
-        // Generate dark-mode variant if the logo is monochrome on transparent bg
-        const variants = await processLogoVariants({
-          buffer: processedBuffer,
-          isSvg: evalResult.isSvg,
-          companyId,
-          ext: evalResult.isSvg ? "svg" : "png",
-          contentType: evalResult.isSvg ? "image/svg+xml" : "image/png",
-          originalUrl: logoUrl,
-          uploadFn: uploadBufferToBlob,
-          logger,
-        });
 
         try {
           logger?.log?.("logo_uploaded_ok", {
             company_id: companyId,
-            logo_url: variants.logoUrl,
-            logo_url_dark: variants.logoUrlDark,
+            logo_url: logoUrl,
             tier,
           });
         } catch {
@@ -2387,8 +2371,7 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
           logo_source_location: candidate.location || null,
           logo_source_domain: candidate.logo_source_domain || discovered?.allowed_host_root || null,
           logo_source_type: toLogoSourceType(candidate.source),
-          logo_url: variants.logoUrl,
-          logo_url_dark: variants.logoUrlDark,
+          logo_url: logoUrl,
           logo_discovery_strategy: candidate.source || "",
           logo_discovery_page_url: candidate.page_url || discovered?.page_url || "",
           logo_telemetry: finalizeTelemetry(),
