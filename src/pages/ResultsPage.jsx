@@ -21,7 +21,7 @@ const PAGE_SIZE = 50;
 /** Skeleton placeholder that mirrors the collapsed ExpandableCompanyRow grid */
 function SkeletonRow() {
   return (
-    <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-border rounded-lg p-2 bg-card mb-3">
+    <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-border rounded-lg p-2 bg-card">
       {/* Col 1: company info */}
       <div className="col-span-4 lg:col-span-1 space-y-2">
         <Skeleton className="h-5 w-3/4" />
