@@ -258,8 +258,9 @@ function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
     asString(company.name).trim(),
   ].filter(Boolean);
 
+  const rawNorm = q_raw ? q_raw.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim() : "";
   const queries = [
-    q_raw ? q_raw.toLowerCase().trim() : "",
+    rawNorm,
     q_norm ? q_norm.toLowerCase().trim() : "",
     q_compact ? q_compact.toLowerCase().trim() : "",
   ].filter(Boolean);
@@ -270,7 +271,7 @@ function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
   let best = 0;
 
   for (const rawName of names) {
-    const nameLower = rawName.toLowerCase();
+    const nameLower = rawName.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
     const nameCompact = nameLower.replace(/\s+/g, "");
 
     for (const q of uniqueQueries) {

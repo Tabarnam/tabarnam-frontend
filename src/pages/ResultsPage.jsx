@@ -193,63 +193,62 @@ export default function ResultsPage() {
   const [userCountryCode, setUserCountryCode] = useState("");
   const [sortBy, setSortBy] = useState(null);
 
-  // Load reviews for companies
-  async function loadReviews(companies) {
-    const enriched = await Promise.all(
-      companies.map(async (c) => {
-        try {
-          const companyId = c.company_id || c.id;
-          if (!companyId) {
-            return { ...c, _reviews: [] };
-          }
+  // Load a single company's reviews
+  async function fetchReviewsForCompany(c) {
+    try {
+      const companyId = c.company_id || c.id;
+      if (!companyId) return { ...c, _reviews: [] };
 
-          const qs = `company_id=${encodeURIComponent(companyId)}`;
-          const r = await fetch(`${API_BASE}/get-reviews?${qs}`);
-          const data = await r.json().catch(() => ({ items: [], reviews: [] }));
+      const qs = `company_id=${encodeURIComponent(companyId)}`;
+      const r = await fetch(`${API_BASE}/get-reviews?${qs}`);
+      const data = await r.json().catch(() => ({ items: [], reviews: [] }));
 
-          const storedCuratedVisible =
-            data?.meta && typeof data.meta.company_curated_visible_count === "number"
-              ? data.meta.company_curated_visible_count
-              : data?.meta && typeof data.meta.company_curated_count === "number"
-                ? data.meta.company_curated_count
-                : null;
+      const storedCuratedVisible =
+        data?.meta && typeof data.meta.company_curated_visible_count === "number"
+          ? data.meta.company_curated_visible_count
+          : data?.meta && typeof data.meta.company_curated_count === "number"
+            ? data.meta.company_curated_count
+            : null;
 
-          if (
-            storedCuratedVisible != null &&
-            storedCuratedVisible > 1 &&
-            typeof data.count === "number" &&
-            data.count < storedCuratedVisible
-          ) {
-            console.warn("[ResultsPage] Reviews regression: fewer reviews returned than stored", {
-              company_id: companyId,
-              company_name: c.company_name,
-              returned: data.count,
-              stored_curated_visible: storedCuratedVisible,
-              stored_curated_total: data?.meta?.company_curated_count,
-              company_record_id: data?.meta?.company_record_id,
-            });
-          }
+      if (
+        storedCuratedVisible != null &&
+        storedCuratedVisible > 1 &&
+        typeof data.count === "number" &&
+        data.count < storedCuratedVisible
+      ) {
+        console.warn("[ResultsPage] Reviews regression: fewer reviews returned than stored", {
+          company_id: companyId,
+          company_name: c.company_name,
+          returned: data.count,
+          stored_curated_visible: storedCuratedVisible,
+          stored_curated_total: data?.meta?.company_curated_count,
+          company_record_id: data?.meta?.company_record_id,
+        });
+      }
 
-          const reviews = Array.isArray(data?.items)
-            ? data.items
-            : Array.isArray(data?.reviews)
-              ? data.reviews
-              : [];
+      const reviews = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.reviews)
+          ? data.reviews
+          : [];
 
-          if (reviews.length > 0) {
-            console.log("[ResultsPage] loadReviews: loaded", reviews.length, "reviews for", companyId);
-          }
+      return { ...c, _reviews: reviews };
+    } catch {
+      return { ...c, _reviews: [] };
+    }
+  }
 
-          return {
-            ...c,
-            _reviews: reviews,
-          };
-        } catch {
-          return { ...c, _reviews: [] };
-        }
-      })
-    );
-    return enriched;
+  // Load reviews in background batches, updating state progressively
+  async function loadReviewsDeferred(companies) {
+    const BATCH = 5;
+    for (let i = 0; i < companies.length; i += BATCH) {
+      const batch = companies.slice(i, i + BATCH);
+      const enriched = await Promise.all(batch.map(fetchReviewsForCompany));
+      setResults((prev) => {
+        const map = new Map(enriched.map((c) => [c.company_id || c.id, c]));
+        return prev.map((p) => map.get(p.company_id || p.id) || p);
+      });
+    }
   }
 
   // Skip-flag: when handleInlineSearch fires doSearch directly, skip the URL-watching effect
@@ -482,9 +481,10 @@ export default function ResultsPage() {
 
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
       const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
-      const withReviews = await loadReviews(withDistances);
 
-      setResults(withReviews);
+      // Show results immediately, load reviews in background
+      setResults(withDistances);
+      loadReviewsDeferred(withDistances);
       setHasMore(apiHasMore === true);
 
       // If everything fit on one page (no hasMore), we know the total already
@@ -499,12 +499,12 @@ export default function ResultsPage() {
       }
 
       if (meta?.usingStubData) {
-        if (withReviews.length === 0) {
+        if (withDistances.length === 0) {
           setStatus("⚠️ Search API unavailable and no sample companies matched your search.");
         } else {
-          setStatus(`⚠️ Search API unavailable – showing ${withReviews.length} sample companies.`);
+          setStatus(`⚠️ Search API unavailable – showing ${withDistances.length} sample companies.`);
         }
-      } else if (withReviews.length === 0) {
+      } else if (withDistances.length === 0) {
         setStatus("No companies found matching your criteria.");
       } else if (meta?.error) {
         setStatus(`⚠️ ${meta.error}`);
