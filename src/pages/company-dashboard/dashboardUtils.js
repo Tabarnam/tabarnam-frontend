@@ -476,6 +476,24 @@ export function getContractMissingFields(company) {
     }
   }
 
+  // Check for missing HQ (client-side, in case backend didn't flag it)
+  const hasHq =
+    (Array.isArray(company?.headquarters_locations) && normalizeStructuredLocationList(company.headquarters_locations).length > 0) ||
+    Boolean(asString(company?.headquarters_location).trim());
+  if (!hasHq && !fields.includes("headquarters")) {
+    fields.push("headquarters");
+  }
+
+  // Check for missing manufacturing (client-side, unless limited_manufacturing)
+  if (!company?.limited_manufacturing) {
+    const hasMfg =
+      (Array.isArray(company?.manufacturing_locations) && normalizeStructuredLocationList(company.manufacturing_locations).length > 0) ||
+      (Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0);
+    if (!hasMfg && !fields.includes("manufacturing")) {
+      fields.push("manufacturing");
+    }
+  }
+
   // Check for incomplete keywords (unless acknowledged by admin)
   const kwIncomplete =
     asString(company?.keywords_completeness).trim().toLowerCase() === "incomplete";
@@ -510,8 +528,11 @@ export function formatContractMissingField(field) {
   if (!f) return "";
 
   switch (f) {
+    case "headquarters":
     case "headquarters_location":
+    case "headquarters_locations":
       return "HQ";
+    case "manufacturing":
     case "manufacturing_locations":
       return "MFG";
     case "product_keywords":
