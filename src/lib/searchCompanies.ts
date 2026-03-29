@@ -2,7 +2,7 @@
 import { apiFetch } from "./api";
 import { parseQuery } from "./queryNormalizer";
 
-type Sort = "recent" | "name" | "manu";
+type Sort = "recent" | "name" | "manu" | "stars";
 
 function asStr(v: unknown): string {
   return typeof v === "string" ? v : v == null ? "" : String(v);
@@ -12,6 +12,7 @@ function normalizeSort(s: unknown): Sort {
   const m = asStr(s).toLowerCase();
   if (m === "name") return "name";
   if (m === "manu" || m === "manufacturing" || m === "manufacturing_first") return "manu";
+  if (m === "stars" || m === "highest" || m === "rating") return "stars";
   return "recent";
 }
 
@@ -64,14 +65,21 @@ export interface Company {
 
 export async function searchCompanies(opts: SearchOptions) {
   const q = asStr(opts.q).trim();
-  if (!q) throw new Error("Please enter a search term.");
+  const hasLocation = !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim());
+  if (!q && !hasLocation) throw new Error("Please enter a search term or select a location.");
 
   const sort = normalizeSort(opts.sort);
   const take = Math.max(1, Math.min(Number(opts.take ?? 25) || 25, 200));
   const skip = Math.max(0, Number(opts.skip ?? 0) || 0);
 
-  // Parse query into raw, normalized, and compact forms
-  const { q_raw, q_norm, q_compact } = parseQuery(q);
+  // Parse query into raw, normalized, and compact forms (skip if no text query)
+  let q_raw = "", q_norm = "", q_compact = "";
+  if (q) {
+    const parsed = parseQuery(q);
+    q_raw = parsed.q_raw;
+    q_norm = parsed.q_norm;
+    q_compact = parsed.q_compact;
+  }
 
   const params = new URLSearchParams({ raw: q_raw, norm: q_norm, compact: q_compact, sort, take: String(take) });
   if (skip > 0) params.set("skip", String(skip));
@@ -273,11 +281,19 @@ export async function getStateSuggestions(q: unknown, country?: string): Promise
  */
 export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon" | "hqCountry" | "mfgCountry"> & { take?: number }): Promise<{ totalCount: number; totalPages: number } | null> {
   const q = asStr(opts.q).trim();
-  if (!q) return null;
+  const hasLocation = !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim());
+  if (!q && !hasLocation) return null;
 
   const sort = normalizeSort(opts.sort);
   const take = Math.max(1, Math.min(Number(opts.take ?? 50) || 50, 200));
-  const { q_raw, q_norm, q_compact } = parseQuery(q);
+
+  let q_raw = "", q_norm = "", q_compact = "";
+  if (q) {
+    const parsed = parseQuery(q);
+    q_raw = parsed.q_raw;
+    q_norm = parsed.q_norm;
+    q_compact = parsed.q_compact;
+  }
 
   const params = new URLSearchParams({ raw: q_raw, norm: q_norm, compact: q_compact, sort, take: String(take), countOnly: "1" });
   const country = asStr(opts.country).trim();

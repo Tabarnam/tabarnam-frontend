@@ -304,7 +304,8 @@ export default function ResultsPage() {
 
       setSortBy(null);
 
-      if (!cancelled && qParam) {
+      const hasLocationFilter = !!(cityParam || stateParam || countryParam);
+      if (!cancelled && (qParam || hasLocationFilter)) {
         // Seed search history on initial load / URL-driven navigation
         pushSearchHistory({ q: qParam, sort: sortParam, country: countryParam, state: stateParam, city: cityParam });
         await doSearch({
@@ -422,7 +423,7 @@ export default function ResultsPage() {
 
   // Lightweight auto-search: fetches results without updating URL (avoids input interruption)
   function handleAutoSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry }) {
-    if (!q) return;
+    if (!q && !country && !state && !city) return;
     doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, skip: 0 });
   }
 
@@ -453,7 +454,7 @@ export default function ResultsPage() {
       });
 
       // If no results on page 1, try alternative query forms (fallback retry)
-      if (searchResult.items?.length === 0 && !skip) {
+      if (searchResult.items?.length === 0 && !skip && q) {
         const alternatives = generateQueryAlternatives(q);
         for (const altQuery of alternatives) {
           if (altQuery !== q) {

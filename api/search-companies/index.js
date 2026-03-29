@@ -1285,7 +1285,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const city = clean(url.searchParams.get("city") || "");
 
   // For countOnly, fetch up to 500 to get accurate total; otherwise fetch just enough for the page.
-  const limit = countOnly ? 500 : clamp(skip + take + 1, 1, 501);
+  // Location-only queries (no text search) need more rows because post-query location filtering
+  // will discard most results — fetch up to 500 (same cap as countOnly).
+  const hasLocationFilter = !!(country || state || city || hqCountry || mfgCountry);
+  const isLocationOnly = hasLocationFilter && !q_norm;
+  const limit = countOnly ? 500 : isLocationOnly ? 500 : clamp(skip + take + 1, 1, 501);
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
 
@@ -1720,6 +1724,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // ORDER BY _ts DESC which sorts by recency, not relevance.
       if (q_norm && !sortField && sort !== "name") {
         deduped.sort((a, b) => (b._relevanceScore || 0) - (a._relevanceScore || 0));
+      }
+
+      // Stars sort: sort by QQ score (highest rated first)
+      if (sort === "stars" && !sortField) {
+        deduped.sort((a, b) => getQQScoreLike(b) - getQQScoreLike(a));
       }
 
       // countOnly mode: return just the total count, no items (used for async pagination info)

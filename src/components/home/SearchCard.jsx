@@ -207,7 +207,8 @@ export default function SearchCard({
     }
 
     const trimmed = q.trim();
-    if (trimmed.length < 2) return;
+    const hasLocationFilter = !!(country || stateCode || city);
+    if (trimmed.length < 2 && !hasLocationFilter) return;
 
     // Skip if this query was already searched (initial hydration or after a submit)
     if (trimmed === lastSearchedQRef.current) return;
@@ -251,7 +252,7 @@ export default function SearchCard({
   useEffect(() => {
     if (filterInitRef.current) { filterInitRef.current = false; return; }
     const trimmed = q.trim();
-    if (trimmed.length < 2) return;
+    if (trimmed.length < 2 && !country && !stateCode && !city) return;
     handleSubmitRef.current();
   }, [amazonOnly, hqInCountry, mfgInCountry]);
 
@@ -333,7 +334,7 @@ export default function SearchCard({
     setCitySuggestions([]);
     setOpenCitySuggest(false);
     // Trigger search with new geo filter
-    if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
+    if (q.trim().length >= 2 || country || stateCode || cityName) setTimeout(() => handleSubmitRef.current(), 0);
   };
 
   const handleStateSelect = (stateName) => {
@@ -341,7 +342,7 @@ export default function SearchCard({
     setStateSuggestions([]);
     setOpenStateSuggest(false);
     // Trigger search with new geo filter
-    if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
+    if (q.trim().length >= 2 || country || stateName || city) setTimeout(() => handleSubmitRef.current(), 0);
   };
 
   const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
@@ -696,7 +697,7 @@ export default function SearchCard({
               {city && (
                 <button
                   type="button"
-                  onClick={()=>{ setCity(''); cityInputRef.current?.focus(); if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0); }}
+                  onClick={()=>{ setCity(''); cityInputRef.current?.focus(); if (q.trim().length >= 2 || country || stateCode) setTimeout(() => handleSubmitRef.current(), 0); }}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
                   aria-label="Clear city"
                 >
@@ -753,7 +754,7 @@ export default function SearchCard({
               {stateCode && (
                 <button
                   type="button"
-                  onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0); }}
+                  onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); if (q.trim().length >= 2 || country || city) setTimeout(() => handleSubmitRef.current(), 0); }}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
                   aria-label="Clear state"
                 >
@@ -801,7 +802,7 @@ export default function SearchCard({
               if (match) {
                 setCountry(match.code);
                 setCountrySearch('');
-                if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
+                if (q.trim().length >= 2 || stateCode || city || match.code) setTimeout(() => handleSubmitRef.current(), 0);
               }
             }}
             onKeyDown={onKeyDown}
@@ -815,7 +816,7 @@ export default function SearchCard({
               onClick={() => {
                 setCountrySearch('');
                 setCountry('');
-                if (q.trim().length >= 2) setTimeout(() => handleSubmitRef.current(), 0);
+                if (q.trim().length >= 2 || stateCode || city) setTimeout(() => handleSubmitRef.current(), 0);
               }}
               className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
               aria-label="Clear country"
