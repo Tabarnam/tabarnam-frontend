@@ -4442,21 +4442,35 @@ export default function CompanyDashboard() {
                             })()}
 
                             <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                variant="outline"
+                                onClick={() => document.getElementById("logo-file-input")?.click()}
+                                disabled={logoUploading || logoDeleting}
+                              >
+                                {logoUploading ? "Uploading…" : "Choose File"}
+                              </Button>
                               <input
+                                id="logo-file-input"
                                 type="file"
                                 accept="image/png,image/jpeg,image/svg+xml"
                                 onChange={handleLogoFileChange}
-                                className="block w-full max-w-[360px] text-sm text-slate-700 dark:text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
+                                className="hidden"
                                 disabled={logoUploading || logoDeleting}
                               />
 
-                              <Button
-                                variant="outline"
-                                onClick={uploadLogo}
-                                disabled={!editorOriginalId || !logoFile || logoUploading || Boolean(logoUploadError) || logoDeleting}
-                              >
-                                {logoUploading ? "Uploading…" : "Upload"}
-                              </Button>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="checkbox"
+                                  id="logo-approved-checkbox"
+                                  checked={!!editorDraft?.logo_approved}
+                                  onChange={(e) => setEditorDraft((d) => ({ ...d, logo_approved: e.target.checked }))}
+                                  disabled={!asString(editorDraft?.logo_url).trim()}
+                                  className="h-4 w-4 rounded border-slate-300 dark:border-border"
+                                />
+                                <label htmlFor="logo-approved-checkbox" className="text-sm text-slate-700 dark:text-muted-foreground">
+                                  Approve Logo
+                                </label>
+                              </div>
 
                               <Button
                                 variant="outline"
@@ -4481,20 +4495,6 @@ export default function CompanyDashboard() {
                               >
                                 {logoDeleting ? "Deleting…" : "Delete from storage"}
                               </Button>
-                            </div>
-
-                            <div className="flex items-center gap-2 mt-2">
-                              <input
-                                type="checkbox"
-                                id="logo-approved-checkbox"
-                                checked={!!editorDraft?.logo_approved}
-                                onChange={(e) => setEditorDraft((d) => ({ ...d, logo_approved: e.target.checked }))}
-                                disabled={!asString(editorDraft?.logo_url).trim()}
-                                className="h-4 w-4 rounded border-slate-300 dark:border-border"
-                              />
-                              <label htmlFor="logo-approved-checkbox" className="text-sm text-slate-700 dark:text-muted-foreground">
-                                Approve Logo
-                              </label>
                             </div>
 
                             <div className="mt-4 space-y-3">
