@@ -9,7 +9,8 @@ export default function HomePage() {
     <>
       <Helmet>
         <title>Tabarnam – Discover products with transparent origins</title>
-        <meta name="description" content="Where was it made?" />
+        <meta name="description" content="...but where was it made?" />
+        <meta property="og:description" content="...but where was it made?" />
       </Helmet>
 
       <main className="min-h-[calc(100vh-2rem)] flex flex-col items-center pt-12 pb-16 px-4">
