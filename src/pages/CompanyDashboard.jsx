@@ -951,6 +951,7 @@ export default function CompanyDashboard() {
     const draft = buildCompanyDraft(company);
 
     setEditorOriginalId(id || null);
+    draft.logo_approved = false;
     editorHistory.resetHistory(draft);
     setEditorShowAdvanced(false);
     setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
