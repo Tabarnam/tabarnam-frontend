@@ -817,6 +817,18 @@ const importStartHandlerInner = async (req, context) => {
         : undefined;
       bodyObj.fields_to_enrich = fieldsToEnrich;
 
+      // Parse optional batch industries/keywords — applied to all companies in this batch
+      const rawBatchIndustries = bodyObj.batch_industries;
+      const batchIndustries = rawBatchIndustries
+        ? String(rawBatchIndustries).split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      const rawBatchKeywords = bodyObj.batch_keywords;
+      const batchKeywords = rawBatchKeywords
+        ? String(rawBatchKeywords).split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      bodyObj.batch_industries = batchIndustries;
+      bodyObj.batch_keywords = batchKeywords;
+
       const existingRequestId = String(bodyObj.request_id || bodyObj.requestId || "").trim();
       bodyObj.request_id = existingRequestId || requestId;
       bodyObj.requestId = bodyObj.request_id;
@@ -6432,6 +6444,8 @@ Return ONLY the JSON array, no other text.`,
                       .filter(Boolean)
                       .slice(0, 50),
                     deferred_stages: Array.from(deferredStages),
+                    batch_industries: batchIndustries || undefined,
+                    batch_keywords: batchKeywords || undefined,
                     missing_by_company: enrichmentMissingByCompany,
                     keywords_stage_completed: Boolean(keywordStageCompleted),
                     reviews_stage_completed: Boolean(reviewStageCompleted),

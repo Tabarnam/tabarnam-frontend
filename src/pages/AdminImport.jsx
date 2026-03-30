@@ -105,6 +105,8 @@ export default function AdminImport() {
   const [queryTypes, setQueryTypes] = useState(["product_keyword"]);
   const [enrichFields, setEnrichFields] = useState([...ALL_ENRICH_FIELD_KEYS]);
   const [location, setLocation] = useState("");
+  const [batchIndustries, setBatchIndustries] = useState("");
+  const [batchKeywords, setBatchKeywords] = useState("");
 
   // Succession import state
   const [successionCountInput, setSuccessionCountInput] = useState(String(SUCCESSION_DEFAULT));
@@ -1944,6 +1946,8 @@ export default function AdminImport() {
         expand_if_few: true,
         dry_run: dryRun,
         fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
+        batch_industries: batchIndustries.trim() || undefined,
+        batch_keywords: batchKeywords.trim() || undefined,
       };
 
       // Pre-warm: fire a lightweight request to wake up the Function App before the heavy import.
@@ -2927,6 +2931,8 @@ export default function AdminImport() {
         expand_if_few: true,
         dry_run: false,
         fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
+        batch_industries: batchIndustries.trim() || undefined,
+        batch_keywords: batchKeywords.trim() || undefined,
       };
 
       setRuns((prev) =>
@@ -4368,6 +4374,31 @@ export default function AdminImport() {
               ) : (
                 <div className="text-xs text-slate-600 dark:text-muted-foreground">If you provide a location, results that match it are ranked higher.</div>
               )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch industries</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Spices, Seasonings"
+                  value={batchIndustries}
+                  onChange={(e) => setBatchIndustries(e.target.value)}
+                  className="w-full rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-1.5 text-sm text-slate-800 dark:text-foreground placeholder:text-slate-400 dark:placeholder:text-muted-foreground"
+                />
+                <div className="text-xs text-slate-500 dark:text-muted-foreground">Applied to all companies in this batch (comma-separated)</div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch keywords</label>
+                <input
+                  type="text"
+                  placeholder="e.g. chili powder, cumin, paprika"
+                  value={batchKeywords}
+                  onChange={(e) => setBatchKeywords(e.target.value)}
+                  className="w-full rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-1.5 text-sm text-slate-800 dark:text-foreground placeholder:text-slate-400 dark:placeholder:text-muted-foreground"
+                />
+                <div className="text-xs text-slate-500 dark:text-muted-foreground">Added to all companies in this batch (comma-separated)</div>
+              </div>
             </div>
 
             <div className="space-y-2">

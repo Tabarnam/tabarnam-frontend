@@ -61,9 +61,9 @@ mfg_status: use "ok" when manufacturing locations were found, "not_applicable" w
 
   industries: {
     rules: `- Use web_search "[Company Name] [Website URL] industry" or "[Company Name] company profile" to find industry classifications.
-- Return an array of up to 3 specific, descriptive industry labels that describe what the company actually manufactures or sells. Be specific to the company's niche (e.g., "Hawaiian Snack Foods" not "Food", "Artisan Beef Jerky" not "Retail", "Specialty Pet Nutrition" not "E-Commerce").
+- Return an array of up to 5 specific, descriptive industry labels that describe what the company actually manufactures or sells. Be specific to the company's niche (e.g., "Hawaiian Snack Foods" not "Food", "Artisan Beef Jerky" not "Retail", "Specialty Pet Nutrition" not "E-Commerce").
 - Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce", "Food", "Shopping".
-- Maximum 3 industries. Pick the most specific and descriptive ones.
+- Maximum 5 industries. Pick the most specific and descriptive ones.
 - No guessing or hallucinating. Only report verified information.`,
     jsonSchema: `"industries": ["Industry 1", "Industry 2", "..."]`,
   },
@@ -236,7 +236,7 @@ If no explicit tagline, check About page or social media bios for a concise bran
 Return the exact text as displayed, or empty string if not found.
 
 Industries:
-Return up to 3 specific, descriptive industry labels that describe what ${name} actually manufactures or sells.
+Return up to 5 specific, descriptive industry labels that describe what ${name} actually manufactures or sells.
 Be specific to the company's niche (e.g., "Artisan Beef Jerky" not "Food", "Specialty Pet Nutrition" not "E-Commerce").
 Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce".
 Comma-separated on one line.
@@ -288,7 +288,7 @@ const FIELD_SUMMARIES = {
 3. If the website and an external source agree, report that city. If they conflict, trust the website. If the website has no location info, require 2+ external sources that agree.
 4. Do NOT rely on your training data or general knowledge — you MUST verify by actually visiting pages. No hallucinations.
 Having the actual cities within the USA is crucial. Use initials for state or province. Use "USA" not "United States". No explanatory info — just locations. Also return "location_source_urls" with the URLs you actually visited to determine each location.`,
-  industries: `Use web_search for industry classifications. Return a JSON array of up to 3 specific, descriptive industry strings (e.g., "Home Textiles Manufacturing", "Bedding Products"). Avoid generic umbrella terms like "Consumer Goods" or "Food and Beverage". Maximum 3 industries.`,
+  industries: `Use web_search for industry classifications. Return a JSON array of up to 3 specific, descriptive industry strings (e.g., "Home Textiles Manufacturing", "Bedding Products"). Avoid generic umbrella terms like "Consumer Goods" or "Food and Beverage". Maximum 5 industries.`,
   keywords: `Use browse_page on the company URL to find all products. Keywords must be exhaustive — include every named product, product line, variant, and SKU. Use specific product names (e.g., "Vellux Original Blanket") not generic categories (e.g., "blankets"). Use web_search "[Company] products" for completeness.`,
 };
 

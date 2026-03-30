@@ -1874,6 +1874,12 @@ async function resumeWorkerHandler(req, context) {
       "reviews",
     ];
 
+    // Batch industries/keywords from user input — merged with xAI results during enrichment.
+    const batchIndustries = Array.isArray(resumeDoc?.batch_industries) ? resumeDoc.batch_industries : null;
+    const batchKeywords = Array.isArray(resumeDoc?.batch_keywords) ? resumeDoc.batch_keywords : null;
+    if (batchIndustries) console.log(`[resume-worker] session=${sessionId} batch_industries=${JSON.stringify(batchIndustries)}`);
+    if (batchKeywords) console.log(`[resume-worker] session=${sessionId} batch_keywords=${JSON.stringify(batchKeywords)}`);
+
     // Respect user field selection from the resume doc (set by import-start or import-one).
     // The UI sends "logo_url" but the resume-worker uses "logo" internally — normalize.
     const userFieldsToEnrich = Array.isArray(resumeDoc?.fields_to_enrich) ? resumeDoc.fields_to_enrich : null;
@@ -3477,7 +3483,16 @@ async function resumeWorkerHandler(req, context) {
       })();
 
       if (status === "ok" && sanitized.length > 0) {
-        doc.industries = sanitized;
+        // Merge batch industries (user-provided) with xAI-extracted industries
+        if (batchIndustries && batchIndustries.length > 0) {
+          const merged = [...batchIndustries];
+          for (const ind of sanitized) {
+            if (!merged.some((m) => m.toLowerCase() === ind.toLowerCase())) merged.push(ind);
+          }
+          doc.industries = merged.slice(0, 5);
+        } else {
+          doc.industries = sanitized.slice(0, 5);
+        }
         doc.industries_source = "grok";
         doc.industries_unknown = false;
         doc.import_missing_reason ||= {};
@@ -3553,8 +3568,17 @@ async function resumeWorkerHandler(req, context) {
       })();
 
       if (status === "ok" && sanitized.length >= 20) {
-        doc.keywords = sanitized.slice(0, 25);
-        doc.product_keywords = sanitized.join(", ");
+        // Merge batch keywords (user-provided) with xAI-extracted keywords
+        if (batchKeywords && batchKeywords.length > 0) {
+          const merged = [...batchKeywords];
+          for (const kw of sanitized) {
+            if (!merged.some((m) => m.toLowerCase() === kw.toLowerCase())) merged.push(kw);
+          }
+          doc.keywords = merged.slice(0, 25);
+        } else {
+          doc.keywords = sanitized.slice(0, 25);
+        }
+        doc.product_keywords = doc.keywords.join(", ");
         doc.keywords_source = "grok";
         doc.product_keywords_source = "grok";
 
