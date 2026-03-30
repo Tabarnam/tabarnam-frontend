@@ -744,7 +744,7 @@ export default function ResultsPage() {
                 </span>
                 <ShareButton
                   title={`Search results for "${qParam}" on Tabarnam`}
-                  text={`Found results for "${qParam}" on Tabarnam`}
+                  text={`Search results for "${qParam}" on Tabarnam`}
                   url={window.location.href}
                   label="Share these search results"
                   dialogTitle="Share search results"
