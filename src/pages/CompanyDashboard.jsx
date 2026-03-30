@@ -4459,19 +4459,14 @@ export default function CompanyDashboard() {
                                 disabled={logoUploading || logoDeleting}
                               />
 
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="checkbox"
-                                  id="logo-approved-checkbox"
+                              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
+                                <Checkbox
                                   checked={!!editorDraft?.logo_approved}
-                                  onChange={(e) => setEditorDraft((d) => ({ ...d, logo_approved: e.target.checked }))}
+                                  onCheckedChange={(v) => setEditorDraft((d) => ({ ...d, logo_approved: Boolean(v) }))}
                                   disabled={!asString(editorDraft?.logo_url).trim()}
-                                  className="h-4 w-4 rounded border-slate-300 dark:border-border"
                                 />
-                                <label htmlFor="logo-approved-checkbox" className="text-sm text-slate-700 dark:text-muted-foreground">
-                                  Approve Logo
-                                </label>
-                              </div>
+                                Approve Logo
+                              </label>
 
                               <Button
                                 variant="outline"
