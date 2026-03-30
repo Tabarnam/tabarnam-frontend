@@ -2416,6 +2416,7 @@ export default function CompanyDashboard() {
         notes: asString(draftForSave.notes).trim(),
         tagline: asString(draftForSave.tagline).trim(),
         logo_url: asString(draftForSave.logo_url).trim(),
+        logo_approved: Boolean(draftForSave.logo_approved),
         amazon_url: asString(draftForSave.amazon_url).trim(),
         amazon_store_url: asString(draftForSave.amazon_store_url).trim(),
         affiliate_link_urls,
@@ -2701,7 +2702,7 @@ export default function CompanyDashboard() {
     try {
       const url = await uploadLogoBlobFile(file, companyId);
 
-      setEditorDraft((d) => ({ ...(d || {}), logo_url: url }));
+      setEditorDraft((d) => ({ ...(d || {}), logo_url: url, logo_approved: true }));
       updateCompanyInState(companyId, { logo_url: url });
       setLogoFile(null);
       toast.success("Logo uploaded");
@@ -4480,6 +4481,20 @@ export default function CompanyDashboard() {
                               >
                                 {logoDeleting ? "Deleting…" : "Delete from storage"}
                               </Button>
+                            </div>
+
+                            <div className="flex items-center gap-2 mt-2">
+                              <input
+                                type="checkbox"
+                                id="logo-approved-checkbox"
+                                checked={!!editorDraft?.logo_approved}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, logo_approved: e.target.checked }))}
+                                disabled={!asString(editorDraft?.logo_url).trim()}
+                                className="h-4 w-4 rounded border-slate-300 dark:border-border"
+                              />
+                              <label htmlFor="logo-approved-checkbox" className="text-sm text-slate-700 dark:text-muted-foreground">
+                                Approve Logo
+                              </label>
                             </div>
 
                             <div className="mt-4 space-y-3">
