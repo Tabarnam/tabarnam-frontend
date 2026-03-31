@@ -2383,7 +2383,7 @@ export default function CompanyDashboard() {
       const rating = normalizeRating(draftForSave.rating);
 
       // Auto-populate Mfg (star1) and HQ (star2) based on location presence
-      rating.star1 = { ...(rating.star1 || {}), value: (manuLocations.length > 0 || draftForSave.limited_manufacturing) ? 1.0 : 0.0 };
+      rating.star1 = { ...(rating.star1 || {}), value: (manuLocations.length > 0 || draftForSave.limited_manufacturing || draftForSave.unknown_manufacturing) ? 1.0 : 0.0 };
       rating.star2 = { ...(rating.star2 || {}), value: (hqLocations.length > 0 || draftForSave.unknown_hq) ? 1.0 : 0.0 };
 
       const notes_entries = normalizeCompanyNotes(draftForSave.notes_entries);
@@ -2409,6 +2409,7 @@ export default function CompanyDashboard() {
         manufacturing_locations: manuLocations,
         manufacturing_geocodes: manuLocations,
         limited_manufacturing: Boolean(draftForSave.limited_manufacturing),
+        unknown_manufacturing: Boolean(draftForSave.unknown_manufacturing),
         unknown_hq: Boolean(draftForSave.unknown_hq),
         industries,
         keywords,
@@ -4666,7 +4667,8 @@ export default function CompanyDashboard() {
                             LocationStatusBadge={LocationStatusBadge}
                           />
 
-                          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-1 ml-1">
+                          <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1 ml-1">
+                          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
                             <Checkbox
                               checked={Boolean(editorDraft.limited_manufacturing)}
                               onCheckedChange={(v) =>
@@ -4682,6 +4684,23 @@ export default function CompanyDashboard() {
                             />
                             Limited Manufacturing
                           </label>
+                          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
+                            <Checkbox
+                              checked={Boolean(editorDraft.unknown_manufacturing)}
+                              onCheckedChange={(v) =>
+                                setEditorDraft((d) => {
+                                  const updated = { ...(d || {}), unknown_manufacturing: Boolean(v) };
+                                  if (v) {
+                                    const curRating = normalizeRating(d?.rating);
+                                    updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: 1.0 } };
+                                  }
+                                  return updated;
+                                })
+                              }
+                            />
+                            Unknown Manufacturing
+                          </label>
+                          </div>
                           </div>
                           </CollapsibleSection>
 

@@ -55,6 +55,7 @@ export interface Company {
   mfg_unknown?: boolean;
   mfg_unknown_reason?: string;
   limited_manufacturing?: boolean;
+  unknown_manufacturing?: boolean;
   unknown_hq?: boolean;
   red_flag?: boolean;
   red_flag_reason?: string;

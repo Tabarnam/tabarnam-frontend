@@ -320,6 +320,10 @@ export default function ExpandableCompanyRow({
       return [{ formatted: "Limited Manufacturing", distance: null, geocode_status: null, limitedMfg: true }];
     }
 
+    if (company?.unknown_manufacturing) {
+      return [{ formatted: "Unknown", distance: null, geocode_status: null }];
+    }
+
     if (company?.mfg_unknown) {
       const reason =
         (typeof company?.mfg_unknown_reason === "string" && company.mfg_unknown_reason.trim()) ||

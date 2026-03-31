@@ -733,6 +733,7 @@ const SELECT_FIELDS = [
 
   // Flags
   "c.limited_manufacturing",
+  "c.unknown_manufacturing",
   "c.unknown_hq",
 
   // UI / misc
@@ -1213,6 +1214,7 @@ function mapCompanyToPublic(doc) {
 
     // Flags
     limited_manufacturing: doc.limited_manufacturing || undefined,
+    unknown_manufacturing: doc.unknown_manufacturing || undefined,
     unknown_hq: doc.unknown_hq || undefined,
   };
 }

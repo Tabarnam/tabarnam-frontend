@@ -469,8 +469,8 @@ export function getContractMissingFields(company) {
     }
   }
 
-  // Drop "manufacturing" if admin marked the company as limited manufacturing
-  if (company?.limited_manufacturing) {
+  // Drop "manufacturing" if admin marked the company as limited or unknown manufacturing
+  if (company?.limited_manufacturing || company?.unknown_manufacturing) {
     for (let i = fields.length - 1; i >= 0; i--) {
       if (fields[i] === "manufacturing") fields.splice(i, 1);
     }
@@ -495,8 +495,8 @@ export function getContractMissingFields(company) {
     }
   }
 
-  // Check for missing manufacturing (client-side, unless limited_manufacturing)
-  if (!company?.limited_manufacturing) {
+  // Check for missing manufacturing (client-side, unless limited/unknown manufacturing)
+  if (!company?.limited_manufacturing && !company?.unknown_manufacturing) {
     const mfgVariants = new Set(["manufacturing", "manufacturing_locations"]);
     const hasMfgTag = fields.some((f) => mfgVariants.has(f));
     const hasMfg =
