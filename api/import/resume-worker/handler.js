@@ -1877,7 +1877,8 @@ async function resumeWorkerHandler(req, context) {
     // Batch industries/keywords from user input — merged with xAI results during enrichment.
     const batchIndustries = Array.isArray(resumeDoc?.batch_industries) ? resumeDoc.batch_industries : null;
     const batchKeywords = Array.isArray(resumeDoc?.batch_keywords) ? resumeDoc.batch_keywords : null;
-    console.log(`[resume-worker] session=${sessionId} batch_fields_check batch_industries=${JSON.stringify(batchIndustries)} batch_keywords=${JSON.stringify(batchKeywords)} resumeDoc_keys=${Object.keys(resumeDoc || {}).filter((k) => k.startsWith("batch")).join(",") || "none"}`);
+    if (batchIndustries) console.log(`[resume-worker] session=${sessionId} batch_industries=${JSON.stringify(batchIndustries)}`);
+    if (batchKeywords) console.log(`[resume-worker] session=${sessionId} batch_keywords=${JSON.stringify(batchKeywords)}`);
 
     // Respect user field selection from the resume doc (set by import-start or import-one).
     // The UI sends "logo_url" but the resume-worker uses "logo" internally — normalize.
