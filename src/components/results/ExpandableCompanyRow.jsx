@@ -402,7 +402,7 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {visible.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {loc.formatted !== "—" && !loc.limitedMfg && (
+              {loc.formatted !== "—" && !loc.limitedMfg && !company?.unknown_manufacturing && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
                   {typeof loc.distance === "number"
                     ? formatDistance(loc.distance, unit)
@@ -411,7 +411,7 @@ export default function ExpandableCompanyRow({
                       : "Distance unavailable"}
                 </div>
               )}
-              <div className={loc.limitedMfg ? "text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]" : "text-foreground"}>{loc.formatted}</div>
+              <div className={(loc.limitedMfg || company?.unknown_manufacturing) ? "text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]" : "text-foreground"}>{loc.formatted}</div>
             </div>
           ))}
           {hiddenCount > 0 && (
@@ -445,7 +445,7 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {loc.formatted !== "—" && !loc.limitedMfg && (
+              {loc.formatted !== "—" && !loc.limitedMfg && !company?.unknown_manufacturing && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
                   {typeof loc.distance === "number"
                     ? formatDistance(loc.distance, unit)
@@ -454,7 +454,7 @@ export default function ExpandableCompanyRow({
                       : "Distance unavailable"}
                 </div>
               )}
-              <div className={loc.limitedMfg ? "text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]" : "text-foreground"}>{loc.formatted}</div>
+              <div className={(loc.limitedMfg || company?.unknown_manufacturing) ? "text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]" : "text-foreground"}>{loc.formatted}</div>
             </div>
           ))}
           {manuLocations.length === 0 && <div className="text-sm text-muted-foreground">—</div>}
