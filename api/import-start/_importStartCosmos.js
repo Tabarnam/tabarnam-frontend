@@ -291,6 +291,8 @@ async function upsertResumeDoc({
   last_backoff_ms,
   invocation_mode,
   fields_to_enrich,
+  batch_industries,
+  batch_keywords,
 }) {
   const sid = String(session_id || "").trim();
   if (!sid) return { ok: false, error: "missing_session_id" };
@@ -343,6 +345,12 @@ async function upsertResumeDoc({
     fields_to_enrich: Array.isArray(fields_to_enrich)
       ? fields_to_enrich
       : Array.isArray(existing?.fields_to_enrich) ? existing.fields_to_enrich : undefined,
+    batch_industries: Array.isArray(batch_industries)
+      ? batch_industries
+      : Array.isArray(existing?.batch_industries) ? existing.batch_industries : undefined,
+    batch_keywords: Array.isArray(batch_keywords)
+      ? batch_keywords
+      : Array.isArray(existing?.batch_keywords) ? existing.batch_keywords : undefined,
   };
 
   const upserted = await upsertItemWithPkCandidates(container, resumeDoc).catch((e) => ({ ok: false, error: e?.message || String(e) }));

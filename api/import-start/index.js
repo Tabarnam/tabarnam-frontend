@@ -5513,6 +5513,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   reason: "seed_complete_auto_enrich",
                   cosmosEnabled,
                   fieldsToEnrich,
+                  batchIndustries,
+                  batchKeywords,
                 }).catch((enrichErr) => {
                   console.error(`[import-start] async enrichment failed: ${enrichErr?.message || enrichErr}`);
                 });

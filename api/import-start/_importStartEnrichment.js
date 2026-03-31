@@ -835,6 +835,8 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
   reason,
   cosmosEnabled,
   fieldsToEnrich,
+  batchIndustries,
+  batchKeywords,
 }) {
   if (!cosmosEnabled) return { queued: false, invoked: false, invocation_mode: null };
 
@@ -875,6 +877,8 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     status: "queued",
     missing_by_company,
     fields_to_enrich: fieldsToEnrich,  // persisted so resume-worker respects user selection
+    batch_industries: batchIndustries,
+    batch_keywords: batchKeywords,
     created_at: now,
     updated_at: now,
     next_allowed_run_at: now,
