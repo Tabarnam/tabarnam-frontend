@@ -2435,6 +2435,27 @@ async function resumeWorkerHandler(req, context) {
           });
         }
 
+        // Merge batch industries/keywords into the enrichment results (v6.0 path).
+        // applyEnrichmentToCompany sets industries/keywords from xAI directly —
+        // we prepend batch values here so they take priority.
+        if (batchIndustries && batchIndustries.length > 0 && Array.isArray(doc.industries) && doc.industries.length > 0) {
+          const merged = [...batchIndustries];
+          for (const ind of doc.industries) {
+            if (!merged.some((m) => m.toLowerCase() === ind.toLowerCase())) merged.push(ind);
+          }
+          doc.industries = merged.slice(0, 5);
+          console.log(`[resume-worker] Merged batch_industries into doc.industries: ${JSON.stringify(doc.industries)}`);
+        }
+        if (batchKeywords && batchKeywords.length > 0 && Array.isArray(doc.keywords) && doc.keywords.length > 0) {
+          const merged = [...batchKeywords];
+          for (const kw of doc.keywords) {
+            if (!merged.some((m) => m.toLowerCase() === kw.toLowerCase())) merged.push(kw);
+          }
+          doc.keywords = merged.slice(0, 25);
+          doc.product_keywords = doc.keywords.join(", ");
+          console.log(`[resume-worker] Merged batch_keywords into doc.keywords: ${doc.keywords.length} items`);
+        }
+
         // Map results to per-field progress tracking and terminal logic
         const MAX_ATTEMPTS_BY_FIELD = {
           tagline: MAX_ATTEMPTS_TAGLINE,
