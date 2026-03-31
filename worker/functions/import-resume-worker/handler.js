@@ -1771,6 +1771,12 @@ async function resumeWorkerHandler(req, context) {
 
     console.log(`[resume-worker] enrichment block entry: deadlineMs=${deadlineMs}, effectiveDeadlineMs=${effectiveDeadlineMs}, startedAtMs=${startedAtMs}, initialBudgetRemaining=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
 
+    // Batch industries/keywords from user input — merged with xAI results after enrichment.
+    const batchIndustries = Array.isArray(resumeDoc?.batch_industries) ? resumeDoc.batch_industries : null;
+    const batchKeywords = Array.isArray(resumeDoc?.batch_keywords) ? resumeDoc.batch_keywords : null;
+    if (batchIndustries) console.log(`[resume-worker] session=${sessionId} batch_industries=${JSON.stringify(batchIndustries)}`);
+    if (batchKeywords) console.log(`[resume-worker] session=${sessionId} batch_keywords=${JSON.stringify(batchKeywords)}`);
+
     let plannedByCompany = Array.isArray(resumeDoc?.missing_by_company)
       ? resumeDoc.missing_by_company
       : (Array.isArray(resumeDoc?.saved_company_ids) ? resumeDoc.saved_company_ids : []).map((company_id) => ({
@@ -2214,7 +2220,17 @@ async function resumeWorkerHandler(req, context) {
             })();
 
             if (status === "ok" && sanitized.length > 0) {
-              doc.industries = sanitized;
+              // Merge batch industries (user-provided) with xAI-extracted industries
+              if (batchIndustries && batchIndustries.length > 0) {
+                const merged = [...batchIndustries];
+                for (const ind of sanitized) {
+                  if (!merged.some((m) => m.toLowerCase() === ind.toLowerCase())) merged.push(ind);
+                }
+                doc.industries = merged.slice(0, 5);
+                console.log(`[resume-worker] Merged batch_industries into doc.industries: ${JSON.stringify(doc.industries)}`);
+              } else {
+                doc.industries = sanitized.slice(0, 5);
+              }
               doc.industries_source = "grok";
               doc.industries_unknown = false;
               doc.import_missing_reason.industries = "ok";
@@ -2251,8 +2267,16 @@ async function resumeWorkerHandler(req, context) {
             })();
 
             if (status === "ok" && sanitized.length > 0) {
-              doc.keywords = sanitized.slice(0, 25);
-              doc.product_keywords = sanitized.join(", ");
+              if (batchKeywords && batchKeywords.length > 0) {
+                const merged = [...batchKeywords];
+                for (const kw of sanitized) {
+                  if (!merged.some((m) => m.toLowerCase() === kw.toLowerCase())) merged.push(kw);
+                }
+                doc.keywords = merged.slice(0, 25);
+              } else {
+                doc.keywords = sanitized.slice(0, 25);
+              }
+              doc.product_keywords = doc.keywords.join(", ");
               doc.keywords_source = "grok";
               doc.product_keywords_source = "grok";
               doc.product_keywords_unknown = false;
@@ -3004,7 +3028,15 @@ async function resumeWorkerHandler(req, context) {
       })();
 
       if (status === "ok" && sanitized.length > 0) {
-        doc.industries = sanitized;
+        if (batchIndustries && batchIndustries.length > 0) {
+          const merged = [...batchIndustries];
+          for (const ind of sanitized) {
+            if (!merged.some((m) => m.toLowerCase() === ind.toLowerCase())) merged.push(ind);
+          }
+          doc.industries = merged.slice(0, 5);
+        } else {
+          doc.industries = sanitized.slice(0, 5);
+        }
         doc.industries_source = "grok";
         doc.industries_unknown = false;
         doc.import_missing_reason ||= {};
@@ -3080,8 +3112,16 @@ async function resumeWorkerHandler(req, context) {
       })();
 
       if (status === "ok" && sanitized.length >= 20) {
-        doc.keywords = sanitized.slice(0, 25);
-        doc.product_keywords = sanitized.join(", ");
+        if (batchKeywords && batchKeywords.length > 0) {
+          const merged = [...batchKeywords];
+          for (const kw of sanitized) {
+            if (!merged.some((m) => m.toLowerCase() === kw.toLowerCase())) merged.push(kw);
+          }
+          doc.keywords = merged.slice(0, 25);
+        } else {
+          doc.keywords = sanitized.slice(0, 25);
+        }
+        doc.product_keywords = doc.keywords.join(", ");
         doc.keywords_source = "grok";
         doc.product_keywords_source = "grok";
 
