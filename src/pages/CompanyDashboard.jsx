@@ -4668,12 +4668,13 @@ export default function CompanyDashboard() {
                           />
 
                           <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1 ml-1">
+                          {!editorDraft.unknown_manufacturing && (
                           <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
                             <Checkbox
                               checked={Boolean(editorDraft.limited_manufacturing)}
                               onCheckedChange={(v) =>
                                 setEditorDraft((d) => {
-                                  const updated = { ...(d || {}), limited_manufacturing: Boolean(v) };
+                                  const updated = { ...(d || {}), limited_manufacturing: Boolean(v), unknown_manufacturing: false };
                                   if (v) {
                                     const curRating = normalizeRating(d?.rating);
                                     updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: 1.0 } };
@@ -4684,12 +4685,14 @@ export default function CompanyDashboard() {
                             />
                             Limited Manufacturing
                           </label>
+                          )}
+                          {!editorDraft.limited_manufacturing && (
                           <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
                             <Checkbox
                               checked={Boolean(editorDraft.unknown_manufacturing)}
                               onCheckedChange={(v) =>
                                 setEditorDraft((d) => {
-                                  const updated = { ...(d || {}), unknown_manufacturing: Boolean(v) };
+                                  const updated = { ...(d || {}), unknown_manufacturing: Boolean(v), limited_manufacturing: false };
                                   if (v) {
                                     const curRating = normalizeRating(d?.rating);
                                     updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: 1.0 } };
@@ -4700,6 +4703,7 @@ export default function CompanyDashboard() {
                             />
                             Unknown Manufacturing
                           </label>
+                          )}
                           </div>
                           </div>
                           </CollapsibleSection>
