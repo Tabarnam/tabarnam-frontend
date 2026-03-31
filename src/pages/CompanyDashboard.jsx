@@ -2384,7 +2384,7 @@ export default function CompanyDashboard() {
 
       // Auto-populate Mfg (star1) and HQ (star2) based on location presence
       rating.star1 = { ...(rating.star1 || {}), value: (manuLocations.length > 0 || draftForSave.limited_manufacturing) ? 1.0 : 0.0 };
-      rating.star2 = { ...(rating.star2 || {}), value: hqLocations.length > 0 ? 1.0 : 0.0 };
+      rating.star2 = { ...(rating.star2 || {}), value: (hqLocations.length > 0 || draftForSave.unknown_hq) ? 1.0 : 0.0 };
 
       const notes_entries = normalizeCompanyNotes(draftForSave.notes_entries);
       const location_sources = normalizeLocationSources(draftForSave.location_sources);
@@ -2409,6 +2409,7 @@ export default function CompanyDashboard() {
         manufacturing_locations: manuLocations,
         manufacturing_geocodes: manuLocations,
         limited_manufacturing: Boolean(draftForSave.limited_manufacturing),
+        unknown_hq: Boolean(draftForSave.unknown_hq),
         industries,
         keywords,
         product_keywords: keywords,
@@ -4629,11 +4630,28 @@ export default function CompanyDashboard() {
                               const updated = { ...(d || {}), headquarters_locations: next };
                               const hqList = normalizeStructuredLocationList(next);
                               const curRating = normalizeRating(d?.rating);
-                              updated.rating = { ...curRating, star2: { ...(curRating.star2 || {}), value: hqList.length > 0 ? 1.0 : 0.0 } };
+                              updated.rating = { ...curRating, star2: { ...(curRating.star2 || {}), value: (hqList.length > 0 || d?.unknown_hq) ? 1.0 : 0.0 } };
                               return updated;
                             })}
                             LocationStatusBadge={LocationStatusBadge}
                           />
+
+                          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-1 ml-1">
+                            <Checkbox
+                              checked={Boolean(editorDraft.unknown_hq)}
+                              onCheckedChange={(v) =>
+                                setEditorDraft((d) => {
+                                  const updated = { ...(d || {}), unknown_hq: Boolean(v) };
+                                  if (v) {
+                                    const curRating = normalizeRating(d?.rating);
+                                    updated.rating = { ...curRating, star2: { ...(curRating.star2 || {}), value: 1.0 } };
+                                  }
+                                  return updated;
+                                })
+                              }
+                            />
+                            Unknown HQ
+                          </label>
 
                           <StructuredLocationListEditor
                             label="Manufacturing locations"

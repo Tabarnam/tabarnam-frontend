@@ -476,14 +476,23 @@ export function getContractMissingFields(company) {
     }
   }
 
-  // Check for missing HQ (client-side, in case backend didn't flag it)
+  // Drop HQ fields if admin marked as unknown HQ
   const hqVariants = new Set(["headquarters", "headquarters_location", "headquarters_locations"]);
-  const hasHqTag = fields.some((f) => hqVariants.has(f));
-  const hasHq =
-    (Array.isArray(company?.headquarters_locations) && normalizeStructuredLocationList(company.headquarters_locations).length > 0) ||
-    Boolean(asString(company?.headquarters_location).trim());
-  if (!hasHq && !hasHqTag) {
-    fields.push("headquarters");
+  if (company?.unknown_hq) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (hqVariants.has(fields[i])) fields.splice(i, 1);
+    }
+  }
+
+  // Check for missing HQ (client-side, in case backend didn't flag it)
+  if (!company?.unknown_hq) {
+    const hasHqTag = fields.some((f) => hqVariants.has(f));
+    const hasHq =
+      (Array.isArray(company?.headquarters_locations) && normalizeStructuredLocationList(company.headquarters_locations).length > 0) ||
+      Boolean(asString(company?.headquarters_location).trim());
+    if (!hasHq && !hasHqTag) {
+      fields.push("headquarters");
+    }
   }
 
   // Check for missing manufacturing (client-side, unless limited_manufacturing)

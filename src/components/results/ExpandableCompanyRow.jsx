@@ -351,13 +351,13 @@ export default function ExpandableCompanyRow({
 
     if (list.length > 0) return list;
 
-    if (company?.hq_unknown) {
+    if (company?.unknown_hq || company?.hq_unknown) {
       const reason =
         (typeof company?.hq_unknown_reason === "string" && company.hq_unknown_reason.trim()) ||
         (typeof company?.red_flag_reason === "string" && company.red_flag_reason.trim()) ||
-        "Not disclosed";
+        "";
 
-      return [{ formatted: `Unknown (${reason})`, distance: null, geocode_status: null }];
+      return [{ formatted: reason ? `Unknown (${reason})` : "Unknown", distance: null, geocode_status: null }];
     }
 
     return [];

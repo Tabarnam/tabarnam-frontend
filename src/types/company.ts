@@ -123,6 +123,7 @@ export interface Company {
   manufacturing_locations?: Array<string | ManufacturingLocation>;
   manufacturing_geocodes?: ManufacturingLocation[];
   limited_manufacturing?: boolean;
+  unknown_hq?: boolean;
   red_flag?: boolean;
   red_flag_reason?: string;
   location_confidence?: "low" | "medium" | "high";

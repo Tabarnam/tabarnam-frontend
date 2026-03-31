@@ -660,6 +660,7 @@ function isRealValue(field, value, doc) {
       const country = asMeaningfulString(value.country);
       if (city && (region || country)) return true;
 
+      if (isTrueish(doc?.unknown_hq)) return true;
       if (isTrueish(doc?.hq_unknown)) return false;
       return false;
     }
@@ -667,7 +668,8 @@ function isRealValue(field, value, doc) {
     if (isSentinelString(value)) return false;
     if (looksLikeHqLocationString(value)) return true;
 
-    // No real data — respect the unknown flag
+    // No real data — respect the unknown flag (admin-set unknown_hq satisfies requirement)
+    if (isTrueish(doc?.unknown_hq)) return true;
     if (isTrueish(doc?.hq_unknown)) return false;
     return false;
   }
