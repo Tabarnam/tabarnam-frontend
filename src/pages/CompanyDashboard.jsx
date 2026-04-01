@@ -2949,6 +2949,38 @@ export default function CompanyDashboard() {
   const columns = useMemo(() => {
     return [
       {
+        name: "",
+        button: true,
+        cell: (row) => {
+          const name = getCompanyName(row);
+          const domain = asString(row?.normalized_domain).trim();
+          const text = domain ? `${name} / ${domain}` : name;
+          return (
+            <button
+              type="button"
+              title={`Copy: ${text}`}
+              className="h-7 w-7 flex items-center justify-center rounded border border-slate-600 text-[9px] font-bold text-slate-400 hover:text-white hover:border-slate-400 transition-colors"
+              onClick={async (e) => {
+                e.stopPropagation();
+                const ok = await copyToClipboard(text);
+                if (ok) {
+                  const el = e.currentTarget;
+                  el.textContent = "✓";
+                  el.classList.add("text-emerald-400", "border-emerald-500");
+                  setTimeout(() => {
+                    el.textContent = "N/D";
+                    el.classList.remove("text-emerald-400", "border-emerald-500");
+                  }, 1200);
+                }
+              }}
+            >
+              N/D
+            </button>
+          );
+        },
+        width: "45px",
+      },
+      {
         name: "Edit",
         button: true,
         cell: (row) => (
@@ -3566,10 +3598,6 @@ export default function CompanyDashboard() {
               highlightOnHover
               dense
               customStyles={tableTheme}
-              selectableRows
-              onSelectedRowsChange={(state) => setSelectedRows(state?.selectedRows || [])}
-              clearSelectedRows={selectedRows.length === 0}
-              contextActions={contextActions}
               noDataComponent={noDataComponent}
             />
           </section>
