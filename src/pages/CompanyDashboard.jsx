@@ -549,6 +549,8 @@ export default function CompanyDashboard() {
   const [take, setTake] = useState(DEFAULT_TAKE);
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
   const [rowsPerPage, setRowsPerPage] = useState(100);
+  const [sortColumn, setSortColumn] = useState(null);
+  const [sortDirection, setSortDirection] = useState("desc");
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
@@ -2991,6 +2993,7 @@ export default function CompanyDashboard() {
         width: "70px",
       },
       {
+        id: "name",
         name: "Name",
         selector: (row) => getCompanyName(row),
         sortable: true,
@@ -3025,6 +3028,7 @@ export default function CompanyDashboard() {
         },
       },
       {
+        id: "domain",
         name: "Domain",
         selector: (row) => asString(row?.normalized_domain).trim(),
         sortable: true,
@@ -3053,6 +3057,7 @@ export default function CompanyDashboard() {
         },
       },
       {
+        id: "hq",
         name: "HQ",
         selector: (row) => {
           const hqList = normalizeStructuredLocationList(
@@ -3082,6 +3087,7 @@ export default function CompanyDashboard() {
         },
       },
       {
+        id: "mfg",
         name: "MFG",
         selector: (row) => {
           const manuBase =
@@ -3116,6 +3122,7 @@ export default function CompanyDashboard() {
         },
       },
       {
+        id: "stars",
         name: "★s",
         selector: (row) => getQQScore(row),
         sortable: true,
@@ -3128,6 +3135,7 @@ export default function CompanyDashboard() {
         },
       },
       {
+        id: "reviews",
         name: "reviews",
         selector: (row) => getComputedReviewCount(row),
         sortable: true,
@@ -3135,6 +3143,7 @@ export default function CompanyDashboard() {
         width: "70px",
       },
       {
+        id: "profile",
         name: "Profile",
         selector: (row) => getProfileCompleteness(row),
         sortable: true,
@@ -3180,6 +3189,7 @@ export default function CompanyDashboard() {
         },
       },
       {
+        id: "created",
         name: <span className="text-[10px]">Created</span>,
         selector: (row) => asString(row?.created_at).trim(),
         sortable: true,
@@ -3191,6 +3201,7 @@ export default function CompanyDashboard() {
         width: "95px",
       },
       {
+        id: "updated",
         name: <span className="text-[10px]">Updated</span>,
         selector: (row) => asString(row?.updated_at || row?.created_at).trim(),
         sortable: true,
@@ -3202,6 +3213,7 @@ export default function CompanyDashboard() {
         width: "95px",
       },
       {
+        id: "issues",
         name: "Issues",
         selector: (row) => getContractMissingFields(row).length,
         sortable: true,
@@ -3575,6 +3587,7 @@ export default function CompanyDashboard() {
 
           <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card overflow-x-auto">
             <DataTable
+              key={`${sortColumn?.id || "default"}-${sortDirection}-${filteredItems.length}`}
               columns={columns}
               data={filteredItems}
               conditionalRowStyles={[
@@ -3597,6 +3610,12 @@ export default function CompanyDashboard() {
               fixedHeaderScrollHeight="calc(100vh - 220px)"
               highlightOnHover
               dense
+              onSort={(column, direction) => {
+                setSortColumn(column);
+                setSortDirection(direction);
+              }}
+              defaultSortFieldId={sortColumn?.id || undefined}
+              defaultSortAsc={sortDirection === "asc"}
               customStyles={tableTheme}
               noDataComponent={noDataComponent}
             />
