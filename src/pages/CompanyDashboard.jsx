@@ -2953,8 +2953,8 @@ export default function CompanyDashboard() {
         button: true,
         cell: (row) => {
           const name = getCompanyName(row);
-          const domain = asString(row?.normalized_domain).trim();
-          const text = domain ? `${name} / ${domain}` : name;
+          const url = asString(row?.website_url || row?.url).trim();
+          const text = `For the Company:   ${name}  /  ${url || asString(row?.normalized_domain).trim()}\nFields to populate: tagline, industries, HQ, manufacturing, keywords, reviews`;
           return (
             <button
               type="button"
