@@ -3614,7 +3614,7 @@ export default function CompanyDashboard() {
                 setSortColumn(column);
                 setSortDirection(direction);
               }}
-              defaultSortFieldId={sortColumn?.id || undefined}
+              defaultSortFieldId={sortColumn?.id || "created"}
               defaultSortAsc={sortDirection === "asc"}
               customStyles={tableTheme}
               noDataComponent={noDataComponent}
