@@ -2284,6 +2284,14 @@ async function resumeWorkerHandler(req, context) {
               markFieldSuccess(doc, "product_keywords");
               fieldProgress.status = "ok";
               savedFieldsThisRun.push("product_keywords");
+              // Store keywords completeness from enrichment
+              if (r?.keywords_completeness) {
+                doc.keywords_completeness = r.keywords_completeness;
+                doc.keywords_incomplete_reason = r.keywords_incomplete_reason || null;
+              } else if (doc.keywords.length < 15) {
+                doc.keywords_completeness = "incomplete";
+                doc.keywords_incomplete_reason = "low_count_auto";
+              }
             } else {
               const terminal = attemptsFor(doc, "product_keywords") >= MAX_ATTEMPTS_KEYWORDS;
               doc.product_keywords = "";
@@ -3128,6 +3136,14 @@ async function resumeWorkerHandler(req, context) {
         doc.product_keywords_unknown = false;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.product_keywords = "ok";
+        // Store keywords completeness
+        if (r?.keywords_completeness) {
+          doc.keywords_completeness = r.keywords_completeness;
+          doc.keywords_incomplete_reason = r.keywords_incomplete_reason || null;
+        } else if (doc.keywords.length < 15) {
+          doc.keywords_completeness = "incomplete";
+          doc.keywords_incomplete_reason = "low_count_auto";
+        }
         markFieldSuccess(doc, "product_keywords");
         changed = true;
       } else {

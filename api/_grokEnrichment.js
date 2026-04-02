@@ -4107,9 +4107,25 @@ function parseUnifiedPlainTextResponse(rawText) {
       parsed_fields.product_keywords = [];
       field_statuses.product_keywords = "empty";
     }
+
+    // Parse Completeness line from keywords section (may be on 2nd+ line)
+    const completenessMatch = sections.Keywords.match(/Completeness:\s*(complete|incomplete)\s*(?:—\s*(.+))?/i);
+    const kwCount = (parsed_fields.product_keywords || []).length;
+    if (completenessMatch) {
+      diagnostics.keywords_completeness = completenessMatch[1].toLowerCase();
+      diagnostics.keywords_incomplete_reason = completenessMatch[2] ? completenessMatch[2].trim() : null;
+    } else if (kwCount < 15) {
+      diagnostics.keywords_completeness = "incomplete";
+      diagnostics.keywords_incomplete_reason = "low_count_auto";
+    } else {
+      diagnostics.keywords_completeness = "complete";
+      diagnostics.keywords_incomplete_reason = null;
+    }
   } else {
     field_statuses.product_keywords = "missing_from_response";
     diagnostics.incomplete_fields.push("product_keywords");
+    diagnostics.keywords_completeness = "incomplete";
+    diagnostics.keywords_incomplete_reason = "missing_from_response";
   }
 
   // ── Reviews ──
@@ -4487,44 +4503,82 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
     }
   }
 
-  // 7. Keywords fallback — if product_keywords is empty, trigger a narrow follow-up
+  // 7. Keywords deepening — dedicated call when keywords are empty, incomplete, or < 30
   const kw = parsed.parsed_fields.product_keywords;
-  const kwEmpty = !kw || (typeof kw === "string" && !kw.trim()) || (Array.isArray(kw) && kw.length === 0);
-  if (kwEmpty && getRemainingMs() >= 15_000) {
-    console.log(`[fetchAllFieldsSinglePrompt] product_keywords empty for "${companyName}", triggering keywords follow-up`);
+  const kwList = Array.isArray(kw) ? kw : (typeof kw === "string" && kw.trim() ? kw.split(",").map((s) => s.trim()).filter(Boolean) : []);
+  const kwCount = kwList.length;
+  const kwEmpty = kwCount === 0;
+  const kwNeedsDeepening = kwEmpty || kwCount < 30 || parsed.diagnostics.keywords_completeness === "incomplete";
+  if (kwNeedsDeepening && getRemainingMs() >= 30_000) {
+    console.log(`[fetchAllFieldsSinglePrompt] Keywords deepening for "${companyName}" (current=${kwCount}, completeness=${parsed.diagnostics.keywords_completeness || "unknown"})`);
     try {
-      const kwPrompt = `Research ${websiteUrl || companyName}. You have the main products/shop/collections page URL. Extract only core product keywords and categories. Return JSON array "product_keywords" containing 8-15 precise terms. No generic words. No additional tools. Output JSON only.`;
-      const kwTimeout = Math.min(30_000, getRemainingMs() - 5_000);
-      const kwResult = await xaiLiveSearchWithRetry({
-        prompt: kwPrompt,
-        timeoutMs: kwTimeout,
-        maxAttempts: 1,
+      const existingList = kwList.length > 0 ? kwList.join(", ") : "none";
+      const deepeningPrompt = `For company: ${companyName} (${websiteUrl || domain})
+Existing keywords: ${existingList}
+
+Use your full set of 5 tool calls to browse the website exhaustively. Focus on products/shop/collections, subcategories, hardware, accessories, and any product lines/collections pages.
+Extract an EXHAUSTIVE list of NEW products, product lines, sub-categories, accessories, hardware, replacement parts, collections, and specific items not already in the existing keywords list above.
+Return strictly valid JSON:
+{
+  "product_keywords": ["Term One", "Term Two", ...],
+  "completeness": "complete"|"incomplete",
+  "incomplete_reason": "string explaining gaps if incomplete"
+}
+Target 30-100+ new items. Be thorough, do not repeat existing keywords, and only base on actual website content.`;
+
+      const deepTimeout = Math.min(90_000, getRemainingMs() - 5_000);
+      const deepResult = await xaiLiveSearchStreaming({
+        prompt: deepeningPrompt,
+        timeoutMs: deepTimeout,
         xaiUrl,
         xaiKey,
         search_parameters: { mode: "on", excluded_domains },
-        useTools: true,
         signal,
+        maxToolCalls: 5,
       });
-      if (kwResult.ok) {
-        const kwText = extractTextFromXaiResponse(kwResult.resp);
-        // Try to parse JSON array from response
-        const jsonMatch = kwText.match(/\[[\s\S]*?\]/);
+
+      // If streaming returned null (unsupported), fall back to non-streaming
+      const effectiveResult = deepResult === null
+        ? await xaiLiveSearchWithRetry({ prompt: deepeningPrompt, timeoutMs: deepTimeout, maxAttempts: 1, xaiUrl, xaiKey, search_parameters: { mode: "on", excluded_domains }, useTools: true, signal })
+        : deepResult;
+
+      if (effectiveResult.ok) {
+        const deepText = extractTextFromXaiResponse(effectiveResult.resp);
+        const jsonMatch = deepText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try {
-            const kwArr = JSON.parse(jsonMatch[0]);
-            if (Array.isArray(kwArr) && kwArr.length > 0) {
-              parsed.parsed_fields.product_keywords = kwArr.join(", ");
-              parsed.field_statuses.product_keywords = "ok_from_followup";
-              parsed.diagnostics.keywords_followup = true;
-              console.log(`[fetchAllFieldsSinglePrompt] Keywords follow-up returned ${kwArr.length} terms for "${companyName}"`);
+            const deepObj = JSON.parse(jsonMatch[0]);
+            const newKw = Array.isArray(deepObj.product_keywords) ? deepObj.product_keywords : [];
+            if (newKw.length > 0) {
+              // Merge: existing + new, deduplicate case-insensitive
+              const seen = new Set(kwList.map((k) => k.toLowerCase()));
+              const merged = [...kwList];
+              for (const k of newKw) {
+                const norm = String(k).trim();
+                if (norm && !seen.has(norm.toLowerCase())) {
+                  seen.add(norm.toLowerCase());
+                  merged.push(norm);
+                }
+              }
+              const deepSanitized = sanitizeKeywords({ product_keywords: merged.join(", ") });
+              parsed.parsed_fields.product_keywords = deepSanitized.sanitized || merged;
+              parsed.field_statuses.product_keywords = "ok_from_deepening";
+              parsed.diagnostics.keywords_deepening = true;
+              parsed.diagnostics.keywords_deepening_added = newKw.length;
+              // Update completeness from deepening response
+              if (deepObj.completeness) {
+                parsed.diagnostics.keywords_completeness = deepObj.completeness;
+                parsed.diagnostics.keywords_incomplete_reason = deepObj.incomplete_reason || null;
+              }
+              console.log(`[fetchAllFieldsSinglePrompt] Keywords deepening added ${newKw.length} terms for "${companyName}" (total=${(deepSanitized.sanitized || merged).length})`);
             }
           } catch (parseErr) {
-            console.warn(`[fetchAllFieldsSinglePrompt] Keywords follow-up JSON parse failed: ${parseErr?.message}`);
+            console.warn(`[fetchAllFieldsSinglePrompt] Keywords deepening JSON parse failed: ${parseErr?.message}`);
           }
         }
       }
-    } catch (kwErr) {
-      console.warn(`[fetchAllFieldsSinglePrompt] Keywords follow-up failed for "${companyName}": ${kwErr?.message}`);
+    } catch (deepErr) {
+      console.warn(`[fetchAllFieldsSinglePrompt] Keywords deepening failed for "${companyName}": ${deepErr?.message}`);
     }
   }
 

@@ -243,10 +243,12 @@ Comma-separated on one line.
 ${logoSection}
 
 Keywords:
-Browse ${url} product/shop/collections pages to find all products.
-Return all products, product lines, flavors, and varieties — up to 100 items.
-If paginated or large, summarize groups to fit up to 100 items without deep crawling.
-Return ONLY actual products in Title Case. Comma-separated on one line.
+Use your browse_page (and web_search if needed) tools on the company website at ${url}. Focus exclusively on product, shop, collections, categories, hardware, and accessories pages.
+Extract an EXHAUSTIVE, comprehensive list of ALL products, product lines, sub-categories, accessories, hardware, components, collections, flavors, varieties, and individual items. Include both broad category names AND specific product names.
+Prioritize browsing: (1) main products/shop/collections page, (2) key sub-category pages (one level deeper), (3) any dedicated hardware/accessories/drapery sections.
+Target: 50-100+ unique terms. If you return fewer than 30 items, you are likely missing significant catalog portions — explicitly check for and browse additional categories, accessories, hardware, product lines, or collections pages.
+After the comma-separated keyword list (Title Case only), add on a NEW line: Completeness: complete OR Completeness: incomplete — [brief reason]
+Return ONLY the keywords (Title Case, comma-separated on one line) followed by the Completeness line. No other text, explanations, or markdown.
 
 Reviews:
 Always return at least 1 review. First check ${url} for testimonials, press mentions, "as seen in" sections, or customer reviews.

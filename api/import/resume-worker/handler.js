@@ -2456,6 +2456,13 @@ async function resumeWorkerHandler(req, context) {
           console.log(`[resume-worker] Merged batch_keywords into doc.keywords: ${doc.keywords.length} items`);
         }
 
+        // Store keywords completeness from enrichment diagnostics
+        const enrichDiag = enrichResult?.diagnostics || enrichResult?.enriched?.product_keywords || {};
+        if (enrichDiag.keywords_completeness) {
+          doc.keywords_completeness = enrichDiag.keywords_completeness;
+          doc.keywords_incomplete_reason = enrichDiag.keywords_incomplete_reason || null;
+        }
+
         // Map results to per-field progress tracking and terminal logic
         const MAX_ATTEMPTS_BY_FIELD = {
           tagline: MAX_ATTEMPTS_TAGLINE,
