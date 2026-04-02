@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "4.1.0-general-adaptive";
+const PROMPT_GUIDANCE_VERSION = "5.0.0-parallel-keywords";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -202,13 +202,12 @@ Website: ${url}
 
 INSTRUCTIONS:
 
-CRITICAL TOOL CONSTRAINT — Target 3 tool calls. Hard maximum 5.
-You MUST stop and output results after 3 calls unless HQ or Manufacturing are still completely empty.
+CRITICAL TOOL CONSTRAINT — Target 2-3 tool calls. Hard maximum 5.
+Keywords are handled by a separate dedicated call — do NOT extract keywords here.
 Allocate calls as:
 1. Homepage ${url} (tagline, logo, HQ hints, industries)
-2. Products/shop/collections page (keywords — ONE page only)
-3. ONLY if HQ or Manufacturing still empty: web_search or contact page
-Stop here if all fields have data. Calls 4-5 are ONLY for reviews if zero reviews found.
+2. ONLY if HQ or Manufacturing still empty: about/contact page or web_search
+3-5. ONLY if zero reviews found: 1 external search for reviews
 
 Rules:
 - STOP AND OUTPUT as soon as you have data for all fields. Do not use extra calls to "improve" answers.
@@ -241,23 +240,6 @@ Be specific to the company's niche (e.g., "Artisan Beef Jerky" not "Food", "Spec
 Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce".
 Comma-separated on one line.
 ${logoSection}
-
-Keywords:
-Extract EVERY distinct product, model, variant, edition, flavor, color, size, collection, SKU-style descriptor, and limited-edition name that appears anywhere in the scraped homepage, about, contact, shop pages, or JSON-LD data. Be exhaustive and literal — copy the exact wording from the site.
-- For companies with small catalogs, capture every single item and every variant.
-- For companies with large catalogs, capture as many unique products and variants as possible without hallucinating items that are not present.
-
-Example of high-quality output:
-Small-catalog example (leather goods): Classic Billfold | Briarcliff Wallet | McGraw Wallet | Shadow Wallet | Five Pocket Card Wallet | Discovery Long Wallet | Classic Leather Belt - Natural | Classic Leather Crossbody Tote - Natural
-Large-catalog example (food brand): Frosted Flakes | Froot Loops | Corn Flakes | Rice Krispies | Special K Original | Special K Red Berries | Apple Jacks | Cheerios | Honey Nut Cheerios | Raisin Bran | etc.
-
-Use browse_page (and web_search if needed) on ${url} product, shop, collections, categories, hardware, and accessories pages.
-IMPORTANT: Identify the company's PRIMARY business. Extract from the PRIMARY product catalog ONLY. Ignore secondary merch stores (/merch, apparel, hoodies, mugs, stickers) unless merchandise IS the core business.
-FULL NAMES ONLY: Return each product as its COMPLETE name exactly as shown on the website. Never split a single product name into fragments.
-Prioritize breadth: cover as many distinct categories/collections as possible before deep-diving into variants.
-Output as a clean pipe-separated list with no duplicates and no generalizations.
-At the very end of your keywords output, include a JSON block exactly like this:
-{ "product_keywords": ["exact term 1", "exact term 2", ...] }
 
 Reviews:
 Always return at least 1 review. First check ${url} for testimonials, press mentions, "as seen in" sections, or customer reviews.
@@ -303,6 +285,30 @@ Having the actual cities within the USA is crucial. Use initials for state or pr
   keywords: `Use browse_page on the company URL to find all products. Keywords must be exhaustive — include every named product, product line, variant, and SKU. Use specific product names (e.g., "Vellux Original Blanket") not generic categories (e.g., "blankets"). Use web_search "[Company] products" for completeness.`,
 };
 
+// ---------------------------------------------------------------------------
+// DEDICATED KEYWORDS PROMPT — runs as a parallel call with its own tool budget.
+// Separated from the unified enrichment in v5.0 to allow exhaustive catalog
+// crawling without starving HQ/MFG/tagline/reviews of tool calls.
+// ---------------------------------------------------------------------------
+function buildDedicatedKeywordsPrompt(companyName, websiteUrl) {
+  const name = companyName || "(unknown company)";
+  const url = websiteUrl || "(unknown website)";
+
+  return `You are extracting an exhaustive, complete list of EVERY product, model, variant, and accessory sold by ${name} on ${url}. Be extremely thorough — do not summarize, do not omit anything.
+
+Step-by-step process you MUST follow:
+1. Browse the homepage and extract the main navigation menu. Identify every top-level category link (e.g., Wallets, Bags, Backpacks, Belts, Accessories, etc.) and the main Shop / Collections / All Products page.
+2. Browse the main Shop or /collections/all page (or sitemap.xml if present).
+3. For every category page found, browse it and list EVERY single product name, model number, special edition, color variant, and accessory exactly as it appears on the page (including pagination or "load more" links — keep going until no more products).
+4. If there are sub-categories or filter pages, browse the most important ones.
+5. Compile one single, deduplicated, comma-separated list. Include every unique item (e.g., "Wally Bifold 5.0 Premium, Wally Bifold 5.0 ID Window, SK1 Slide Kick Wallet with Titanium Money Clip, Classic-1 Bridle Leather Belt, Chums Original Retainer, …"). Do not group or shorten.
+
+IMPORTANT: Identify the company's PRIMARY business. Extract from the PRIMARY product catalog ONLY. Ignore secondary merch stores (/merch, apparel, hoodies, mugs, stickers) unless merchandise IS the core business.
+FULL NAMES ONLY: Return each product as its COMPLETE name exactly as shown on the website. Never split a single product name into fragments.
+
+Output ONLY the final comma-separated list. No explanations, no headers, no markdown.`;
+}
+
 module.exports = {
   PROMPT_GUIDANCE_VERSION,
   QUALITY_RULES,
@@ -310,4 +316,5 @@ module.exports = {
   FIELD_SCHEMA,
   FIELD_GUIDANCE,
   FIELD_SUMMARIES,
+  buildDedicatedKeywordsPrompt,
 };

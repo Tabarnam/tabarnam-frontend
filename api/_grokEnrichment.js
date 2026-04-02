@@ -4,7 +4,7 @@
 const { xaiLiveSearch, xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
-const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE } = require("./_xaiPromptGuidance");
+const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE, buildDedicatedKeywordsPrompt } = require("./_xaiPromptGuidance");
 const { SENTINEL_STRINGS, PLACEHOLDER_STRINGS } = require("./_requiredFields");
 const { discoverLogoSourceUrl, fetchText } = require("./_logoImport");
 
@@ -4145,10 +4145,10 @@ function parseUnifiedPlainTextResponse(rawText) {
       diagnostics.keywords_incomplete_reason = null;
     }
   } else {
-    field_statuses.product_keywords = "missing_from_response";
-    diagnostics.incomplete_fields.push("product_keywords");
-    diagnostics.keywords_completeness = "incomplete";
-    diagnostics.keywords_incomplete_reason = "missing_from_response";
+    // Keywords missing from main response is EXPECTED in v5.0+ (handled by dedicated parallel call).
+    // Don't flag as incomplete — the merge step (section 7) will overwrite with dedicated results.
+    parsed_fields.product_keywords = [];
+    field_statuses.product_keywords = "pending_dedicated";
   }
 
   // ── Reviews ──
@@ -4330,7 +4330,7 @@ async function fetchAllFieldsSinglePrompt({
     companyWebsiteHost: null,
   });
 
-  // 4. Single xAI call — try streaming with tool-call cap first
+  // 4. Fire main enrichment + dedicated keywords call IN PARALLEL
   const timeoutMs = clampStageTimeoutMs({
     remainingMs: getRemainingMs(),
     minMs: 90_000,
@@ -4339,34 +4339,72 @@ async function fetchAllFieldsSinglePrompt({
     label: "single_prompt",
   });
 
-  // Attempt streaming mode for hard tool-call enforcement (max 5 web_search calls).
-  // Falls back to non-streaming if endpoint doesn't support it.
-  let r = await xaiLiveSearchStreaming({
-    prompt,
-    timeoutMs,
-    xaiUrl,
-    xaiKey,
-    search_parameters: { mode: "on", excluded_domains },
-    enableImageUnderstanding: !skipLogo,
-    signal,
-    maxToolCalls: 5,
-  });
+  // Build dedicated keywords prompt
+  const keywordsPrompt = buildDedicatedKeywordsPrompt(companyName, websiteUrl);
 
-  // If streaming returned null (unsupported endpoint), fall back to non-streaming
-  if (r === null) {
-    console.log(`[fetchAllFieldsSinglePrompt] Streaming unsupported — falling back to non-streaming for "${companyName}"`);
-    r = await xaiLiveSearchWithRetry({
+  console.log(`[fetchAllFieldsSinglePrompt] Firing main enrichment + dedicated keywords in parallel for "${companyName}"`);
+
+  // Fire both calls simultaneously
+  const mainCallPromise = (async () => {
+    let r = await xaiLiveSearchStreaming({
       prompt,
       timeoutMs,
-      maxAttempts: 1,
       xaiUrl,
       xaiKey,
       search_parameters: { mode: "on", excluded_domains },
-      useTools: true,
       enableImageUnderstanding: !skipLogo,
       signal,
+      maxToolCalls: 5,
     });
-  }
+    if (r === null) {
+      r = await xaiLiveSearchWithRetry({
+        prompt,
+        timeoutMs,
+        maxAttempts: 1,
+        xaiUrl,
+        xaiKey,
+        search_parameters: { mode: "on", excluded_domains },
+        useTools: true,
+        enableImageUnderstanding: !skipLogo,
+        signal,
+      });
+    }
+    return r;
+  })();
+
+  const keywordsCallPromise = (async () => {
+    try {
+      const kwResult = await xaiLiveSearchWithRetry({
+        prompt: keywordsPrompt,
+        timeoutMs: Math.min(timeoutMs, 180_000),
+        maxAttempts: 1,
+        xaiUrl,
+        xaiKey,
+        search_parameters: { mode: "on", excluded_domains },
+        useTools: true,
+        signal,
+      });
+      if (kwResult.ok) {
+        const kwText = extractTextFromXaiResponse(kwResult.resp);
+        // Parse comma-separated product list from the response
+        const items = kwText
+          .replace(/\n/g, ",")
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 1 && s.length < 120);
+        console.log(`[fetchAllFieldsSinglePrompt] Dedicated keywords call returned ${items.length} items for "${companyName}"`);
+        return items;
+      }
+      console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call failed for "${companyName}": ${kwResult.error}`);
+      return [];
+    } catch (kwErr) {
+      console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call error for "${companyName}": ${kwErr?.message}`);
+      return [];
+    }
+  })();
+
+  // Wait for both to complete
+  const [r, dedicatedKeywords] = await Promise.all([mainCallPromise, keywordsCallPromise]);
 
   const phase1Elapsed = Date.now() - started;
   console.log(`[fetchAllFieldsSinglePrompt] Phase 1 xAI call completed in ${phase1Elapsed}ms, ok=${r.ok}`);
@@ -4426,7 +4464,6 @@ Tagline: [value]
 Industries: [comma-separated]
 HQ: [City, ST, Country]
 Manufacturing: [locations separated by semicolons, or "not_applicable"]${skipLogo ? "" : "\nLogo: {\"logo_url\": \"...\", \"logo_source\": \"...\"}"}
-Keywords: [comma-separated products]
 Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
 
         console.log(`[fetchAllFieldsSinglePrompt] Phase 2 re-prompting xAI with ${pageTexts.length} pages, ${combinedText.length} chars, timeout=${Math.min(60_000, getRemainingMs() - 5_000)}ms`);
@@ -4526,8 +4563,32 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
     }
   }
 
-  // 7. (Deepening removed in v4.1.0 — main prompt now handles full keyword extraction.
-  //     Deepening added ~100s per company for zero net keywords across all tested companies.)
+  // 7. Merge dedicated keywords result (source of truth — overwrites any keywords from main call)
+  if (dedicatedKeywords && dedicatedKeywords.length > 0) {
+    const kwSanitized = sanitizeKeywords({ product_keywords: dedicatedKeywords.join(", ") });
+    const finalKw = (kwSanitized.sanitized || dedicatedKeywords)
+      .slice()
+      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    // Dedupe (case-insensitive, preserve first occurrence's casing)
+    const seen = new Set();
+    const deduped = [];
+    for (const k of finalKw) {
+      const key = k.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); deduped.push(k); }
+    }
+    parsed.parsed_fields.product_keywords = deduped;
+    parsed.field_statuses.product_keywords = "ok";
+    parsed.diagnostics.keywords_source = "dedicated_parallel";
+    parsed.diagnostics.keywords_dedicated_count = deduped.length;
+    console.log(`[fetchAllFieldsSinglePrompt] Dedicated keywords merged: ${deduped.length} items for "${companyName}"`);
+  } else {
+    // Dedicated call failed or returned empty — mark as incomplete
+    if (!parsed.parsed_fields.product_keywords || (Array.isArray(parsed.parsed_fields.product_keywords) && parsed.parsed_fields.product_keywords.length === 0)) {
+      parsed.field_statuses.product_keywords = "empty";
+      parsed.diagnostics.keywords_source = "dedicated_parallel_failed";
+      console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call returned empty for "${companyName}" — no keywords available`);
+    }
+  }
 
   // 8. Targeted follow-up for empty HQ, MFG, or tagline
   const hq = parsed.parsed_fields.headquarters_location;
