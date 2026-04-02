@@ -252,6 +252,7 @@ Step 4: Representative Sampling — for categories with many variants (20+), ext
 Step 5: Self-check — count your list. If fewer than 30 AND the company has a substantial catalog, browse one more unvisited page then output.
 Step 6: Prioritize & order — main lines and featured/best-sellers first, sub-variants and accessories last. Sort from most core to most peripheral.
 Relevance Gate: Only include terms a real customer would search for (product names, categories, key attributes). No promotional copy.
+FULL NAMES ONLY: Return each product as its COMPLETE name exactly as shown on the website (e.g., "White Chedda Cheezy Crackers" not "White Chedda" and "Cheezy Crackers" separately). Never split a single product name into fragments.
 Target: 50-100+ unique terms. Return ONLY Title Case keywords (comma-separated on one line), then on a NEW line:
 COMPLETENESS: COMPLETE
 or COMPLETENESS: INCOMPLETE — [one-sentence reason]

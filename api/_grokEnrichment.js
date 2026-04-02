@@ -4527,6 +4527,7 @@ Step 5: Self-check — combine (remove duplicates), count. If <30 and catalog is
 Step 6: Prioritize & order — apply hierarchy (main lines first), prominence (featured/best-sellers), and representative sampling (category + 3-5 signature items max per deep variant set). Sort final list from most core/featured to specific/peripheral.
 
 Relevance Gate: Only include terms a real customer would search for (product names, categories, key attributes). No promotional copy.
+FULL NAMES ONLY: Return each product as its COMPLETE name exactly as shown on the website. Never split a single product name into fragments.
 
 Return strictly valid JSON:
 {
