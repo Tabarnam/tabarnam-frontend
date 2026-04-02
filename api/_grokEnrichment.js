@@ -4385,7 +4385,7 @@ async function fetchAllFieldsSinglePrompt({
     try {
       const kwResult = await xaiLiveSearchWithRetry({
         prompt: keywordsPrompt,
-        timeoutMs: Math.min(timeoutMs, 180_000),
+        timeoutMs: Math.max(timeoutMs, 210_000),
         maxAttempts: 1,
         xaiUrl,
         xaiKey,
