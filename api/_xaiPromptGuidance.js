@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "4.0.0";
+const PROMPT_GUIDANCE_VERSION = "4.1.0-general-adaptive";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -243,20 +243,21 @@ Comma-separated on one line.
 ${logoSection}
 
 Keywords:
+Extract EVERY distinct product, model, variant, edition, flavor, color, size, collection, SKU-style descriptor, and limited-edition name that appears anywhere in the scraped homepage, about, contact, shop pages, or JSON-LD data. Be exhaustive and literal — copy the exact wording from the site.
+- For companies with small catalogs, capture every single item and every variant.
+- For companies with large catalogs, capture as many unique products and variants as possible without hallucinating items that are not present.
+
+Example of high-quality output:
+Small-catalog example (leather goods): Classic Billfold | Briarcliff Wallet | McGraw Wallet | Shadow Wallet | Five Pocket Card Wallet | Discovery Long Wallet | Classic Leather Belt - Natural | Classic Leather Crossbody Tote - Natural
+Large-catalog example (food brand): Frosted Flakes | Froot Loops | Corn Flakes | Rice Krispies | Special K Original | Special K Red Berries | Apple Jacks | Cheerios | Honey Nut Cheerios | Raisin Bran | etc.
+
 Use browse_page (and web_search if needed) on ${url} product, shop, collections, categories, hardware, and accessories pages.
 IMPORTANT: Identify the company's PRIMARY business. Extract from the PRIMARY product catalog ONLY. Ignore secondary merch stores (/merch, apparel, hoodies, mugs, stickers) unless merchandise IS the core business.
-Step 1: Browse main products/shop/collections page for primary categories and flagship products.
-Step 2: Browse key sub-category pages (one level deeper) for additional product lines.
-Step 3: Breadth-first — cover as many distinct categories/collections as possible. Do NOT deep-dive into every flavor/variant.
-Step 4: Representative Sampling — for categories with many variants (20+), extract the category name + 3-5 signature/best-known items only. Move on.
-Step 5: Self-check — count your list. If fewer than 30 AND the company has a substantial catalog, browse one more unvisited page then output.
-Step 6: Prioritize & order — main lines and featured/best-sellers first, sub-variants and accessories last. Sort from most core to most peripheral.
-Relevance Gate: Only include terms a real customer would search for (product names, categories, key attributes). No promotional copy.
-FULL NAMES ONLY: Return each product as its COMPLETE name exactly as shown on the website (e.g., "White Chedda Cheezy Crackers" not "White Chedda" and "Cheezy Crackers" separately). Never split a single product name into fragments.
-Target: 50-100+ unique terms. Return ONLY Title Case keywords (comma-separated on one line), then on a NEW line:
-COMPLETENESS: COMPLETE
-or COMPLETENESS: INCOMPLETE — [one-sentence reason]
-This final line is REQUIRED.
+FULL NAMES ONLY: Return each product as its COMPLETE name exactly as shown on the website. Never split a single product name into fragments.
+Prioritize breadth: cover as many distinct categories/collections as possible before deep-diving into variants.
+Output as a clean pipe-separated list with no duplicates and no generalizations.
+At the very end of your keywords output, include a JSON block exactly like this:
+{ "product_keywords": ["exact term 1", "exact term 2", ...] }
 
 Reviews:
 Always return at least 1 review. First check ${url} for testimonials, press mentions, "as seen in" sections, or customer reviews.

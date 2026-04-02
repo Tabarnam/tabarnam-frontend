@@ -4098,9 +4098,32 @@ function parseUnifiedPlainTextResponse(rawText) {
 
   // ── Keywords ──
   if ("Keywords" in sections) {
-    const kwRaw = sections.Keywords.split("\n")[0].trim();
-    if (kwRaw) {
-      const kwResult = sanitizeKeywords({ product_keywords: kwRaw });
+    const kwSection = sections.Keywords;
+    let kwItems = [];
+
+    // Try JSON block first: { "product_keywords": [...] }
+    const jsonMatch = kwSection.match(/\{[\s\S]*"product_keywords"\s*:\s*\[[\s\S]*?\][\s\S]*?\}/);
+    if (jsonMatch) {
+      try {
+        const kwObj = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(kwObj.product_keywords)) {
+          kwItems = kwObj.product_keywords.map((k) => String(k).trim()).filter(Boolean);
+        }
+      } catch { /* JSON parse failed — fall through to text parsing */ }
+    }
+
+    // Fallback: pipe-separated or comma-separated text on first line
+    if (kwItems.length === 0) {
+      const kwRaw = kwSection.split("\n")[0].trim();
+      if (kwRaw) {
+        // Detect pipe-separated vs comma-separated
+        const separator = kwRaw.includes("|") ? "|" : ",";
+        kwItems = kwRaw.split(separator).map((s) => s.trim()).filter(Boolean);
+      }
+    }
+
+    if (kwItems.length > 0) {
+      const kwResult = sanitizeKeywords({ product_keywords: kwItems.join(", ") });
       parsed_fields.product_keywords = kwResult.sanitized || [];
       field_statuses.product_keywords = (kwResult.sanitized || []).length > 0 ? "ok" : "empty";
     } else {
@@ -4108,8 +4131,8 @@ function parseUnifiedPlainTextResponse(rawText) {
       field_statuses.product_keywords = "empty";
     }
 
-    // Parse Completeness line from keywords section (may be on 2nd+ line)
-    const completenessMatch = sections.Keywords.match(/Completeness:\s*(complete|incomplete)\s*(?:—\s*(.+))?/i);
+    // Completeness: check for COMPLETENESS line or auto-detect
+    const completenessMatch = kwSection.match(/COMPLETENESS:\s*(COMPLETE|INCOMPLETE)\s*(?:—\s*(.+))?/i);
     const kwCount = (parsed_fields.product_keywords || []).length;
     if (completenessMatch) {
       diagnostics.keywords_completeness = completenessMatch[1].toLowerCase();
@@ -4503,114 +4526,8 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
     }
   }
 
-  // 7. Keywords deepening — dedicated call when keywords are empty, incomplete, or < 30
-  const kw = parsed.parsed_fields.product_keywords;
-  const kwList = Array.isArray(kw) ? kw : (typeof kw === "string" && kw.trim() ? kw.split(",").map((s) => s.trim()).filter(Boolean) : []);
-  const kwCount = kwList.length;
-  const kwEmpty = kwCount === 0;
-  const kwNeedsDeepening = kwEmpty || kwCount < 30 || parsed.diagnostics.keywords_completeness === "incomplete";
-  if (kwNeedsDeepening && getRemainingMs() >= 30_000) {
-    console.log(`[fetchAllFieldsSinglePrompt] Keywords deepening for "${companyName}" (current=${kwCount}, completeness=${parsed.diagnostics.keywords_completeness || "unknown"})`);
-    try {
-      const existingList = kwList.length > 0 ? kwList.join(", ") : "none";
-      const deepeningPrompt = `Keywords Deepening:
-Existing keywords: ${existingList}
-Company site: ${websiteUrl || `https://${domain}`}
-
-Use browse_page (and web_search if needed) on product, shop, collections, categories, hardware, and accessories pages not fully covered before.
-
-Step 1: Confirm PRIMARY business from homepage/about. Ignore secondary merch stores (/merch, apparel, hoodies, mugs) unless merch IS the core business.
-Step 2: Review existing keywords and identify category gaps.
-Step 3: Browse unvisited sub-categories, hardware, accessories, or product lines.
-Step 4: Breadth-first — cover as many distinct categories/collections as possible. Do NOT deep-dive into every flavor/variant. Target combined 50-100+ unique terms.
-Step 5: Self-check — combine (remove duplicates), count. If <30 and catalog is substantial, browse one more page then output.
-Step 6: Prioritize & order — apply hierarchy (main lines first), prominence (featured/best-sellers), and representative sampling (category + 3-5 signature items max per deep variant set). Sort final list from most core/featured to specific/peripheral.
-
-Relevance Gate: Only include terms a real customer would search for (product names, categories, key attributes). No promotional copy.
-FULL NAMES ONLY: Return each product as its COMPLETE name exactly as shown on the website. Never split a single product name into fragments.
-
-Return strictly valid JSON:
-{
-  "product_keywords": ["Term One", "Term Two", ...],
-  "completeness": "complete"|"incomplete",
-  "incomplete_reason": "string explaining gaps if incomplete"
-}
-Target 30-100+ NEW items not in existing keywords. Be thorough.`;
-
-      const deepTimeout = Math.min(90_000, getRemainingMs() - 5_000);
-
-      // Try streaming first (with own 5 tool-call budget)
-      let deepResult = await xaiLiveSearchStreaming({
-        prompt: deepeningPrompt,
-        timeoutMs: deepTimeout,
-        xaiUrl,
-        xaiKey,
-        search_parameters: { mode: "on", excluded_domains },
-        signal,
-        maxToolCalls: 5,
-      });
-
-      // If streaming returned null (unsupported), fall back to non-streaming
-      if (deepResult === null) {
-        deepResult = await xaiLiveSearchWithRetry({ prompt: deepeningPrompt, timeoutMs: deepTimeout, maxAttempts: 1, xaiUrl, xaiKey, search_parameters: { mode: "on", excluded_domains }, useTools: true, signal });
-      }
-
-      // If streaming aborted with 0 text (tool_cap_abort_no_text), retry non-streaming
-      // Grok does all tool calls first then generates text — aborting at the cap
-      // frequently produces 0 chars. Non-streaming waits for the full response.
-      if (!deepResult.ok && deepResult.error_code === "tool_cap_abort" && getRemainingMs() >= 20_000) {
-        console.log(`[fetchAllFieldsSinglePrompt] Keywords deepening streaming aborted with 0 text — retrying non-streaming for "${companyName}"`);
-        const retryTimeout = Math.min(60_000, getRemainingMs() - 5_000);
-        deepResult = await xaiLiveSearchWithRetry({
-          prompt: deepeningPrompt,
-          timeoutMs: retryTimeout,
-          maxAttempts: 1,
-          xaiUrl,
-          xaiKey,
-          search_parameters: { mode: "on", excluded_domains },
-          useTools: true,
-          signal,
-        });
-      }
-
-      if (deepResult.ok) {
-        const deepText = extractTextFromXaiResponse(deepResult.resp);
-        const jsonMatch = deepText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try {
-            const deepObj = JSON.parse(jsonMatch[0]);
-            const newKw = Array.isArray(deepObj.product_keywords) ? deepObj.product_keywords : [];
-            if (newKw.length > 0) {
-              // Merge: existing + new, deduplicate case-insensitive
-              const seen = new Set(kwList.map((k) => k.toLowerCase()));
-              const merged = [...kwList];
-              for (const k of newKw) {
-                const norm = String(k).trim();
-                if (norm && !seen.has(norm.toLowerCase())) {
-                  seen.add(norm.toLowerCase());
-                  merged.push(norm);
-                }
-              }
-              const deepSanitized = sanitizeKeywords({ product_keywords: merged.join(", ") });
-              parsed.parsed_fields.product_keywords = deepSanitized.sanitized || merged;
-              parsed.field_statuses.product_keywords = "ok_from_deepening";
-              parsed.diagnostics.keywords_deepening = true;
-              parsed.diagnostics.keywords_deepening_added = newKw.length;
-              if (deepObj.completeness) {
-                parsed.diagnostics.keywords_completeness = deepObj.completeness;
-                parsed.diagnostics.keywords_incomplete_reason = deepObj.incomplete_reason || null;
-              }
-              console.log(`[fetchAllFieldsSinglePrompt] Keywords deepening added ${newKw.length} terms for "${companyName}" (total=${(deepSanitized.sanitized || merged).length})`);
-            }
-          } catch (parseErr) {
-            console.warn(`[fetchAllFieldsSinglePrompt] Keywords deepening JSON parse failed: ${parseErr?.message}`);
-          }
-        }
-      }
-    } catch (deepErr) {
-      console.warn(`[fetchAllFieldsSinglePrompt] Keywords deepening failed for "${companyName}": ${deepErr?.message}`);
-    }
-  }
+  // 7. (Deepening removed in v4.1.0 — main prompt now handles full keyword extraction.
+  //     Deepening added ~100s per company for zero net keywords across all tested companies.)
 
   // 8. Targeted follow-up for empty HQ, MFG, or tagline
   const hq = parsed.parsed_fields.headquarters_location;
