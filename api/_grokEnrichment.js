@@ -4372,6 +4372,15 @@ async function fetchAllFieldsSinglePrompt({
     return r;
   })();
 
+  // Keywords call gets its own AbortController — independent of the main enrichment signal.
+  // Without this, the main call's completion aborts the keywords call prematurely.
+  const kwAbortController = new AbortController();
+  // Link to parent signal so worker-level orphan detection still cancels keywords
+  if (signal) {
+    if (signal.aborted) { kwAbortController.abort(); }
+    else { signal.addEventListener("abort", () => kwAbortController.abort(), { once: true }); }
+  }
+
   const keywordsCallPromise = (async () => {
     try {
       const kwResult = await xaiLiveSearchWithRetry({
@@ -4382,7 +4391,7 @@ async function fetchAllFieldsSinglePrompt({
         xaiKey,
         search_parameters: { mode: "on", excluded_domains },
         useTools: true,
-        signal,
+        signal: kwAbortController.signal,
       });
       if (kwResult.ok) {
         const kwText = extractTextFromXaiResponse(kwResult.resp);
