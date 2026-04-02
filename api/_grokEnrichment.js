@@ -4513,21 +4513,33 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
     console.log(`[fetchAllFieldsSinglePrompt] Keywords deepening for "${companyName}" (current=${kwCount}, completeness=${parsed.diagnostics.keywords_completeness || "unknown"})`);
     try {
       const existingList = kwList.length > 0 ? kwList.join(", ") : "none";
-      const deepeningPrompt = `For company: ${companyName} (${websiteUrl || domain})
+      const deepeningPrompt = `Keywords Deepening:
 Existing keywords: ${existingList}
+Company site: ${websiteUrl || `https://${domain}`}
 
-Use your full set of 5 tool calls to browse the website exhaustively. Focus on products/shop/collections, subcategories, hardware, accessories, and any product lines/collections pages.
-Extract an EXHAUSTIVE list of NEW products, product lines, sub-categories, accessories, hardware, replacement parts, collections, and specific items not already in the existing keywords list above.
+Use browse_page (and web_search if needed) on product, shop, collections, categories, hardware, and accessories pages not fully covered before.
+
+Step 1: Confirm PRIMARY business from homepage/about. Ignore secondary merch stores (/merch, apparel, hoodies, mugs) unless merch IS the core business.
+Step 2: Review existing keywords and identify category gaps.
+Step 3: Browse unvisited sub-categories, hardware, accessories, or product lines.
+Step 4: Breadth-first — cover as many distinct categories/collections as possible. Do NOT deep-dive into every flavor/variant. Target combined 50-100+ unique terms.
+Step 5: Self-check — combine (remove duplicates), count. If <30 and catalog is substantial, browse one more page then output.
+Step 6: Prioritize & order — apply hierarchy (main lines first), prominence (featured/best-sellers), and representative sampling (category + 3-5 signature items max per deep variant set). Sort final list from most core/featured to specific/peripheral.
+
+Relevance Gate: Only include terms a real customer would search for (product names, categories, key attributes). No promotional copy.
+
 Return strictly valid JSON:
 {
   "product_keywords": ["Term One", "Term Two", ...],
   "completeness": "complete"|"incomplete",
   "incomplete_reason": "string explaining gaps if incomplete"
 }
-Target 30-100+ new items. Be thorough, do not repeat existing keywords, and only base on actual website content.`;
+Target 30-100+ NEW items not in existing keywords. Be thorough.`;
 
       const deepTimeout = Math.min(90_000, getRemainingMs() - 5_000);
-      const deepResult = await xaiLiveSearchStreaming({
+
+      // Try streaming first (with own 5 tool-call budget)
+      let deepResult = await xaiLiveSearchStreaming({
         prompt: deepeningPrompt,
         timeoutMs: deepTimeout,
         xaiUrl,
@@ -4538,12 +4550,30 @@ Target 30-100+ new items. Be thorough, do not repeat existing keywords, and only
       });
 
       // If streaming returned null (unsupported), fall back to non-streaming
-      const effectiveResult = deepResult === null
-        ? await xaiLiveSearchWithRetry({ prompt: deepeningPrompt, timeoutMs: deepTimeout, maxAttempts: 1, xaiUrl, xaiKey, search_parameters: { mode: "on", excluded_domains }, useTools: true, signal })
-        : deepResult;
+      if (deepResult === null) {
+        deepResult = await xaiLiveSearchWithRetry({ prompt: deepeningPrompt, timeoutMs: deepTimeout, maxAttempts: 1, xaiUrl, xaiKey, search_parameters: { mode: "on", excluded_domains }, useTools: true, signal });
+      }
 
-      if (effectiveResult.ok) {
-        const deepText = extractTextFromXaiResponse(effectiveResult.resp);
+      // If streaming aborted with 0 text (tool_cap_abort_no_text), retry non-streaming
+      // Grok does all tool calls first then generates text — aborting at the cap
+      // frequently produces 0 chars. Non-streaming waits for the full response.
+      if (!deepResult.ok && deepResult.error_code === "tool_cap_abort" && getRemainingMs() >= 20_000) {
+        console.log(`[fetchAllFieldsSinglePrompt] Keywords deepening streaming aborted with 0 text — retrying non-streaming for "${companyName}"`);
+        const retryTimeout = Math.min(60_000, getRemainingMs() - 5_000);
+        deepResult = await xaiLiveSearchWithRetry({
+          prompt: deepeningPrompt,
+          timeoutMs: retryTimeout,
+          maxAttempts: 1,
+          xaiUrl,
+          xaiKey,
+          search_parameters: { mode: "on", excluded_domains },
+          useTools: true,
+          signal,
+        });
+      }
+
+      if (deepResult.ok) {
+        const deepText = extractTextFromXaiResponse(deepResult.resp);
         const jsonMatch = deepText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try {
@@ -4565,7 +4595,6 @@ Target 30-100+ new items. Be thorough, do not repeat existing keywords, and only
               parsed.field_statuses.product_keywords = "ok_from_deepening";
               parsed.diagnostics.keywords_deepening = true;
               parsed.diagnostics.keywords_deepening_added = newKw.length;
-              // Update completeness from deepening response
               if (deepObj.completeness) {
                 parsed.diagnostics.keywords_completeness = deepObj.completeness;
                 parsed.diagnostics.keywords_incomplete_reason = deepObj.incomplete_reason || null;

@@ -243,12 +243,19 @@ Comma-separated on one line.
 ${logoSection}
 
 Keywords:
-Use your browse_page (and web_search if needed) tools on the company website at ${url}. Focus exclusively on product, shop, collections, categories, hardware, and accessories pages.
-Extract an EXHAUSTIVE, comprehensive list of ALL products, product lines, sub-categories, accessories, hardware, components, collections, flavors, varieties, and individual items. Include both broad category names AND specific product names.
-Prioritize browsing: (1) main products/shop/collections page, (2) key sub-category pages (one level deeper), (3) any dedicated hardware/accessories/drapery sections.
-Target: 50-100+ unique terms. If you return fewer than 30 items, you are likely missing significant catalog portions — explicitly check for and browse additional categories, accessories, hardware, product lines, or collections pages.
-After the comma-separated keyword list (Title Case only), add on a NEW line: Completeness: complete OR Completeness: incomplete — [brief reason]
-Return ONLY the keywords (Title Case, comma-separated on one line) followed by the Completeness line. No other text, explanations, or markdown.
+Use browse_page (and web_search if needed) on ${url} product, shop, collections, categories, hardware, and accessories pages.
+IMPORTANT: Identify the company's PRIMARY business. Extract from the PRIMARY product catalog ONLY. Ignore secondary merch stores (/merch, apparel, hoodies, mugs, stickers) unless merchandise IS the core business.
+Step 1: Browse main products/shop/collections page for primary categories and flagship products.
+Step 2: Browse key sub-category pages (one level deeper) for additional product lines.
+Step 3: Breadth-first — cover as many distinct categories/collections as possible. Do NOT deep-dive into every flavor/variant.
+Step 4: Representative Sampling — for categories with many variants (20+), extract the category name + 3-5 signature/best-known items only. Move on.
+Step 5: Self-check — count your list. If fewer than 30 AND the company has a substantial catalog, browse one more unvisited page then output.
+Step 6: Prioritize & order — main lines and featured/best-sellers first, sub-variants and accessories last. Sort from most core to most peripheral.
+Relevance Gate: Only include terms a real customer would search for (product names, categories, key attributes). No promotional copy.
+Target: 50-100+ unique terms. Return ONLY Title Case keywords (comma-separated on one line), then on a NEW line:
+COMPLETENESS: COMPLETE
+or COMPLETENESS: INCOMPLETE — [one-sentence reason]
+This final line is REQUIRED.
 
 Reviews:
 Always return at least 1 review. First check ${url} for testimonials, press mentions, "as seen in" sections, or customer reviews.
