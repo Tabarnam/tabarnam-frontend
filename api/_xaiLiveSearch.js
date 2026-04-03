@@ -645,11 +645,14 @@ async function xaiLiveSearchStreaming({
             outputItems.push({ type: item.type, id: item.id || null });
             console.log(`[xaiLiveSearchStreaming] ${item.type} #${toolCalls} detected`);
 
-            if (toolCalls > maxToolCalls) {
-              console.log(`[xaiLiveSearchStreaming] ABORTING: tool call ${toolCalls} exceeds cap ${maxToolCalls}`);
+            if (toolCalls > maxToolCalls && !abortedByToolCap) {
+              // Log that cap was exceeded but DON'T abort the stream.
+              // Grok does all tool calls FIRST then generates text — aborting
+              // here kills the stream before any text output, producing 0 keywords.
+              // Instead, let the stream continue to capture the text output.
+              console.log(`[xaiLiveSearchStreaming] Tool cap ${maxToolCalls} exceeded (call #${toolCalls}) — continuing stream to capture text output`);
               abortedByToolCap = true;
-              controller.abort();
-              break reading;
+              // Don't abort, don't break — keep reading for text deltas
             }
           }
 
