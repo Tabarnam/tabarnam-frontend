@@ -646,13 +646,18 @@ async function xaiLiveSearchStreaming({
             console.log(`[xaiLiveSearchStreaming] ${item.type} #${toolCalls} detected`);
 
             if (toolCalls > maxToolCalls && !abortedByToolCap) {
-              // Log that cap was exceeded but DON'T abort the stream.
               // Grok does all tool calls FIRST then generates text — aborting
-              // here kills the stream before any text output, producing 0 keywords.
-              // Instead, let the stream continue to capture the text output.
-              console.log(`[xaiLiveSearchStreaming] Tool cap ${maxToolCalls} exceeded (call #${toolCalls}) — continuing stream to capture text output`);
+              // immediately kills the stream before any text output (0 keywords).
+              // Instead, mark as over-budget and set a grace timer to let text
+              // output complete. If no text arrives within 60s, abort.
+              console.log(`[xaiLiveSearchStreaming] Tool cap ${maxToolCalls} exceeded (call #${toolCalls}) — waiting for text output (60s grace)`);
               abortedByToolCap = true;
-              // Don't abort, don't break — keep reading for text deltas
+              setTimeout(() => {
+                if (accumulatedText.length === 0) {
+                  console.log(`[xaiLiveSearchStreaming] Grace period expired with 0 text — aborting`);
+                  controller.abort();
+                }
+              }, 60_000);
             }
           }
 
@@ -724,15 +729,15 @@ async function xaiLiveSearchStreaming({
       };
     }
 
-    // Stream ended without completed event — use accumulated text
+    // Stream ended without completed event — use accumulated text only (no raw metadata)
+    const hasText = accumulatedText.length > 0;
     const resp = {
-      output: [
-        ...outputItems,
-        ...(accumulatedText ? [{ type: "output_text", text: accumulatedText }] : []),
-      ],
+      output: hasText
+        ? [{ type: "output_text", text: accumulatedText }]
+        : [],
     };
     return {
-      ok: accumulatedText.length > 50,
+      ok: hasText,
       resp,
       diagnostics: {
         elapsed_ms: elapsedMs,
