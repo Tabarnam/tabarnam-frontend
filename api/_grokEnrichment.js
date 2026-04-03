@@ -4383,24 +4383,24 @@ async function fetchAllFieldsSinglePrompt({
 
   const keywordsCallPromise = (async () => {
     try {
-      // Streaming with high tool cap (20) — Grok needs 5-15 tool calls for
-      // deep catalog crawling. Cap at 20 so the abort never fires during
-      // normal operation but still prevents runaway calls.
+      // Streaming with same 5 tool-call cap as main enrichment.
+      // Prompt instructs Grok to be efficient (5 calls max, output after 3rd).
+      // Matches manual Grok behavior (38-90s with 3-5 calls).
       let kwResult = await xaiLiveSearchStreaming({
         prompt: keywordsPrompt,
-        timeoutMs: 300_000, // 5 min — keywords needs more time than main call (210s) for deep crawling
+        timeoutMs: 210_000,
         xaiUrl,
         xaiKey,
         search_parameters: { mode: "on", excluded_domains },
         signal: kwAbortController.signal,
-        maxToolCalls: 20,
+        maxToolCalls: 5,
       });
 
       // If streaming returned null (unsupported endpoint), fall back to non-streaming
       if (kwResult === null) {
         kwResult = await xaiLiveSearchWithRetry({
           prompt: keywordsPrompt,
-          timeoutMs: 300_000,
+          timeoutMs: 210_000,
           maxAttempts: 1,
           xaiUrl,
           xaiKey,

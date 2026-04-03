@@ -294,19 +294,22 @@ function buildDedicatedKeywordsPrompt(companyName, websiteUrl) {
   const name = companyName || "(unknown company)";
   const url = websiteUrl || "(unknown website)";
 
-  return `You are extracting an exhaustive, complete list of EVERY product, model, variant, and accessory sold by ${name} on ${url}. Be extremely thorough — do not summarize, do not omit anything.
+  return `You are extracting a comprehensive list of products sold by ${name} on ${url}.
 
-Step-by-step process you MUST follow:
-1. Browse the homepage and extract the main navigation menu. Identify every top-level category link (e.g., Wallets, Bags, Backpacks, Belts, Accessories, etc.) and the main Shop / Collections / All Products page.
-2. Browse the main Shop or /collections/all page (or sitemap.xml if present).
-3. For every category page found, browse it and list EVERY single product name, model number, special edition, color variant, and accessory exactly as it appears on the page (including pagination or "load more" links — keep going until no more products).
-4. If there are sub-categories or filter pages, browse the most important ones.
-5. Compile one single, deduplicated, comma-separated list. Include every unique item (e.g., "Wally Bifold 5.0 Premium, Wally Bifold 5.0 ID Window, SK1 Slide Kick Wallet with Titanium Money Clip, Classic-1 Bridle Leather Belt, Chums Original Retainer, …"). Do not group or shorten.
+TOOL BUDGET: You have a maximum of 5 web_search calls. Use them efficiently:
+1. Browse the main Shop / Collections / All Products page to get all product categories and as many product names as possible.
+2. Browse 1-2 key sub-category pages to fill gaps.
+3-5. Only if major product categories are still missing.
+After your 3rd call, START OUTPUTTING your list immediately. Do not wait until all calls are done.
 
-IMPORTANT: Identify the company's PRIMARY business. Extract from the PRIMARY product catalog ONLY. Ignore secondary merch stores (/merch, apparel, hoodies, mugs, stickers) unless merchandise IS the core business.
-FULL NAMES ONLY: Return each product as its COMPLETE name exactly as shown on the website. Never split a single product name into fragments.
+For each page you browse, extract EVERY product name, model, variant, edition, and accessory exactly as shown.
+Prioritize breadth: cover all categories before deep-diving into one category's variants.
+For categories with many variants (20+), list the category name + 5-10 representative items.
 
-Output ONLY the final comma-separated list. No explanations, no headers, no markdown.`;
+IMPORTANT: Extract from PRIMARY product catalog ONLY. Ignore merch stores unless merch IS the core business.
+FULL NAMES ONLY: Return each product as its COMPLETE name as shown on the website.
+
+Output ONLY a comma-separated list. No explanations, no headers, no markdown.`;
 }
 
 module.exports = {
