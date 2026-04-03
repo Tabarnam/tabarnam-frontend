@@ -307,6 +307,9 @@ CRITICAL OUTPUT RULES (follow exactly or the extraction fails):
 - Output incrementally: emit the growing comma-separated list as soon as you have solid coverage from the main shop/collections pages, then append new items from later calls.
 - NEVER do extra searches or analysis once you have good coverage — start writing text immediately.
 - Return ONLY a single comma-separated list of FULL product names exactly as shown on the site (e.g. "Classic Aviator Sunglasses, Polarized Sport Sunglasses, Military Issue Pilot Glasses, ...").
+- ALSO EXTRACT HIGH-LEVEL PRODUCT CATEGORIES: In addition to every specific product name, you MUST include the broader category names that describe groups of products (examples: "sunglasses", "sports sunglasses", "running sunglasses", "titanium frame sunglasses", "performance running apparel", "running shorts", "training shorts", "running tights", "hoodies", "jackets", "fleece jackets", "compression socks", "windbreakers", etc.). These category terms are just as important as the specific models.
+- Mix both types naturally in the comma-separated list: start with the main categories, then intersperse the specific products.
+- Example output style: sunglasses, sports sunglasses, running sunglasses, titanium frame sunglasses, performance running apparel, running shorts, training shorts, Adjustable Eyewear Strap Black, Aiko Cross Country Ti Oxblood D+ Blue Mirror, Junya Racer Carbon D+ Sports Yellow, ...
 - Include category + representative examples for very large catalogs (e.g. "Running Shoes - Air Max, Pegasus, Vaporfly...").
 - Ignore merch stores, blog posts, or non-core products. Only primary product catalog.
 - No explanations, no headers, no markdown, no extra text whatsoever. Pure comma-separated list only.
