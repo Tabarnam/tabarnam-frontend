@@ -4385,7 +4385,7 @@ async function fetchAllFieldsSinglePrompt({
     try {
       const kwResult = await xaiLiveSearchWithRetry({
         prompt: keywordsPrompt,
-        timeoutMs: Math.max(timeoutMs, 210_000),
+        timeoutMs: 300_000, // 5 min — keywords needs more time than main call for deep catalog crawling
         maxAttempts: 1,
         xaiUrl,
         xaiKey,
