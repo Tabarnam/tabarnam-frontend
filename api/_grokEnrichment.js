@@ -4388,7 +4388,7 @@ async function fetchAllFieldsSinglePrompt({
       // normal operation but still prevents runaway calls.
       let kwResult = await xaiLiveSearchStreaming({
         prompt: keywordsPrompt,
-        timeoutMs: 210_000,
+        timeoutMs: 300_000, // 5 min — keywords needs more time than main call (210s) for deep crawling
         xaiUrl,
         xaiKey,
         search_parameters: { mode: "on", excluded_domains },
@@ -4400,7 +4400,7 @@ async function fetchAllFieldsSinglePrompt({
       if (kwResult === null) {
         kwResult = await xaiLiveSearchWithRetry({
           prompt: keywordsPrompt,
-          timeoutMs: 210_000,
+          timeoutMs: 300_000,
           maxAttempts: 1,
           xaiUrl,
           xaiKey,
