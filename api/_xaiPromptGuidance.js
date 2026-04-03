@@ -297,22 +297,25 @@ function buildDedicatedKeywordsPrompt(companyName, websiteUrl) {
 
 TOOL BUDGET: Maximum of 5 web_search + browse_page calls TOTAL. Use them extremely efficiently. Do NOT exceed this budget.
 
-MANDATORY EXECUTION ORDER (do this in parallel where possible):
+MANDATORY EXECUTION ORDER:
 1. FIRST call: Browse the main homepage + /shop or /collections or /products page. Extract ALL product categories, sub-categories, and as many full product names/models/variants as possible.
-2-4. Next calls: Browse 2-3 of the most important category or sub-category pages to fill gaps (focus on breadth, not every single variant).
+2-4. Next calls: Browse 2-3 of the most important category or sub-category pages to fill gaps (focus on breadth).
 5. Final call (only if needed): One targeted page for any obvious missing major category.
 
-CRITICAL OUTPUT RULES (follow exactly or the extraction fails):
+CRITICAL OUTPUT RULES (follow exactly):
 - After your 2nd or 3rd tool call you MUST start outputting the list immediately. Do not wait for the full 5 calls.
-- Output incrementally: emit the growing comma-separated list as soon as you have solid coverage from the main shop/collections pages, then append new items from later calls.
+- Output incrementally: emit the growing comma-separated list as soon as you have solid coverage, then append new items from later calls.
 - NEVER do extra searches or analysis once you have good coverage — start writing text immediately.
-- Return ONLY a single comma-separated list of FULL product names exactly as shown on the site (e.g. "Classic Aviator Sunglasses, Polarized Sport Sunglasses, Military Issue Pilot Glasses, ...").
-- ALSO EXTRACT HIGH-LEVEL PRODUCT CATEGORIES: In addition to every specific product name, you MUST include the broader category names that describe groups of products (examples: "sunglasses", "sports sunglasses", "running sunglasses", "titanium frame sunglasses", "performance running apparel", "running shorts", "training shorts", "running tights", "hoodies", "jackets", "fleece jackets", "compression socks", "windbreakers", etc.). These category terms are just as important as the specific models.
-- Mix both types naturally in the comma-separated list: start with the main categories, then intersperse the specific products.
-- Example output style: sunglasses, sports sunglasses, running sunglasses, titanium frame sunglasses, performance running apparel, running shorts, training shorts, Adjustable Eyewear Strap Black, Aiko Cross Country Ti Oxblood D+ Blue Mirror, Junya Racer Carbon D+ Sports Yellow, ...
-- Include category + representative examples for very large catalogs (e.g. "Running Shoes - Air Max, Pegasus, Vaporfly...").
-- Ignore merch stores, blog posts, or non-core products. Only primary product catalog.
-- No explanations, no headers, no markdown, no extra text whatsoever. Pure comma-separated list only.
+- Return ONLY a single comma-separated list. No explanations, no headers, no markdown, no extra text whatsoever.
+
+KEY OUTPUT STYLE (this is what we want):
+1. Start with broad, high-level product categories (examples for tactical eyewear: "sunglasses", "tactical sunglasses", "ballistic sunglasses", "MILSPEC sunglasses", "ANSI Z87+ sunglasses", "polarized sunglasses", "photochromic sunglasses", "prescription eyewear", "protective eyewear", "military grade sunglasses", "first responder sunglasses", "outdoorsman sunglasses").
+2. Then add accessory and case categories ("replacement lenses", "lens replacements", "nosepieces", "sunglass accessories", "sunglass cord", "lens cleaner", "eyewear cases", "ammo can cases", "molle cases", "standard case", "logo pouch").
+3. Finally intersperse the specific product names and models you found (e.g. "Blastshield", "Blastshield B2", "Blastshield B2 Ballistic", "Warhawk", "Warhawk Polarized", "Marauder", "Sentix", "Sentix MILSPEC Polarized", "Rig", "Revenant", "Magnum ANSI Photochromic", "Jack Carr Warhawk", "GATORZ Logo Pouch", etc.).
+4. Mix both types naturally so the final list contains clean categories + the exact specific SKUs/models.
+
+Example of perfect output for a tactical sunglasses company:
+sunglasses, tactical sunglasses, ballistic sunglasses, MILSPEC sunglasses, ANSI Z87+ sunglasses, polarized sunglasses, photochromic sunglasses, prescription eyewear, protective eyewear, military grade sunglasses, first responder sunglasses, replacement lenses, lens replacements, nosepieces, sunglass accessories, sunglass cord, lens cleaner, eyewear cases, ammo can cases, molle cases, Blastshield, Blastshield B2, Blastshield B2 Ballistic, Warhawk, Warhawk Polarized, Marauder, Sentix, Sentix MILSPEC Polarized, Rig, Revenant, Magnum ANSI Photochromic, Jack Carr Warhawk, GATORZ Logo Pouch, ...
 
 Begin immediately.`;
 }
