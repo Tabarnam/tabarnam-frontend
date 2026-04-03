@@ -4383,16 +4383,31 @@ async function fetchAllFieldsSinglePrompt({
 
   const keywordsCallPromise = (async () => {
     try {
-      const kwResult = await xaiLiveSearchWithRetry({
+      // Use streaming (like main call) — non-streaming waits for full response and times out.
+      // Streaming gets text back progressively and completes much faster.
+      let kwResult = await xaiLiveSearchStreaming({
         prompt: keywordsPrompt,
-        timeoutMs: 300_000, // 5 min — keywords needs more time than main call for deep catalog crawling
-        maxAttempts: 1,
+        timeoutMs: 210_000,
         xaiUrl,
         xaiKey,
         search_parameters: { mode: "on", excluded_domains },
-        useTools: true,
         signal: kwAbortController.signal,
+        maxToolCalls: 10, // Keywords gets more tool calls for deep catalog crawling
       });
+
+      // If streaming returned null (unsupported endpoint), fall back to non-streaming
+      if (kwResult === null) {
+        kwResult = await xaiLiveSearchWithRetry({
+          prompt: keywordsPrompt,
+          timeoutMs: 210_000,
+          maxAttempts: 1,
+          xaiUrl,
+          xaiKey,
+          search_parameters: { mode: "on", excluded_domains },
+          useTools: true,
+          signal: kwAbortController.signal,
+        });
+      }
 
       // Try to extract text from the response regardless of ok/fail status.
       // On timeout/cancel, the response may still contain partial text from tool calls.
