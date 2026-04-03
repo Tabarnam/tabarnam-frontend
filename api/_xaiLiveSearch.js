@@ -650,14 +650,14 @@ async function xaiLiveSearchStreaming({
               // immediately kills the stream before any text output (0 keywords).
               // Instead, mark as over-budget and set a grace timer to let text
               // output complete. If no text arrives within 60s, abort.
-              console.log(`[xaiLiveSearchStreaming] Tool cap ${maxToolCalls} exceeded (call #${toolCalls}) — waiting for text output (60s grace)`);
+              console.log(`[xaiLiveSearchStreaming] Tool cap ${maxToolCalls} exceeded (call #${toolCalls}) — waiting for text output (120s grace)`);
               abortedByToolCap = true;
               setTimeout(() => {
                 if (accumulatedText.length === 0) {
                   console.log(`[xaiLiveSearchStreaming] Grace period expired with 0 text — aborting`);
                   controller.abort();
                 }
-              }, 60_000);
+              }, 120_000);
             }
           }
 
