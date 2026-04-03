@@ -691,14 +691,13 @@ async function xaiLiveSearchStreaming({
 
     // If aborted by tool cap, build partial response from accumulated data
     if (abortedByToolCap) {
-      const hasText = accumulatedText.length > 50;
-      // Only include outputItems when there IS accumulated text.
-      // When text is empty, outputItems contains raw tool call metadata
-      // (ws_...call_... IDs) that extractTextFromXaiResponse would
-      // serialize as garbage "keywords".
+      const hasText = accumulatedText.length > 0;
+      // Never include raw outputItems (tool call metadata like ws_...call_... IDs)
+      // in the response — they get serialized as garbage by extractTextFromXaiResponse.
+      // Only include the actual accumulated text content.
       const resp = {
         output: hasText
-          ? [...outputItems, { type: "output_text", text: accumulatedText }]
+          ? [{ type: "output_text", text: accumulatedText }]
           : [],
       };
       console.log(
