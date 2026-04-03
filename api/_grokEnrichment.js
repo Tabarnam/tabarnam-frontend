@@ -4383,31 +4383,20 @@ async function fetchAllFieldsSinglePrompt({
 
   const keywordsCallPromise = (async () => {
     try {
-      // Use streaming (like main call) — non-streaming waits for full response and times out.
-      // Streaming gets text back progressively and completes much faster.
-      let kwResult = await xaiLiveSearchStreaming({
+      // Non-streaming with independent AbortController and long timeout.
+      // Streaming doesn't work for keywords because Grok does all tool calls
+      // before generating text — the streaming abort produces raw SSE IDs
+      // instead of keywords. Non-streaming waits for the complete response.
+      const kwResult = await xaiLiveSearchWithRetry({
         prompt: keywordsPrompt,
-        timeoutMs: 210_000,
+        timeoutMs: 300_000, // 5 min — deep catalog crawling can take 2-3 min
+        maxAttempts: 1,
         xaiUrl,
         xaiKey,
         search_parameters: { mode: "on", excluded_domains },
+        useTools: true,
         signal: kwAbortController.signal,
-        maxToolCalls: 10, // Keywords gets more tool calls for deep catalog crawling
       });
-
-      // If streaming returned null (unsupported endpoint), fall back to non-streaming
-      if (kwResult === null) {
-        kwResult = await xaiLiveSearchWithRetry({
-          prompt: keywordsPrompt,
-          timeoutMs: 210_000,
-          maxAttempts: 1,
-          xaiUrl,
-          xaiKey,
-          search_parameters: { mode: "on", excluded_domains },
-          useTools: true,
-          signal: kwAbortController.signal,
-        });
-      }
 
       // Try to extract text from the response regardless of ok/fail status.
       // On timeout/cancel, the response may still contain partial text from tool calls.
