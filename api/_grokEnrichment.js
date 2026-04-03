@@ -4627,13 +4627,14 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
     parsed.diagnostics.keywords_incomplete_reason = kwComplete ? null : "dedicated_call_interrupted";
     console.log(`[fetchAllFieldsSinglePrompt] Dedicated keywords merged: ${deduped.length} items for "${companyName}" (complete=${kwComplete})`);
   } else {
-    // Dedicated call failed with zero results — mark as incomplete for +keywords badge
+    // Dedicated call failed with zero results — leave keywords_completeness unset
+    // so admin sees "keywords" badge (missing), NOT "+keywords" (partial).
+    // "+keywords" means some keywords were captured but not all.
+    // "keywords" means zero keywords — needs full extraction.
     parsed.parsed_fields.product_keywords = [];
     parsed.field_statuses.product_keywords = "empty";
     parsed.diagnostics.keywords_source = "dedicated_parallel_failed";
-    parsed.diagnostics.keywords_completeness = "incomplete";
-    parsed.diagnostics.keywords_incomplete_reason = "dedicated_call_failed";
-    console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call returned empty for "${companyName}" — marked incomplete for +keywords badge`);
+    console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call returned empty for "${companyName}" — keywords badge will show in admin`);
   }
 
   // 8. Targeted follow-up for empty HQ, MFG, or tagline
