@@ -293,23 +293,25 @@ Having the actual cities within the USA is crucial. Use initials for state or pr
 function buildDedicatedKeywordsPrompt(companyName, websiteUrl) {
   const name = companyName || "(unknown company)";
   const url = websiteUrl || "(unknown website)";
+  return `You are extracting a comprehensive list of EVERY product sold by ${name} on ${url} to end consumers.
 
-  return `You are extracting a comprehensive list of products sold by ${name} on ${url}.
+TOOL BUDGET: Maximum of 5 web_search + browse_page calls TOTAL. Use them extremely efficiently. Do NOT exceed this budget.
 
-TOOL BUDGET: You have a maximum of 5 web_search calls. Use them efficiently:
-1. Browse the main Shop / Collections / All Products page to get all product categories and as many product names as possible.
-2. Browse 1-2 key sub-category pages to fill gaps.
-3-5. Only if major product categories are still missing.
-After your 3rd call, START OUTPUTTING your list immediately. Do not wait until all calls are done.
+MANDATORY EXECUTION ORDER (do this in parallel where possible):
+1. FIRST call: Browse the main homepage + /shop or /collections or /products page. Extract ALL product categories, sub-categories, and as many full product names/models/variants as possible.
+2-4. Next calls: Browse 2-3 of the most important category or sub-category pages to fill gaps (focus on breadth, not every single variant).
+5. Final call (only if needed): One targeted page for any obvious missing major category.
 
-For each page you browse, extract EVERY product name, model, variant, edition, and accessory exactly as shown.
-Prioritize breadth: cover all categories before deep-diving into one category's variants.
-For categories with many variants (20+), list the category name + 5-10 representative items.
+CRITICAL OUTPUT RULES (follow exactly or the extraction fails):
+- After your 2nd or 3rd tool call you MUST start outputting the list immediately. Do not wait for the full 5 calls.
+- Output incrementally: emit the growing comma-separated list as soon as you have solid coverage from the main shop/collections pages, then append new items from later calls.
+- NEVER do extra searches or analysis once you have good coverage — start writing text immediately.
+- Return ONLY a single comma-separated list of FULL product names exactly as shown on the site (e.g. "Classic Aviator Sunglasses, Polarized Sport Sunglasses, Military Issue Pilot Glasses, ...").
+- Include category + representative examples for very large catalogs (e.g. "Running Shoes - Air Max, Pegasus, Vaporfly...").
+- Ignore merch stores, blog posts, or non-core products. Only primary product catalog.
+- No explanations, no headers, no markdown, no extra text whatsoever. Pure comma-separated list only.
 
-IMPORTANT: Extract from PRIMARY product catalog ONLY. Ignore merch stores unless merch IS the core business.
-FULL NAMES ONLY: Return each product as its COMPLETE name as shown on the website.
-
-Output ONLY a comma-separated list. No explanations, no headers, no markdown.`;
+Begin immediately.`;
 }
 
 module.exports = {
