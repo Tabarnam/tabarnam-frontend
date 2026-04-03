@@ -4393,22 +4393,36 @@ async function fetchAllFieldsSinglePrompt({
         useTools: true,
         signal: kwAbortController.signal,
       });
+
+      // Try to extract text from the response regardless of ok/fail status.
+      // On timeout/cancel, the response may still contain partial text from tool calls.
+      const kwText = (() => {
+        try { return extractTextFromXaiResponse(kwResult.resp) || ""; }
+        catch { return ""; }
+      })();
+
+      const items = kwText
+        .replace(/\n/g, ",")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 1 && s.length < 120);
+
       if (kwResult.ok) {
-        const kwText = extractTextFromXaiResponse(kwResult.resp);
-        // Parse comma-separated product list from the response
-        const items = kwText
-          .replace(/\n/g, ",")
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s) => s.length > 1 && s.length < 120);
         console.log(`[fetchAllFieldsSinglePrompt] Dedicated keywords call returned ${items.length} items for "${companyName}"`);
-        return items;
+        return { items, complete: true };
       }
+
+      // Failed but may have partial results
+      if (items.length > 0) {
+        console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call failed (${kwResult.error}) but recovered ${items.length} partial items for "${companyName}"`);
+        return { items, complete: false };
+      }
+
       console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call failed for "${companyName}": ${kwResult.error}`);
-      return [];
+      return { items: [], complete: false };
     } catch (kwErr) {
       console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call error for "${companyName}": ${kwErr?.message}`);
-      return [];
+      return { items: [], complete: false };
     }
   })();
 
@@ -4573,9 +4587,12 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
   }
 
   // 7. Merge dedicated keywords result (source of truth — overwrites any keywords from main call)
-  if (dedicatedKeywords && dedicatedKeywords.length > 0) {
-    const kwSanitized = sanitizeKeywords({ product_keywords: dedicatedKeywords.join(", ") });
-    const finalKw = (kwSanitized.sanitized || dedicatedKeywords)
+  const kwItems = dedicatedKeywords?.items || [];
+  const kwComplete = dedicatedKeywords?.complete ?? false;
+
+  if (kwItems.length > 0) {
+    const kwSanitized = sanitizeKeywords({ product_keywords: kwItems.join(", ") });
+    const finalKw = (kwSanitized.sanitized || kwItems)
       .slice()
       .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     // Dedupe (case-insensitive, preserve first occurrence's casing)
@@ -4586,17 +4603,21 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
       if (!seen.has(key)) { seen.add(key); deduped.push(k); }
     }
     parsed.parsed_fields.product_keywords = deduped;
-    parsed.field_statuses.product_keywords = "ok";
-    parsed.diagnostics.keywords_source = "dedicated_parallel";
+    parsed.field_statuses.product_keywords = kwComplete ? "ok" : "ok";
+    parsed.diagnostics.keywords_source = kwComplete ? "dedicated_parallel" : "dedicated_parallel_partial";
     parsed.diagnostics.keywords_dedicated_count = deduped.length;
-    console.log(`[fetchAllFieldsSinglePrompt] Dedicated keywords merged: ${deduped.length} items for "${companyName}"`);
+    // Mark incomplete if the call was canceled/timed out (partial results)
+    parsed.diagnostics.keywords_completeness = kwComplete ? "complete" : "incomplete";
+    parsed.diagnostics.keywords_incomplete_reason = kwComplete ? null : "dedicated_call_interrupted";
+    console.log(`[fetchAllFieldsSinglePrompt] Dedicated keywords merged: ${deduped.length} items for "${companyName}" (complete=${kwComplete})`);
   } else {
-    // Dedicated call failed or returned empty — mark as incomplete
-    if (!parsed.parsed_fields.product_keywords || (Array.isArray(parsed.parsed_fields.product_keywords) && parsed.parsed_fields.product_keywords.length === 0)) {
-      parsed.field_statuses.product_keywords = "empty";
-      parsed.diagnostics.keywords_source = "dedicated_parallel_failed";
-      console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call returned empty for "${companyName}" — no keywords available`);
-    }
+    // Dedicated call failed with zero results — mark as incomplete for +keywords badge
+    parsed.parsed_fields.product_keywords = [];
+    parsed.field_statuses.product_keywords = "empty";
+    parsed.diagnostics.keywords_source = "dedicated_parallel_failed";
+    parsed.diagnostics.keywords_completeness = "incomplete";
+    parsed.diagnostics.keywords_incomplete_reason = "dedicated_call_failed";
+    console.warn(`[fetchAllFieldsSinglePrompt] Dedicated keywords call returned empty for "${companyName}" — marked incomplete for +keywords badge`);
   }
 
   // 8. Targeted follow-up for empty HQ, MFG, or tagline
