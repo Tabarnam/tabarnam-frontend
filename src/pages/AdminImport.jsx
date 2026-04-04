@@ -5125,47 +5125,6 @@ export default function AdminImport() {
             resumeDebugPayload={resumeDebugPayload}
           />
 
-          <div className="pt-2 text-xs text-slate-500 dark:text-muted-foreground">
-            API Version:{" "}
-            {apiVersionLoading ? (
-              <span>loading…</span>
-            ) : apiVersion && typeof apiVersion === "object" ? (
-              <span>
-                <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{String(apiVersion?.source || "unknown")}</code>{" "}
-                <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5">{String(apiVersion?.build_id || "unknown")}</code>
-              </span>
-            ) : (
-              <span>unknown</span>
-            )}
-          </div>
-
-          <div className="rounded border border-slate-200 dark:border-border bg-white dark:bg-card p-3 text-xs text-slate-700 dark:text-muted-foreground space-y-1">
-            <div>
-              <span className="font-medium">FUNCTIONS_BASE:</span>{" "}
-              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{FUNCTIONS_BASE || "(same-origin)"}</code>
-            </div>
-            <div>
-              <span className="font-medium">API_BASE:</span>{" "}
-              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">{API_BASE}</code>
-            </div>
-            <div>
-              <span className="font-medium">Start URL (try 1):</span>{" "}
-              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">POST {join(API_BASE, "/import/start")}</code>
-            </div>
-            <div>
-              <span className="font-medium">Start URL (try 2):</span>{" "}
-              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">POST {join(API_BASE, "/import-start")}</code>
-            </div>
-            <div>
-              <span className="font-medium">Status URL (try 1):</span>{" "}
-              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">GET {join(API_BASE, "/import/status")}</code>
-            </div>
-            <div>
-              <span className="font-medium">Status URL (deprecated):</span>{" "}
-              <code className="rounded bg-slate-100 dark:bg-muted px-1 py-0.5 break-all">GET {join(API_BASE, "/import-status")}</code>
-            </div>
-          </div>
-
           <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-foreground">Import progress (plain English)</h2>
@@ -5210,13 +5169,18 @@ export default function AdminImport() {
               )}
             </div>
           </section>
-          <ImportReportSection
-            activeRun={activeRun}
-            activeReportPayload={activeReportPayload}
-            activeReportText={activeReportText}
-            activeDebugText={activeDebugText}
-            importReportRef={importReportRef}
-          />
+          <details className="group">
+            <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-muted-foreground hover:text-slate-900 dark:hover:text-foreground transition-colors py-2">
+              Import report
+            </summary>
+            <ImportReportSection
+              activeRun={activeRun}
+              activeReportPayload={activeReportPayload}
+              activeReportText={activeReportText}
+              activeDebugText={activeDebugText}
+              importReportRef={importReportRef}
+            />
+          </details>
         </main>
       </div>
 
