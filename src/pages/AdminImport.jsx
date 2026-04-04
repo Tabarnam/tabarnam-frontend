@@ -70,7 +70,6 @@ import {
 } from "./admin-import/importUtils";
 import ImportDebugPanel from "./admin-import/ImportDebugPanel";
 import ImportReportSection from "./admin-import/ImportReportSection";
-import BulkImportSection from "./admin-import/BulkImportSection";
 import StatusAlerts from "./admin-import/StatusAlerts";
 import ImportResultsPanels from "./admin-import/ImportResultsPanels";
 import {
@@ -5088,18 +5087,6 @@ export default function AdminImport() {
             ) : null}
           </section>
 
-          <BulkImportSection
-            bulkMode={bulkMode}
-            setBulkMode={setBulkMode}
-            bulkUrls={bulkUrls}
-            setBulkUrls={setBulkUrls}
-            bulkEnqueueLoading={bulkEnqueueLoading}
-            bulkUrlCount={bulkUrlCount}
-            activeBatchId={activeBatchId}
-            batchJobs={batchJobs}
-            handleBulkEnqueue={handleBulkEnqueue}
-            setActiveSessionId={setActiveSessionId}
-          />
 
           <ImportResultsPanels
             activeRun={activeRun}
