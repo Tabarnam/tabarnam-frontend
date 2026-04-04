@@ -3069,24 +3069,30 @@ export default function AdminImport() {
     setApplyingBatchFields(true);
     let ok = 0;
     let fail = 0;
+    const failedNames = [];
     for (const row of rows) {
-      const domain = row.companyUrl.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase();
+      const domain = row.companyUrl.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/^www\./, "").toLowerCase();
       const name = row.companyName.trim();
       try {
-        const searchQ = domain || name;
-        const { res: searchRes } = await apiFetchWithFallback([`/xadmin-api-companies?search=${encodeURIComponent(searchQ)}&take=5`]);
-        if (!searchRes.ok) { fail++; continue; }
-        const data = await searchRes.json().catch(() => ({}));
-        const items = data?.items || [];
+        // Search by domain first, fall back to name
+        let items = [];
+        for (const q of [domain, name].filter(Boolean)) {
+          const { res: searchRes } = await apiFetchWithFallback([`/xadmin-api-companies?search=${encodeURIComponent(q)}&take=20`]);
+          if (!searchRes.ok) continue;
+          const data = await searchRes.json().catch(() => ({}));
+          items = data?.items || [];
+          if (items.length > 0) break;
+        }
         const match = items.find((c) => {
-          const d = String(c.normalized_domain || "").toLowerCase();
+          const d = String(c.normalized_domain || "").toLowerCase().replace(/^www\./, "");
           if (domain && d === domain) return true;
-          if (domain && d === domain.replace(/^www\./, "")) return true;
           const n = String(c.company_name || "").toLowerCase();
           if (name && n === name.toLowerCase()) return true;
+          // Fuzzy: name contains or is contained
+          if (name && (n.includes(name.toLowerCase()) || name.toLowerCase().includes(n))) return true;
           return false;
         });
-        if (!match) { fail++; continue; }
+        if (!match) { fail++; failedNames.push(name || domain); continue; }
         const existing = match;
         const patch = {};
         if (industries.length > 0) {
@@ -3110,7 +3116,7 @@ export default function AdminImport() {
     }
     setApplyingBatchFields(false);
     if (ok > 0) toast.success(`Applied to ${ok} compan${ok === 1 ? "y" : "ies"}.`);
-    if (fail > 0) toast.warning(`${fail} compan${fail === 1 ? "y" : "ies"} not found or failed.`);
+    if (fail > 0) toast.warning(`${fail} not found or failed: ${failedNames.join(", ")}`);
   }, [batchIndustries, batchKeywords, successionRows]);
 
   const stopImport = useCallback(async () => {
