@@ -106,7 +106,7 @@ async function contactSendHandler(req, context) {
 
     const sendMailBody = {
       message: {
-        subject: `[Contact] ${displaySubject}`,
+        subject: `[User] ${displaySubject}`,
         toRecipients: [
           { emailAddress: { address: "duh@tabarnam.com" } },
         ],
