@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "sonner";
-import { Mail, Loader2 } from "lucide-react";
+import { Mail, Loader2, Copy, ExternalLink } from "lucide-react";
 
 import {
   Dialog,
@@ -240,6 +240,36 @@ export default function ContactFormDialog() {
             </Button>
           </DialogFooter>
         </form>
+
+        <div className="border-t border-border pt-3 mt-1 text-center text-sm text-muted-foreground">
+          <span>Alternatively, email us at{" "}</span>
+          <span className="inline-flex items-center gap-1">
+            <a
+              href="mailto:duh@tabarnam.com"
+              className="text-primary hover:underline"
+            >
+              duh@tabarnam.com
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText("duh@tabarnam.com");
+                toast.success("Email address copied!");
+              }}
+              className="inline-flex items-center justify-center rounded p-1 hover:bg-accent transition-colors"
+              aria-label="Copy email address"
+            >
+              <Copy size={14} />
+            </button>
+            <a
+              href="mailto:duh@tabarnam.com"
+              className="inline-flex items-center justify-center rounded p-1 hover:bg-accent transition-colors"
+              aria-label="Open in email client"
+            >
+              <ExternalLink size={14} />
+            </a>
+          </span>
+        </div>
       </DialogContent>
     </Dialog>
   );
