@@ -4438,31 +4438,6 @@ export default function AdminImport() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch industries</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Spices, Seasonings"
-                  value={batchIndustries}
-                  onChange={(e) => setBatchIndustries(e.target.value)}
-                  className="w-full rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-1.5 text-sm text-slate-800 dark:text-foreground placeholder:text-slate-400 dark:placeholder:text-muted-foreground"
-                />
-                <div className="text-xs text-slate-500 dark:text-muted-foreground">Applied to all companies in this batch (comma-separated)</div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch keywords</label>
-                <input
-                  type="text"
-                  placeholder="e.g. chili powder, cumin, paprika"
-                  value={batchKeywords}
-                  onChange={(e) => setBatchKeywords(e.target.value)}
-                  className="w-full rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-1.5 text-sm text-slate-800 dark:text-foreground placeholder:text-slate-400 dark:placeholder:text-muted-foreground"
-                />
-                <div className="text-xs text-slate-500 dark:text-muted-foreground">Added to all companies in this batch (comma-separated)</div>
-              </div>
-            </div>
-
             <div className="space-y-2">
               <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Fields to enrich</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -4737,7 +4712,32 @@ export default function AdminImport() {
               </div>
             ) : null}
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch industries</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Spices, Seasonings"
+                  value={batchIndustries}
+                  onChange={(e) => setBatchIndustries(e.target.value)}
+                  className="w-full rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-1.5 text-sm text-slate-800 dark:text-foreground placeholder:text-slate-400 dark:placeholder:text-muted-foreground"
+                />
+                <div className="text-xs text-slate-500 dark:text-muted-foreground">Applied to all companies in this batch (comma-separated)</div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch keywords</label>
+                <input
+                  type="text"
+                  placeholder="e.g. chili powder, cumin, paprika"
+                  value={batchKeywords}
+                  onChange={(e) => setBatchKeywords(e.target.value)}
+                  className="w-full rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-1.5 text-sm text-slate-800 dark:text-foreground placeholder:text-slate-400 dark:placeholder:text-muted-foreground"
+                />
+                <div className="text-xs text-slate-500 dark:text-muted-foreground">Added to all companies in this batch (comma-separated)</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
               <Button type="button" onClick={handleStartSuccession} disabled={startImportDisabled || isSuccessionRunning || applyingBatchFields}>
                 <Play className="h-4 w-4 mr-2" />
                 {isSuccessionRunning
@@ -4748,6 +4748,8 @@ export default function AdminImport() {
                       ? `Start ${successionCount} imports`
                       : "Start import"}
               </Button>
+
+              <div className="flex-1" />
 
               <Button
                 type="button"
