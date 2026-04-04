@@ -6,7 +6,12 @@ try {
   app = { http() {} };
 }
 
-const { Resend } = require("resend");
+require("isomorphic-fetch");
+const { ClientSecretCredential } = require("@azure/identity");
+const { Client } = require("@microsoft/microsoft-graph-client");
+const {
+  TokenCredentialAuthenticationProvider,
+} = require("@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials");
 
 // -------- helpers ----------
 const cors = (req) => {
@@ -31,6 +36,21 @@ const SUBJECT_LABELS = {
   "report-issue": "Report an issue / Bug",
   "general-inquiry": "General inquiry",
 };
+
+function getGraphClient() {
+  const tenantId = process.env.GRAPH_TENANT_ID;
+  const clientId = process.env.GRAPH_CLIENT_ID;
+  const clientSecret = process.env.GRAPH_CLIENT_SECRET;
+
+  if (!tenantId || !clientId || !clientSecret) return null;
+
+  const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+  const authProvider = new TokenCredentialAuthenticationProvider(credential, {
+    scopes: ["https://graph.microsoft.com/.default"],
+  });
+
+  return Client.initWithMiddleware({ authProvider });
+}
 
 async function contactSendHandler(req, context) {
   if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
@@ -68,32 +88,39 @@ async function contactSendHandler(req, context) {
   const displaySubject =
     subject === "other" ? customSubject : SUBJECT_LABELS[subject] || subject;
 
-  // Send via Resend
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey)
-    return json({ error: "Email service not configured" }, 503, req);
+  // Send via Microsoft Graph API
+  const senderEmail = process.env.SENDER_EMAIL;
+  const graphClient = getGraphClient();
 
-  const resend = new Resend(apiKey);
+  if (!graphClient || !senderEmail)
+    return json({ error: "Email service not configured" }, 503, req);
 
   try {
     const fromName = name || "Anonymous";
-    const { data, error } = await resend.emails.send({
-      from: "Tabarnam Contact <noreply@tabarnam.com>",
-      to: ["duh@tabarnam.com"],
-      replyTo: email,
-      subject: `[Contact] ${displaySubject}`,
-      html: `<p><strong>From:</strong> ${fromName} (${email})</p>
+    const htmlBody = `<p><strong>From:</strong> ${fromName} (${email})</p>
              <p><strong>Subject:</strong> ${displaySubject}</p>
              <hr />
-             <p>${message.replace(/\n/g, "<br />")}</p>`,
+             <p>${message.replace(/\n/g, "<br />")}</p>`;
+
+    await graphClient.api(`/users/${senderEmail}/sendMail`).post({
+      message: {
+        subject: `[Contact] ${displaySubject}`,
+        toRecipients: [
+          { emailAddress: { address: "duh@tabarnam.com" } },
+        ],
+        replyTo: [
+          { emailAddress: { address: email, name: fromName } },
+        ],
+        body: {
+          contentType: "HTML",
+          content: htmlBody,
+        },
+        saveToSentItems: true,
+      },
     });
 
-    if (error) {
-      context?.log?.error?.("Resend error:", error);
-      return json({ error: "Failed to send email" }, 500, req);
-    }
-
-    return json({ ok: true, id: data?.id }, 200, req);
+    // Graph returns 202 Accepted with empty body on success
+    return json({ ok: true }, 200, req);
   } catch (e) {
     context?.log?.error?.("Contact send error:", e?.message || e);
     return json({ error: e?.message || "Send failed" }, 500, req);

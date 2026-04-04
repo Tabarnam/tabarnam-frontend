@@ -7,11 +7,13 @@
   "dependencies": {
     "@azure/cosmos": "^4.7.0",
     "@azure/functions": "^4.6.0",
+    "@azure/identity": "^4.0.0",
     "@azure/storage-blob": "^12.20.0",
     "@azure/storage-queue": "^12.27.0",
+    "@microsoft/microsoft-graph-client": "^3.0.0",
     "axios": "^1.7.7",
     "bcryptjs": "^2.4.3",
-    "resend": "^2.0.0",
+    "isomorphic-fetch": "^3.0.0",
     "sharp": "^0.33.5",
     "uuid": "^9.0.1"
   }
