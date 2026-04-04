@@ -21,7 +21,7 @@ import Login from "@pages/Login";
 import PrivacyPage from "@pages/PrivacyPage";
 
 import SiteHeader from "@/components/SiteHeader";
-import FeedbackWidget from "@/components/FeedbackWidget";
+import ContactFormDialog from "@/components/ContactFormDialog";
 import Footer from "@/components/Footer";
 import AdminRoute from "@/components/AdminRoute";
 import AuthKeepAlive from "@/components/AuthKeepAlive";
@@ -73,7 +73,7 @@ function Layout({ children }) {
       {showLayout && <BetaBadge />}
       {showLayout && <SiteHeader />}
       <div className="flex-grow">{children}</div>
-      {showLayout && <FeedbackWidget />}
+      {showLayout && <ContactFormDialog />}
       {showLayout && <Footer />}
       <ThemeToggle />
       <PrivacyBadge />
