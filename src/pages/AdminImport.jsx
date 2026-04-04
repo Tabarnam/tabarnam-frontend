@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2, Volume2 } from "lucide-react";
+import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2, Volume2, Tags } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import useNotificationSound from "@/hooks/useNotificationSound";
@@ -3052,6 +3052,68 @@ export default function AdminImport() {
     }
   }, [importConfigured, location, query, queryTypes, urlTypeValidationError]);
 
+  const [applyingBatchFields, setApplyingBatchFields] = useState(false);
+  const applyBatchFields = useCallback(async () => {
+    const industries = batchIndustries.trim().split(",").map((s) => s.trim()).filter(Boolean);
+    const keywords = batchKeywords.trim().split(",").map((s) => s.trim()).filter(Boolean);
+    if (industries.length === 0 && keywords.length === 0) {
+      toast.error("Enter industries or keywords to apply.");
+      return;
+    }
+    const rows = successionRows.filter(
+      (r) => r.companyName.trim() || r.companyUrl.trim()
+    );
+    if (rows.length === 0) {
+      toast.error("No companies listed to apply to.");
+      return;
+    }
+    setApplyingBatchFields(true);
+    let ok = 0;
+    let fail = 0;
+    for (const row of rows) {
+      const domain = row.companyUrl.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").toLowerCase();
+      const name = row.companyName.trim();
+      try {
+        const searchQ = domain || name;
+        const { res: searchRes } = await apiFetchWithFallback([`/xadmin-api-companies?search=${encodeURIComponent(searchQ)}&take=5`]);
+        if (!searchRes.ok) { fail++; continue; }
+        const data = await searchRes.json().catch(() => ({}));
+        const items = data?.items || [];
+        const match = items.find((c) => {
+          const d = String(c.normalized_domain || "").toLowerCase();
+          if (domain && d === domain) return true;
+          if (domain && d === domain.replace(/^www\./, "")) return true;
+          const n = String(c.company_name || "").toLowerCase();
+          if (name && n === name.toLowerCase()) return true;
+          return false;
+        });
+        if (!match) { fail++; continue; }
+        const existing = match;
+        const patch = {};
+        if (industries.length > 0) {
+          const cur = Array.isArray(existing.industries) ? existing.industries : [];
+          const merged = Array.from(new Set([...cur, ...industries]));
+          patch.industries = merged;
+        }
+        if (keywords.length > 0) {
+          const cur = Array.isArray(existing.product_keywords || existing.keywords) ? (existing.product_keywords || existing.keywords) : [];
+          const merged = Array.from(new Set([...cur, ...keywords]));
+          patch.keywords = merged;
+          patch.product_keywords = merged;
+        }
+        const { res: putRes } = await apiFetchWithFallback([`/xadmin-api-companies/${encodeURIComponent(existing.id)}`], {
+          method: "PUT",
+          body: JSON.stringify({ company: { ...existing, ...patch } }),
+        });
+        if (putRes.ok) ok++;
+        else fail++;
+      } catch { fail++; }
+    }
+    setApplyingBatchFields(false);
+    if (ok > 0) toast.success(`Applied to ${ok} compan${ok === 1 ? "y" : "ies"}.`);
+    if (fail > 0) toast.warning(`${fail} compan${fail === 1 ? "y" : "ies"} not found or failed.`);
+  }, [batchIndustries, batchKeywords, successionRows]);
+
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
 
@@ -4374,6 +4436,16 @@ export default function AdminImport() {
               ) : (
                 <div className="text-xs text-slate-600 dark:text-muted-foreground">If you provide a location, results that match it are ranked higher.</div>
               )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={explainImportPayload}
+                disabled={!API_BASE || explainLoading}
+                className="w-fit"
+              >
+                Explain payload
+              </Button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -4676,7 +4748,7 @@ export default function AdminImport() {
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" onClick={handleStartSuccession} disabled={startImportDisabled || isSuccessionRunning}>
+              <Button type="button" onClick={handleStartSuccession} disabled={startImportDisabled || isSuccessionRunning || applyingBatchFields}>
                 <Play className="h-4 w-4 mr-2" />
                 {isSuccessionRunning
                   ? `Running ${successionIndex + 1}/${successionQueue.length}…`
@@ -4685,42 +4757,6 @@ export default function AdminImport() {
                     : successionCount > 1
                       ? `Start ${successionCount} imports`
                       : "Start import"}
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => beginImport({ mode: "dry_run" })}
-                disabled={startImportDisabled}
-              >
-                Dry run (no save)
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={explainImportPayload}
-                disabled={!API_BASE || explainLoading}
-              >
-                Explain payload
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  if (!activeSessionId || !activeRun?.session_id_confirmed) {
-                    toast.error("Session id is not ready yet");
-                    return;
-                  }
-                  resetPollAttempts(activeSessionId);
-                  schedulePoll({ session_id: activeSessionId });
-                  toast.success("Polling refresh started");
-                }}
-                disabled={!activeSessionId || !activeRun?.session_id_confirmed}
-              >
-                <RefreshCcw className="h-4 w-4 mr-2" />
-                Poll now
               </Button>
 
               <Button
@@ -4747,6 +4783,28 @@ export default function AdminImport() {
                   <>
                     <Square className="h-4 w-4 mr-2" />
                     Stop
+                  </>
+                )}
+              </Button>
+
+              <div className="flex-1" />
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={applyBatchFields}
+                disabled={applyingBatchFields || (!batchIndustries.trim() && !batchKeywords.trim())}
+                className="border-teal-600 text-teal-400 hover:bg-teal-900/30 hover:text-teal-300"
+              >
+                {applyingBatchFields ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Applying…
+                  </>
+                ) : (
+                  <>
+                    <Tags className="h-4 w-4 mr-2" />
+                    Apply Industries/Keywords
                   </>
                 )}
               </Button>
