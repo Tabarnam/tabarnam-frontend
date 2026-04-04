@@ -53,7 +53,7 @@ jobs:
           cd api
           npm ci --omit=dev || npm install --omit=dev
           echo "node_modules installed:"
-          ls -la node_modules | head -20
+          ls -la node_modules | head -20 || true
 
       # Azure Login using Service Principal (Flex Consumption doesn't support publish profiles)
       - name: Azure Login
