@@ -169,6 +169,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: contact-send");
+  require("./contact-send/index.js");
+} catch (e) {
+  console.error("[api] Failed to load contact-send:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: submit-review");
   require("./submit-review/index.js");
 } catch (e) {
