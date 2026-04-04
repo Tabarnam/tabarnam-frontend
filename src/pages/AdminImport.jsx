@@ -4436,16 +4436,6 @@ export default function AdminImport() {
               ) : (
                 <div className="text-xs text-slate-600 dark:text-muted-foreground">If you provide a location, results that match it are ranked higher.</div>
               )}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={explainImportPayload}
-                disabled={!API_BASE || explainLoading}
-                className="w-fit"
-              >
-                Explain payload
-              </Button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -5220,25 +5210,6 @@ export default function AdminImport() {
               )}
             </div>
           </section>
-          <ImportDebugPanel
-            debugQuery={debugQuery}
-            setDebugQuery={setDebugQuery}
-            debugLimitInput={debugLimitInput}
-            setDebugLimitInput={setDebugLimitInput}
-            debugSessionId={debugSessionId}
-            setDebugSessionId={setDebugSessionId}
-            debugStartLoading={debugStartLoading}
-            debugStatusLoading={debugStatusLoading}
-            startImportDisabled={startImportDisabled}
-            pollingSessionId={pollingSessionId}
-            sessionIdMismatchDebug={sessionIdMismatchDebug}
-            debugStartResponseText={debugStartResponseText}
-            debugStatusResponseText={debugStatusResponseText}
-            startDebugImport={startDebugImport}
-            explainDebugImport={explainDebugImport}
-            checkDebugStatus={checkDebugStatus}
-          />
-
           <ImportReportSection
             activeRun={activeRun}
             activeReportPayload={activeReportPayload}
