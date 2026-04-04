@@ -1,6 +1,5 @@
 // src/components/ContactFormDialog.jsx
 import React, { useState } from "react";
-import { useLocation } from "react-router-dom";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "sonner";
 import { Mail, Loader2, Copy, ExternalLink } from "lucide-react";
@@ -36,7 +35,6 @@ const SUBJECT_OPTIONS = [
 ];
 
 export default function ContactFormDialog() {
-  const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
 
   const {
@@ -57,8 +55,6 @@ export default function ContactFormDialog() {
     },
   });
 
-  // Hide on admin and login pages
-  if (pathname.startsWith("/admin") || pathname === "/login") return null;
 
   const selectedSubject = watch("subject");
 
@@ -92,7 +88,7 @@ export default function ContactFormDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="fixed top-3 right-3 z-50 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 shadow flex items-center gap-2 hover:bg-accent transition-colors">
+        <button className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 shadow flex items-center gap-2 hover:bg-accent transition-colors">
           <Mail size={16} className="text-primary" />
           <span className="text-sm font-medium text-foreground">Contact Us</span>
         </button>
