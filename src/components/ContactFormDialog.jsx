@@ -238,7 +238,7 @@ export default function ContactFormDialog() {
         </form>
 
         <div className="border-t border-border pt-3 mt-1 text-center text-sm text-muted-foreground">
-          <span>Alternatively, email us at{" "}</span>
+          <span>You can also email us at{" "}</span>
           <span className="inline-flex items-center gap-1">
             <a
               href="mailto:duh@tabarnam.com"
