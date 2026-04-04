@@ -3092,7 +3092,7 @@ export default function AdminImport() {
           if (name && (n.includes(name.toLowerCase()) || name.toLowerCase().includes(n))) return true;
           return false;
         });
-        if (!match) { fail++; failedNames.push(name || domain); continue; }
+        if (!match) { fail++; failedNames.push(name || domain); toast.warning(`Not found: ${name || domain}`); continue; }
         const existing = match;
         const patch = {};
         if (industries.length > 0) {
@@ -3110,9 +3110,15 @@ export default function AdminImport() {
           method: "PUT",
           body: JSON.stringify({ company: { ...existing, ...patch } }),
         });
-        if (putRes.ok) ok++;
-        else fail++;
-      } catch { fail++; }
+        if (putRes.ok) {
+          ok++;
+          toast.success(`✓ ${name || domain}`);
+        } else {
+          fail++;
+          failedNames.push(name || domain);
+          toast.error(`Failed to save: ${name || domain}`);
+        }
+      } catch (e) { fail++; failedNames.push(name || domain); toast.error(`Error: ${name || domain}`); }
     }
     setApplyingBatchFields(false);
     if (ok > 0) toast.success(`Applied to ${ok} compan${ok === 1 ? "y" : "ies"}.`);
