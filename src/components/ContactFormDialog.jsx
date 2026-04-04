@@ -88,7 +88,7 @@ export default function ContactFormDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 shadow flex items-center gap-2 hover:bg-accent transition-colors">
+        <button className="fixed top-3 right-3 z-50 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 shadow flex items-center gap-2 hover:bg-accent transition-colors">
           <Mail size={16} className="text-primary" />
           <span className="text-sm font-medium text-foreground">Contact Us</span>
         </button>
