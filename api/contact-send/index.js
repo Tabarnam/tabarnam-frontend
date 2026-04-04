@@ -102,7 +102,9 @@ async function contactSendHandler(req, context) {
              <hr />
              <p>${message.replace(/\n/g, "<br />")}</p>`;
 
-    await graphClient.api(`/users/${senderEmail}/sendMail`).post({
+    context?.log?.("Contact send: calling Graph API for sender:", senderEmail);
+
+    const sendMailBody = {
       message: {
         subject: `[Contact] ${displaySubject}`,
         toRecipients: [
@@ -115,14 +117,23 @@ async function contactSendHandler(req, context) {
           contentType: "HTML",
           content: htmlBody,
         },
-        saveToSentItems: true,
       },
-    });
+      saveToSentItems: true,
+    };
+
+    context?.log?.("Contact send: request body:", JSON.stringify(sendMailBody));
+
+    const response = await graphClient
+      .api(`/users/${senderEmail}/sendMail`)
+      .post(sendMailBody);
+
+    context?.log?.("Contact send: Graph response:", JSON.stringify(response));
 
     // Graph returns 202 Accepted with empty body on success
     return json({ ok: true }, 200, req);
   } catch (e) {
     context?.log?.error?.("Contact send error:", e?.message || e);
+    context?.log?.error?.("Contact send error details:", JSON.stringify(e, Object.getOwnPropertyNames(e)));
     return json({ error: e?.message || "Send failed" }, 500, req);
   }
 }
