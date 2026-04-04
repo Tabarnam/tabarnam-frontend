@@ -4482,7 +4482,7 @@ export default function AdminImport() {
                   className="underline hover:text-slate-700 dark:hover:text-foreground"
                   onClick={() => {
                     const allSelected = ALL_ENRICH_FIELD_KEYS.every((k) => enrichFields.includes(k));
-                    setEnrichFields(allSelected ? [ALL_ENRICH_FIELD_KEYS[0]] : [...ALL_ENRICH_FIELD_KEYS]);
+                    setEnrichFields(allSelected ? [] : [...ALL_ENRICH_FIELD_KEYS]);
                   }}
                 >
                   {ALL_ENRICH_FIELD_KEYS.every((k) => enrichFields.includes(k)) ? "Deselect all" : "Select all"}
