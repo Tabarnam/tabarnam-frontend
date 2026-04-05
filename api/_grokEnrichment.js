@@ -4298,7 +4298,7 @@ async function fetchAllFieldsSinglePrompt({
   // 1. Pre-fetch about/contact pages for HQ/MFG extraction (parallel, best-effort)
   let prefetchedAboutHtml = "";
   try {
-    const aboutPaths = ["/about", "/contact", "/pages/about-us", "/our-story"];
+    const aboutPaths = ["/about", "/contact", "/pages/about-us", "/our-story", "/company", "/who-we-are", "/our-company", "/about-us", "/"];
     const fetchPromises = aboutPaths.map((path) =>
       fetchText(`https://${domain}${path}`, 5_000)
         .then(({ ok, text }) => {
@@ -4528,6 +4528,23 @@ Reviews: [Source/Author/URL/Title/Date/Text blocks]`;
           }
 
           console.log(`[fetchAllFieldsSinglePrompt] Phase 2 fallback succeeded, fields=${Object.keys(parsed2.parsed_fields).join(", ")}`);
+
+          // Merge dedicated keywords into Phase 2 result (same logic as Phase 1 merge)
+          const kwItems2 = dedicatedKeywords?.items || [];
+          const kwComplete2 = dedicatedKeywords?.complete ?? false;
+          if (kwItems2.length > 0) {
+            const kwSanitized2 = sanitizeKeywords({ product_keywords: kwItems2.join(", ") });
+            const finalKw2 = (kwSanitized2.sanitized || kwItems2).slice().sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+            const seen2 = new Set();
+            const deduped2 = [];
+            for (const k of finalKw2) { const key = k.toLowerCase(); if (!seen2.has(key)) { seen2.add(key); deduped2.push(k); } }
+            parsed2.parsed_fields.product_keywords = deduped2;
+            parsed2.field_statuses.product_keywords = "ok";
+            parsed2.diagnostics.keywords_source = kwComplete2 ? "dedicated_parallel" : "dedicated_parallel_partial";
+            parsed2.diagnostics.keywords_completeness = kwComplete2 ? "complete" : "incomplete";
+            console.log(`[fetchAllFieldsSinglePrompt] Phase 2 keywords merge: ${deduped2.length} items (complete=${kwComplete2})`);
+          }
+
           return {
             ok: true,
             method: "single_prompt_phase2",
