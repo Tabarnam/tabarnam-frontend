@@ -129,6 +129,34 @@ async function contactSendHandler(req, context) {
 
     context?.log?.("Contact send: Graph response:", JSON.stringify(response));
 
+    // Send auto-response to the submitter
+    const autoResponseHtml = `<p>Hi ${fromName},</p>
+<p>We've received your message and appreciate you taking the time to write to us. Our team will review it and respond within a few business days.</p>
+<p>Here's a copy of your message for your records:</p>
+<p><strong>Subject:</strong> ${displaySubject}</p>
+<blockquote style="border-left:3px solid #ccc;padding-left:12px;margin:12px 0;color:#555;">${message.replace(/\n/g, "<br />")}</blockquote>
+<p>In the meantime, feel free to reply to this email if you have anything to add.</p>
+<p>Best,<br />The Tabarnam Team</p>`;
+
+    try {
+      await graphClient.api(`/users/${senderEmail}/sendMail`).post({
+        message: {
+          subject: `Thanks for contacting Tabarnam`,
+          toRecipients: [
+            { emailAddress: { address: email, name: fromName } },
+          ],
+          body: {
+            contentType: "HTML",
+            content: autoResponseHtml,
+          },
+        },
+        saveToSentItems: true,
+      });
+      context?.log?.("Contact send: auto-response sent to", email);
+    } catch (autoErr) {
+      context?.log?.error?.("Contact send: auto-response failed:", autoErr?.message || autoErr);
+    }
+
     // Graph returns 202 Accepted with empty body on success
     return json({ ok: true }, 200, req);
   } catch (e) {
