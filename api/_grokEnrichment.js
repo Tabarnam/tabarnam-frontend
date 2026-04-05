@@ -4097,59 +4097,10 @@ function parseUnifiedPlainTextResponse(rawText) {
   }
 
   // ── Keywords ──
-  if ("Keywords" in sections) {
-    const kwSection = sections.Keywords;
-    let kwItems = [];
-
-    // Try JSON block first: { "product_keywords": [...] }
-    const jsonMatch = kwSection.match(/\{[\s\S]*"product_keywords"\s*:\s*\[[\s\S]*?\][\s\S]*?\}/);
-    if (jsonMatch) {
-      try {
-        const kwObj = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(kwObj.product_keywords)) {
-          kwItems = kwObj.product_keywords.map((k) => String(k).trim()).filter(Boolean);
-        }
-      } catch { /* JSON parse failed — fall through to text parsing */ }
-    }
-
-    // Fallback: pipe-separated or comma-separated text on first line
-    if (kwItems.length === 0) {
-      const kwRaw = kwSection.split("\n")[0].trim();
-      if (kwRaw) {
-        // Detect pipe-separated vs comma-separated
-        const separator = kwRaw.includes("|") ? "|" : ",";
-        kwItems = kwRaw.split(separator).map((s) => s.trim()).filter(Boolean);
-      }
-    }
-
-    if (kwItems.length > 0) {
-      const kwResult = sanitizeKeywords({ product_keywords: kwItems.join(", ") });
-      parsed_fields.product_keywords = kwResult.sanitized || [];
-      field_statuses.product_keywords = (kwResult.sanitized || []).length > 0 ? "ok" : "empty";
-    } else {
-      parsed_fields.product_keywords = [];
-      field_statuses.product_keywords = "empty";
-    }
-
-    // Completeness: check for COMPLETENESS line or auto-detect
-    const completenessMatch = kwSection.match(/COMPLETENESS:\s*(COMPLETE|INCOMPLETE)\s*(?:—\s*(.+))?/i);
-    const kwCount = (parsed_fields.product_keywords || []).length;
-    if (completenessMatch) {
-      diagnostics.keywords_completeness = completenessMatch[1].toLowerCase();
-      diagnostics.keywords_incomplete_reason = completenessMatch[2] ? completenessMatch[2].trim() : null;
-    } else if (kwCount < 15) {
-      diagnostics.keywords_completeness = "incomplete";
-      diagnostics.keywords_incomplete_reason = "low_count_auto";
-    } else {
-      diagnostics.keywords_completeness = "complete";
-      diagnostics.keywords_incomplete_reason = null;
-    }
-  } else {
-    // Keywords missing from main response is EXPECTED in v5.0+ (handled by dedicated parallel call).
-    // Don't flag as incomplete — the merge step (section 7) will overwrite with dedicated results.
-    parsed_fields.product_keywords = [];
-    field_statuses.product_keywords = "pending_dedicated";
-  }
+  // v5.0+: Keywords are handled exclusively by the dedicated parallel call.
+  // Skip parsing from the main response to avoid duplicate sanitization work.
+  parsed_fields.product_keywords = [];
+  field_statuses.product_keywords = "pending_dedicated";
 
   // ── Reviews ──
   if ("Reviews" in sections) {

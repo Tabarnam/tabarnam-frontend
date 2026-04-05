@@ -1898,6 +1898,7 @@ async function resumeWorkerHandler(req, context) {
       const normalizedDomain = String(doc.normalized_domain || "").trim();
 
       console.log(`[resume-worker] enrichment loop start: companyId=${companyId}, companyName=${companyName}, normalizedDomain=${normalizedDomain}, effectiveDeadlineMs=${effectiveDeadlineMs}, plannedIds.length=${plannedIds.length}, perDocBudgetMs=${perDocBudgetMs}, budgetRemainingMs=${budgetRemainingMs()}, isFreshSeed=${isFreshSeed}, cycleCount=${cycleCount}`);
+      console.log(`[resume-worker] logo_status: company=${companyName}, logo_url=${doc.logo_url ? "present" : "missing"}, logo_source=${doc.logo_source || "none"}, logo_blob=${doc.logo_blob_url ? "uploaded" : "none"}`);
 
       // Use shared XAI config resolution for consistent endpoint/key handling
       const xaiEndpointRaw = getXAIEndpoint();
