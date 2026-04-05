@@ -69,7 +69,7 @@ export default function ContactFormDialog() {
       const result = await res.json().catch(() => ({}));
 
       if (res.ok && result.ok) {
-        toast.success("Message sent! We'll get back to you soon.");
+        toast.success("Message sent! Confirmation on the way to your email.");
         reset();
         setOpen(false);
       } else {
