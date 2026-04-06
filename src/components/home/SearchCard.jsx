@@ -593,7 +593,7 @@ export default function SearchCard({
         </div>
 
         <Button
-          onClick={handleSubmit}
+          onClick={() => handleSubmit()}
           disabled={loading}
           className="h-11 bg-tabarnam-blue text-slate-900 font-bold hover:bg-tabarnam-blue/80 transition-colors"
         >
