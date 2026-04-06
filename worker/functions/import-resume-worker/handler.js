@@ -2227,10 +2227,10 @@ async function resumeWorkerHandler(req, context) {
                 for (const ind of sanitized) {
                   if (!merged.some((m) => m.toLowerCase() === ind.toLowerCase())) merged.push(ind);
                 }
-                doc.industries = merged.slice(0, 5);
+                doc.industries = merged.slice(0, 7);
                 console.log(`[resume-worker] Merged batch_industries into doc.industries: ${JSON.stringify(doc.industries)}`);
               } else {
-                doc.industries = sanitized.slice(0, 5);
+                doc.industries = sanitized.slice(0, 7);
               }
               doc.industries_source = "grok";
               doc.industries_unknown = false;
@@ -3042,9 +3042,9 @@ async function resumeWorkerHandler(req, context) {
           for (const ind of sanitized) {
             if (!merged.some((m) => m.toLowerCase() === ind.toLowerCase())) merged.push(ind);
           }
-          doc.industries = merged.slice(0, 5);
+          doc.industries = merged.slice(0, 7);
         } else {
-          doc.industries = sanitized.slice(0, 5);
+          doc.industries = sanitized.slice(0, 7);
         }
         doc.industries_source = "grok";
         doc.industries_unknown = false;
