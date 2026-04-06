@@ -94,21 +94,23 @@ async function getKeywordRefinements(container, q, country, state, city) {
 
     companies.forEach((company) => {
       // Process product_keywords (comma-separated string)
+      // Only include keywords that contain the query (prefix/substring match for relevance)
       if (company.product_keywords && typeof company.product_keywords === "string") {
         const keywords = company.product_keywords
           .split(",")
           .map((k) => k.trim().toLowerCase())
-          .filter((k) => k && k !== q_lower);
+          .filter((k) => k && k !== q_lower && k.includes(q_lower));
         keywords.forEach((kw) => {
           keywordMap[kw] = (keywordMap[kw] || 0) + 1;
         });
       }
 
       // Process industries (array)
+      // Only include industries that contain the query
       if (Array.isArray(company.industries)) {
         company.industries.forEach((ind) => {
           const normalized = String(ind).trim().toLowerCase();
-          if (normalized && normalized !== q_lower) {
+          if (normalized && normalized !== q_lower && normalized.includes(q_lower)) {
             industryMap[normalized] = (industryMap[normalized] || 0) + 1;
           }
         });

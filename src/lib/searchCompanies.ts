@@ -146,19 +146,57 @@ export async function searchCompanies(opts: SearchOptions) {
   }
 }
 
+// --- Suggestion cache (30s TTL) ---
+const SUGGEST_CACHE_TTL = 30_000;
+const suggestCache = new Map<string, { ts: number; data: any }>();
+
+function getCached<T>(key: string): T | null {
+  const entry = suggestCache.get(key);
+  if (entry && Date.now() - entry.ts < SUGGEST_CACHE_TTL) return entry.data as T;
+  if (entry) suggestCache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: any) {
+  suggestCache.set(key, { ts: Date.now(), data });
+  // Evict stale entries if cache grows too large
+  if (suggestCache.size > 100) {
+    const now = Date.now();
+    for (const [k, v] of suggestCache) {
+      if (now - v.ts > SUGGEST_CACHE_TTL) suggestCache.delete(k);
+    }
+  }
+}
+
 export async function getSuggestions(qLike: unknown, _take?: number) {
   const q = asStr(qLike).trim();
   if (!q) return [];
-  const take = _take || 10;
+  const take = _take || 8;
+  const cacheKey = `co:${q.toLowerCase()}:${take}`;
+  const cached = getCached<any[]>(cacheKey);
+  if (cached) return cached;
+
   try {
-    const out = await searchCompanies({ q, sort: "recent", take });
-    return out.items.map((i) => ({
-      value: i.company_name,
-      type: "Company",
-      id: i.company_id || i.id,
-    }));
+    const params = new URLSearchParams({ q, take: String(take) });
+    const r = await apiFetch(`/suggest-companies?${params.toString()}`, {
+      headers: { accept: "application/json" },
+    });
+    if (!r.ok) {
+      console.warn(`suggest-companies returned ${r.status}`);
+      return [];
+    }
+    const data = await r.json();
+    const suggestions = Array.isArray(data?.suggestions)
+      ? data.suggestions.map((s: any) => ({
+          value: String(s.value || ""),
+          type: "Company" as const,
+          id: s.id,
+        }))
+      : [];
+    setCache(cacheKey, suggestions);
+    return suggestions;
   } catch (e) {
-    console.warn("Failed to get suggestions:", e?.message);
+    console.warn("Failed to get suggestions:", (e as any)?.message);
     return [];
   }
 }
@@ -179,6 +217,10 @@ export async function getRefinements(
 ): Promise<RefinementSuggestion[]> {
   const q = asStr(qLike).trim();
   if (!q || q.length < 2) return [];
+
+  const cacheKey = `ref:${q.toLowerCase()}:${countryCode || ""}:${stateCode || ""}:${city || ""}`;
+  const cached = getCached<RefinementSuggestion[]>(cacheKey);
+  if (cached) return cached;
 
   try {
     const params = new URLSearchParams({ q });
@@ -204,9 +246,11 @@ export async function getRefinements(
         }))
       : [];
 
-    return suggestions.slice(0, _take || 12);
+    const result = suggestions.slice(0, _take || 12);
+    setCache(cacheKey, result);
+    return result;
   } catch (e) {
-    console.warn("Failed to get refinements:", e?.message);
+    console.warn("Failed to get refinements:", (e as any)?.message);
     return [];
   }
 }

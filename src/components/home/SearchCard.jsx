@@ -30,17 +30,8 @@ const PLACEHOLDERS = [
   'Try "stainless steel bottles"',
 ];
 
-const SUGGESTION_GROUP_ORDER = ["Company", "Keyword", "Industry"];
-const GROUP_HEADERS = {
-  Company: "\uD83C\uDFE2 Companies",
-  Keyword: "\uD83C\uDFF7\uFE0F Keywords",
-  Industry: "\uD83C\uDFED Industries",
-};
-const BADGE_COLORS = {
-  Company: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-  Keyword: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
-  Industry: "bg-primary/15 text-primary dark:bg-primary/20 dark:text-primary",
-};
+// Amazon-style: Keywords/Industries first (completions), then Companies
+const SUGGEST_TYPE_ORDER = ["Keyword", "Industry", "Company"];
 
 export default function SearchCard({
   onSubmitParams,
@@ -172,15 +163,18 @@ export default function SearchCard({
           getRefinements(s, country, stateCode, city, 12),
         ]);
 
-        // Merge: limit to 12 total, prioritize companies first, then keywords/industries
-        const merged = [...companySuggestions];
+        // Amazon-style: keyword/industry completions first, then company matches
+        const merged = [];
+        // Add keyword/industry refinements first (these are the "completions")
         for (const ref of refinementSuggestions) {
+          if (merged.length >= 10) break;
+          merged.push(ref);
+        }
+        // Then add company name matches
+        for (const co of companySuggestions) {
           if (merged.length >= 12) break;
-          // Avoid duplicates
-          const isDuplicate = merged.some((m) => m.value.toLowerCase() === ref.value.toLowerCase());
-          if (!isDuplicate) {
-            merged.push(ref);
-          }
+          const isDuplicate = merged.some((m) => m.value.toLowerCase() === co.value.toLowerCase());
+          if (!isDuplicate) merged.push(co);
         }
 
         setSuggestions(merged.slice(0, 12));
@@ -190,7 +184,7 @@ export default function SearchCard({
         setSuggestions([]);
         setOpenSuggest(false);
       }
-    }, 250);
+    }, 400);
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
 
@@ -509,7 +503,7 @@ export default function SearchCard({
             className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
             autoComplete="off"
           />
-          {/* Grouped suggestions (Feature D) */}
+          {/* Amazon-style flat suggestion dropdown */}
           <Popover open={suggestions.length > 0}>
             <PopoverContent
               className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1 max-h-80 overflow-y-auto"
@@ -517,34 +511,49 @@ export default function SearchCard({
               onOpenAutoFocus={(e)=>e.preventDefault()}
             >
               {(() => {
-                // Group suggestions by type
-                const grouped = {};
-                for (const s of suggestions) {
-                  (grouped[s.type] ??= []).push(s);
-                }
-                return SUGGESTION_GROUP_ORDER.map((type) => {
-                  const items = grouped[type];
-                  if (!items?.length) return null;
+                const qLower = q.trim().toLowerCase();
+                // Sort: Keywords/Industries first (completions), then Companies
+                const sorted = [...suggestions].sort((a, b) => {
+                  const ai = SUGGEST_TYPE_ORDER.indexOf(a.type);
+                  const bi = SUGGEST_TYPE_ORDER.indexOf(b.type);
+                  return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+                });
+                return sorted.map((s, i) => {
+                  const val = s.value;
+                  const valLower = val.toLowerCase();
+                  const isCompany = s.type === "Company";
+
+                  // Highlight: typed prefix in normal weight, completion in bold
+                  let prefixEnd = 0;
+                  if (valLower.startsWith(qLower)) {
+                    prefixEnd = qLower.length;
+                  } else {
+                    const idx = valLower.indexOf(qLower);
+                    if (idx >= 0) prefixEnd = idx + qLower.length;
+                  }
+
                   return (
-                    <div key={type}>
-                      <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 border-b border-border">
-                        {GROUP_HEADERS[type] || type}
-                      </div>
-                      {items.map((s, i) => {
-                        const badgeClass = BADGE_COLORS[s.type] || "bg-muted text-foreground";
-                        return (
-                          <button
-                            key={`${s.value}-${i}`}
-                            className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent flex items-center justify-between"
-                            onMouseDown={(e)=>e.preventDefault()}
-                            onClick={()=>{ setQ(s.value); if (onSubmitParams) handleSubmit(s.value); }}
-                          >
-                            <span>{s.value}</span>
-                            <span className={`text-xs px-1.5 py-0.5 rounded-sm font-medium ${badgeClass}`}>{s.type}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <button
+                      key={`${val}-${i}`}
+                      className="w-full text-left px-3 py-2 text-sm text-popover-foreground hover:bg-accent flex items-center gap-2.5 border-b border-border/30 last:border-b-0"
+                      onMouseDown={(e)=>e.preventDefault()}
+                      onClick={()=>{ setQ(val); if (onSubmitParams) handleSubmit(val); }}
+                    >
+                      <Search size={14} className="text-muted-foreground flex-shrink-0" />
+                      <span className="flex-1 truncate">
+                        {prefixEnd > 0 ? (
+                          <>
+                            <span className="font-normal">{val.slice(0, prefixEnd)}</span>
+                            <span className="font-semibold">{val.slice(prefixEnd)}</span>
+                          </>
+                        ) : (
+                          <span className="font-semibold">{val}</span>
+                        )}
+                      </span>
+                      {isCompany && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground flex-shrink-0 uppercase tracking-wider">company</span>
+                      )}
+                    </button>
                   );
                 });
               })()}
