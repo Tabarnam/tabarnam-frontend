@@ -74,11 +74,7 @@ function Layout({ children }) {
       {showLayout && <SiteHeader />}
       <div className="flex-grow">{children}</div>
       {showLayout && <ContactFormDialog />}
-      {showLayout && (
-        <div className="px-4 py-3">
-          <PrivacyBadge />
-        </div>
-      )}
+      {showLayout && <PrivacyBadge />}
       {showLayout && <Footer />}
       <ThemeToggle />
     </div>
