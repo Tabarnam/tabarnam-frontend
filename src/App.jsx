@@ -75,12 +75,8 @@ function Layout({ children }) {
       <div className="flex-grow">{children}</div>
       {showLayout && <ContactFormDialog />}
       <ThemeToggle />
-      {showLayout && (
-        <div className="bg-muted">
-          <PrivacyBadge />
-          <Footer />
-        </div>
-      )}
+      {showLayout && <PrivacyBadge />}
+      {showLayout && <Footer />}
     </div>
   );
 }
