@@ -368,11 +368,12 @@ export default function SearchCard({
       debounceUrlRef.current = null;
     }
 
-    const rawQ = (overrideQ !== undefined ? overrideQ : q).trim();
+    // Read from the DOM ref to handle paste + immediate Enter (React state may be stale)
+    const rawQ = (overrideQ !== undefined ? String(overrideQ) : (inputRef.current?.value ?? q)).trim();
     // If the user pasted a URL, extract the brand name so search works
     const extracted = extractSearchTermFromUrl(rawQ);
     if (extracted !== rawQ) setQ(extracted); // update input so user sees what was searched
-    else if (overrideQ !== undefined) setQ(overrideQ); // sync input for suggestion clicks
+    else if (rawQ !== q) setQ(rawQ); // sync React state with DOM (paste + Enter race)
 
     lastSearchedQRef.current = extracted;
 

@@ -25,7 +25,7 @@ import ContactFormDialog from "@/components/ContactFormDialog";
 import Footer from "@/components/Footer";
 import AdminRoute from "@/components/AdminRoute";
 import AuthKeepAlive from "@/components/AuthKeepAlive";
-import BetaBadge from "@/components/BetaBadge";
+
 import ThemeProvider from "@/components/ThemeProvider";
 import ThemeToggle from "@/components/ThemeToggle";
 import PrivacyBadge from "@/components/PrivacyBadge";
@@ -70,7 +70,7 @@ function Layout({ children }) {
 
   return (
     <div className="flex flex-col min-h-screen">
-      {showLayout && <BetaBadge />}
+      {/* BetaBadge removed */}
       {showLayout && <SiteHeader />}
       <div className="flex-grow">{children}</div>
       {showLayout && <ContactFormDialog />}

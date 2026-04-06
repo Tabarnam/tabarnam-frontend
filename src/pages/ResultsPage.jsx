@@ -188,10 +188,18 @@ export default function ResultsPage() {
     } catch { return -1; }
   });
   const navigatingHistoryRef = useRef(false);
+  const poppingStateRef = useRef(false);
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
   const [userCountryCode, setUserCountryCode] = useState("");
   const [sortBy, setSortBy] = useState(null);
+
+  // Detect browser back/forward to avoid corrupting internal search history
+  useEffect(() => {
+    const handler = () => { poppingStateRef.current = true; };
+    window.addEventListener("popstate", handler);
+    return () => window.removeEventListener("popstate", handler);
+  }, []);
 
   // Load a single company's reviews
   async function fetchReviewsForCompany(c) {
@@ -305,8 +313,11 @@ export default function ResultsPage() {
 
       const hasLocationFilter = !!(cityParam || stateParam || countryParam);
       if (!cancelled && (qParam || hasLocationFilter)) {
-        // Seed search history on initial load / URL-driven navigation
-        pushSearchHistory({ q: qParam, sort: sortParam, country: countryParam, state: stateParam, city: cityParam });
+        // Seed search history on initial load / URL-driven navigation (skip on browser back/forward)
+        if (!poppingStateRef.current) {
+          pushSearchHistory({ q: qParam, sort: sortParam, country: countryParam, state: stateParam, city: cityParam });
+        }
+        poppingStateRef.current = false;
         await doSearch({
           q: qParam,
           sort: sortParam,
@@ -354,7 +365,7 @@ export default function ResultsPage() {
     // Reset to page 1 on new search
     next.delete("page");
     skipUrlEffectRef.current = true;
-    setSearchParams(next, { replace: true });
+    setSearchParams(next);
 
     // Resolve typed location if present
     let searchLocation = null;
@@ -428,7 +439,7 @@ export default function ResultsPage() {
 
   async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location = null }) {
     setLoading(true);
-    setStatus("Searching…");
+    setStatus("");
     try {
       const fallbackLocation = { lat: 34.0983, lng: -117.8076 };
       const effectiveLocation = location || userLoc || fallbackLocation;
@@ -567,7 +578,7 @@ export default function ResultsPage() {
     const next = new URLSearchParams(searchParams);
     next.set("q", keyword);
     next.delete("page");
-    setSearchParams(next, { replace: true });
+    setSearchParams(next);
   }
 
   function goToPage(page) {
@@ -630,7 +641,7 @@ export default function ResultsPage() {
     } else {
       next.delete(key);
     }
-    setSearchParams(next, { replace: true });
+    setSearchParams(next);
   }
 
   const activeFilters = useMemo(() => {
