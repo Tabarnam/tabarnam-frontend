@@ -387,6 +387,87 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
 }
 
 /**
+ * Industry-affinity map: maps product search terms to the industries most
+ * relevant to that product. When a user searches "hoodie", companies in
+ * "Apparel" should rank above a coffee company that sells branded hoodies.
+ *
+ * Built from the same classification rules as _websiteBaseline.js inferIndustriesFromText(),
+ * plus product synonym groups from _searchSynonyms.js.
+ */
+const PRODUCT_INDUSTRY_AFFINITY = {
+  // Apparel
+  dress: ["Apparel"], shirt: ["Apparel"], tee: ["Apparel"], top: ["Apparel"],
+  pants: ["Apparel"], trousers: ["Apparel"], slacks: ["Apparel"],
+  jeans: ["Apparel"], sweater: ["Apparel"], jumper: ["Apparel"],
+  hoodie: ["Apparel"], hoodies: ["Apparel"], sweatshirt: ["Apparel"], pullover: ["Apparel"],
+  jacket: ["Apparel"], coat: ["Apparel"], parka: ["Apparel"],
+  clothing: ["Apparel"], apparel: ["Apparel"], activewear: ["Apparel"],
+  denim: ["Apparel"], outerwear: ["Apparel"], workwear: ["Apparel"],
+  beanie: ["Apparel"], "knit cap": ["Apparel"], toque: ["Apparel"],
+  // Footwear (Apparel-adjacent)
+  sneakers: ["Apparel"], trainers: ["Apparel"], shoes: ["Apparel"],
+  footwear: ["Apparel"], boots: ["Apparel"], sandals: ["Apparel"],
+  // Home goods
+  bedding: ["Home goods"], sheets: ["Home goods"], linens: ["Home goods"],
+  towel: ["Home goods"], towels: ["Home goods"], blanket: ["Home goods"],
+  pillow: ["Home goods"], cushion: ["Home goods"], rug: ["Home goods"],
+  carpet: ["Home goods"], mat: ["Home goods"], candle: ["Home goods"],
+  furniture: ["Home goods"], sofa: ["Home goods"], couch: ["Home goods"],
+  chair: ["Home goods"], table: ["Home goods"], mattress: ["Home goods"],
+  lamp: ["Home goods"], decor: ["Home goods"],
+  // Beauty / Personal care
+  skincare: ["Beauty"], serum: ["Beauty"], moisturizer: ["Beauty"],
+  cleanser: ["Beauty"], makeup: ["Beauty"], cosmetic: ["Beauty"],
+  soap: ["Beauty", "Personal care"], shampoo: ["Beauty", "Personal care"],
+  lotion: ["Beauty", "Personal care"], deodorant: ["Personal care"],
+  toothbrush: ["Personal care"], toothpaste: ["Personal care"],
+  razor: ["Personal care"], shaver: ["Personal care"],
+  // Food / Drink
+  coffee: ["Food"], tea: ["Food"], snack: ["Food"], chocolate: ["Food"],
+  candy: ["Food"], cookies: ["Food"], jerky: ["Food"], jam: ["Food"],
+  granola: ["Food"], cereal: ["Food"], soda: ["Food"],
+  // Electronics
+  headphones: ["Electronics"], earbuds: ["Electronics"], speaker: ["Electronics"],
+  charger: ["Electronics"], cable: ["Electronics"],
+  // Baby
+  stroller: ["Baby"], diaper: ["Baby"], pacifier: ["Baby"],
+  // Pets
+  "dog food": ["Pets"], "cat food": ["Pets"], kibble: ["Pets"],
+  "pet treat": ["Pets"], "dog treat": ["Pets"],
+  // Kitchen
+  pan: ["Home goods", "Kitchen"], skillet: ["Home goods", "Kitchen"],
+  pot: ["Home goods", "Kitchen"], knife: ["Home goods", "Kitchen"],
+  "cutting board": ["Home goods", "Kitchen"],
+  // Bags
+  backpack: ["Apparel", "Bags"], purse: ["Apparel", "Bags"],
+  handbag: ["Apparel", "Bags"], bag: ["Bags"],
+};
+
+/**
+ * Get the expected industries for a search query.
+ * Checks whole query first, then individual words.
+ */
+function getAffinityIndustries(q_norm) {
+  if (!q_norm) return [];
+  const qLower = q_norm.toLowerCase().trim();
+
+  // Check full query first (handles multi-word like "dog food")
+  if (PRODUCT_INDUSTRY_AFFINITY[qLower]) {
+    return PRODUCT_INDUSTRY_AFFINITY[qLower];
+  }
+
+  // Check individual words
+  const words = qLower.split(/\s+/);
+  for (const word of words) {
+    if (PRODUCT_INDUSTRY_AFFINITY[word]) {
+      return PRODUCT_INDUSTRY_AFFINITY[word];
+    }
+  }
+
+  return [];
+}
+
+/**
  * Check whether a company matched the original query directly, or only via
  * synonym expansion (e.g., "hoodie" → "sweatshirt"/"pullover").
  *
@@ -453,9 +534,21 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   const qLower = (q_norm || "").toLowerCase().trim();
   const industryBonus = qLower && industries.some((ind) => ind === qLower) ? 15 : 0;
 
+  // Industry-affinity bonus: when the search term maps to a product category
+  // (e.g., "hoodie" → Apparel), companies in that industry get a significant boost.
+  // This ensures an apparel company ranks above a coffee company that sells branded hoodies.
+  const affinityIndustries = getAffinityIndustries(q_norm);
+  const hasAffinity = affinityIndustries.length > 0 &&
+    industries.some((ind) => affinityIndustries.some((aff) => ind.includes(aff.toLowerCase())));
+  // When the query has a known product-industry affinity:
+  //   +25 bonus for companies IN the expected industry (e.g., Apparel for "hoodie")
+  //   -15 penalty for companies NOT in the expected industry (e.g., Food company selling branded hoodies)
+  // This creates a 40-point gap between industry-aligned and non-aligned companies.
+  const affinityBonus = hasAffinity ? 25 : (affinityIndustries.length > 0 ? -15 : 0);
+
   let relevanceScore = nameScore > 0
-    ? Math.round(nameScore * 0.7 + keywordScore * 0.3) + nameBonus + industryBonus
-    : Math.round(keywordScore * 0.6) + industryBonus;
+    ? Math.round(nameScore * 0.7 + keywordScore * 0.3) + nameBonus + industryBonus + affinityBonus
+    : Math.round(keywordScore * 0.6) + industryBonus + affinityBonus;
 
   // Synonym-only penalty: companies that matched only via synonym expansion
   // (e.g., a coffee company with "sweatshirt" merch matching "hoodie" query)
@@ -464,6 +557,9 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   if (synonymOnly) {
     relevanceScore = Math.round(relevanceScore * 0.4);
   }
+
+  // Floor at 0 — negative scores shouldn't happen
+  relevanceScore = Math.max(0, relevanceScore);
 
   return { _nameMatchScore: nameScore, _keywordMatchScore: keywordScore, _relevanceScore: relevanceScore, _synonymOnly: synonymOnly };
 }
