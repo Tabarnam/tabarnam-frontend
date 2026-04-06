@@ -11,7 +11,7 @@ export default function PrivacyBadge() {
     <div className="px-4 py-3">
       <Link
         to="/privacy"
-        className="flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 shadow-lg backdrop-blur transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
+        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 shadow-lg backdrop-blur transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
       >
         <ShieldCheck size={14} className="text-primary" />
         <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
