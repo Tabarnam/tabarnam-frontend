@@ -75,12 +75,12 @@ function Layout({ children }) {
       <div className="flex-grow">{children}</div>
       {showLayout && <ContactFormDialog />}
       {showLayout && (
-        <div className="flex items-center justify-between px-4 py-3">
+        <div className="px-4 py-3">
           <PrivacyBadge />
-          <ThemeToggle />
         </div>
       )}
       {showLayout && <Footer />}
+      <ThemeToggle />
     </div>
   );
 }
