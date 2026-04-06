@@ -9,7 +9,7 @@ const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
 const { parseQuery } = require("../_queryNormalizer");
-const { expandQueryTermsForFTS } = require("../_searchSynonyms");
+const { expandQueryTermsForFTS, expandProductSynonyms } = require("../_searchSynonyms");
 const { isFuzzyNameMatch, fuzzyScore } = require("../_fuzzyMatch");
 const { simpleStem, stemWords } = require("../_stemmer");
 
@@ -387,6 +387,52 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
 }
 
 /**
+ * Check whether a company matched the original query directly, or only via
+ * synonym expansion (e.g., "hoodie" → "sweatshirt"/"pullover").
+ *
+ * Returns true if the company has NO direct match on the original query in
+ * its name, keywords, product_keywords, industries, or search_text_norm —
+ * meaning it only appeared in results because a synonym matched.
+ */
+function isSynonymOnlyMatch(company, q_norm, q_compact) {
+  if (!q_norm) return false;
+
+  // Check company name
+  const names = [
+    asString(company.company_name),
+    asString(company.display_name),
+    asString(company.name),
+  ].filter(Boolean).map((n) => n.toLowerCase());
+
+  for (const name of names) {
+    if (name.includes(q_norm) || (q_compact && name.replace(/\s+/g, "").includes(q_compact))) {
+      return false; // direct name match
+    }
+  }
+
+  // Check keywords, product_keywords, industries
+  const allKeywords = [
+    ...normalizeStringArray(company.product_keywords),
+    ...normalizeStringArray(company.keywords),
+    ...normalizeStringArray(company.industries),
+  ].map((k) => asString(k).toLowerCase().trim()).filter(Boolean);
+
+  for (const kw of allKeywords) {
+    if (kw.includes(q_norm) || q_norm.includes(kw)) return false; // direct keyword match
+    if (q_compact && (kw.includes(q_compact) || q_compact.includes(kw))) return false;
+  }
+
+  // Check search_text_norm with word-boundary (space-padded) matching
+  const stn = asString(company.search_text_norm).toLowerCase();
+  if (stn && (stn.includes(` ${q_norm} `) || stn.includes(q_norm))) {
+    return false; // direct search_text_norm match
+  }
+
+  // No direct match found — this company only matched via synonym expansion
+  return true;
+}
+
+/**
  * Compute a composite relevance score combining name and keyword match quality.
  * When a name match exists: name 70%, keyword 30%, plus a +20 bonus for
  * strong name matches (word-boundary or better, nameScore ≥ 60) so that
@@ -394,6 +440,8 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
  * When no name match: keyword gets 60% weight to widen the scoring gap
  * (otherwise all keyword-only matches compress into 0-30 range).
  * Industry exact match adds +15 bonus (companies categorized under the query term).
+ * Synonym-only penalty: companies matching only via synonym expansion (not the
+ * original query) get a 60% score reduction so direct matches always rank higher.
  */
 function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   const nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
@@ -405,10 +453,19 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   const qLower = (q_norm || "").toLowerCase().trim();
   const industryBonus = qLower && industries.some((ind) => ind === qLower) ? 15 : 0;
 
-  const relevanceScore = nameScore > 0
+  let relevanceScore = nameScore > 0
     ? Math.round(nameScore * 0.7 + keywordScore * 0.3) + nameBonus + industryBonus
     : Math.round(keywordScore * 0.6) + industryBonus;
-  return { _nameMatchScore: nameScore, _keywordMatchScore: keywordScore, _relevanceScore: relevanceScore };
+
+  // Synonym-only penalty: companies that matched only via synonym expansion
+  // (e.g., a coffee company with "sweatshirt" merch matching "hoodie" query)
+  // get demoted so direct-match companies always rank above them.
+  const synonymOnly = isSynonymOnlyMatch(company, q_norm, q_compact);
+  if (synonymOnly) {
+    relevanceScore = Math.round(relevanceScore * 0.4);
+  }
+
+  return { _nameMatchScore: nameScore, _keywordMatchScore: keywordScore, _relevanceScore: relevanceScore, _synonymOnly: synonymOnly };
 }
 
 // Helper to build search filter that handles both spaced and non-spaced queries
@@ -1706,7 +1763,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               company._matchType = "substring";
               delete company._substringOnly;
             } else {
-              company._matchType = "word_boundary";
+              company._matchType = scores._synonymOnly ? "synonym" : "word_boundary";
             }
           }
         }
