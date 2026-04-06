@@ -11,7 +11,7 @@ export default function ThemeToggle() {
   // Placeholder with same dimensions to avoid layout shift
   if (!mounted) {
     return (
-      <div className="fixed bottom-[5.5rem] right-4 z-50 h-9 w-[72px] rounded-full bg-muted/50" />
+      <div className="fixed bottom-[4.25rem] right-4 z-50 h-9 w-[72px] rounded-full bg-muted/50" />
     );
   }
 
@@ -28,7 +28,7 @@ export default function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="fixed bottom-[5.5rem] right-4 z-50 flex items-center gap-1 rounded-full border border-border bg-card px-2 py-1.5 shadow-lg backdrop-blur transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
+      className="fixed bottom-[4.25rem] right-4 z-50 flex items-center gap-1 rounded-full border border-border bg-card px-2 py-1.5 shadow-lg backdrop-blur transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
       aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
     >
