@@ -1336,6 +1336,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   // Are we just counting total results (no items returned)?
   const countOnly = url.searchParams.get("countOnly") === "1";
 
+  // Quick mode: return only Pass 1 (word-boundary) results, skip synonym expansion
+  // and substring fallback for fastest possible response time
+  const quickMode = url.searchParams.get("quick") === "1";
+
   // Amazon-only filter: when &amazon=1, only return companies with an amazon_url
   const amazonOnly = url.searchParams.get("amazon") === "1";
 
@@ -1369,12 +1373,15 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
 
       // Expand query into phrase variants using synonyms + business abbreviations
+      // In quick mode, skip synonym expansion entirely for fastest response
       let ftsWhere = "";
       let ftsOrderBy = "";
       let ftsPhrases = [];
-      if (q_norm) {
+      if (q_norm && !quickMode) {
         const expansion = await expandQueryTermsForFTS(q_norm, q_compact);
         ftsPhrases = expansion.phrases;
+      } else if (q_norm) {
+        ftsPhrases = [q_norm]; // quick mode: original query only
       }
 
       // TEMPORARY: Disable FTS queries while the full-text index is still building.
@@ -1497,8 +1504,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           }
 
           // ── Pass 2: Substring matching (broader, fills remaining slots) ──
+          // Skip in quick mode — return word-boundary results only for fastest response
           const manuRemaining = Math.max(0, limit - items.length);
-          if (manuRemaining > 0) {
+          if (manuRemaining > 0 && !quickMode) {
             const legacyFilter = q_norm ? buildLegacySearchFilter() : "";
             const legacyParams = [{ name: "@take", value: manuRemaining }];
             if (q_norm) {
@@ -1577,8 +1585,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             }
 
             // ── Pass 2: Substring matching (broader, fills remaining slots) ──
+            // Skip in quick mode — return word-boundary results only for fastest response
             const remaining = Math.max(0, limit - items.length);
-            if (remaining > 0) {
+            if (remaining > 0 && !quickMode) {
               const legacyFilter = buildLegacySearchFilter();
               const legacyParams = [
                 { name: "@take", value: remaining },
@@ -1631,7 +1640,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // fall back to prefix-based search with Levenshtein post-filter.
       // Tries a 4-char prefix first, then falls back to 3-char prefix if no candidates
       // are found (handles typos in the 4th character, e.g., "lilipad" → "lillipad").
-      if (items.length === 0 && q_norm && q_norm.length >= 4) {
+      if (items.length === 0 && q_norm && q_norm.length >= 4 && !quickMode) {
         try {
           const prefixLengths = [4, 3]; // try longer prefix first for precision, then shorter
           const existingIds = new Set(items.map((i) => i.id));
@@ -1815,7 +1824,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           items: paged,
           count: paged.length,
           hasMore,
-          meta: { q: q_raw, sort, skip, take, user_location, _searchMode: usedFallback ? "contains" : "fts" },
+          meta: { q: q_raw, sort, skip, take, user_location, _searchMode: quickMode ? "quick" : usedFallback ? "contains" : "fts" },
         },
         200,
         req

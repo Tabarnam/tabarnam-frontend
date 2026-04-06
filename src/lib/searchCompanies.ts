@@ -29,6 +29,7 @@ export interface SearchOptions {
   amazon?: boolean;
   hqCountry?: string;
   mfgCountry?: string;
+  quick?: boolean;
 }
 
 export interface Company {
@@ -94,6 +95,7 @@ export async function searchCompanies(opts: SearchOptions) {
   if (opts.amazon) params.set("amazon", "1");
   if (opts.hqCountry) params.set("hqCountry", opts.hqCountry);
   if (opts.mfgCountry) params.set("mfgCountry", opts.mfgCountry);
+  if (opts.quick) params.set("quick", "1");
 
   const lat = Number(asStr(opts.lat));
   const lng = Number(asStr(opts.lng));

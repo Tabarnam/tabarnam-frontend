@@ -437,9 +437,13 @@ export default function ResultsPage() {
     doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, skip: 0 });
   }
 
+  // Track the current search generation so stale responses are ignored
+  const searchGenRef = useRef(0);
+
   async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location = null }) {
     setLoading(true);
     setStatus("");
+    const gen = ++searchGenRef.current;
     try {
       const fallbackLocation = { lat: 34.0983, lng: -117.8076 };
       const effectiveLocation = location || userLoc || fallbackLocation;
@@ -448,20 +452,30 @@ export default function ResultsPage() {
         setUserLoc({ lat: effectiveLocation.lat, lng: effectiveLocation.lng });
       }
 
-      let searchResult = await searchCompanies({
-        q,
-        sort,
-        country,
-        state,
-        city,
-        amazon,
-        hqCountry,
-        mfgCountry,
-        take,
-        skip,
-        lat: effectiveLocation?.lat,
-        lng: effectiveLocation?.lng,
-      });
+      const commonOpts = { q, sort, country, state, city, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
+
+      // Fire quick (Pass 1 only) and full search in parallel
+      const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;
+      const fullPromise = searchCompanies(commonOpts);
+
+      // Show quick results as soon as they arrive
+      if (quickPromise) {
+        const quickResult = await quickPromise;
+        if (gen === searchGenRef.current && quickResult?.items?.length > 0) {
+          const quickWithDist = quickResult.items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
+          setResults(quickWithDist);
+          loadReviewsDeferred(quickWithDist);
+          setHasMore(quickResult.hasMore === true);
+          setStatus("");
+          setLoading(false);
+        }
+      }
+
+      // Wait for full results and replace
+      let searchResult = await fullPromise;
+
+      // Stale check: if a newer search was started, discard these results
+      if (gen !== searchGenRef.current) return;
 
       // If no results on page 1, try alternative query forms (fallback retry)
       if (searchResult.items?.length === 0 && !skip && q) {
@@ -490,10 +504,13 @@ export default function ResultsPage() {
         }
       }
 
+      // Stale check again after alternatives
+      if (gen !== searchGenRef.current) return;
+
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
       const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
 
-      // Show results immediately, load reviews in background
+      // Replace with full results + load reviews for any new companies
       setResults(withDistances);
       loadReviewsDeferred(withDistances);
       setHasMore(apiHasMore === true);
@@ -523,9 +540,13 @@ export default function ResultsPage() {
         setStatus("");
       }
     } catch (e) {
-      setStatus(`❌ ${e?.message || "Search failed"}`);
+      if (gen === searchGenRef.current) {
+        setStatus(`❌ ${e?.message || "Search failed"}`);
+      }
     } finally {
-      setLoading(false);
+      if (gen === searchGenRef.current) {
+        setLoading(false);
+      }
     }
   }
 
