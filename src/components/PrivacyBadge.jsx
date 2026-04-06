@@ -8,7 +8,7 @@ export default function PrivacyBadge() {
   if (pathname !== '/') return null;
 
   return (
-    <div className="fixed bottom-4 left-4 z-50">
+    <div>
       <Link
         to="/privacy"
         className="flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 shadow-lg backdrop-blur transition-colors hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
