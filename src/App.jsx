@@ -74,9 +74,9 @@ function Layout({ children }) {
       {showLayout && <SiteHeader />}
       <div className="flex-grow">{children}</div>
       {showLayout && <ContactFormDialog />}
-      {showLayout && <Footer />}
       <ThemeToggle />
       <PrivacyBadge />
+      {showLayout && <Footer />}
     </div>
   );
 }
