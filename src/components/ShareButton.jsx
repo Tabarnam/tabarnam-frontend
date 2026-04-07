@@ -68,7 +68,7 @@ export default function ShareButton({ company, title: titleProp, text: textProp,
       try {
         await navigator.share({
           title: shareTitle,
-          text: shareText,
+          text: shareFullText,
           url: shareUrl,
         });
       } catch (error) {
