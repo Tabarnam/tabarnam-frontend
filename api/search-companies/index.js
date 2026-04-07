@@ -283,6 +283,12 @@ function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
         best = Math.max(best, 80);
         continue;
       }
+      // Query starts with company name: "watson farms beef" starts with "watson farms"
+      // The user is searching for the company + a product qualifier
+      if (q.startsWith(nameLower) || q.startsWith(nameCompact)) {
+        best = Math.max(best, 70);
+        continue;
+      }
       // Word boundary: query after start, space, hyphen, or underscore
       const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       if (new RegExp(`(?:^|[\\s\\-_])${escaped}`).test(nameLower)) {
@@ -348,6 +354,19 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
         } else if (qt.includes(kw)) {
           best = Math.max(best, 25);
           matched = true;
+        }
+      }
+      // Per-word matching: for multi-word queries, check individual query words
+      // against each keyword. "watson farms beef" → "beef" matches keyword "Beef Brisket"
+      if (!matched && queryWords.length >= 2) {
+        for (const w of queryWords) {
+          if (kw === w) {
+            best = Math.max(best, 60);
+            matched = true;
+          } else if (kw.startsWith(w + " ") || kw.endsWith(" " + w) || kw.includes(" " + w + " ")) {
+            best = Math.max(best, 50);
+            matched = true;
+          }
         }
       }
       // Track which individual query words this keyword covers
