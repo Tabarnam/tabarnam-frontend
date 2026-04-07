@@ -504,12 +504,8 @@ export default function SearchCard({
             autoComplete="off"
           />
           {/* Amazon-style flat suggestion dropdown */}
-          <Popover open={suggestions.length > 0}>
-            <PopoverContent
-              className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1 max-h-80 overflow-y-auto"
-              align="start"
-              onOpenAutoFocus={(e)=>e.preventDefault()}
-            >
+          {suggestions.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border border-border bg-popover shadow-md max-h-80 overflow-y-auto">
               {(() => {
                 const qLower = q.trim().toLowerCase();
                 // Sort: Keywords/Industries first (completions), then Companies
@@ -557,15 +553,11 @@ export default function SearchCard({
                   );
                 });
               })()}
-            </PopoverContent>
-          </Popover>
+            </div>
+          )}
           {/* Recent searches dropdown (Feature E) */}
-          <Popover open={showRecent && recentSearches.length > 0 && suggestions.length === 0 && q.trim().length < 2}>
-            <PopoverContent
-              className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1"
-              align="start"
-              onOpenAutoFocus={(e)=>e.preventDefault()}
-            >
+          {showRecent && recentSearches.length > 0 && suggestions.length === 0 && q.trim().length < 2 && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border border-border bg-popover shadow-md">
               <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 border-b border-border flex items-center gap-1.5">
                 <Clock size={12} />
                 Recent Searches
@@ -588,8 +580,8 @@ export default function SearchCard({
               >
                 Clear recent searches
               </button>
-            </PopoverContent>
-          </Popover>
+            </div>
+          )}
         </div>
 
         <Button
