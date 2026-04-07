@@ -344,10 +344,14 @@ export default function SearchCard({
   const onKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      setSuggestions([]);
       handleSubmit();
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      setSuggestions([]);
+      setShowRecent(false);
       setCountrySearch('');
+      inputRef.current?.blur();
     }
   };
 
@@ -377,6 +381,7 @@ export default function SearchCard({
     // Close recent/suggestions dropdowns
     setShowRecent(false);
     setRecentSearches([]);
+    setSuggestions([]);
 
     // Resolve free-text country input to ISO code if not already resolved
     let resolvedCountry = country;
@@ -498,7 +503,7 @@ export default function SearchCard({
             onChange={(e)=>setQ(e.target.value)}
             onKeyDown={onKeyDown}
             onFocus={handleInputFocus}
-            onBlur={() => { setTimeout(() => setShowRecent(false), 200); }}
+            onBlur={() => { setTimeout(() => { setShowRecent(false); setSuggestions([]); }, 200); }}
             placeholder={q ? "" : PLACEHOLDERS[placeholderIdx]}
             className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
             autoComplete="off"
@@ -533,7 +538,7 @@ export default function SearchCard({
                       key={`${val}-${i}`}
                       className="w-full text-left px-3 py-2 text-sm text-popover-foreground hover:bg-accent flex items-center gap-2.5 border-b border-border/30 last:border-b-0"
                       onMouseDown={(e)=>e.preventDefault()}
-                      onClick={()=>{ setQ(val); if (onSubmitParams) handleSubmit(val); }}
+                      onClick={()=>{ setSuggestions([]); setQ(val); handleSubmit(val); }}
                     >
                       <Search size={14} className="text-muted-foreground flex-shrink-0" />
                       <span className="flex-1 truncate">
