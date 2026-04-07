@@ -145,6 +145,8 @@ export default function SearchCard({
     setMfgInCountry(p.has('mfgCountry'));
   }, [search]);
 
+  const inputFocusedRef = useRef(false);
+
   useEffect(() => {
     const t = setTimeout(async () => {
       const s = q.trim();
@@ -153,6 +155,14 @@ export default function SearchCard({
         setOpenSuggest(false);
         return;
       }
+      // Don't show suggestions if query matches what was already searched
+      // (e.g., on page load from URL, or after submitting a search)
+      if (s === lastSearchedQRef.current) {
+        setSuggestions([]);
+        return;
+      }
+      // Don't show suggestions if input isn't focused
+      if (!inputFocusedRef.current) return;
       // Hide recent searches once user starts typing enough for API suggestions
       setShowRecent(false);
 
@@ -502,8 +512,8 @@ export default function SearchCard({
             value={q}
             onChange={(e)=>setQ(e.target.value)}
             onKeyDown={onKeyDown}
-            onFocus={handleInputFocus}
-            onBlur={() => { setTimeout(() => { setShowRecent(false); setSuggestions([]); }, 200); }}
+            onFocus={(e) => { inputFocusedRef.current = true; handleInputFocus(e); }}
+            onBlur={() => { inputFocusedRef.current = false; setTimeout(() => { setShowRecent(false); setSuggestions([]); }, 200); }}
             placeholder={q ? "" : PLACEHOLDERS[placeholderIdx]}
             className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
             autoComplete="off"
