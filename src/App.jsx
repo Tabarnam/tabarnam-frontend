@@ -15,6 +15,7 @@ import AdminPanel from "@pages/AdminPanel";
 import CompanyDashboard from "@pages/CompanyDashboard";
 import AdminImport from "@pages/AdminImport";
 import AdminLogoReview from "@pages/AdminLogoReview";
+import AdminSearchEdit from "@pages/AdminSearchEdit";
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
 import Login from "@pages/Login";
@@ -136,6 +137,14 @@ export default function App() {
                 element={
                   <AdminRoute>
                     <AdminLogoReview />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/search-edit"
+                element={
+                  <AdminRoute>
+                    <AdminSearchEdit />
                   </AdminRoute>
                 }
               />

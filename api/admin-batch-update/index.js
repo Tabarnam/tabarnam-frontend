@@ -75,10 +75,12 @@ async function adminBatchUpdateHandler(req, context) {
       return json({ error: "Invalid JSON" }, 400);
     }
 
-    const { field, value, companyIds, actor } = body;
-    if (!field || !value || !Array.isArray(companyIds) || companyIds.length === 0) {
+    const { field, value, companyIds, actor, operation } = body;
+    if (!field || value === undefined || !Array.isArray(companyIds) || companyIds.length === 0) {
       return json({ error: "field, value, and companyIds required" }, 400);
     }
+
+    const op = String(operation || "set").trim();
 
     let updated = 0;
     const now = new Date().toISOString();
@@ -96,7 +98,25 @@ async function adminBatchUpdateHandler(req, context) {
         if (resources && resources.length > 0) {
           const existing = resources[0];
           const oldValue = existing[field];
-          existing[field] = field === "star_rating" ? Number(value) : value;
+
+          if (op === "remove_from_array") {
+            // Remove a value from an array field (case-insensitive match)
+            if (Array.isArray(existing[field])) {
+              const valLower = String(value).toLowerCase();
+              existing[field] = existing[field].filter((item) => String(item).toLowerCase() !== valLower);
+            }
+          } else if (op === "add_to_array") {
+            // Add a value to an array field (skip if already present, case-insensitive)
+            if (!Array.isArray(existing[field])) existing[field] = [];
+            const valLower = String(value).toLowerCase();
+            if (!existing[field].some((item) => String(item).toLowerCase() === valLower)) {
+              existing[field].push(value);
+            }
+          } else {
+            // Default: set the field to the value
+            existing[field] = field === "star_rating" ? Number(value) : value;
+          }
+
           existing.updated_at = now;
 
           const partitionKeyValue = String(existing.normalized_domain || "unknown").trim();
@@ -107,7 +127,7 @@ async function adminBatchUpdateHandler(req, context) {
               id: `undo_batch_${id}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
               company_id: id,
               action_type: "update",
-              description: `Batch update: ${field} = ${value}`,
+              description: op === "remove_from_array" ? `Batch remove "${value}" from ${field}` : op === "add_to_array" ? `Batch add "${value}" to ${field}` : `Batch update: ${field} = ${value}`,
               changed_fields: [field],
               old_doc: { ...existing, [field]: oldValue },
               new_doc: existing,
