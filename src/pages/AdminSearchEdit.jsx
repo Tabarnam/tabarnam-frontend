@@ -30,23 +30,11 @@ export default function AdminSearchEdit() {
     (async () => {
       setLoading(true);
       try {
-        // Load ALL companies by paginating through the API
-        const allItems = [];
-        let skip = 0;
-        const pageSize = 500;
-        let hasMore = true;
-
-        while (hasMore) {
-          const res = await apiFetch(`/xadmin-api-companies?take=${pageSize}&skip=${skip}`);
-          const data = await readJsonOrText(res);
-          const items = Array.isArray(data) ? data : data?.items || data?.companies || [];
-          allItems.push(...items);
-          skip += pageSize;
-          // Stop if we got fewer items than requested (last page)
-          hasMore = items.length >= pageSize;
-        }
-
-        setCompanies(allItems);
+        // Load all companies in a single request (API doesn't support skip/offset)
+        const res = await apiFetch("/xadmin-api-companies?take=10000");
+        const data = await readJsonOrText(res);
+        const items = Array.isArray(data) ? data : data?.items || data?.companies || [];
+        setCompanies(items);
       } catch (e) {
         console.error("Failed to load companies:", e);
       } finally {
