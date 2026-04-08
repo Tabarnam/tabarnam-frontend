@@ -19,6 +19,7 @@ export default function AdminSearchEdit() {
   const [companies, setCompanies] = useState([]);
   const [results, setResults] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [sortBy, setSortBy] = useState("updated_at"); // "name" | "updated_at"
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [actionInProgress, setActionInProgress] = useState(false);
@@ -82,13 +83,18 @@ export default function AdminSearchEdit() {
           id: company.id,
           company_name: company.company_name || company.name || "(unnamed)",
           domain: company.normalized_domain || company.domain || "",
+          updated_at: company.updated_at || "",
           matchedFields,
           company,
         });
       }
     }
 
-    matched.sort((a, b) => a.company_name.localeCompare(b.company_name));
+    if (sortBy === "updated_at") {
+      matched.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+    } else {
+      matched.sort((a, b) => a.company_name.localeCompare(b.company_name));
+    }
     setResults(matched);
     setSelectedIds(new Set(matched.map((r) => r.id)));
     setSearching(false);
@@ -228,7 +234,26 @@ export default function AdminSearchEdit() {
               <span className="text-sm text-slate-600 dark:text-muted-foreground">
                 {results.length} companies found — {selectedIds.size} selected
               </span>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <select
+                  value={sortBy}
+                  onChange={(e) => {
+                    setSortBy(e.target.value);
+                    setResults((prev) => {
+                      const sorted = [...prev];
+                      if (e.target.value === "updated_at") {
+                        sorted.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+                      } else {
+                        sorted.sort((a, b) => a.company_name.localeCompare(b.company_name));
+                      }
+                      return sorted;
+                    });
+                  }}
+                  className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-2 py-1 text-xs text-slate-700 dark:text-foreground"
+                >
+                  <option value="updated_at">Sort: Last updated</option>
+                  <option value="name">Sort: Name A-Z</option>
+                </select>
                 <Button variant="ghost" size="sm" onClick={selectAll}>Select all</Button>
                 <Button variant="ghost" size="sm" onClick={deselectAll}>Deselect all</Button>
               </div>
@@ -251,6 +276,11 @@ export default function AdminSearchEdit() {
                   <div className="flex-1 min-w-0">
                     <span className="font-medium text-slate-800 dark:text-foreground">{r.company_name}</span>
                     <span className="ml-2 text-xs text-slate-500 dark:text-muted-foreground">{r.domain}</span>
+                    {r.updated_at && (
+                      <span className="ml-2 text-[10px] text-slate-400 dark:text-muted-foreground">
+                        {new Date(r.updated_at).toLocaleDateString()} {new Date(r.updated_at).toLocaleTimeString()}
+                      </span>
+                    )}
                   </div>
                   <div className="flex gap-1">
                     {r.matchedFields.map((f) => (
