@@ -1052,7 +1052,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         }
 
         // Also fetch logo separately (not part of unified prompt since it's visual)
-        if (getRemainingBudgetMs() > 15000) {
+        const wantLogo = !Array.isArray(fieldsToEnrich) || fieldsToEnrich.includes("logo") || fieldsToEnrich.includes("logo_url");
+        if (wantLogo && getRemainingBudgetMs() > 15000) {
           try {
             const logoResult = await fetchLogo({
               companyName,

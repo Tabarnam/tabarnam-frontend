@@ -1550,9 +1550,9 @@ export default function CompanyDashboard() {
 
   // Poll /refresh-status?company_id=X until enrichment completes or times out.
   const pollRefreshStatus = useCallback(
-    (companyId, startedAt) => {
-      const POLL_INTERVAL_MS = 5000;
-      const POLL_MAX_DURATION_MS = 540000; // 9 min — covers 8 min enrichment + 1 min save margin
+    (companyId, startedAt, maxDurationMs = 540000) => {
+      const POLL_INTERVAL_MS = 3000;
+      const POLL_MAX_DURATION_MS = maxDurationMs;
       const pollStartedAt = Date.now();
 
       const doPoll = async () => {
@@ -1670,10 +1670,16 @@ export default function CompanyDashboard() {
     setRefreshSelection({});
     setRefreshApplied(false);
 
+    // Scale timeout by field count: ~120s per field, min 120s, max 480s
+    const fieldCount = Array.isArray(fieldsToRefresh) && fieldsToRefresh.length > 0
+      ? fieldsToRefresh.length
+      : REFRESHABLE_FIELDS.length;
+    const timeoutMs = Math.min(480000, Math.max(120000, fieldCount * 120000));
+
     const requestPayload = {
       company_id: companyId,
-      timeout_ms: 480000,   // 8 min — async floating promise has full functionTimeout (10 min)
-      deadline_ms: 480000,
+      timeout_ms: timeoutMs,
+      deadline_ms: timeoutMs,
       async_mode: true,
       ...(Array.isArray(fieldsToRefresh) && fieldsToRefresh.length > 0
         ? { fields_to_refresh: fieldsToRefresh }
@@ -2076,7 +2082,7 @@ export default function CompanyDashboard() {
       // ── Async accepted response — start polling ──
       if (jsonBody?.ok === true && jsonBody?.status === "accepted" && jsonBody?.async === true) {
         toast.info("Refresh started — waiting for results…");
-        pollRefreshStatus(companyId, startedAt);
+        pollRefreshStatus(companyId, startedAt, timeoutMs + 60000);
         // Don't clear refreshLoading or refreshInFlightRef — polling will do that
         return;
       }
