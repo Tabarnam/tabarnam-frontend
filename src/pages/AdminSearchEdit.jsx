@@ -34,6 +34,8 @@ export default function AdminSearchEdit() {
         const data = await readJsonOrText(res);
         if (Array.isArray(data)) {
           setCompanies(data);
+        } else if (data?.items && Array.isArray(data.items)) {
+          setCompanies(data.items);
         } else if (data?.companies && Array.isArray(data.companies)) {
           setCompanies(data.companies);
         }
@@ -217,6 +219,9 @@ export default function AdminSearchEdit() {
 
         {/* Loading state */}
         {loading && <div className="text-sm text-slate-500">Loading companies...</div>}
+        {!loading && companies.length > 0 && results.length === 0 && !searchTerm && (
+          <div className="text-sm text-slate-500 dark:text-muted-foreground">{companies.length} companies loaded. Enter a search term above.</div>
+        )}
 
         {/* Last action feedback */}
         {lastAction && (
