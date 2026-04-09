@@ -583,6 +583,16 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   return { _nameMatchScore: nameScore, _keywordMatchScore: keywordScore, _relevanceScore: relevanceScore, _synonymOnly: synonymOnly };
 }
 
+// Coarse relevance tiers used by the "Highest rated" sort so that strong
+// matches (especially exact name matches) cannot be demoted by less-relevant
+// results that happen to have higher star ratings.
+function relevanceTier(score) {
+  if (score >= 90) return 0; // exact / near-exact name match
+  if (score >= 60) return 1; // strong name or keyword match
+  if (score >= 30) return 2; // moderate match
+  return 3;                  // weak match
+}
+
 // Helper to build search filter that handles both spaced and non-spaced queries
 // Uses both @q (from first term) and @q_compact to allow flexible matching
 function buildLegacySearchFilter() {
@@ -1912,9 +1922,21 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         deduped.sort((a, b) => (b._relevanceScore || 0) - (a._relevanceScore || 0));
       }
 
-      // Stars sort: sort by QQ score (highest rated first)
+      // Stars sort ("Highest rated"): when there's a query, anchor highly-relevant
+      // matches at the top (so an exact name match like "The Wellness Company" can't
+      // be demoted by a less-relevant company with slightly higher stars), then sort
+      // by star rating *within* each relevance tier. Without a query, pure stars sort.
       if (sort === "stars" && !sortField) {
-        deduped.sort((a, b) => getQQScoreLike(b) - getQQScoreLike(a));
+        if (q_norm) {
+          deduped.sort((a, b) => {
+            const tierA = relevanceTier(a._relevanceScore || 0);
+            const tierB = relevanceTier(b._relevanceScore || 0);
+            if (tierA !== tierB) return tierA - tierB;
+            return getQQScoreLike(b) - getQQScoreLike(a);
+          });
+        } else {
+          deduped.sort((a, b) => getQQScoreLike(b) - getQQScoreLike(a));
+        }
       }
 
       // countOnly mode: return just the total count, no items (used for async pagination info)
