@@ -1516,10 +1516,6 @@ export default function CompanyDashboard() {
       return;
     }
 
-    for (const w of warnings) {
-      toast.warning(w);
-    }
-
     if (companyNameLine) {
       toast.info(`Parsed fields for: ${companyNameLine}`);
     }
