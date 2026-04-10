@@ -1,12 +1,19 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <script>
       (function(){
         try {
           var t = localStorage.getItem('theme');
-          if (t === '"light"' || t === 'light') {
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var resolved = (t === '"dark"' || t === 'dark') ? 'dark'
+            : (t === '"light"' || t === 'light') ? 'light'
+            : prefersDark ? 'dark' : 'light';
+
+          if (resolved === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else {
             document.documentElement.classList.remove('dark');
           }
         } catch(e){}
