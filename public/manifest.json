@@ -1,0 +1,41 @@
+{
+  "background_color": "#07141b",
+  "description": "Search brands and products to see where they are made, compare manufacturing and HQ locations, and review sourcing context.",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "Tabarnam",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "Ttabarnam",
+  "start_url": "/",
+  "theme_color": "#07141b",
+  "icons": [
+    {
+      "src": "https://tabarnam.com/tabarnam-icon.png",
+      "type": "image/png",
+      "sizes": "830x1125",
+      "isSquare": false,
+      "isPng": true,
+      "isWebp": false,
+      "isJpg": false,
+      "width": 830,
+      "is512x512": false,
+      "is256x256": false,
+      "is192x192": false
+    },
+    {
+      "src": "https://tabarnam.com/tabarnam.png",
+      "type": "image/png",
+      "sizes": "3600x1634",
+      "isSquare": false,
+      "isPng": true,
+      "isWebp": false,
+      "isJpg": false,
+      "width": 3600,
+      "is512x512": false,
+      "is256x256": false,
+      "is192x192": false
+    }
+  ],
+  "id": "/"
+}
