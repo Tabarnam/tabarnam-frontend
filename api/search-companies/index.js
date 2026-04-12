@@ -430,7 +430,8 @@ const PRODUCT_INDUSTRY_AFFINITY = {
   bedding: ["Home goods"], sheets: ["Home goods"], linens: ["Home goods"],
   towel: ["Home goods"], towels: ["Home goods"], blanket: ["Home goods"],
   pillow: ["Home goods"], cushion: ["Home goods"], rug: ["Home goods"],
-  carpet: ["Home goods"], mat: ["Home goods"], candle: ["Home goods"],
+  carpet: ["Home goods"], mat: ["Home goods"],
+  candle: ["Home goods", "Candles"], candles: ["Home goods", "Candles"],
   furniture: ["Home goods"], sofa: ["Home goods"], couch: ["Home goods"],
   chair: ["Home goods"], table: ["Home goods"], mattress: ["Home goods"],
   lamp: ["Home goods"], decor: ["Home goods"],
@@ -551,7 +552,7 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   // Industry exact match bonus: company categorized under the search term
   const industries = normalizeStringArray(company.industries).map((s) => asString(s).toLowerCase().trim());
   const qLower = (q_norm || "").toLowerCase().trim();
-  const industryBonus = qLower && industries.some((ind) => ind === qLower) ? 15 : 0;
+  const industryBonus = qLower && industries.some((ind) => ind === qLower) ? 30 : 0;
 
   // Industry-affinity bonus: when the search term maps to a product category
   // (e.g., "hoodie" → Apparel), companies in that industry get a significant boost.
