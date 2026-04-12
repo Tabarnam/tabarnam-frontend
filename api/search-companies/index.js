@@ -129,6 +129,48 @@ function calculateTotalScore(rating) {
   return clamp(total, 0, 5);
 }
 
+// Haversine distance in kilometres between two lat/lng points.
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const R = 6371; // Earth radius in km
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Extract {lat,lng} from various object shapes (geocode results, location records, etc.)
+function extractLatLng(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const lat = toFiniteNumber(obj.lat ?? obj.latitude);
+  const lng = toFiniteNumber(obj.lng ?? obj.lon ?? obj.longitude);
+  if (lat != null && lng != null) return { lat, lng };
+  if (obj.location && typeof obj.location === "object") {
+    const locLat = toFiniteNumber(obj.location.lat ?? obj.location.latitude);
+    const locLng = toFiniteNumber(obj.location.lng ?? obj.location.lon ?? obj.location.longitude);
+    if (locLat != null && locLng != null) return { lat: locLat, lng: locLng };
+  }
+  return null;
+}
+
+// Find the nearest manufacturing location distance (in km) for a company.
+// Returns Infinity if no manufacturing geocodes are available.
+function nearestManuDistKm(company, userLat, userLng) {
+  const geos = Array.isArray(company.manufacturing_geocodes) && company.manufacturing_geocodes.length
+    ? company.manufacturing_geocodes
+    : Array.isArray(company.manufacturing_locations) ? company.manufacturing_locations : [];
+  let best = Infinity;
+  for (const g of geos) {
+    const coords = typeof g === "object" ? extractLatLng(g) : null;
+    if (!coords) continue;
+    const d = haversineKm(userLat, userLng, coords.lat, coords.lng);
+    if (Number.isFinite(d) && d < best) best = d;
+  }
+  return best;
+}
+
 function getQQScoreLike(company) {
   if (!company) return 0;
 
@@ -1481,7 +1523,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   // will discard most results — fetch up to 500 (same cap as countOnly).
   const hasLocationFilter = !!(country || state || city || hqCountry || mfgCountry);
   const isLocationOnly = hasLocationFilter && !q_norm;
-  const limit = countOnly ? 500 : isLocationOnly ? 500 : clamp(skip + take + 1, 1, 501);
+  // For manufacturing proximity sort with user coordinates, fetch extra candidates
+  // so distance-based sorting can find the truly nearest companies (not just the
+  // most recently updated ones from Cosmos ORDER BY _ts DESC).
+  const needsManuProximity = sort === "manu" && user_location;
+  const limit = countOnly ? 500 : isLocationOnly ? 500 : needsManuProximity ? Math.max(clamp(skip + take + 1, 1, 501), 200) : clamp(skip + take + 1, 1, 501);
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
 
@@ -1938,6 +1984,24 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         } else {
           deduped.sort((a, b) => getQQScoreLike(b) - getQQScoreLike(a));
         }
+      }
+
+      // Manufacturing proximity sort: when user coordinates are available, sort by
+      // nearest manufacturing distance so the closest factories appear first.
+      // Companies without geocoded manufacturing locations sink to the bottom.
+      if (sort === "manu" && !sortField && user_location) {
+        for (const c of deduped) {
+          c._nearestManuDistKm = nearestManuDistKm(c, user_location.lat, user_location.lng);
+        }
+        deduped.sort((a, b) => {
+          const hasManuA = Array.isArray(a.manufacturing_locations) && a.manufacturing_locations.length > 0;
+          const hasManuB = Array.isArray(b.manufacturing_locations) && b.manufacturing_locations.length > 0;
+          // Companies with manufacturing always above those without
+          if (hasManuA && !hasManuB) return -1;
+          if (!hasManuA && hasManuB) return 1;
+          // Both have manufacturing: sort by nearest distance
+          return (a._nearestManuDistKm || Infinity) - (b._nearestManuDistKm || Infinity);
+        });
       }
 
       // countOnly mode: return just the total count, no items (used for async pagination info)

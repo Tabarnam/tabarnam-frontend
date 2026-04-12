@@ -452,7 +452,13 @@ export default function ResultsPage() {
         setUserLoc({ lat: effectiveLocation.lat, lng: effectiveLocation.lng });
       }
 
-      const commonOpts = { q, sort, country, state, city, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
+      // Don't pass postal codes as city text filters — the backend tries to match
+      // "91750" against location strings like "Santa Ana, CA" which always fails.
+      // The geocoded coordinates (set by the caller) already handle distance calculations.
+      const looksLikePostal = city && /^\d{3,10}(-\d{1,4})?$|^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i.test(city.trim());
+      const cityFilter = looksLikePostal ? "" : city;
+
+      const commonOpts = { q, sort, country, state, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
 
       // Fire quick (Pass 1 only) and full search in parallel
       const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;
