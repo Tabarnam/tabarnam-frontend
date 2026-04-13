@@ -2387,8 +2387,8 @@ export default function CompanyDashboard() {
       const rating = normalizeRating(draftForSave.rating);
 
       // Auto-populate Mfg (star1) and HQ (star2) based on location presence
-      rating.star1 = { ...(rating.star1 || {}), value: (manuLocations.length > 0 || draftForSave.limited_manufacturing || draftForSave.unknown_manufacturing) ? 1.0 : 0.0 };
-      rating.star2 = { ...(rating.star2 || {}), value: (hqLocations.length > 0 || draftForSave.unknown_hq) ? 1.0 : 0.0 };
+      rating.star1 = { ...(rating.star1 || {}), value: (manuLocations.length > 0 || draftForSave.limited_manufacturing || draftForSave.unknown_manufacturing) ? 0.5 : 0.0 };
+      rating.star2 = { ...(rating.star2 || {}), value: (hqLocations.length > 0 || draftForSave.unknown_hq) ? 0.5 : 0.0 };
 
       const notes_entries = normalizeCompanyNotes(draftForSave.notes_entries);
       const location_sources = normalizeLocationSources(draftForSave.location_sources);
@@ -4680,7 +4680,7 @@ export default function CompanyDashboard() {
                               const updated = { ...(d || {}), headquarters_locations: next };
                               const hqList = normalizeStructuredLocationList(next);
                               const curRating = normalizeRating(d?.rating);
-                              updated.rating = { ...curRating, star2: { ...(curRating.star2 || {}), value: (hqList.length > 0 || d?.unknown_hq) ? 1.0 : 0.0 } };
+                              updated.rating = { ...curRating, star2: { ...(curRating.star2 || {}), value: (hqList.length > 0 || d?.unknown_hq) ? 0.5 : 0.0 } };
                               return updated;
                             })}
                             LocationStatusBadge={LocationStatusBadge}
@@ -4710,7 +4710,7 @@ export default function CompanyDashboard() {
                               const updated = { ...(d || {}), manufacturing_locations: next };
                               const mfgList = normalizeStructuredLocationList(next);
                               const curRating = normalizeRating(d?.rating);
-                              updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: (mfgList.length > 0 || d?.limited_manufacturing) ? 1.0 : 0.0 } };
+                              updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: (mfgList.length > 0 || d?.limited_manufacturing) ? 0.5 : 0.0 } };
                               return updated;
                             })}
                             LocationStatusBadge={LocationStatusBadge}
