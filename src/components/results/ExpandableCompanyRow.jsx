@@ -590,7 +590,7 @@ export default function ExpandableCompanyRow({
             <ChevronUp className="h-5 w-5" />
           </button>
         </div>
-        <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 mb-6 pb-6 border-b">
+        <div className={`grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 ${(company.rating?.star4?.reasoning || company.rating?.star5?.reasoning) ? "mb-0 pb-2" : "mb-6 pb-6 border-b"}`}>
           <div className="col-span-4 lg:col-span-1">
             <h2 className="font-bold text-lg text-foreground flex items-center gap-1">
               {websiteUrl ? (
@@ -730,26 +730,27 @@ export default function ExpandableCompanyRow({
             </div>
           ))}
 
-          {/* Reputation & Quality reasoning — spans the right 3 columns */}
-          {(company.rating?.star4?.reasoning || company.rating?.star5?.reasoning) && (
-            <div className="col-span-6 lg:col-start-3 lg:col-span-3 mt-2">
-              <div className="grid grid-cols-2 gap-4">
-                {company.rating?.star4?.reasoning && (
-                  <div className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">Reputation</span>
-                    <p className="mt-0.5 leading-relaxed">{company.rating.star4.reasoning}</p>
-                  </div>
-                )}
-                {company.rating?.star5?.reasoning && (
-                  <div className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">Quality</span>
-                    <p className="mt-0.5 leading-relaxed">{company.rating.star5.reasoning}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* Reputation & Quality reasoning — aligned under the right 3 columns */}
+        {(company.rating?.star4?.reasoning || company.rating?.star5?.reasoning) && (
+          <div className="lg:ml-[40%] lg:pl-3 mt-1 mb-6 pb-4 border-b">
+            <div className="grid grid-cols-2 gap-4">
+              {company.rating?.star4?.reasoning && (
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Reputation</span>
+                  <p className="mt-0.5 leading-relaxed">{company.rating.star4.reasoning}</p>
+                </div>
+              )}
+              {company.rating?.star5?.reasoning && (
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Quality</span>
+                  <p className="mt-0.5 leading-relaxed">{company.rating.star5.reasoning}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mt-2 px-2 sm:px-4 keywordsRow">
           <div className="text-sm font-semibold text-foreground">Keywords</div>
