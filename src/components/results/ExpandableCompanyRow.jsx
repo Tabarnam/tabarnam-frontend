@@ -729,6 +729,28 @@ export default function ExpandableCompanyRow({
               {renderRightColumn(colKey)}
             </div>
           ))}
+
+          {/* Reputation & Quality reasoning — spans the right 3 columns */}
+          {(company.rating?.star4?.reasoning || company.rating?.star5?.reasoning) && (
+            <div className="col-span-6 lg:col-start-3 lg:col-span-3 pt-2 mt-1 border-t border-border/30">
+              <div className="grid grid-cols-2 gap-4">
+                {company.rating?.star4?.reasoning && (
+                  <div className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Reputation</span>{" "}
+                    <span className="text-primary">{(company.rating.star4.value ?? 0).toFixed(2)}</span>
+                    <p className="mt-0.5 leading-relaxed">{company.rating.star4.reasoning}</p>
+                  </div>
+                )}
+                {company.rating?.star5?.reasoning && (
+                  <div className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Quality</span>{" "}
+                    <span className="text-primary">{(company.rating.star5.value ?? 0).toFixed(2)}</span>
+                    <p className="mt-0.5 leading-relaxed">{company.rating.star5.reasoning}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-2 px-2 sm:px-4 keywordsRow">
