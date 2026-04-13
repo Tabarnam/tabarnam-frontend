@@ -20,6 +20,7 @@ const STARS = [
 
 export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
   const [expandedStar, setExpandedStar] = useState(null);
+  const [editingText, setEditingText] = useState({});
 
   const rating = normalizeRating(draft?.rating);
   const auto = calculateInitialRating(computeAutoRatingInput(draft));
@@ -155,11 +156,26 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
 
                 {/* Value input */}
                 <Input
-                  value={String(currentValue)}
+                  value={editingText[starKey] != null ? editingText[starKey] : String(currentValue)}
                   inputMode="decimal"
                   className="w-14 h-7 text-xs text-center flex-none"
                   onChange={(e) => {
-                    setStarValue(starKey, clampStarValue(Number(e.target.value)));
+                    setEditingText((prev) => ({ ...prev, [starKey]: e.target.value }));
+                  }}
+                  onFocus={() => {
+                    setEditingText((prev) => ({ ...prev, [starKey]: String(currentValue) }));
+                  }}
+                  onBlur={() => {
+                    const raw = editingText[starKey];
+                    if (raw != null) {
+                      setStarValue(starKey, clampStarValue(Number(raw)));
+                    }
+                    setEditingText((prev) => { const next = { ...prev }; delete next[starKey]; return next; });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.target.blur();
+                    }
                   }}
                 />
 
