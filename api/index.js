@@ -537,6 +537,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-score-company");
+  require("./admin-score-company/index.js");
+  console.log("[api] ✓ admin-score-company registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-score-company:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-reviews");
   require("./admin-reviews/index.js");
   console.log("[api] ✓ admin-reviews registered");
