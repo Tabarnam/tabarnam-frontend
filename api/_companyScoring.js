@@ -167,8 +167,10 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
       return { ok: false, reason: errMsg, ...(debug ? { _debug_prompt: userPrompt } : {}) };
     }
 
-    // Extract text from response
-    const responseText = extractTextFromXaiResponse(result);
+    // Extract text from response — streaming returns { ok, resp: { output: [...] } }
+    // extractTextFromXaiResponse expects the inner response object, not the wrapper
+    const responseObj = result.resp && typeof result.resp === "object" ? result.resp : result;
+    const responseText = extractTextFromXaiResponse(responseObj);
     console.log(`[scoring] Raw response for ${companyDoc.company_name}: ${(responseText || "(empty)").substring(0, 300)}`);
 
     if (!responseText) {
