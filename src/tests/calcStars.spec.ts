@@ -4,15 +4,15 @@ import { describe, it, expect } from "vitest";
 import { calcStars, buildTooltipLines } from "../lib/stars/calcStars";
 
 describe("calcStars", () => {
-  it("awards all three auto points when eligible", () => {
+  it("awards all three auto points when eligible (0.5+0.5+1=2)", () => {
     const res = calcStars({
       hqEligible: true,
       manufacturingEligible: true,
       approvedUserReviews: 1,
       approvedEditorialReviews: 0,
     });
-    expect(res.autoSubtotal).toBe(3);
-    expect(res.final).toBe(3);
+    expect(res.autoSubtotal).toBe(2);
+    expect(res.final).toBe(2);
     expect(res.reasons).toContain("hq");
     expect(res.reasons).toContain("manufacturing");
     expect(res.reasons).toContain("review");
@@ -25,7 +25,7 @@ describe("calcStars", () => {
       approvedUserReviews: 2,
       overrides: { review: "suppress" },
     });
-    expect(res.autoSubtotal).toBe(2); // review removed
+    expect(res.autoSubtotal).toBe(1); // review removed, 0.5+0.5=1
     expect(res.reasons).not.toContain("review");
   });
 
@@ -41,16 +41,16 @@ describe("calcStars", () => {
     expect(res.reasons).toContain("review");
   });
 
-  it("caps manualExtra at 2 and final at 5", () => {
+  it("caps manualExtra at 2 and final at 4", () => {
     const res = calcStars({
       hqEligible: true,
       manufacturingEligible: true,
       approvedUserReviews: 1,
       manualExtra: 10, // clamp to 2
     });
-    expect(res.autoSubtotal).toBe(3);
+    expect(res.autoSubtotal).toBe(2);
     expect(res.manualExtra).toBe(2);
-    expect(res.final).toBe(5);
+    expect(res.final).toBe(4);
   });
 
   it("clamps negative manualExtra to 0", () => {
@@ -61,7 +61,7 @@ describe("calcStars", () => {
       manualExtra: -1,
     });
     expect(res.manualExtra).toBe(0);
-    expect(res.final).toBe(1);
+    expect(res.final).toBe(0.5);
   });
 
   it("resolves missing overrides to nulls", () => {

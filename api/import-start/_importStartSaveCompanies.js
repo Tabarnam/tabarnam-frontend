@@ -761,8 +761,8 @@ async function saveCompaniesToCosmos({
               hasCuratedReviews;
 
             const defaultRatingWithReviews = {
-              star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
-              star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
+              star1: { value: hasManufacturingLocations ? 0.5 : 0.0, notes: [] },
+              star2: { value: hasHeadquarters ? 0.5 : 0.0, notes: [] },
               star3: { value: hasEditorialReviews ? 1.0 : 0.0, notes: [] },
               star4: { value: 0.0, notes: [] },
               star5: { value: 0.0, notes: [] },

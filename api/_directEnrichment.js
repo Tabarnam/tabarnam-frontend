@@ -593,8 +593,8 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
   });
 
   // ── Auto-populate stars from enriched data ──
-  // Star1 (MFG): 1.0 if manufacturing_locations present
-  // Star2 (HQ): 1.0 if headquarters_location present
+  // Star1 (MFG): 0.5 if manufacturing_locations present
+  // Star2 (HQ): 0.5 if headquarters_location present
   // Star3 (Reviews): via resolveReviewsStarState (existing pattern)
   const hasManufacturing = Array.isArray(updated.manufacturing_locations) && updated.manufacturing_locations.length > 0;
   const hasHeadquarters = !!(updated.headquarters_location && String(updated.headquarters_location).trim());
@@ -605,8 +605,8 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
 
   updated.rating = {
     ...existingRating,
-    star1: { ...existingStar1, value: hasManufacturing ? 1.0 : existingStar1.value },
-    star2: { ...existingStar2, value: hasHeadquarters ? 1.0 : existingStar2.value },
+    star1: { ...existingStar1, value: hasManufacturing ? 0.5 : existingStar1.value },
+    star2: { ...existingStar2, value: hasHeadquarters ? 0.5 : existingStar2.value },
   };
 
   const reviewsStarState = resolveReviewsStarState(updated);

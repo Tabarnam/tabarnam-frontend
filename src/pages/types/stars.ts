@@ -29,7 +29,7 @@ export interface StarSignals {
 }
 
 export interface StarBundle {
-  autoSubtotal: number;        // 0..3 (HQ + Manufacturing + Review after overrides)
+  autoSubtotal: number;        // 0..2 (HQ 0.5 + Manufacturing 0.5 + Review 1.0 after overrides)
   manualExtra: number;         // 0..2 (admin)
   final: number;               // 0..5 (capped)
   reasons: string[];           // ["hq","manufacturing","review", ...admin reason strings]

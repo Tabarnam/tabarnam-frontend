@@ -36,24 +36,30 @@ function getCompaniesContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-function calculateBinaryStars(company, minReviews = 3, reviewThreshold = 4) {
+function calculateAutoStars(company) {
   let stars = 0;
 
-  if (company.manufacturing_locations && company.manufacturing_locations.length > 0) {
-    const hasHQ = company.manufacturing_locations.some(loc => loc.is_hq === true);
-    if (hasHQ) stars += 1;
-  }
+  // HQ: 0.5 stars if any HQ location exists
+  const hasHQ =
+    (Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.some(loc => loc.is_hq === true)) ||
+    !!(company.headquarters_location && String(company.headquarters_location).trim());
+  if (hasHQ) stars += 0.5;
 
-  if (company.manufacturing_locations && company.manufacturing_locations.length > 0) {
-    const hasNonHQ = company.manufacturing_locations.some(loc => loc.is_hq !== true);
-    if (hasNonHQ) stars += 1;
-  }
+  // Manufacturing: 0.5 stars if any manufacturing location exists
+  const hasManufacturing =
+    Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
+  if (hasManufacturing) stars += 0.5;
 
-  if (company.review_count >= minReviews && company.avg_rating >= reviewThreshold) {
-    stars += 1;
-  }
+  // Reviews: 1 star if any reviews exist
+  const hasReviews =
+    (company.review_count || 0) >= 1 ||
+    (company.editorial_review_count || 0) >= 1 ||
+    (company.review_count_approved || 0) >= 1 ||
+    (Array.isArray(company.curated_reviews) && company.curated_reviews.length > 0) ||
+    (Array.isArray(company.reviews) && company.reviews.length > 0);
+  if (hasReviews) stars += 1;
 
-  return Math.min(3, Math.max(0, stars));
+  return Math.min(2, Math.max(0, stars));
 }
 
 async function adminRecalcStarsHandler(req, context) {
@@ -79,11 +85,41 @@ async function adminRecalcStarsHandler(req, context) {
     let updated = 0;
 
     for (const company of companies) {
-      const binaryStars = calculateBinaryStars(company, 3, 4);
-      if (company.auto_star_rating !== binaryStars) {
-        company.auto_star_rating = binaryStars;
-        if (!company.star_rating || company.star_rating <= binaryStars) {
-          company.star_rating = binaryStars;
+      const autoStars = calculateAutoStars(company);
+
+      // Recalculate the rating object with new weights
+      const hasManufacturing =
+        Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
+      const hasHQ =
+        (Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.some(loc => loc.is_hq === true)) ||
+        !!(company.headquarters_location && String(company.headquarters_location).trim());
+      const hasReviews =
+        (company.review_count || 0) >= 1 ||
+        (company.editorial_review_count || 0) >= 1 ||
+        (company.review_count_approved || 0) >= 1 ||
+        (Array.isArray(company.curated_reviews) && company.curated_reviews.length > 0) ||
+        (Array.isArray(company.reviews) && company.reviews.length > 0);
+
+      const existingRating = company.rating && typeof company.rating === "object" ? company.rating : {};
+      const star1 = existingRating.star1 && typeof existingRating.star1 === "object" ? existingRating.star1 : { value: 0, notes: [] };
+      const star2 = existingRating.star2 && typeof existingRating.star2 === "object" ? existingRating.star2 : { value: 0, notes: [] };
+      const star3 = existingRating.star3 && typeof existingRating.star3 === "object" ? existingRating.star3 : { value: 0, notes: [] };
+
+      const newRating = {
+        ...existingRating,
+        star1: { ...star1, value: hasManufacturing ? 0.5 : 0.0 },
+        star2: { ...star2, value: hasHQ ? 0.5 : 0.0 },
+        star3: { ...star3, value: hasReviews ? 1.0 : star3.value },
+      };
+
+      const ratingChanged = JSON.stringify(company.rating) !== JSON.stringify(newRating);
+      const starsChanged = company.auto_star_rating !== autoStars;
+
+      if (ratingChanged || starsChanged) {
+        company.rating = newRating;
+        company.auto_star_rating = autoStars;
+        if (!company.star_rating || company.star_rating <= autoStars) {
+          company.star_rating = autoStars;
         }
         company.updated_at = new Date().toISOString();
 

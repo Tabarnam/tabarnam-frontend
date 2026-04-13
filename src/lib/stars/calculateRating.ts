@@ -9,19 +9,19 @@ export interface StarCalculationInput {
 /**
  * Calculate initial rating values based on company data.
  * This implements the explicit business rules:
- * - Star 1: 1.0 if manufacturing locations exist, else 0.0
- * - Star 2: 1.0 if headquarters location exists, else 0.0
+ * - Star 1: 0.5 if manufacturing locations exist, else 0.0
+ * - Star 2: 0.5 if headquarters location exists, else 0.0
  * - Star 3: 1.0 if reviews exist, else 0.0
  * - Stars 4-5: Default to 0.0 (manual admin adjustment only)
  */
 export function calculateInitialRating(input: StarCalculationInput): CompanyRating {
   return {
     star1: {
-      value: input.hasManufacturingLocations ? 1.0 : 0.0,
+      value: input.hasManufacturingLocations ? 0.5 : 0.0,
       notes: [],
     },
     star2: {
-      value: input.hasHeadquarters ? 1.0 : 0.0,
+      value: input.hasHeadquarters ? 0.5 : 0.0,
       notes: [],
     },
     star3: {

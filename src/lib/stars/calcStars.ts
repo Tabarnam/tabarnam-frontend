@@ -10,19 +10,15 @@ function resolveOverride(value: StarOverrideMode | undefined | null): StarOverri
   return value === "suppress" || value === "force" ? value : null;
 }
 
-function boolToPoint(value: boolean): 0 | 1 {
-  return value ? 1 : 0;
-}
-
-function applyOverride(base: boolean, mode: StarOverrideMode): 0 | 1 {
+function applyOverride(base: boolean, mode: StarOverrideMode, weight: number): number {
   if (mode === "suppress") return 0;
-  if (mode === "force") return 1;
-  return boolToPoint(base);
+  if (mode === "force") return weight;
+  return base ? weight : 0;
 }
 
 /**
  * Calculates Tabarnam stars according to the confirmed product rules:
- * - Auto subtotal up to 3 points: HQ (0/1), Manufacturing (0/1), Review (0/1)
+ * - Auto subtotal up to 2 points: HQ (0/0.5), Manufacturing (0/0.5), Review (0/1)
  * - Admin overrides can force/suppress each auto point without deleting data
  * - Any stars above 3 are manually awarded (manualExtra 0..2)
  * - Final score is capped at 5
@@ -49,15 +45,16 @@ export function calcStars(signals: StarSignals): StarBundle {
   const reviewEligible =
     (approvedUserReviews || 0) + (approvedEditorialReviews || 0) >= 1;
 
-  // Apply overrides to each lane
-  const hqPoint = applyOverride(!!hqEligible, resolvedOverrides.hq);
+  // Apply overrides to each lane (HQ=0.5, Manufacturing=0.5, Review=1.0)
+  const hqPoint = applyOverride(!!hqEligible, resolvedOverrides.hq, 0.5);
   const manufacturingPoint = applyOverride(
     !!manufacturingEligible,
-    resolvedOverrides.manufacturing
+    resolvedOverrides.manufacturing,
+    0.5
   );
-  const reviewPoint = applyOverride(!!reviewEligible, resolvedOverrides.review);
+  const reviewPoint = applyOverride(!!reviewEligible, resolvedOverrides.review, 1);
 
-  const autoSubtotal = clamp(hqPoint + manufacturingPoint + reviewPoint, 0, 3);
+  const autoSubtotal = clamp(hqPoint + manufacturingPoint + reviewPoint, 0, 2);
 
   // Manual extra (admin): 0..2
   const manualExtra = clamp(Number(rawManualExtra ?? 0), 0, 2);
@@ -67,9 +64,9 @@ export function calcStars(signals: StarSignals): StarBundle {
 
   // Reasons: include lanes that contributed a point + any admin reasons from notes
   const reasons: string[] = [];
-  if (hqPoint === 1) reasons.push("hq");
-  if (manufacturingPoint === 1) reasons.push("manufacturing");
-  if (reviewPoint === 1) reasons.push("review");
+  if (hqPoint > 0) reasons.push("hq");
+  if (manufacturingPoint > 0) reasons.push("manufacturing");
+  if (reviewPoint > 0) reasons.push("review");
   // Add "admin: …" entries derived from any notes (public or private) to star_reasons array
   for (const n of notes || []) {
     if (n && typeof n.text === "string" && n.text.trim().length > 0) {
@@ -97,9 +94,9 @@ export function buildTooltipLines(
       (r: string) => r === "hq" || r === "manufacturing" || r === "review"
     )
   );
-  lines.push(`${awarded.has("hq") ? "✓" : "✗"} HQ`);
-  lines.push(`${awarded.has("manufacturing") ? "✓" : "✗"} Manufacturing`);
-  lines.push(`${awarded.has("review") ? "✓" : "✗"} Reviews`);
+  lines.push(`${awarded.has("hq") ? "✓" : "✗"} HQ (0.5★)`);
+  lines.push(`${awarded.has("manufacturing") ? "✓" : "✗"} Manufacturing (0.5★)`);
+  lines.push(`${awarded.has("review") ? "✓" : "✗"} Reviews (1★)`);
   // Only include public notes in tooltip (policy)
   for (const n of notes || []) {
     if (n?.public && n.text?.trim()) {

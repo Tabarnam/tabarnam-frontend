@@ -570,8 +570,8 @@ async function companiesListHandler(req, context) {
           (base.review_count_approved || 0) > 0;
 
         const defaultRating = {
-          star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
-          star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
+          star1: { value: hasManufacturingLocations ? 0.5 : 0.0, notes: [] },
+          star2: { value: hasHeadquarters ? 0.5 : 0.0, notes: [] },
           star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
           star4: { value: 0.0, notes: [] },
           star5: { value: 0.0, notes: [] },
