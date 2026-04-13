@@ -19,6 +19,7 @@ const { getXAIEndpoint, getXAIKey } = require("./_shared");
 const { sanitizeIndustries, sanitizeKeywords, isRealValue } = require("./_requiredFields");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("./_geocode");
 const { resolveReviewsStarState } = require("./_reviewsStarState");
+const { computeReputationQualityScores } = require("./_companyScoring");
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -613,6 +614,27 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
   updated.reviews_star_value = reviewsStarState.next_value;
   updated.reviews_star_source = reviewsStarState.next_source;
   updated.rating = reviewsStarState.next_rating;
+
+  // ── Auto-score reputation + quality (star4 + star5) ──
+  if (!(updated.rating?.star4?.value > 0)) {
+    try {
+      const scoringStart = Date.now();
+      const scoring = await computeReputationQualityScores(updated, {
+        timeoutMs: 60000,
+      });
+      if (scoring.ok) {
+        const existingStar4 = updated.rating?.star4 && typeof updated.rating.star4 === "object" ? updated.rating.star4 : { value: 0, notes: [] };
+        const existingStar5 = updated.rating?.star5 && typeof updated.rating.star5 === "object" ? updated.rating.star5 : { value: 0, notes: [] };
+        updated.rating.star4 = { ...existingStar4, value: scoring.reputation_score };
+        updated.rating.star5 = { ...existingStar5, value: scoring.quality_score };
+        console.log(`scoring_call: ${updated.company_name || updated.normalized_domain} duration=${((Date.now() - scoringStart) / 1000).toFixed(1)}s, star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}`);
+      } else {
+        console.warn(`[enrichment] auto-scoring returned not-ok for ${updated.company_name}: ${scoring.reason}`);
+      }
+    } catch (e) {
+      console.warn(`[enrichment] auto-scoring failed for ${updated.company_name}: ${e?.message || e}`);
+    }
+  }
 
   // Log final enrichment state for diagnostics
   console.log(`[enrichment_final_state] company="${updated.company_name || updated.name || "(unknown)"}" domain=${updated.normalized_domain || "(unknown)"}`, {
