@@ -50,8 +50,17 @@ function buildReviewsSummary(company) {
   const all = curated.length > 0 ? curated : raw;
 
   for (const r of all.slice(0, 5)) {
-    const text = asString(r.text || r.review_text || r.body || r.content || r.summary || "").trim();
-    if (text) reviews.push(text);
+    const parts = [];
+    const source = asString(r.source_name || r.source || "").trim();
+    const author = asString(r.author || "").trim();
+    const title = asString(r.title || "").trim();
+    const excerpt = asString(r.excerpt || r.text || r.review_text || r.body || r.content || r.summary || "").trim();
+    if (source) parts.push(`[${source}]`);
+    if (author) parts.push(`by ${author}`);
+    if (title) parts.push(title);
+    if (excerpt) parts.push(excerpt);
+    const combined = parts.join(" ").trim();
+    if (combined) reviews.push(combined);
   }
 
   return reviews.join(" | ").substring(0, REVIEWS_CHAR_LIMIT);
