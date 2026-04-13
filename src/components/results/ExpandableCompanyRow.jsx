@@ -472,12 +472,13 @@ export default function ExpandableCompanyRow({
 
       return (
         <div className="space-y-2">
-          <div className="flex items-center" title={`${score % 1 === 0 ? score : score.toFixed(1)}/5`}>
+          <div className="flex items-center gap-1.5" title={`${score % 1 === 0 ? score : score.toFixed(1)}/5`}>
             {iconType === "heart" ? (
               <RatingHearts value={score} size={18} />
             ) : (
               <RatingDots value={score} size={18} />
             )}
+            <span className="text-xs text-muted-foreground whitespace-nowrap">{score % 1 === 0 ? score : score.toFixed(1)}/5</span>
           </div>
 
           {showReviewPreview && (
