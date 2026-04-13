@@ -60,6 +60,7 @@ async function adminScoreCompanyHandler(req, context) {
     const companyId = String(body?.company_id || "").trim();
     const normalizedDomain = String(body?.normalized_domain || "").trim();
     const force = Boolean(body?.force);
+    const debug = Boolean(body?.debug);
 
     if (!companyId || !normalizedDomain) {
       return json({ error: "Missing company_id or normalized_domain" }, 400);
@@ -97,7 +98,7 @@ async function adminScoreCompanyHandler(req, context) {
 
     // Run scoring
     const startMs = Date.now();
-    const scoring = await computeReputationQualityScores(company, { timeoutMs: 60000 });
+    const scoring = await computeReputationQualityScores(company, { timeoutMs: 60000, debug });
     const durationMs = Date.now() - startMs;
 
     if (!scoring.ok) {
@@ -105,6 +106,7 @@ async function adminScoreCompanyHandler(req, context) {
         ok: false,
         reason: scoring.reason,
         duration_ms: durationMs,
+        ...(debug ? { _debug: { prompt: scoring._debug_prompt, response: scoring._debug_response } } : {}),
       }, 422);
     }
 
@@ -130,6 +132,7 @@ async function adminScoreCompanyHandler(req, context) {
       star5: scoring.quality_score,
       duration_ms: durationMs,
       company_name: company.company_name,
+      ...(debug ? { _debug: { prompt: scoring._debug_prompt, response: scoring._debug_response, parsed: scoring._debug_parsed } } : {}),
     });
 
   } catch (e) {

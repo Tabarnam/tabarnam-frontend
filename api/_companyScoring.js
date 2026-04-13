@@ -142,13 +142,15 @@ function buildUserPrompt(company) {
  * @param {number} [opts.timeoutMs=60000] - Timeout in ms
  * @returns {Promise<{ok: boolean, reputation_score?: number, quality_score?: number, reason?: string}>}
  */
-async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, timeoutMs = 60000 } = {}) {
+async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, timeoutMs = 60000, debug = false } = {}) {
   if (!companyDoc || !companyDoc.company_name) {
     return { ok: false, reason: "missing_company_data" };
   }
 
   const userPrompt = buildUserPrompt(companyDoc);
   const fullPrompt = `${SCORING_SYSTEM_PROMPT}\n\n---\n\n${userPrompt}`;
+
+  console.log(`[scoring] Prompt for ${companyDoc.company_name} (${userPrompt.length} chars):\n${userPrompt.substring(0, 500)}`);
 
   try {
     const result = await xaiLiveSearchStreaming({
@@ -162,31 +164,40 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
     if (!result || !result.ok) {
       const errMsg = result?.error || "xai_call_failed";
       console.warn(`[scoring] xAI call failed for ${companyDoc.company_name}: ${errMsg}`);
-      return { ok: false, reason: errMsg };
+      return { ok: false, reason: errMsg, ...(debug ? { _debug_prompt: userPrompt } : {}) };
     }
 
     // Extract text from response
     const responseText = extractTextFromXaiResponse(result);
+    console.log(`[scoring] Raw response for ${companyDoc.company_name}: ${(responseText || "(empty)").substring(0, 300)}`);
+
     if (!responseText) {
       console.warn(`[scoring] Empty response for ${companyDoc.company_name}`);
-      return { ok: false, reason: "empty_response" };
+      return { ok: false, reason: "empty_response", ...(debug ? { _debug_prompt: userPrompt } : {}) };
     }
 
     // Extract JSON from response text
     const parsed = extractJsonFromText(responseText);
     if (!parsed || typeof parsed !== "object") {
       console.warn(`[scoring] Failed to parse JSON for ${companyDoc.company_name}: ${responseText.substring(0, 200)}`);
-      return { ok: false, reason: "json_parse_failed" };
+      return { ok: false, reason: "json_parse_failed", ...(debug ? { _debug_prompt: userPrompt, _debug_response: responseText.substring(0, 500) } : {}) };
     }
 
     // Clamp scores to 0.0–1.0, default to 0 for NaN
     const reputation_score = Math.max(0.0, Math.min(1.0, parseFloat(parsed.reputation_score) || 0));
     const quality_score = Math.max(0.0, Math.min(1.0, parseFloat(parsed.quality_score) || 0));
 
-    return { ok: true, reputation_score, quality_score };
+    console.log(`[scoring] Parsed for ${companyDoc.company_name}: rep=${parsed.reputation_score} → ${reputation_score}, qual=${parsed.quality_score} → ${quality_score}`);
+
+    return {
+      ok: true,
+      reputation_score,
+      quality_score,
+      ...(debug ? { _debug_prompt: userPrompt, _debug_response: responseText.substring(0, 500), _debug_parsed: parsed } : {}),
+    };
   } catch (e) {
     console.warn(`[scoring] Exception for ${companyDoc.company_name}: ${e?.message || e}`);
-    return { ok: false, reason: asString(e?.message || "scoring_exception") };
+    return { ok: false, reason: asString(e?.message || "scoring_exception"), ...(debug ? { _debug_prompt: userPrompt } : {}) };
   }
 }
 
