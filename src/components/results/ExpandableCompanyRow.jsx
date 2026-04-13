@@ -472,7 +472,7 @@ export default function ExpandableCompanyRow({
 
       return (
         <div className="space-y-2">
-          <div className="flex items-center">
+          <div className="flex items-center" title={`${score % 1 === 0 ? score : score.toFixed(1)}/5`}>
             {iconType === "heart" ? (
               <RatingHearts value={score} size={18} />
             ) : (
