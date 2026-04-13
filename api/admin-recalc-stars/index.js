@@ -78,11 +78,16 @@ async function adminRecalcStarsHandler(req, context) {
   }
 
   try {
-    const { resources: companies } = await companiesContainer.items
-      .query({ query: "SELECT * FROM c WHERE NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false" })
-      .fetchAll();
-
     let updated = 0;
+    let total = 0;
+    const queryIterator = companiesContainer.items
+      .query({ query: "SELECT * FROM c WHERE NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false" });
+
+    // Process in pages to avoid memory/timeout issues
+    while (queryIterator.hasMoreResults()) {
+      const { resources: companies } = await queryIterator.fetchNext();
+      if (!companies || companies.length === 0) break;
+      total += companies.length;
 
     for (const company of companies) {
       const autoStars = calculateAutoStars(company);
@@ -129,10 +134,12 @@ async function adminRecalcStarsHandler(req, context) {
       }
     }
 
-    return json({ ok: true, updated }, 200);
+    } // end while pages
+
+    return json({ ok: true, updated, total }, 200);
   } catch (e) {
-    context.log("Error in admin-recalc-stars:", e?.message || e);
-    return json({ error: e?.message || "Internal error" }, 500);
+    context.log("Error in admin-recalc-stars:", e?.message || e, e?.stack || "");
+    return json({ error: e?.message || "Internal error", stack: e?.stack || "" }, 500);
   }
 }
 
