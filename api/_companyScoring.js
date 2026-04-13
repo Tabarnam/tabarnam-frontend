@@ -130,6 +130,46 @@ function buildUserPrompt(company) {
   return parts.join("\n");
 }
 
+// ── Reasoning generator (template-based, no AI) ───────────────────────
+
+/**
+ * Generate concise reasoning strings for reputation and quality scores.
+ * Pure templates based on score level + basic company facts. No keyword scanning.
+ * Each output is max ~250 chars, 1–2 sentences.
+ */
+function generateScoreReasoning(companyDoc, scores) {
+  const repScore = scores.reputation_score || 0;
+  const qualScore = scores.quality_score || 0;
+
+  const reviewCount =
+    (Array.isArray(companyDoc.curated_reviews) ? companyDoc.curated_reviews.length : 0) +
+    (Array.isArray(companyDoc.reviews) ? companyDoc.reviews.length : 0);
+
+  const industries = Array.isArray(companyDoc.industries) ? companyDoc.industries.slice(0, 3).join(", ") : "";
+  const mfgCount = Array.isArray(companyDoc.manufacturing_locations) ? companyDoc.manufacturing_locations.length : 0;
+  const hq = asString(companyDoc.headquarters_location).trim();
+
+  // Reputation reasoning
+  const repLabel = repScore >= 0.8 ? "Excellent" :
+                   repScore >= 0.6 ? "Strong" :
+                   repScore >= 0.4 ? "Mixed" : "Limited";
+  const reviewNote = reviewCount > 0 ? `${reviewCount} review${reviewCount !== 1 ? "s" : ""} analyzed` : "limited review data";
+  const reputation_reasoning = `Reputation: ${repLabel} customer sentiment based on ${reviewNote}.`;
+
+  // Quality reasoning
+  const qualLabel = qualScore >= 0.8 ? "Premium" :
+                    qualScore >= 0.6 ? "Above average" :
+                    qualScore >= 0.4 ? "Standard" : "Limited";
+  const industryNote = industries ? ` in ${industries}` : "";
+  const mfgNote = mfgCount > 0 && hq ? ` Manufactured in ${hq}.` : "";
+  const quality_reasoning = `Quality: ${qualLabel} product and materials${industryNote}.${mfgNote}`;
+
+  return {
+    reputation_reasoning: reputation_reasoning.substring(0, 250),
+    quality_reasoning: quality_reasoning.substring(0, 250),
+  };
+}
+
 // ── Main scoring function ──────────────────────────────────────────────
 
 /**
@@ -189,12 +229,17 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
     const reputation_score = Math.max(0.0, Math.min(1.0, parseFloat(parsed.reputation_score) || 0));
     const quality_score = Math.max(0.0, Math.min(1.0, parseFloat(parsed.quality_score) || 0));
 
+    // Generate template-based reasoning (no AI, deterministic)
+    const reasoning = generateScoreReasoning(companyDoc, { reputation_score, quality_score });
+
     console.log(`[scoring] Parsed for ${companyDoc.company_name}: rep=${parsed.reputation_score} → ${reputation_score}, qual=${parsed.quality_score} → ${quality_score}`);
 
     return {
       ok: true,
       reputation_score,
       quality_score,
+      reputation_reasoning: reasoning.reputation_reasoning,
+      quality_reasoning: reasoning.quality_reasoning,
       ...(debug ? { _debug_prompt: userPrompt, _debug_response: responseText.substring(0, 500), _debug_parsed: parsed } : {}),
     };
   } catch (e) {
