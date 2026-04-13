@@ -659,23 +659,6 @@ export default function ExpandableCompanyRow({
               </div>
             )}
 
-            <div className="text-sm font-semibold text-foreground mt-3">Industries</div>
-            <div className="text-sm text-muted-foreground mt-1 flex flex-wrap gap-1">
-              {Array.isArray(company.industries) &&
-                company.industries.map((ind, idx) => (
-                  <button
-                    key={idx}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onKeywordSearch(ind);
-                    }}
-                    className="text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    {ind}
-                    {idx < company.industries.length - 1 && ","}
-                  </button>
-                ))}
-            </div>
           </div>
 
           <div className="col-span-2 lg:col-span-1">
@@ -753,6 +736,31 @@ export default function ExpandableCompanyRow({
             )}
           </div>
         </div>
+
+        {Array.isArray(company.industries) && company.industries.length > 0 && (
+          <div className="mt-2 px-2 sm:px-4 keywordsRow">
+            <div className="text-sm font-semibold text-foreground">Industries</div>
+            <div className="mt-2 text-sm text-muted-foreground">
+              <ul className="keywordsCols">
+                {company.industries.map((ind, idx) => (
+                  <li key={`${ind}-${idx}`}>
+                    <a
+                      href="#"
+                      className="text-blue-600 dark:text-blue-400 hover:underline text-xs"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onKeywordSearch(ind);
+                      }}
+                    >
+                      {ind}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
 
         <div className="mt-2 px-2 sm:px-4 keywordsRow">
           <div className="text-sm font-semibold text-foreground">Keywords</div>
