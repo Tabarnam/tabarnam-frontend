@@ -578,9 +578,8 @@ export default function ExpandableCompanyRow({
         onClick={handleExpandedClick}
         className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-default relative"
       >
-        {/* Collapse chevron + share button row */}
-        <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
-          <ShareButton company={company} />
+        {/* Collapse chevron */}
+        <div className="absolute top-2 right-2 z-10">
           <button
             type="button"
             onClick={handleChevronClick}
@@ -593,7 +592,7 @@ export default function ExpandableCompanyRow({
         </div>
         <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 mb-6 pb-6 border-b">
           <div className="col-span-4 lg:col-span-1">
-            <h2 className="font-bold text-lg text-foreground">
+            <h2 className="font-bold text-lg text-foreground flex items-center gap-1">
               {websiteUrl ? (
                 <CompanyNameWithUrlTooltip
                   href={withAmazonAffiliate(websiteUrl)}
@@ -604,6 +603,7 @@ export default function ExpandableCompanyRow({
               ) : (
                 <span className="text-[1.2em] text-foreground">{displayName}</span>
               )}
+              <ShareButton company={company} />
             </h2>
             {company.tagline && (
               <div className="text-sm text-muted-foreground mt-1">{company.tagline}</div>
