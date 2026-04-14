@@ -359,7 +359,7 @@ function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId, on
           </div>
 
           <div className="border border-slate-200 dark:border-border rounded overflow-hidden">
-            <div className="grid grid-cols-[32px_1fr_180px_70px_70px_70px_120px] gap-2 bg-slate-50 dark:bg-muted px-2 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide items-center">
+            <div className="grid grid-cols-[32px_1fr_180px_70px_70px_70px_140px] gap-2 bg-slate-50 dark:bg-muted px-2 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide items-center">
               <div>
                 <input
                   type="checkbox"
@@ -382,7 +382,7 @@ function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId, on
                 return (
                   <div
                     key={c.id}
-                    className={`grid grid-cols-[32px_1fr_180px_70px_70px_70px_120px] gap-2 px-2 py-1.5 text-xs items-center ${
+                    className={`grid grid-cols-[32px_1fr_180px_70px_70px_70px_140px] gap-2 px-2 py-1.5 text-xs items-center ${
                       isSelected ? "bg-emerald-50/50 dark:bg-emerald-900/10" : "hover:bg-slate-50 dark:hover:bg-muted/50"
                     }`}
                   >
@@ -414,8 +414,8 @@ function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId, on
                     <div className="text-right tabular-nums text-foreground">{typeof c.star4 === "number" ? c.star4.toFixed(2) : "—"}</div>
                     <div className="text-right tabular-nums text-foreground">{typeof c.star5 === "number" ? c.star5.toFixed(2) : "—"}</div>
                     <div className="text-center"><StateBadge state={c.state} /></div>
-                    <div className="text-muted-foreground truncate">
-                      {c.updated_at ? new Date(c.updated_at).toISOString().slice(0, 10) : "—"}
+                    <div className="text-muted-foreground truncate tabular-nums">
+                      {c.updated_at ? new Date(c.updated_at).toISOString().slice(0, 16).replace("T", " ") : "—"}
                     </div>
                   </div>
                 );
