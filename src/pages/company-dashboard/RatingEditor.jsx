@@ -264,7 +264,6 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
                     className="w-full text-xs rounded border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-1 resize-vertical focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
                     rows={4}
                     maxLength={250}
-                    placeholder={"- BBB A+ accredited\n- 60-day warranty\n- Recycled ocean plastics"}
                     value={star.reasoning || ""}
                     onChange={(e) => setStar(starKey, { reasoning: e.target.value })}
                   />
