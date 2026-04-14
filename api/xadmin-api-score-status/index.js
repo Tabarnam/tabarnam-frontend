@@ -120,32 +120,22 @@ async function adminScoreStatusHandler(req, context) {
     let missingCompanies = null;
     let queryError = null;
 
-    // Count total companies (filter out internal docs like _import_, refresh_job_, import_control)
+    // Single query projecting star4.value — count scored in JS to avoid
+    // Cosmos type-coercion errors on heterogeneous rating fields (Cosmos AND
+    // doesn't guarantee short-circuit, so IS_NUMBER + value > 0 can still
+    // throw "One of the input values is invalid" on string-typed values).
     try {
-      const totalQuery = `SELECT VALUE c.id FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
-      const { resources: totalIds } = await companiesContainer.items
-        .query(totalQuery, { enableCrossPartitionQuery: true })
+      const allQuery = `SELECT c.id, c.rating.star4.value AS star4_value FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const { resources: rows } = await companiesContainer.items
+        .query(allQuery, { enableCrossPartitionQuery: true })
         .fetchAll();
-      totalCompanies = (totalIds || []).length;
-    } catch (e) {
-      context.log(`[score-status] totalQuery error: ${e?.message || e}`);
-      queryError = `totalQuery: ${e?.message || e}`;
-    }
-
-    // Count scored companies (star4.value is a positive number — IS_NUMBER guards against string values)
-    try {
-      const scoredQuery = `SELECT VALUE c.id FROM c WHERE IS_NUMBER(c.rating.star4.value) AND c.rating.star4.value > 0 AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
-      const { resources: scoredIds } = await companiesContainer.items
-        .query(scoredQuery, { enableCrossPartitionQuery: true })
-        .fetchAll();
-      scoredCompanies = (scoredIds || []).length;
-    } catch (e) {
-      context.log(`[score-status] scoredQuery error: ${e?.message || e}`);
-      queryError = queryError || `scoredQuery: ${e?.message || e}`;
-    }
-
-    if (totalCompanies != null && scoredCompanies != null) {
+      const list = rows || [];
+      totalCompanies = list.length;
+      scoredCompanies = list.filter((r) => typeof r.star4_value === "number" && r.star4_value > 0).length;
       missingCompanies = totalCompanies - scoredCompanies;
+    } catch (e) {
+      context.log(`[score-status] allQuery error: ${e?.message || e}`);
+      queryError = `allQuery: ${e?.message || e}`;
     }
 
     // Load latest job — fetch all and sort in JS (avoids ORDER BY indexing issues on empty container)

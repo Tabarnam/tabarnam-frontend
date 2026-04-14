@@ -79,12 +79,16 @@ async function adminScoreAllMissingHandler(req, context) {
     const maxCompanies = body?.max_companies != null ? Math.max(1, Number(body.max_companies)) : null;
     const force = Boolean(body?.force);
 
-    // Count unscored companies (cross-partition; exclude internal docs). IS_NUMBER guard protects against string values.
-    const countQuery = `SELECT VALUE c.id FROM c WHERE (NOT IS_NUMBER(c.rating.star4.value) OR c.rating.star4.value = 0) AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
-    const { resources: unscoredIds } = await companiesContainer.items
+    // Count unscored companies: query with admin filter + project star4.value,
+    // filter unscored in JS (Cosmos AND doesn't guarantee short-circuit, so
+    // a DB-side type-guard can still throw on heterogeneous rating fields).
+    const countQuery = `SELECT c.id, c.rating.star4.value AS star4_value FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const { resources: countRows } = await companiesContainer.items
       .query(countQuery, { enableCrossPartitionQuery: true })
       .fetchAll();
-    const totalToScore = unscoredIds.length;
+    const totalToScore = (countRows || []).filter(
+      (r) => !(typeof r.star4_value === "number" && r.star4_value > 0)
+    ).length;
 
     if (totalToScore === 0 && !force) {
       return json({ ok: true, message: "All companies already scored", total_to_score: 0 });
@@ -190,14 +194,30 @@ async function processBackfillScoreBatch(queueBody, context) {
   const batchSize = job.batch_size || 12;
   const batchStartMs = Date.now();
 
-  // Query unscored companies (exclude internal docs). IS_NUMBER guard protects against string values.
-  const query = `SELECT * FROM c WHERE (NOT IS_NUMBER(c.rating.star4.value) OR c.rating.star4.value = 0) AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control') OFFSET 0 LIMIT ${batchSize}`;
+  // Select next batch: two-step to avoid Cosmos short-circuit issue on
+  // heterogeneous rating fields. Step 1: list all non-deleted companies
+  // with their star4.value; filter unscored in JS; take first N. Step 2:
+  // fetch full docs for the selected IDs.
   let companies = [];
   try {
-    const { resources } = await companiesContainer.items
-      .query(query, { enableCrossPartitionQuery: true })
+    const listQuery = `SELECT c.id, c.normalized_domain, c.rating.star4.value AS star4_value FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const { resources: listRows } = await companiesContainer.items
+      .query(listQuery, { enableCrossPartitionQuery: true })
       .fetchAll();
-    companies = resources || [];
+    const unscored = (listRows || [])
+      .filter((r) => !(typeof r.star4_value === "number" && r.star4_value > 0))
+      .slice(0, batchSize);
+
+    // Fetch full docs for the selected IDs (one read per doc; batch is small)
+    for (const row of unscored) {
+      try {
+        const pk = String(row.normalized_domain || "unknown").trim();
+        const { resource } = await companiesContainer.item(row.id, pk).read();
+        if (resource) companies.push(resource);
+      } catch (e) {
+        context.log(`[backfill-score] Failed to read ${row.id}: ${e?.message || e}`);
+      }
+    }
   } catch (e) {
     context.log(`[backfill-score] Query error: ${e?.message || e}`);
     return { ok: false, error: `query_error: ${e?.message || e}` };
@@ -264,13 +284,15 @@ async function processBackfillScoreBatch(queueBody, context) {
   job.cycle_count = (job.cycle_count || 0) + 1;
   job.last_updated = new Date().toISOString();
 
-  // Recalculate remaining (exclude internal docs). IS_NUMBER guard protects against string values.
+  // Recalculate remaining: JS-side filter to avoid Cosmos short-circuit issue.
   try {
-    const countQuery = `SELECT VALUE c.id FROM c WHERE (NOT IS_NUMBER(c.rating.star4.value) OR c.rating.star4.value = 0) AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
-    const { resources: remainingIds } = await companiesContainer.items
+    const countQuery = `SELECT c.id, c.rating.star4.value AS star4_value FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const { resources: countRows } = await companiesContainer.items
       .query(countQuery, { enableCrossPartitionQuery: true })
       .fetchAll();
-    job.remaining = remainingIds.length;
+    job.remaining = (countRows || []).filter(
+      (r) => !(typeof r.star4_value === "number" && r.star4_value > 0)
+    ).length;
   } catch {
     job.remaining = Math.max(0, (job.total_to_score || 0) - job.processed);
   }
