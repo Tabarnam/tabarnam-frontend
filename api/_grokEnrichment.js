@@ -4742,7 +4742,9 @@ async function enrichCompanyFields({
   const isLocationsOnly = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 &&
     fieldsToEnrich.every((f) => LOCATION_LONG_NAMES.has(f));
   const hasDeepResearchField = Array.isArray(fieldsToEnrich) && fieldsToEnrich.some((f) => LOCATION_LONG_NAMES.has(f));
-  const skipUnified = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 && fieldsToEnrich.length <= 2 && !hasDeepResearchField;
+  // Use targeted refresh whenever a specific subset was requested (any count) without deep-research fields.
+  // retryMissingStructuredFields handles any number of non-location fields in a single prompt.
+  const skipUnified = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length > 0 && !hasDeepResearchField;
 
   // ── Field ownership: each call "owns" specific fields ──────────────────
   // parseStructuredResponse() returns ALL fields (with empty defaults),
