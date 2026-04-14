@@ -60,7 +60,14 @@ export default function AdminBackfillScores() {
       const data = await readJsonOrText(res);
       if (data && typeof data === "object") {
         setStatus(data);
-        setError(null);
+        // Surface partial-failure diagnostics from the backend
+        if (data.error) {
+          setError(data.error);
+        } else if (data.query_error) {
+          setError(`Query failed: ${data.query_error}`);
+        } else {
+          setError(null);
+        }
       }
     } catch (e) {
       setError(e?.message || "Failed to fetch status");

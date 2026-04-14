@@ -79,8 +79,8 @@ async function adminScoreAllMissingHandler(req, context) {
     const maxCompanies = body?.max_companies != null ? Math.max(1, Number(body.max_companies)) : null;
     const force = Boolean(body?.force);
 
-    // Count unscored companies (cross-partition; exclude internal docs)
-    const countQuery = `SELECT VALUE c.id FROM c WHERE (NOT IS_DEFINED(c.rating.star4.value) OR c.rating.star4.value = 0) AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    // Count unscored companies (cross-partition; exclude internal docs). IS_NUMBER guard protects against string values.
+    const countQuery = `SELECT VALUE c.id FROM c WHERE (NOT IS_NUMBER(c.rating.star4.value) OR c.rating.star4.value = 0) AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources: unscoredIds } = await companiesContainer.items
       .query(countQuery, { enableCrossPartitionQuery: true })
       .fetchAll();
@@ -190,8 +190,8 @@ async function processBackfillScoreBatch(queueBody, context) {
   const batchSize = job.batch_size || 12;
   const batchStartMs = Date.now();
 
-  // Query unscored companies (exclude internal docs)
-  const query = `SELECT * FROM c WHERE (NOT IS_DEFINED(c.rating.star4.value) OR c.rating.star4.value = 0) AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control') OFFSET 0 LIMIT ${batchSize}`;
+  // Query unscored companies (exclude internal docs). IS_NUMBER guard protects against string values.
+  const query = `SELECT * FROM c WHERE (NOT IS_NUMBER(c.rating.star4.value) OR c.rating.star4.value = 0) AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control') OFFSET 0 LIMIT ${batchSize}`;
   let companies = [];
   try {
     const { resources } = await companiesContainer.items
@@ -264,9 +264,9 @@ async function processBackfillScoreBatch(queueBody, context) {
   job.cycle_count = (job.cycle_count || 0) + 1;
   job.last_updated = new Date().toISOString();
 
-  // Recalculate remaining (exclude internal docs)
+  // Recalculate remaining (exclude internal docs). IS_NUMBER guard protects against string values.
   try {
-    const countQuery = `SELECT VALUE c.id FROM c WHERE (NOT IS_DEFINED(c.rating.star4.value) OR c.rating.star4.value = 0) AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const countQuery = `SELECT VALUE c.id FROM c WHERE (NOT IS_NUMBER(c.rating.star4.value) OR c.rating.star4.value = 0) AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources: remainingIds } = await companiesContainer.items
       .query(countQuery, { enableCrossPartitionQuery: true })
       .fetchAll();

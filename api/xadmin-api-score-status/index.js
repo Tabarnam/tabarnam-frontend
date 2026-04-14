@@ -132,9 +132,9 @@ async function adminScoreStatusHandler(req, context) {
       queryError = `totalQuery: ${e?.message || e}`;
     }
 
-    // Count scored companies (star4.value > 0)
+    // Count scored companies (star4.value is a positive number — IS_NUMBER guards against string values)
     try {
-      const scoredQuery = `SELECT VALUE c.id FROM c WHERE IS_DEFINED(c.rating.star4.value) AND c.rating.star4.value > 0 AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const scoredQuery = `SELECT VALUE c.id FROM c WHERE IS_NUMBER(c.rating.star4.value) AND c.rating.star4.value > 0 AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
       const { resources: scoredIds } = await companiesContainer.items
         .query(scoredQuery, { enableCrossPartitionQuery: true })
         .fetchAll();
