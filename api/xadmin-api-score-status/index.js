@@ -112,6 +112,40 @@ async function adminScoreStatusHandler(req, context) {
       return json({ error: `Unknown action: ${action}` }, 400);
     }
 
+    // Diagnostic: ?action=list-scored — returns the list of companies where
+    // rating.star4.value > 0 with enough fields to identify them.
+    if (action === "list-scored") {
+      const listQuery = `SELECT c.id, c.company_name, c.name, c.normalized_domain, c.domain, c.is_deleted, c.type, c.source, c.created_at, c.updated_at, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const { resources } = await companiesContainer.items
+        .query(listQuery, { enableCrossPartitionQuery: true })
+        .fetchAll();
+      const scored = (resources || [])
+        .filter((r) => {
+          const v =
+            r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating) && r.rating.star4 && typeof r.rating.star4 === "object"
+              ? r.rating.star4.value
+              : undefined;
+          return typeof v === "number" && v > 0;
+        })
+        .map((c) => ({
+          id: c.id,
+          name: c.company_name || c.name || null,
+          domain: c.normalized_domain || c.domain || null,
+          is_deleted: c.is_deleted ?? null,
+          type: c.type ?? null,
+          source: c.source ?? null,
+          star4: c.rating?.star4?.value ?? null,
+          star5: c.rating?.star5?.value ?? null,
+          has_reasoning_star4: Boolean(c.rating?.star4?.reasoning),
+          has_reasoning_star5: Boolean(c.rating?.star5?.reasoning),
+          created_at: c.created_at ?? null,
+          updated_at: c.updated_at ?? null,
+        }));
+      // Sort by updated_at desc (most recent first)
+      scored.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+      return json({ ok: true, count: scored.length, scored });
+    }
+
     // Default: return status counts + latest active job.
     // Wrap each query in its own try/catch so one failure doesn't kill the whole response.
 
