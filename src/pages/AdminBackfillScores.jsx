@@ -17,6 +17,8 @@ import {
   ChevronDown,
   ChevronRight,
   Activity,
+  Stethoscope,
+  Clock,
 } from "lucide-react";
 
 const STATUS_COLORS = {
@@ -92,6 +94,114 @@ function useElapsed(startIso) {
   const start = Date.parse(startIso);
   if (Number.isNaN(start)) return null;
   return Math.max(0, now - start);
+}
+
+function formatRelativeAge(ms) {
+  if (ms == null || Number.isNaN(ms)) return "—";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s - m * 60}s ago`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m - h * 60}m ago`;
+}
+
+function JobHealth({ job, onRunDiagnostics, diagnostics, diagnosing }) {
+  const startedMs = useElapsed(job?.started_at);
+  const lastUpdatedMs = useElapsed(job?.last_updated);
+  if (!job) return null;
+
+  const status = job.status;
+  const cycleCount = job.cycle_count || 0;
+  const processed = job.processed || 0;
+  const failed = job.failed || 0;
+  const total = job.total_to_score || 0;
+  const jobIdShort = (job.job_id || "").slice(0, 8);
+
+  // Stalled = status=running but no batch has completed after 60s
+  const stalledNoProgress = status === "running" && cycleCount === 0 && (startedMs || 0) > 60_000;
+  // Cold = status=running but last_updated hasn't moved in >120s after having processed work
+  const stalledMidRun = status === "running" && cycleCount > 0 && (lastUpdatedMs || 0) > 120_000;
+  const isStalled = stalledNoProgress || stalledMidRun;
+
+  return (
+    <div
+      className={`rounded-lg border p-4 space-y-2 ${
+        isStalled
+          ? "border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/15"
+          : "border-slate-200 dark:border-border bg-white dark:bg-card"
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
+          <Clock className="h-4 w-4" />
+          Job Health
+          <StatusBadge status={status} />
+          <span className="text-xs font-mono text-muted-foreground">#{jobIdShort}</span>
+        </h2>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRunDiagnostics}
+          disabled={diagnosing}
+        >
+          {diagnosing ? (
+            <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+          ) : (
+            <Stethoscope className="h-3.5 w-3.5 mr-1" />
+          )}
+          Run diagnostics
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div>
+          <div className="text-muted-foreground">Started</div>
+          <div className="text-foreground tabular-nums">{formatRelativeAge(startedMs)}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Last updated</div>
+          <div className="text-foreground tabular-nums">{formatRelativeAge(lastUpdatedMs)}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Cycles</div>
+          <div className="text-foreground tabular-nums">{cycleCount}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Processed / Total</div>
+          <div className="text-foreground tabular-nums">
+            {processed} / {total}
+            {failed > 0 ? <span className="text-red-500"> · {failed} failed</span> : null}
+          </div>
+        </div>
+      </div>
+      {stalledNoProgress ? (
+        <div className="text-xs text-amber-800 dark:text-amber-300 border-t border-amber-200 dark:border-amber-800/50 pt-2">
+          ⚠️ Job has been in <code className="font-mono">running</code> for{" "}
+          {formatRelativeAge(startedMs).replace(" ago", "")} but no batch has completed. The queue
+          worker (dedicated app) may not be picking up messages. Click <strong>Run diagnostics</strong> above.
+        </div>
+      ) : null}
+      {stalledMidRun ? (
+        <div className="text-xs text-amber-800 dark:text-amber-300 border-t border-amber-200 dark:border-amber-800/50 pt-2">
+          ⚠️ Job last updated {formatRelativeAge(lastUpdatedMs)} — the worker may have stopped.
+        </div>
+      ) : null}
+      {diagnostics ? (
+        <div className="text-xs border-t border-slate-200 dark:border-border pt-2 space-y-1">
+          <div className="font-medium text-foreground">Diagnostics</div>
+          <div className="font-mono text-muted-foreground whitespace-pre-wrap break-all">
+            {diagnostics.recommendation || "—"}
+          </div>
+          <div className="text-muted-foreground">
+            queue_trigger: <span className="text-foreground">{diagnostics.has_queue_trigger ? "registered" : "MISSING"}</span>
+            {" · "}
+            connection: <span className="text-foreground">{diagnostics.connection_ready ? "ready" : "MISSING"}</span>
+            {diagnostics.queue_name ? <> · queue: <span className="text-foreground">{diagnostics.queue_name}</span></> : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function NowProcessing({ current }) {
@@ -497,6 +607,8 @@ export default function AdminBackfillScores() {
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [retryingId, setRetryingId] = useState(null);
   const [bulkScoring, setBulkScoring] = useState({ active: false, done: 0, total: 0, current: null, lastError: null, errors: [], completedAt: null });
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [diagnosing, setDiagnosing] = useState(false);
   const intervalRef = useRef(null);
 
   const fetchStatus = useCallback(async () => {
@@ -638,6 +750,31 @@ export default function AdminBackfillScores() {
     }
   };
 
+  const runDiagnostics = async () => {
+    setDiagnosing(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/admin-diag-triggers");
+      const data = await readJsonOrText(res);
+      if (data && typeof data === "object") {
+        const diag = data.diagnostics || {};
+        setDiagnostics({
+          recommendation: diag.recommendation || null,
+          has_queue_trigger: Boolean(diag.has_queue_trigger),
+          connection_ready: Boolean(diag.connection_ready),
+          queue_name: data.queue_configuration?.queue_name || null,
+          raw: data,
+        });
+      } else {
+        setError("Diagnostics returned a non-JSON response");
+      }
+    } catch (e) {
+      setError(`Diagnostics failed: ${e?.message || e}`);
+    } finally {
+      setDiagnosing(false);
+    }
+  };
+
   const dismissBulkSummary = () => {
     setBulkScoring({ active: false, done: 0, total: 0, current: null, lastError: null, errors: [], completedAt: null });
   };
@@ -712,6 +849,16 @@ export default function AdminBackfillScores() {
             sub={job ? `Cycle ${job.cycle_count || 0}` : null}
           />
         </div>
+
+        {/* Job health — always visible when a job exists */}
+        {job ? (
+          <JobHealth
+            job={job}
+            onRunDiagnostics={runDiagnostics}
+            diagnostics={diagnostics}
+            diagnosing={diagnosing}
+          />
+        ) : null}
 
         {/* Now processing banner */}
         {currentCompany ? <NowProcessing current={currentCompany} /> : null}
