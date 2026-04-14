@@ -261,8 +261,8 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
                 <div className="border-t border-slate-100 dark:border-border px-3 py-1.5">
                   <label className="text-[10px] text-muted-foreground block mb-0.5">Reasoning (max 300 chars)</label>
                   <textarea
-                    className="w-full text-xs rounded border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
-                    rows={2}
+                    className="w-full text-xs rounded border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-1 resize-vertical focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
+                    rows={4}
                     maxLength={300}
                     placeholder="xAI-generated explanation..."
                     value={star.reasoning || ""}
