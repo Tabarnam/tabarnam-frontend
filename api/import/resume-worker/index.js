@@ -13,7 +13,17 @@ app.http("import-resume-worker", {
 // Storage Queue trigger for automatic processing of enqueued resume jobs
 // ONLY register in the dedicated worker function app, NOT in SWA-managed API.
 // The test "queue trigger moved to dedicated worker" expects this to NOT be registered in SWA.
-const IS_DEDICATED_WORKER = String(process.env.WEBSITE_SITE_NAME || "").toLowerCase().includes("dedicated");
+//
+// Gate is explicit: set TABARNAM_QUEUE_WORKER=1 on the worker app ONLY. This is
+// more reliable than WEBSITE_SITE_NAME because Flex Consumption plans and some
+// SWA-managed environments don't guarantee WEBSITE_SITE_NAME is populated. We
+// keep the WEBSITE_SITE_NAME check as a legacy fallback so nothing breaks in
+// environments where it was working before.
+const EXPLICIT_WORKER_FLAG = String(process.env.TABARNAM_QUEUE_WORKER || "").trim();
+const IS_DEDICATED_WORKER =
+  EXPLICIT_WORKER_FLAG === "1" ||
+  EXPLICIT_WORKER_FLAG.toLowerCase() === "true" ||
+  String(process.env.WEBSITE_SITE_NAME || "").toLowerCase().includes("dedicated");
 
 const triggerConnectionSetting =
   String(process.env.ENRICHMENT_QUEUE_CONNECTION_SETTING || "").trim() || "AzureWebJobsStorage";

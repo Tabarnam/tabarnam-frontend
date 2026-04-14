@@ -34,7 +34,13 @@ async function adminDiagTriggersHandler(req, context) {
     const queueConfig = resolveQueueConfig();
     const triggers = listTriggers();
     const siteName = asString(process.env.WEBSITE_SITE_NAME).trim();
-    const isDedicatedWorker = siteName.toLowerCase().includes("dedicated");
+    const explicitWorkerFlag = asString(process.env.TABARNAM_QUEUE_WORKER).trim();
+    // Match the same logic used in api/import/resume-worker/index.js so
+    // diagnostics tells the truth about what this process actually decided.
+    const isDedicatedWorker =
+      explicitWorkerFlag === "1" ||
+      explicitWorkerFlag.toLowerCase() === "true" ||
+      siteName.toLowerCase().includes("dedicated");
     const role = isDedicatedWorker ? "worker" : "enqueuer";
     const hasQueueTrigger = triggers.some((t) => t.type === "storageQueue" && t.queueName === queueConfig.queueName);
 
@@ -44,6 +50,7 @@ async function adminDiagTriggersHandler(req, context) {
       host: {
         site_name: siteName || null,
         role,
+        worker_flag: explicitWorkerFlag || null,
       },
       triggers: {
         list: triggers,
@@ -67,6 +74,8 @@ async function adminDiagTriggersHandler(req, context) {
           ENRICHMENT_QUEUE_CONNECTION_SETTING: asString(process.env.ENRICHMENT_QUEUE_CONNECTION_SETTING).trim() || "(default: AzureWebJobsStorage)",
           AzureWebJobsStorage: asString(process.env.AzureWebJobsStorage).trim() ? "SET" : "NOT SET",
           AZURE_STORAGE_CONNECTION_STRING: asString(process.env.AZURE_STORAGE_CONNECTION_STRING).trim() ? "SET" : "NOT SET",
+          TABARNAM_QUEUE_WORKER: explicitWorkerFlag || "NOT SET",
+          WEBSITE_SITE_NAME: siteName || "NOT SET",
         },
       },
       diagnostics: {
@@ -89,6 +98,9 @@ async function adminDiagTriggersHandler(req, context) {
             return "⚠️ Dedicated worker missing queue trigger. Redeploy api/import/resume-worker to this app.";
           }
           if (!isDedicatedWorker && !hasQueueTrigger) {
+            if (!explicitWorkerFlag && !siteName.toLowerCase().includes("dedicated")) {
+              return "ℹ️ This app enqueues only. Queue trigger lives on the dedicated worker app — verify there. (If this IS the worker app, set TABARNAM_QUEUE_WORKER=1.)";
+            }
             return "ℹ️ This app enqueues only. Queue trigger lives on the dedicated worker app — verify there.";
           }
           return "✅ Queue trigger is configured and registered.";
@@ -110,7 +122,10 @@ async function adminDiagTriggersHandler(req, context) {
 }
 
 app.http("adminDiagTriggers", {
-  route: "admin/diag/triggers",
+  // Route must match the frontend call (`apiFetch("/admin-diag-triggers")`)
+  // AND the folder name so SWA's routing doesn't get confused. Changing this
+  // will silently 404 the diagnostics button.
+  route: "admin-diag-triggers",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: adminDiagTriggersHandler,
