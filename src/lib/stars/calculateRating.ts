@@ -127,6 +127,11 @@ export function normalizeRating(rating: any): CompanyRating {
       // Preserve icon selection if provided (accept only 'star' or 'heart').
       const icon = (star as any).icon_type;
       normalized[starKey].icon_type = icon === "heart" ? "heart" : icon === "star" ? "star" : undefined;
+
+      // Preserve reasoning text (star4/star5 xAI explanations)
+      if (typeof (star as any).reasoning === "string") {
+        normalized[starKey].reasoning = (star as any).reasoning;
+      }
     }
   }
 
