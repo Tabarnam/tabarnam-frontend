@@ -82,13 +82,17 @@ async function adminScoreAllMissingHandler(req, context) {
     // Count unscored companies: query with admin filter + project star4.value,
     // filter unscored in JS (Cosmos AND doesn't guarantee short-circuit, so
     // a DB-side type-guard can still throw on heterogeneous rating fields).
-    const countQuery = `SELECT c.id, c.rating.star4.value AS star4_value FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const countQuery = `SELECT c.id, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources: countRows } = await companiesContainer.items
       .query(countQuery, { enableCrossPartitionQuery: true })
       .fetchAll();
-    const totalToScore = (countRows || []).filter(
-      (r) => !(typeof r.star4_value === "number" && r.star4_value > 0)
-    ).length;
+    const isScored = (r) => {
+      const v = r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating)
+        ? r.rating.star4 && typeof r.rating.star4 === "object" ? r.rating.star4.value : undefined
+        : undefined;
+      return typeof v === "number" && v > 0;
+    };
+    const totalToScore = (countRows || []).filter((r) => !isScored(r)).length;
 
     if (totalToScore === 0 && !force) {
       return json({ ok: true, message: "All companies already scored", total_to_score: 0 });
@@ -200,13 +204,17 @@ async function processBackfillScoreBatch(queueBody, context) {
   // fetch full docs for the selected IDs.
   let companies = [];
   try {
-    const listQuery = `SELECT c.id, c.normalized_domain, c.rating.star4.value AS star4_value FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const listQuery = `SELECT c.id, c.normalized_domain, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources: listRows } = await companiesContainer.items
       .query(listQuery, { enableCrossPartitionQuery: true })
       .fetchAll();
-    const unscored = (listRows || [])
-      .filter((r) => !(typeof r.star4_value === "number" && r.star4_value > 0))
-      .slice(0, batchSize);
+    const isScored = (r) => {
+      const v = r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating)
+        ? r.rating.star4 && typeof r.rating.star4 === "object" ? r.rating.star4.value : undefined
+        : undefined;
+      return typeof v === "number" && v > 0;
+    };
+    const unscored = (listRows || []).filter((r) => !isScored(r)).slice(0, batchSize);
 
     // Fetch full docs for the selected IDs (one read per doc; batch is small)
     for (const row of unscored) {
@@ -286,13 +294,17 @@ async function processBackfillScoreBatch(queueBody, context) {
 
   // Recalculate remaining: JS-side filter to avoid Cosmos short-circuit issue.
   try {
-    const countQuery = `SELECT c.id, c.rating.star4.value AS star4_value FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const countQuery = `SELECT c.id, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources: countRows } = await companiesContainer.items
       .query(countQuery, { enableCrossPartitionQuery: true })
       .fetchAll();
-    job.remaining = (countRows || []).filter(
-      (r) => !(typeof r.star4_value === "number" && r.star4_value > 0)
-    ).length;
+    const isScored = (r) => {
+      const v = r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating)
+        ? r.rating.star4 && typeof r.rating.star4 === "object" ? r.rating.star4.value : undefined
+        : undefined;
+      return typeof v === "number" && v > 0;
+    };
+    job.remaining = (countRows || []).filter((r) => !isScored(r)).length;
   } catch {
     job.remaining = Math.max(0, (job.total_to_score || 0) - job.processed);
   }

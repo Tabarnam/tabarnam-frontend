@@ -125,13 +125,18 @@ async function adminScoreStatusHandler(req, context) {
     // doesn't guarantee short-circuit, so IS_NUMBER + value > 0 can still
     // throw "One of the input values is invalid" on string-typed values).
     try {
-      const allQuery = `SELECT c.id, c.rating.star4.value AS star4_value FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const allQuery = `SELECT c.id, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
       const { resources: rows } = await companiesContainer.items
         .query(allQuery, { enableCrossPartitionQuery: true })
         .fetchAll();
       const list = rows || [];
       totalCompanies = list.length;
-      scoredCompanies = list.filter((r) => typeof r.star4_value === "number" && r.star4_value > 0).length;
+      scoredCompanies = list.filter((r) => {
+        const v = r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating)
+          ? r.rating.star4 && typeof r.rating.star4 === "object" ? r.rating.star4.value : undefined
+          : undefined;
+        return typeof v === "number" && v > 0;
+      }).length;
       missingCompanies = totalCompanies - scoredCompanies;
     } catch (e) {
       context.log(`[score-status] allQuery error: ${e?.message || e}`);
