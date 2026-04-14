@@ -112,37 +112,55 @@ async function adminScoreStatusHandler(req, context) {
       return json({ error: `Unknown action: ${action}` }, 400);
     }
 
-    // Default: return status counts + latest active job
+    // Default: return status counts + latest active job.
+    // Wrap each query in its own try/catch so one failure doesn't kill the whole response.
 
-    // Count total companies
-    const totalQuery = `SELECT VALUE c.id FROM c WHERE NOT STARTSWITH(c.id, '_')`;
-    const { resources: totalIds } = await companiesContainer.items
-      .query(totalQuery, { enableCrossPartitionQuery: true })
-      .fetchAll();
-    const totalCompanies = totalIds.length;
+    let totalCompanies = null;
+    let scoredCompanies = null;
+    let missingCompanies = null;
+    let queryError = null;
 
-    // Count scored companies (star4 > 0)
-    const scoredQuery = `SELECT VALUE c.id FROM c WHERE IS_DEFINED(c.rating.star4.value) AND c.rating.star4.value > 0 AND NOT STARTSWITH(c.id, '_')`;
-    const { resources: scoredIds } = await companiesContainer.items
-      .query(scoredQuery, { enableCrossPartitionQuery: true })
-      .fetchAll();
-    const scoredCompanies = scoredIds.length;
+    // Count total companies (filter out internal docs like _import_, refresh_job_, import_control)
+    try {
+      const totalQuery = `SELECT VALUE c.id FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const { resources: totalIds } = await companiesContainer.items
+        .query(totalQuery, { enableCrossPartitionQuery: true })
+        .fetchAll();
+      totalCompanies = (totalIds || []).length;
+    } catch (e) {
+      context.log(`[score-status] totalQuery error: ${e?.message || e}`);
+      queryError = `totalQuery: ${e?.message || e}`;
+    }
 
-    const missingCompanies = totalCompanies - scoredCompanies;
+    // Count scored companies (star4.value > 0)
+    try {
+      const scoredQuery = `SELECT VALUE c.id FROM c WHERE IS_DEFINED(c.rating.star4.value) AND c.rating.star4.value > 0 AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const { resources: scoredIds } = await companiesContainer.items
+        .query(scoredQuery, { enableCrossPartitionQuery: true })
+        .fetchAll();
+      scoredCompanies = (scoredIds || []).length;
+    } catch (e) {
+      context.log(`[score-status] scoredQuery error: ${e?.message || e}`);
+      queryError = queryError || `scoredQuery: ${e?.message || e}`;
+    }
 
-    // Load latest active job
+    if (totalCompanies != null && scoredCompanies != null) {
+      missingCompanies = totalCompanies - scoredCompanies;
+    }
+
+    // Load latest job — fetch all and sort in JS (avoids ORDER BY indexing issues on empty container)
     let latestJob = null;
     try {
-      const jobQuery = `SELECT * FROM c ORDER BY c.started_at DESC OFFSET 0 LIMIT 1`;
       const { resources: jobs } = await jobsContainer.items
-        .query(jobQuery, { enableCrossPartitionQuery: true })
+        .query("SELECT * FROM c", { enableCrossPartitionQuery: true })
         .fetchAll();
       if (jobs && jobs.length > 0) {
+        jobs.sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || "")));
         latestJob = jobs[0];
       }
     } catch (e) {
-      context.log(`[score-status] Error loading job: ${e?.message || e}`);
-      // Container may not exist yet — that's OK
+      context.log(`[score-status] jobs query error: ${e?.message || e}`);
+      // Empty/missing container is OK — just no job to return
     }
 
     return json({
@@ -151,6 +169,7 @@ async function adminScoreStatusHandler(req, context) {
       scored_companies: scoredCompanies,
       missing_companies: missingCompanies,
       job: latestJob || null,
+      ...(queryError ? { query_error: queryError } : {}),
     });
   } catch (e) {
     context.log("Error in admin-score-status:", e?.message || e, e?.stack || "");
