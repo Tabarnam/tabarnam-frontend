@@ -415,7 +415,7 @@ function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId, on
                     <div className="text-right tabular-nums text-foreground">{typeof c.star5 === "number" ? c.star5.toFixed(2) : "—"}</div>
                     <div className="text-center"><StateBadge state={c.state} /></div>
                     <div className="text-muted-foreground truncate tabular-nums">
-                      {c.updated_at ? new Date(c.updated_at).toISOString().slice(0, 16).replace("T", " ") : "—"}
+                      {c.updated_at ? new Date(c.updated_at).toLocaleString("sv-SE").slice(0, 16) : "—"}
                     </div>
                   </div>
                 );
