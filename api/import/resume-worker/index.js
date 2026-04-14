@@ -91,6 +91,43 @@ if (IS_DEDICATED_WORKER) {
         };
       }
 
+      // Route backfill_score messages to the backfill batch processor
+      if (messageReason === "backfill_score") {
+        console.log("[import-resume-worker-queue] routing_to_backfill_score", {
+          invocation_id: invocationId,
+          session_id: sessionId || null,
+          reason: messageReason,
+        });
+
+        let backfillResult = null;
+        let backfillError = null;
+        try {
+          const { processBackfillScoreBatch } = require("../../xadmin-api-score-all-missing/index.js");
+          backfillResult = await processBackfillScoreBatch(queueBody, context);
+        } catch (e) {
+          backfillError = String(e?.message || e);
+        }
+
+        const backfillFinishedAt = new Date().toISOString();
+        const backfillElapsedMs = Date.now() - Date.parse(handlerEnteredAt);
+
+        console.log("[import-resume-worker-queue] backfill_score_finished", {
+          handler_finished_at: backfillFinishedAt,
+          invocation_id: invocationId,
+          session_id: sessionId || null,
+          elapsed_ms: backfillElapsedMs,
+          result: backfillError ? "error" : (backfillResult?.ok ? "ok" : "failed"),
+          error: backfillError,
+          scored: backfillResult?.scored ?? null,
+          remaining: backfillResult?.remaining ?? null,
+        });
+
+        return {
+          status: backfillResult?.ok ? 200 : 500,
+          body: JSON.stringify(backfillResult || { ok: false, error: backfillError }),
+        };
+      }
+
       // Route admin_refresh messages to the dedicated admin refresh worker
       if (messageReason === "admin_refresh") {
         console.log("[import-resume-worker-queue] routing_to_admin_refresh", {

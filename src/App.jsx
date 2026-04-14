@@ -16,6 +16,7 @@ import CompanyDashboard from "@pages/CompanyDashboard";
 import AdminImport from "@pages/AdminImport";
 import AdminLogoReview from "@pages/AdminLogoReview";
 import AdminSearchEdit from "@pages/AdminSearchEdit";
+import AdminBackfillScores from "@pages/AdminBackfillScores";
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
 import Login from "@pages/Login";
@@ -145,6 +146,14 @@ export default function App() {
                 element={
                   <AdminRoute>
                     <AdminSearchEdit />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/backfill-scores"
+                element={
+                  <AdminRoute>
+                    <AdminBackfillScores />
                   </AdminRoute>
                 }
               />

@@ -671,6 +671,22 @@ try {
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-backfill-search-text:", e?.message || e);
 }
+
+try {
+  console.log("[api] Registering: xadmin-api-score-all-missing");
+  require("./xadmin-api-score-all-missing/index.js");
+  console.log("[api] ✓ xadmin-api-score-all-missing registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-score-all-missing:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-score-status");
+  require("./xadmin-api-score-status/index.js");
+  console.log("[api] ✓ xadmin-api-score-status registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-score-status:", e?.message || e);
+}
 }
 
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
