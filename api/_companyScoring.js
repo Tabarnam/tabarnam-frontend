@@ -154,7 +154,7 @@ function generateScoreReasoning(companyDoc, scores) {
                    repScore >= 0.6 ? "Strong" :
                    repScore >= 0.4 ? "Mixed" : "Limited";
   const reviewNote = reviewCount > 0 ? `${reviewCount} review${reviewCount !== 1 ? "s" : ""} analyzed` : "limited review data";
-  const reputation_reasoning = `Reputation: ${repLabel} customer sentiment based on ${reviewNote}.`;
+  const reputation_reasoning = `${repLabel} customer sentiment based on ${reviewNote}.`;
 
   // Quality reasoning
   const qualLabel = qualScore >= 0.8 ? "Premium" :
@@ -162,7 +162,7 @@ function generateScoreReasoning(companyDoc, scores) {
                     qualScore >= 0.4 ? "Standard" : "Limited";
   const industryNote = industries ? ` in ${industries}` : "";
   const mfgNote = mfgCount > 0 && hq ? ` Manufactured in ${hq}.` : "";
-  const quality_reasoning = `Quality: ${qualLabel} product and materials${industryNote}.${mfgNote}`;
+  const quality_reasoning = `${qualLabel} product and materials${industryNote}.${mfgNote}`;
 
   return {
     reputation_reasoning: reputation_reasoning.substring(0, 250),
