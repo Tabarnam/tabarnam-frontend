@@ -576,20 +576,8 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-default relative"
+        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-default"
       >
-        {/* Collapse chevron */}
-        <div className="absolute top-2 right-2 z-10">
-          <button
-            type="button"
-            onClick={handleChevronClick}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            aria-label="Collapse details"
-            title="Collapse"
-          >
-            <ChevronUp className="h-5 w-5" />
-          </button>
-        </div>
         <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 mb-6 pb-6 border-b">
           <div className="col-span-4 lg:col-span-1">
             <h2 className="font-bold text-lg text-foreground flex items-center gap-1">
@@ -603,7 +591,18 @@ export default function ExpandableCompanyRow({
               ) : (
                 <span className="text-[1.2em] text-foreground">{displayName}</span>
               )}
-              <ShareButton company={company} />
+              <span className="inline-flex items-center gap-0 share-button-container">
+                <ShareButton company={company} />
+                <button
+                  type="button"
+                  onClick={handleChevronClick}
+                  className="inline-flex items-center justify-center w-6 h-6 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                  aria-label="Collapse details"
+                  title="Collapse"
+                >
+                  <ChevronUp className="h-3.5 w-3.5" />
+                </button>
+              </span>
             </h2>
             {company.tagline && (
               <div className="text-sm text-muted-foreground mt-1">{company.tagline}</div>
