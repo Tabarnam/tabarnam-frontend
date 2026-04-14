@@ -14,6 +14,24 @@ import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getProfileCompleteness, getProfileCompletenessLabel } from "@/lib/profileCompleteness";
 import { normalizeCountryDisplay, normalizeLocationString } from "@/lib/location";
 
+// Renders reasoning as a tight bullet list. Accepts newline-separated bullets
+// (each line may be prefixed with '-', '*', or '•'). Returns null if empty.
+const renderReasoning = (reasoning) => {
+  if (!reasoning) return null;
+  const bullets = reasoning
+    .split(/\n+/)
+    .map((line) => line.replace(/^\s*[-•*]\s*/, "").trim())
+    .filter(Boolean);
+  if (bullets.length === 0) return null;
+  return (
+    <ul className="mt-1 space-y-0.5 list-disc list-inside leading-snug">
+      {bullets.map((b, i) => (
+        <li key={i}>{b}</li>
+      ))}
+    </ul>
+  );
+};
+
 const TranslatedText = ({ originalText, translation, loading }) => {
   if (loading)
     return (
@@ -502,13 +520,13 @@ const CompanyRow = ({
                       {company.rating?.star4?.reasoning && (
                         <div className="text-xs text-muted-foreground">
                           <span className="font-medium text-foreground">Reputation</span>
-                          <p className="mt-0.5 leading-relaxed">{company.rating.star4.reasoning}</p>
+                          {renderReasoning(company.rating.star4.reasoning)}
                         </div>
                       )}
                       {company.rating?.star5?.reasoning && (
                         <div className="text-xs text-muted-foreground">
                           <span className="font-medium text-foreground">Quality</span>
-                          <p className="mt-0.5 leading-relaxed">{company.rating.star5.reasoning}</p>
+                          {renderReasoning(company.rating.star5.reasoning)}
                         </div>
                       )}
                     </div>

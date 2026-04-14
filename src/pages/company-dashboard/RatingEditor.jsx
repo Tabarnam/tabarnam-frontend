@@ -259,16 +259,16 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
               {/* Reasoning field for star4/star5 */}
               {hasReasoning && (
                 <div className="border-t border-slate-100 dark:border-border px-3 py-1.5">
-                  <label className="text-[10px] text-muted-foreground block mb-0.5">Reasoning (max 300 chars)</label>
+                  <label className="text-[10px] text-muted-foreground block mb-0.5">Reasoning (max 250 chars — one bullet per line, start with '-')</label>
                   <textarea
                     className="w-full text-xs rounded border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-1 resize-vertical focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
                     rows={4}
-                    maxLength={300}
-                    placeholder="xAI-generated explanation..."
+                    maxLength={250}
+                    placeholder={"- BBB A+ accredited\n- 60-day warranty\n- Recycled ocean plastics"}
                     value={star.reasoning || ""}
                     onChange={(e) => setStar(starKey, { reasoning: e.target.value })}
                   />
-                  <div className="text-[10px] text-muted-foreground text-right">{(star.reasoning || "").length}/300</div>
+                  <div className="text-[10px] text-muted-foreground text-right">{(star.reasoning || "").length}/250</div>
                 </div>
               )}
 

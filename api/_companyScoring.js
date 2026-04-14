@@ -5,7 +5,8 @@
  * using the existing xAI/Grok streaming integration.
  *
  * No web_search — scores from reviews and site content already captured.
- * Returns two 0.0–1.0 floats plus xAI-generated reasoning (max 300 chars each).
+ * Returns two 0.0–1.0 floats plus xAI-generated reasoning.
+ * Bullet-point format (newline-separated, '- ' prefix), max 250 characters total, xAI-generated.
  */
 
 const { xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
@@ -18,12 +19,12 @@ const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured revie
 
 {
   "reputation_score": number between 0.0 and 1.0,
-  "reputation_reasoning": "1-2 concise sentences (max 300 characters) explaining the score based on review sentiment, complaint signals, warranty/return policy, and trust factors",
+  "reputation_reasoning": "2-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Use only concrete, specific signals from the reviews and content (examples: '- BBB A+ accredited', '- 60-day warranty and returns', '- Trustpilot complaints about VAT taxes', '- Recycled ocean plastics used in products'). No prose sentences, no filler words, no hedging, no vague phrases like 'garners', 'aligning with', or 'however'.",
   "quality_score": number between 0.0 and 1.0,
-  "quality_reasoning": "1-2 concise sentences (max 300 characters) explaining the score based on materials, build quality, manufacturing descriptors, and industry-specific quality signals"
+  "quality_reasoning": "2-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Use only concrete, specific signals from materials, manufacturing, and reviews (examples: '- Recycled ocean plastics', '- Eco-friendly metals and high-quality cords', '- Dermatologist recommended formulations', '- Manufactured in Seoul, South Korea'). No prose sentences, no filler words, no hedging, no vague phrases."
 }
 
-Be balanced, specific, and reference actual details from the provided reviews and content. Default to 0 if data is limited. No extra fields or reasoning outside the JSON.`;
+Default to 0 if data is limited. Be extremely specific and balanced. No extra fields or reasoning outside the JSON.`;
 
 const SCORING_MAX_TOKENS = 300;       // JSON + reasoning ≈ 200 tokens
 const SCORING_MAX_TOOL_CALLS = 0;     // 0 = no web search; set to 3 for light browsing
@@ -187,9 +188,9 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
     const reputation_score = Math.max(0.0, Math.min(1.0, parseFloat(parsed.reputation_score) || 0));
     const quality_score = Math.max(0.0, Math.min(1.0, parseFloat(parsed.quality_score) || 0));
 
-    // Use xAI-generated reasoning, truncated to 300 chars
-    const reputation_reasoning = (parsed.reputation_reasoning || "").substring(0, 300);
-    const quality_reasoning = (parsed.quality_reasoning || "").substring(0, 300);
+    // Use xAI-generated reasoning (bullet-point format, newline-separated), truncated to 250 chars
+    const reputation_reasoning = (parsed.reputation_reasoning || "").substring(0, 250);
+    const quality_reasoning = (parsed.quality_reasoning || "").substring(0, 250);
 
     console.log(`[scoring] Parsed for ${companyDoc.company_name}: rep=${parsed.reputation_score} → ${reputation_score}, qual=${parsed.quality_score} → ${quality_score}`);
 
