@@ -14,8 +14,8 @@ const STARS = [
   { key: "star1", label: "Mfg", fullLabel: "Manufacturing", hasAuto: true },
   { key: "star2", label: "HQ", fullLabel: "HQ/Home", hasAuto: true },
   { key: "star3", label: "Reviews", fullLabel: "Reviews", hasAuto: true },
-  { key: "star4", label: "Admin1", fullLabel: "Admin1", hasAuto: false },
-  { key: "star5", label: "Admin2", fullLabel: "Admin2", hasAuto: false },
+  { key: "star4", label: "Reputation", fullLabel: "Reputation", hasAuto: false, hasReasoning: true },
+  { key: "star5", label: "Quality", fullLabel: "Quality", hasAuto: false, hasReasoning: true },
 ];
 
 export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
@@ -126,7 +126,7 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
 
       {/* Compact star table */}
       <div className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card overflow-hidden">
-        {STARS.map(({ key: starKey, label, hasAuto }, idx) => {
+        {STARS.map(({ key: starKey, label, hasAuto, hasReasoning }, idx) => {
           const star = rating[starKey] || { value: 0, notes: [] };
           const autoValue = hasAuto ? auto[starKey]?.value : null;
           const currentValue = clampStarValue(Number(star.value ?? 0));
@@ -255,6 +255,22 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
                     : <ChevronRight className="h-3 w-3" />}
                 </button>
               </div>
+
+              {/* Reasoning field for star4/star5 */}
+              {hasReasoning && (
+                <div className="border-t border-slate-100 dark:border-border px-3 py-1.5">
+                  <label className="text-[10px] text-muted-foreground block mb-0.5">Reasoning (max 300 chars)</label>
+                  <textarea
+                    className="w-full text-xs rounded border border-slate-200 dark:border-border bg-white dark:bg-card px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-primary text-foreground"
+                    rows={2}
+                    maxLength={300}
+                    placeholder="xAI-generated explanation..."
+                    value={star.reasoning || ""}
+                    onChange={(e) => setStar(starKey, { reasoning: e.target.value })}
+                  />
+                  <div className="text-[10px] text-muted-foreground text-right">{(star.reasoning || "").length}/300</div>
+                </div>
+              )}
 
               {/* Expanded notes section */}
               {isExpanded ? (
