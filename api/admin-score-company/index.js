@@ -61,6 +61,7 @@ async function adminScoreCompanyHandler(req, context) {
     const normalizedDomain = String(body?.normalized_domain || "").trim();
     const force = Boolean(body?.force);
     const debug = Boolean(body?.debug);
+    const propose = Boolean(body?.propose);
 
     if (!companyId || !normalizedDomain) {
       return json({ error: "Missing company_id or normalized_domain" }, 400);
@@ -84,13 +85,14 @@ async function adminScoreCompanyHandler(req, context) {
       company.rating = {};
     }
 
-    // Idempotency: skip if star4 already has a value (unless force)
+    // Idempotency: skip if star4 already has a value (unless force or propose).
+    // Propose mode always runs — it returns a non-persistent proposal for admin review.
     const existingStar4Value = company.rating?.star4?.value;
-    if (existingStar4Value > 0 && !force) {
+    if (existingStar4Value > 0 && !force && !propose) {
       return json({
         ok: true,
         skipped: true,
-        reason: "star4 already populated (pass force: true to re-score)",
+        reason: "star4 already populated (pass force: true to re-score, or propose: true for a non-persistent proposal)",
         star4: existingStar4Value,
         star5: company.rating?.star5?.value ?? 0,
       });
@@ -108,6 +110,30 @@ async function adminScoreCompanyHandler(req, context) {
         duration_ms: durationMs,
         ...(debug ? { _debug: { prompt: scoring._debug_prompt, response: scoring._debug_response } } : {}),
       }, 422);
+    }
+
+    // Propose mode: return proposal without writing to Cosmos
+    if (propose) {
+      context.log(`[admin-score-company] Proposed ${company.company_name || normalizedDomain}: star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}, duration=${(durationMs / 1000).toFixed(1)}s`);
+      return json({
+        ok: true,
+        proposed: true,
+        proposal: {
+          star4_value: scoring.reputation_score,
+          star4_reasoning: scoring.reputation_reasoning,
+          star5_value: scoring.quality_score,
+          star5_reasoning: scoring.quality_reasoning,
+        },
+        current: {
+          star4_value: company.rating?.star4?.value ?? null,
+          star4_reasoning: company.rating?.star4?.reasoning || "",
+          star5_value: company.rating?.star5?.value ?? null,
+          star5_reasoning: company.rating?.star5?.reasoning || "",
+        },
+        duration_ms: durationMs,
+        company_name: company.company_name,
+        ...(debug ? { _debug: { prompt: scoring._debug_prompt, response: scoring._debug_response, parsed: scoring._debug_parsed } } : {}),
+      });
     }
 
     // Apply scores — preserve existing notes
