@@ -5,7 +5,7 @@
  * using the existing xAI/Grok streaming integration.
  *
  * No web_search — scores from reviews and site content already captured.
- * Returns only two 0.0–1.0 floats; no reasoning or category stored.
+ * Returns two 0.0–1.0 floats plus xAI-generated reasoning (max 300 chars each).
  */
 
 const { xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
@@ -14,20 +14,18 @@ const { extractJsonFromText } = require("./_curatedReviewsXai");
 // ── Tunable constants ──────────────────────────────────────────────────
 // Edit these to adjust scoring behavior without touching logic.
 
-const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured reviews, and site content. Output **only** a clean JSON object with exactly these two fields:
+const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured reviews, and site content. Output **only** a clean JSON object with exactly these four fields:
 
 {
   "reputation_score": number between 0.0 and 1.0,
-  "quality_score": number between 0.0 and 1.0
+  "reputation_reasoning": "1-2 concise sentences (max 300 characters) explaining the score based on review sentiment, complaint signals, warranty/return policy, and trust factors",
+  "quality_score": number between 0.0 and 1.0,
+  "quality_reasoning": "1-2 concise sentences (max 300 characters) explaining the score based on materials, build quality, manufacturing descriptors, and industry-specific quality signals"
 }
 
-Reputation_score (0.0–1.0): Evaluate overall customer sentiment volume and tone from captured reviews, complaint history (e.g., BBB), warranty length, return policy strength, and any trust/red-flag signals. Be conservative with sparse data.
+Be balanced, specific, and reference actual details from the provided reviews and content. Default to 0 if data is limited. No extra fields or reasoning outside the JSON.`;
 
-Quality_score (0.0–1.0): Evaluate materials, build quality, durability signals, manufacturing descriptors ('hand-crafted', 'premium motor', solid construction), and expert/industry quality indicators from the content and reviews.
-
-Default to 0 if data is limited. Use only the provided information. No extra fields or reasoning in the JSON.`;
-
-const SCORING_MAX_TOKENS = 100;       // JSON only ≈ 40 tokens
+const SCORING_MAX_TOKENS = 300;       // JSON + reasoning ≈ 200 tokens
 const SCORING_MAX_TOOL_CALLS = 0;     // 0 = no web search; set to 3 for light browsing
 const REVIEWS_CHAR_LIMIT = 500;       // Max chars of review text to include
 const ABOUT_CHAR_LIMIT = 1000;        // Max chars of about/site content to include
@@ -130,46 +128,6 @@ function buildUserPrompt(company) {
   return parts.join("\n");
 }
 
-// ── Reasoning generator (template-based, no AI) ───────────────────────
-
-/**
- * Generate concise reasoning strings for reputation and quality scores.
- * Pure templates based on score level + basic company facts. No keyword scanning.
- * Each output is max ~250 chars, 1–2 sentences.
- */
-function generateScoreReasoning(companyDoc, scores) {
-  const repScore = scores.reputation_score || 0;
-  const qualScore = scores.quality_score || 0;
-
-  const reviewCount =
-    (Array.isArray(companyDoc.curated_reviews) ? companyDoc.curated_reviews.length : 0) +
-    (Array.isArray(companyDoc.reviews) ? companyDoc.reviews.length : 0);
-
-  const industries = Array.isArray(companyDoc.industries) ? companyDoc.industries.slice(0, 3).join(", ") : "";
-  const mfgCount = Array.isArray(companyDoc.manufacturing_locations) ? companyDoc.manufacturing_locations.length : 0;
-  const hq = asString(companyDoc.headquarters_location).trim();
-
-  // Reputation reasoning
-  const repLabel = repScore >= 0.8 ? "Excellent" :
-                   repScore >= 0.6 ? "Strong" :
-                   repScore >= 0.4 ? "Mixed" : "Limited";
-  const reviewNote = reviewCount > 0 ? `${reviewCount} review${reviewCount !== 1 ? "s" : ""} analyzed` : "limited review data";
-  const reputation_reasoning = `${repLabel} customer sentiment based on ${reviewNote}.`;
-
-  // Quality reasoning
-  const qualLabel = qualScore >= 0.8 ? "Premium" :
-                    qualScore >= 0.6 ? "Above average" :
-                    qualScore >= 0.4 ? "Standard" : "Limited";
-  const industryNote = industries ? ` in ${industries}` : "";
-  const mfgNote = mfgCount > 0 && hq ? ` Manufactured in ${hq}.` : "";
-  const quality_reasoning = `${qualLabel} product and materials${industryNote}.${mfgNote}`;
-
-  return {
-    reputation_reasoning: reputation_reasoning.substring(0, 250),
-    quality_reasoning: quality_reasoning.substring(0, 250),
-  };
-}
-
 // ── Main scoring function ──────────────────────────────────────────────
 
 /**
@@ -180,7 +138,7 @@ function generateScoreReasoning(companyDoc, scores) {
  * @param {string} [opts.xaiUrl] - Optional xAI endpoint (falls back to env)
  * @param {string} [opts.xaiKey] - Optional xAI key (falls back to env)
  * @param {number} [opts.timeoutMs=60000] - Timeout in ms
- * @returns {Promise<{ok: boolean, reputation_score?: number, quality_score?: number, reason?: string}>}
+ * @returns {Promise<{ok: boolean, reputation_score?: number, quality_score?: number, reputation_reasoning?: string, quality_reasoning?: string, reason?: string}>}
  */
 async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, timeoutMs = 60000, debug = false } = {}) {
   if (!companyDoc || !companyDoc.company_name) {
@@ -211,7 +169,7 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
     // extractTextFromXaiResponse expects the inner response object, not the wrapper
     const responseObj = result.resp && typeof result.resp === "object" ? result.resp : result;
     const responseText = extractTextFromXaiResponse(responseObj);
-    console.log(`[scoring] Raw response for ${companyDoc.company_name}: ${(responseText || "(empty)").substring(0, 300)}`);
+    console.log(`[scoring] Raw response for ${companyDoc.company_name}: ${(responseText || "(empty)").substring(0, 500)}`);
 
     if (!responseText) {
       console.warn(`[scoring] Empty response for ${companyDoc.company_name}`);
@@ -229,8 +187,9 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
     const reputation_score = Math.max(0.0, Math.min(1.0, parseFloat(parsed.reputation_score) || 0));
     const quality_score = Math.max(0.0, Math.min(1.0, parseFloat(parsed.quality_score) || 0));
 
-    // Generate template-based reasoning (no AI, deterministic)
-    const reasoning = generateScoreReasoning(companyDoc, { reputation_score, quality_score });
+    // Use xAI-generated reasoning, truncated to 300 chars
+    const reputation_reasoning = (parsed.reputation_reasoning || "").substring(0, 300);
+    const quality_reasoning = (parsed.quality_reasoning || "").substring(0, 300);
 
     console.log(`[scoring] Parsed for ${companyDoc.company_name}: rep=${parsed.reputation_score} → ${reputation_score}, qual=${parsed.quality_score} → ${quality_score}`);
 
@@ -238,8 +197,8 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
       ok: true,
       reputation_score,
       quality_score,
-      reputation_reasoning: reasoning.reputation_reasoning,
-      quality_reasoning: reasoning.quality_reasoning,
+      reputation_reasoning,
+      quality_reasoning,
       ...(debug ? { _debug_prompt: userPrompt, _debug_response: responseText.substring(0, 500), _debug_parsed: parsed } : {}),
     };
   } catch (e) {

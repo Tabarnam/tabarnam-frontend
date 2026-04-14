@@ -625,9 +625,9 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
       if (scoring.ok) {
         const existingStar4 = updated.rating?.star4 && typeof updated.rating.star4 === "object" ? updated.rating.star4 : { value: 0, notes: [] };
         const existingStar5 = updated.rating?.star5 && typeof updated.rating.star5 === "object" ? updated.rating.star5 : { value: 0, notes: [] };
-        updated.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: (scoring.reputation_reasoning || "").substring(0, 250) };
-        updated.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: (scoring.quality_reasoning || "").substring(0, 250) };
-        console.log(`scoring_call: ${updated.company_name || updated.normalized_domain} duration=${((Date.now() - scoringStart) / 1000).toFixed(1)}s, star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}`);
+        updated.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning };
+        updated.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning };
+        console.log(`scoring_call: duration=${((Date.now() - scoringStart) / 1000).toFixed(1)}s, star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}, reasoning_populated=true`);
       } else {
         console.warn(`[enrichment] auto-scoring returned not-ok for ${updated.company_name}: ${scoring.reason}`);
       }

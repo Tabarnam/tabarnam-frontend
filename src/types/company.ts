@@ -15,7 +15,7 @@ export interface StarUnit {
   value: number; // 0.0 - 1.0 in steps of 0.1
   notes: StarNote[];
   icon_type?: RatingIconType; // Per-star icon type override (defaults to company rating_icon_type if not set)
-  reasoning?: string; // 1–2 sentence explanation (max ~250 chars), auto-generated for star4/star5
+  reasoning?: string; // 1–2 sentence xAI explanation, max 300 characters
 }
 
 export interface CompanyRating {

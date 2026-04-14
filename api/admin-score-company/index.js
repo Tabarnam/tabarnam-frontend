@@ -116,8 +116,8 @@ async function adminScoreCompanyHandler(req, context) {
     const existingStar5 = company.rating.star5 && typeof company.rating.star5 === "object"
       ? company.rating.star5 : { value: 0, notes: [] };
 
-    company.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: (scoring.reputation_reasoning || "").substring(0, 250) };
-    company.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: (scoring.quality_reasoning || "").substring(0, 250) };
+    company.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning };
+    company.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning };
     company.updated_at = new Date().toISOString();
 
     // Upsert to Cosmos DB
