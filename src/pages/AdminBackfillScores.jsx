@@ -1,9 +1,23 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, readJsonOrText } from "@/lib/api";
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, Play, Pause, Square, Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import {
+  RefreshCw,
+  Play,
+  Pause,
+  Square,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Search,
+  RotateCw,
+  ChevronDown,
+  ChevronRight,
+  Activity,
+} from "lucide-react";
 
 const STATUS_COLORS = {
   running: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -12,11 +26,25 @@ const STATUS_COLORS = {
   cancelled: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
 };
 
+const STATE_PILL = {
+  scored: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
+  manual: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+  unscored: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+};
+
 function StatusBadge({ status }) {
   if (!status) return null;
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[status] || STATUS_COLORS.cancelled}`}>
       {status}
+    </span>
+  );
+}
+
+function StateBadge({ state }) {
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${STATE_PILL[state] || STATE_PILL.unscored}`}>
+      {state}
     </span>
   );
 }
@@ -44,6 +72,261 @@ function ProgressBar({ processed, total }) {
   );
 }
 
+function formatDuration(ms) {
+  if (ms == null || Number.isNaN(ms)) return "—";
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s - m * 60);
+  return `${m}m ${rem}s`;
+}
+
+function useElapsed(startIso) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startIso) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [startIso]);
+  if (!startIso) return null;
+  const start = Date.parse(startIso);
+  if (Number.isNaN(start)) return null;
+  return Math.max(0, now - start);
+}
+
+function NowProcessing({ current }) {
+  const elapsedMs = useElapsed(current?.started_at);
+  if (!current?.name) return null;
+  return (
+    <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/15 p-3 flex items-center gap-3">
+      <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400 animate-pulse flex-none" />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-muted-foreground">Now processing</div>
+        <div className="text-sm font-medium text-foreground truncate">
+          {current.name}
+          {current.domain ? <span className="text-muted-foreground font-normal"> · {current.domain}</span> : null}
+        </div>
+      </div>
+      <div className="text-sm tabular-nums text-emerald-700 dark:text-emerald-400 flex-none">
+        {elapsedMs != null ? formatDuration(elapsedMs) : "—"}
+      </div>
+    </div>
+  );
+}
+
+function ActivityRow({ r, onRetry, retryingId }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasDetail = !r.ok && r.reason && r.reason.length > 40;
+  const canRetry = !r.ok && r.company_id && r.normalized_domain && onRetry;
+  const isRetrying = retryingId === r.company_id;
+  return (
+    <div className="py-1.5 text-sm">
+      <div className="flex items-center gap-2">
+        {r.ok ? (
+          <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-none" />
+        ) : (
+          <XCircle className="h-4 w-4 text-red-500 flex-none" />
+        )}
+        <span className="text-foreground font-medium truncate flex-1">{r.company_name}</span>
+        {r.ok ? (
+          <span className="text-xs text-muted-foreground flex-none">
+            Rep: {typeof r.star4 === "number" ? r.star4.toFixed(2) : "—"} &middot; Qual: {typeof r.star5 === "number" ? r.star5.toFixed(2) : "—"}
+          </span>
+        ) : (
+          <span className="text-xs text-red-500 flex-none truncate max-w-[260px]">{r.reason}</span>
+        )}
+        {r.duration_ms != null ? (
+          <span className="text-[10px] text-muted-foreground tabular-nums flex-none w-14 text-right">
+            {formatDuration(r.duration_ms)}
+          </span>
+        ) : (
+          <span className="flex-none w-14" />
+        )}
+        {hasDetail ? (
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground flex-none"
+            onClick={() => setExpanded((v) => !v)}
+            title={expanded ? "Collapse" : "Show full reason"}
+          >
+            {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+        ) : null}
+        {canRetry ? (
+          <button
+            type="button"
+            className="text-xs text-primary hover:underline flex items-center gap-0.5 flex-none"
+            onClick={() => onRetry(r)}
+            disabled={isRetrying}
+            title="Re-score this company via admin-score-company with force=true"
+          >
+            {isRetrying ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RotateCw className="h-3 w-3" />
+            )}
+            retry
+          </button>
+        ) : null}
+      </div>
+      {expanded && hasDetail ? (
+        <div className="mt-1 ml-6 text-xs text-red-500 font-mono whitespace-pre-wrap break-all">
+          {r.reason}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId }) {
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all"); // all | scored | manual | unscored
+  const [page, setPage] = useState(0);
+  const pageSize = 50;
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (companies || []).filter((c) => {
+      if (filter !== "all" && c.state !== filter) return false;
+      if (!q) return true;
+      return (
+        (c.name || "").toLowerCase().includes(q) ||
+        (c.domain || "").toLowerCase().includes(q) ||
+        (c.id || "").toLowerCase().includes(q)
+      );
+    });
+  }, [companies, search, filter]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(0);
+  }, [search, filter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice(page * pageSize, page * pageSize + pageSize);
+
+  const counts = useMemo(() => {
+    const c = { all: 0, scored: 0, manual: 0, unscored: 0 };
+    for (const row of companies || []) {
+      c.all++;
+      c[row.state] = (c[row.state] || 0) + 1;
+    }
+    return c;
+  }, [companies]);
+
+  return (
+    <div className="bg-white dark:bg-card rounded-lg border border-slate-200 dark:border-border p-4 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium text-foreground">Company Search</h2>
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
+          <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? "animate-spin" : ""}`} />
+          {companies ? "Reload" : "Load companies"}
+        </Button>
+      </div>
+
+      {companies ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, domain, or id…"
+                className="h-8 pl-7 text-sm"
+              />
+            </div>
+            {["all", "scored", "manual", "unscored"].map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={`h-8 px-2.5 rounded text-xs font-medium border transition-colors ${
+                  filter === f
+                    ? "bg-slate-900 text-white border-slate-900 dark:bg-foreground dark:text-background dark:border-foreground"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-card dark:text-muted-foreground dark:border-border dark:hover:bg-muted"
+                }`}
+              >
+                {f} <span className="opacity-70">({counts[f] ?? 0})</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="text-xs text-muted-foreground">
+            Showing {filtered.length === 0 ? 0 : page * pageSize + 1}–{Math.min(filtered.length, page * pageSize + pageSize)} of {filtered.length}
+          </div>
+
+          <div className="border border-slate-200 dark:border-border rounded overflow-hidden">
+            <div className="grid grid-cols-[1fr_180px_70px_70px_70px_120px] gap-2 bg-slate-50 dark:bg-muted px-2 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              <div>Company</div>
+              <div>Domain</div>
+              <div className="text-right">Rep</div>
+              <div className="text-right">Qual</div>
+              <div className="text-center">State</div>
+              <div>Updated</div>
+            </div>
+            <div className="divide-y divide-slate-100 dark:divide-border max-h-[500px] overflow-y-auto">
+              {pageRows.map((c) => (
+                <div key={c.id} className="grid grid-cols-[1fr_180px_70px_70px_70px_120px] gap-2 px-2 py-1.5 text-xs items-center hover:bg-slate-50 dark:hover:bg-muted/50">
+                  <div className="truncate">
+                    <span className="text-foreground font-medium">{c.name || "(unnamed)"}</span>
+                    {onRetry && c.state !== "unscored" ? (
+                      <button
+                        type="button"
+                        className="ml-2 text-[10px] text-primary hover:underline"
+                        onClick={() =>
+                          onRetry({ company_id: c.id, normalized_domain: c.domain, company_name: c.name })
+                        }
+                        disabled={retryingId === c.id}
+                        title="Re-score via admin-score-company with force=true"
+                      >
+                        {retryingId === c.id ? "…" : "rescore"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="truncate text-muted-foreground">{c.domain || "—"}</div>
+                  <div className="text-right tabular-nums text-foreground">{typeof c.star4 === "number" ? c.star4.toFixed(2) : "—"}</div>
+                  <div className="text-right tabular-nums text-foreground">{typeof c.star5 === "number" ? c.star5.toFixed(2) : "—"}</div>
+                  <div className="text-center"><StateBadge state={c.state} /></div>
+                  <div className="text-muted-foreground truncate">
+                    {c.updated_at ? new Date(c.updated_at).toISOString().slice(0, 10) : "—"}
+                  </div>
+                </div>
+              ))}
+              {pageRows.length === 0 ? (
+                <div className="text-center text-xs text-muted-foreground py-4">No matches</div>
+              ) : null}
+            </div>
+          </div>
+
+          {totalPages > 1 ? (
+            <div className="flex items-center justify-center gap-2 text-xs">
+              <Button size="sm" variant="outline" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
+                Prev
+              </Button>
+              <span className="text-muted-foreground">
+                Page {page + 1} / {totalPages}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+              >
+                Next
+              </Button>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div className="text-xs text-muted-foreground">
+          Click "Load companies" to pull the full list (~5k rows). Filter by scoring state and search by name or domain.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminBackfillScores() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -52,6 +335,9 @@ export default function AdminBackfillScores() {
   const [batchSize, setBatchSize] = useState(12);
   const [maxCompanies, setMaxCompanies] = useState("");
   const [error, setError] = useState(null);
+  const [companies, setCompanies] = useState(null);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [retryingId, setRetryingId] = useState(null);
   const intervalRef = useRef(null);
 
   const fetchStatus = useCallback(async () => {
@@ -60,7 +346,6 @@ export default function AdminBackfillScores() {
       const data = await readJsonOrText(res);
       if (data && typeof data === "object") {
         setStatus(data);
-        // Surface partial-failure diagnostics from the backend
         if (data.error) {
           setError(data.error);
         } else if (data.query_error) {
@@ -74,20 +359,35 @@ export default function AdminBackfillScores() {
     }
   }, []);
 
+  const fetchCompanies = useCallback(async () => {
+    setLoadingCompanies(true);
+    try {
+      const res = await apiFetch("/xadmin-api-score-status?action=list-all");
+      const data = await readJsonOrText(res);
+      if (data?.ok && Array.isArray(data.companies)) {
+        setCompanies(data.companies);
+      } else {
+        setError(data?.error || "Failed to load company list");
+      }
+    } catch (e) {
+      setError(e?.message || "Failed to load companies");
+    } finally {
+      setLoadingCompanies(false);
+    }
+  }, []);
+
   // Initial load
   useEffect(() => {
     setLoading(true);
     fetchStatus().finally(() => setLoading(false));
   }, [fetchStatus]);
 
-  // Polling when job is active
+  // Polling — 3s while running (live updates), 30s otherwise
   useEffect(() => {
     const jobStatus = status?.job?.status;
-    if (jobStatus === "running") {
-      intervalRef.current = setInterval(fetchStatus, 30000);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    }
+    const interval = jobStatus === "running" ? 3000 : 30000;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(fetchStatus, interval);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
@@ -138,6 +438,34 @@ export default function AdminBackfillScores() {
     }
   };
 
+  const handleRetry = async (row) => {
+    if (!row?.company_id || !row?.normalized_domain) return;
+    setRetryingId(row.company_id);
+    setError(null);
+    try {
+      const res = await apiFetch("/xadmin-api-score-company", {
+        method: "POST",
+        body: JSON.stringify({
+          company_id: row.company_id,
+          normalized_domain: row.normalized_domain,
+          force: true,
+        }),
+      });
+      const data = await readJsonOrText(res);
+      if (!data?.ok) {
+        setError(`Retry failed for ${row.company_name || row.company_id}: ${data?.reason || data?.error || "unknown"}`);
+      } else {
+        // Refresh status and company list if loaded
+        await fetchStatus();
+        if (companies) await fetchCompanies();
+      }
+    } catch (e) {
+      setError(e?.message || "Retry failed");
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
   const job = status?.job;
   const jobStatus = job?.status;
   const isRunning = jobStatus === "running";
@@ -148,6 +476,7 @@ export default function AdminBackfillScores() {
   const remaining = job?.remaining ?? status?.missing_companies ?? 0;
   const estimatedMinutes = job?.estimated_minutes_remaining;
   const batchResults = Array.isArray(job?.last_batch_results) ? job.last_batch_results : [];
+  const currentCompany = isRunning ? job?.current_company : null;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-background">
@@ -179,6 +508,9 @@ export default function AdminBackfillScores() {
             sub={job ? `Cycle ${job.cycle_count || 0}` : null}
           />
         </div>
+
+        {/* Now processing banner */}
+        {currentCompany ? <NowProcessing current={currentCompany} /> : null}
 
         {/* Progress bar */}
         {job && totalToScore > 0 && (
@@ -257,29 +589,26 @@ export default function AdminBackfillScores() {
 
         {/* Activity log */}
         {batchResults.length > 0 && (
-          <div className="bg-white dark:bg-card rounded-lg border border-slate-200 dark:border-border p-4 space-y-3">
-            <h2 className="text-sm font-medium text-foreground">Recent Activity (last 20)</h2>
-            <div className="divide-y divide-slate-100 dark:divide-border">
+          <div className="bg-white dark:bg-card rounded-lg border border-slate-200 dark:border-border p-4 space-y-2">
+            <h2 className="text-sm font-medium text-foreground">
+              Recent Activity <span className="text-muted-foreground font-normal">(last {batchResults.length})</span>
+            </h2>
+            <div className="divide-y divide-slate-100 dark:divide-border max-h-[480px] overflow-y-auto">
               {batchResults.map((r, i) => (
-                <div key={i} className="flex items-center gap-3 py-2 text-sm">
-                  {r.ok ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-none" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-red-500 flex-none" />
-                  )}
-                  <span className="text-foreground font-medium truncate flex-1">{r.company_name}</span>
-                  {r.ok ? (
-                    <span className="text-xs text-muted-foreground flex-none">
-                      Rep: {r.star4?.toFixed(2)} &middot; Qual: {r.star5?.toFixed(2)}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-red-500 flex-none truncate max-w-[200px]">{r.reason}</span>
-                  )}
-                </div>
+                <ActivityRow key={`${r.company_id || r.company_name}-${i}`} r={r} onRetry={handleRetry} retryingId={retryingId} />
               ))}
             </div>
           </div>
         )}
+
+        {/* Companies search table */}
+        <CompaniesTable
+          companies={companies}
+          loading={loadingCompanies}
+          onRefresh={fetchCompanies}
+          onRetry={handleRetry}
+          retryingId={retryingId}
+        />
 
         {/* Job details */}
         {job && (

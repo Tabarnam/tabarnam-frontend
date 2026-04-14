@@ -237,9 +237,28 @@ async function processBackfillScoreBatch(queueBody, context) {
   let failures = 0;
   const batchResults = [];
 
-  // Process each company sequentially
+  // Process each company sequentially.
+  // Writes `current_company` to the job doc before each call so the admin UI
+  // can show a "now processing X for Ys" indicator via status polling.
   for (const company of companies) {
     const companyName = company.company_name || company.name || company.normalized_domain || "unknown";
+    const companyStartMs = Date.now();
+    const companyStartedAt = new Date(companyStartMs).toISOString();
+
+    // Publish current_company to the job doc for live visibility.
+    try {
+      job.current_company = {
+        id: company.id,
+        name: companyName,
+        domain: company.normalized_domain || null,
+        started_at: companyStartedAt,
+      };
+      job.last_updated = companyStartedAt;
+      await jobsContainer.items.upsert(job, { partitionKey: jobId });
+    } catch (e) {
+      context.log(`[backfill-score] current_company upsert failed: ${e?.message || e}`);
+    }
+
     try {
       // Initialize rating if missing
       if (!company.rating || typeof company.rating !== "object") {
@@ -247,11 +266,20 @@ async function processBackfillScoreBatch(queueBody, context) {
       }
 
       const scoring = await computeReputationQualityScores(company, { timeoutMs: 60000 });
+      const companyDurationMs = Date.now() - companyStartMs;
 
       if (!scoring.ok) {
-        context.log(`[backfill-score] scoring_call: company=${companyName}, ok=false, reason=${scoring.reason}`);
+        context.log(`[backfill-score] scoring_call: company=${companyName}, ok=false, reason=${scoring.reason}, duration=${(companyDurationMs / 1000).toFixed(1)}s`);
         failures++;
-        batchResults.push({ company_name: companyName, ok: false, reason: scoring.reason });
+        batchResults.push({
+          company_id: company.id,
+          normalized_domain: company.normalized_domain || null,
+          company_name: companyName,
+          ok: false,
+          reason: scoring.reason,
+          started_at: companyStartedAt,
+          duration_ms: companyDurationMs,
+        });
         continue;
       }
 
@@ -269,20 +297,36 @@ async function processBackfillScoreBatch(queueBody, context) {
       const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
       await companiesContainer.items.upsert(company, { partitionKey: partitionKeyValue });
 
-      context.log(`[backfill-score] scoring_call: company=${companyName}, star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}, reasoning_populated=true`);
+      context.log(`[backfill-score] scoring_call: company=${companyName}, star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}, reasoning_populated=true, duration=${(companyDurationMs / 1000).toFixed(1)}s`);
       scored++;
       batchResults.push({
+        company_id: company.id,
+        normalized_domain: company.normalized_domain || null,
         company_name: companyName,
         ok: true,
         star4: scoring.reputation_score,
         star5: scoring.quality_score,
+        started_at: companyStartedAt,
+        duration_ms: companyDurationMs,
       });
     } catch (e) {
+      const companyDurationMs = Date.now() - companyStartMs;
       context.log(`[backfill-score] Error scoring ${companyName}: ${e?.message || e}`);
       failures++;
-      batchResults.push({ company_name: companyName, ok: false, reason: e?.message || "exception" });
+      batchResults.push({
+        company_id: company.id,
+        normalized_domain: company.normalized_domain || null,
+        company_name: companyName,
+        ok: false,
+        reason: e?.message || "exception",
+        started_at: companyStartedAt,
+        duration_ms: companyDurationMs,
+      });
     }
   }
+
+  // Clear current_company — batch finished.
+  job.current_company = null;
 
   const batchDurationMs = Date.now() - batchStartMs;
 
@@ -315,9 +359,9 @@ async function processBackfillScoreBatch(queueBody, context) {
     job.estimated_minutes_remaining = Math.round((job.remaining * msPerCompany) / 60000);
   }
 
-  // Keep last 20 batch results
+  // Keep last 100 batch results
   const existingResults = Array.isArray(job.last_batch_results) ? job.last_batch_results : [];
-  job.last_batch_results = [...batchResults, ...existingResults].slice(0, 20);
+  job.last_batch_results = [...batchResults, ...existingResults].slice(0, 100);
 
   await jobsContainer.items.upsert(job, { partitionKey: jobId });
 

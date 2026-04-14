@@ -112,6 +112,46 @@ async function adminScoreStatusHandler(req, context) {
       return json({ error: `Unknown action: ${action}` }, 400);
     }
 
+    // ?action=list-all — returns a compact summary of every company with
+    // scoring status, suitable for client-side search/filter in the admin UI.
+    if (action === "list-all") {
+      const listQuery = `SELECT c.id, c.company_name, c.name, c.normalized_domain, c.domain, c.is_deleted, c.type, c.source, c.updated_at, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const { resources } = await companiesContainer.items
+        .query(listQuery, { enableCrossPartitionQuery: true })
+        .fetchAll();
+      const companies = (resources || []).map((c) => {
+        const ratingObj =
+          c && c.rating && typeof c.rating === "object" && !Array.isArray(c.rating) ? c.rating : {};
+        const star4Obj = ratingObj.star4 && typeof ratingObj.star4 === "object" ? ratingObj.star4 : null;
+        const star5Obj = ratingObj.star5 && typeof ratingObj.star5 === "object" ? ratingObj.star5 : null;
+        const star4Value = star4Obj && typeof star4Obj.value === "number" ? star4Obj.value : null;
+        const star5Value = star5Obj && typeof star5Obj.value === "number" ? star5Obj.value : null;
+        const star4Reasoning = star4Obj && typeof star4Obj.reasoning === "string" ? star4Obj.reasoning : "";
+        const star5Reasoning = star5Obj && typeof star5Obj.reasoning === "string" ? star5Obj.reasoning : "";
+        const hasValue = typeof star4Value === "number" && star4Value > 0;
+        const hasReasoning = Boolean(star4Reasoning);
+        // scored = has an xAI-quality score (value AND reasoning)
+        // manual = has value but no reasoning (admin-set)
+        // unscored = no value
+        let state = "unscored";
+        if (hasValue && hasReasoning) state = "scored";
+        else if (hasValue) state = "manual";
+        return {
+          id: c.id,
+          name: c.company_name || c.name || null,
+          domain: c.normalized_domain || c.domain || null,
+          source: c.source ?? null,
+          star4: star4Value,
+          star5: star5Value,
+          has_reasoning_star4: Boolean(star4Reasoning),
+          has_reasoning_star5: Boolean(star5Reasoning),
+          state,
+          updated_at: c.updated_at ?? null,
+        };
+      });
+      return json({ ok: true, count: companies.length, companies });
+    }
+
     // Diagnostic: ?action=list-scored — returns the list of companies where
     // rating.star4.value > 0 with enough fields to identify them.
     if (action === "list-scored") {
