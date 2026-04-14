@@ -83,16 +83,22 @@ function formatDuration(ms) {
   return `${m}m ${rem}s`;
 }
 
-function useElapsed(startIso) {
+function useElapsed(startIso, endIso) {
+  // If endIso is provided, the duration is frozen at endIso - startIso.
+  // Otherwise it ticks every 500ms off Date.now().
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!startIso) return undefined;
+    if (!startIso || endIso) return undefined;
     const t = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(t);
-  }, [startIso]);
+  }, [startIso, endIso]);
   if (!startIso) return null;
   const start = Date.parse(startIso);
   if (Number.isNaN(start)) return null;
+  if (endIso) {
+    const end = Date.parse(endIso);
+    if (!Number.isNaN(end)) return Math.max(0, end - start);
+  }
   return Math.max(0, now - start);
 }
 
@@ -107,21 +113,28 @@ function formatRelativeAge(ms) {
 }
 
 function JobHealth({ job, onRunDiagnostics, diagnostics, diagnosing }) {
-  const startedMs = useElapsed(job?.started_at);
+  const status = job?.status;
+  const isTerminal = status === "cancelled" || status === "completed" || status === "failed";
+  // For terminal statuses, freeze elapsed at the terminal timestamp (cancelled_at
+  // / completed_at / failed_at, falling back to last_updated). Live clocks on
+  // terminal jobs mislead the operator.
+  const terminalAt =
+    isTerminal
+      ? job?.cancelled_at || job?.completed_at || job?.failed_at || job?.last_updated || null
+      : null;
+  const startedMs = useElapsed(job?.started_at, terminalAt);
   const lastUpdatedMs = useElapsed(job?.last_updated);
   if (!job) return null;
 
-  const status = job.status;
   const cycleCount = job.cycle_count || 0;
   const processed = job.processed || 0;
   const failed = job.failed || 0;
   const total = job.total_to_score || 0;
   const jobIdShort = (job.job_id || "").slice(0, 8);
 
-  // Stalled = status=running but no batch has completed after 60s
-  const stalledNoProgress = status === "running" && cycleCount === 0 && (startedMs || 0) > 60_000;
-  // Cold = status=running but last_updated hasn't moved in >120s after having processed work
-  const stalledMidRun = status === "running" && cycleCount > 0 && (lastUpdatedMs || 0) > 120_000;
+  // Stall detection only applies while the job is running. Suppress on terminal.
+  const stalledNoProgress = !isTerminal && status === "running" && cycleCount === 0 && (startedMs || 0) > 60_000;
+  const stalledMidRun = !isTerminal && status === "running" && cycleCount > 0 && (lastUpdatedMs || 0) > 120_000;
   const isStalled = stalledNoProgress || stalledMidRun;
 
   return (
@@ -155,8 +168,12 @@ function JobHealth({ job, onRunDiagnostics, diagnostics, diagnosing }) {
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
         <div>
-          <div className="text-muted-foreground">Started</div>
-          <div className="text-foreground tabular-nums">{formatRelativeAge(startedMs)}</div>
+          <div className="text-muted-foreground">{isTerminal ? "Ran for" : "Started"}</div>
+          <div className="text-foreground tabular-nums">
+            {isTerminal
+              ? (startedMs != null ? formatDuration(startedMs) : "—")
+              : formatRelativeAge(startedMs)}
+          </div>
         </div>
         <div>
           <div className="text-muted-foreground">Last updated</div>
@@ -193,7 +210,15 @@ function JobHealth({ job, onRunDiagnostics, diagnostics, diagnosing }) {
             {diagnostics.recommendation || "—"}
           </div>
           <div className="text-muted-foreground">
-            queue_trigger: <span className="text-foreground">{diagnostics.has_queue_trigger ? "registered" : "MISSING"}</span>
+            role: <span className="text-foreground">{diagnostics.role || "unknown"}</span>
+            {" · "}
+            queue_trigger: <span className="text-foreground">
+              {diagnostics.has_queue_trigger
+                ? "registered"
+                : diagnostics.role === "enqueuer"
+                  ? "n/a (worker-side)"
+                  : "MISSING"}
+            </span>
             {" · "}
             connection: <span className="text-foreground">{diagnostics.connection_ready ? "ready" : "MISSING"}</span>
             {diagnostics.queue_name ? <> · queue: <span className="text-foreground">{diagnostics.queue_name}</span></> : null}
@@ -762,6 +787,8 @@ export default function AdminBackfillScores() {
           recommendation: diag.recommendation || null,
           has_queue_trigger: Boolean(diag.has_queue_trigger),
           connection_ready: Boolean(diag.connection_ready),
+          role: diag.role || data.host?.role || null,
+          site_name: data.host?.site_name || null,
           queue_name: data.queue_configuration?.queue_name || null,
           raw: data,
         });

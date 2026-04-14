@@ -132,6 +132,38 @@ async function adminScoreAllMissingHandler(req, context) {
 
     context.log(`[score-all-missing] Created job ${jobId}: total=${totalToScore}, batch_size=${batchSize}, enqueue_ok=${enqueueResult?.ok}`);
 
+    // Safety net: if enqueue failed, mark the job failed immediately so the Job
+    // Health panel shows the real state instead of a running job that will never
+    // tick. Without this the job sits in status=running forever until an operator
+    // notices and cancels it.
+    if (!enqueueResult?.ok) {
+      const failedAt = new Date().toISOString();
+      const enqueueError = enqueueResult?.error || "enqueue_failed";
+      try {
+        const failedDoc = {
+          ...jobDoc,
+          status: "failed",
+          failed_at: failedAt,
+          last_updated: failedAt,
+          enqueue_error: enqueueError,
+        };
+        await jobsContainer.items.upsert(failedDoc, { partitionKey: jobId });
+        context.log(`[score-all-missing] Marked job ${jobId} as failed due to enqueue error: ${enqueueError}`);
+      } catch (markErr) {
+        context.log(`[score-all-missing] Failed to mark job ${jobId} as failed: ${markErr?.message || markErr}`);
+      }
+      return json({
+        ok: false,
+        job_id: jobId,
+        status: "failed",
+        error: "enqueue_failed",
+        enqueue_error: enqueueError,
+        total_to_score: totalToScore,
+        batch_size: batchSize,
+        max_companies: maxCompanies,
+      }, 500);
+    }
+
     return json({
       ok: true,
       job_id: jobId,

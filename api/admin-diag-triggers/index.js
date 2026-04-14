@@ -33,10 +33,18 @@ async function adminDiagTriggersHandler(req, context) {
   try {
     const queueConfig = resolveQueueConfig();
     const triggers = listTriggers();
+    const siteName = asString(process.env.WEBSITE_SITE_NAME).trim();
+    const isDedicatedWorker = siteName.toLowerCase().includes("dedicated");
+    const role = isDedicatedWorker ? "worker" : "enqueuer";
+    const hasQueueTrigger = triggers.some((t) => t.type === "storageQueue" && t.queueName === queueConfig.queueName);
 
     const response = {
       ok: true,
       timestamp: new Date().toISOString(),
+      host: {
+        site_name: siteName || null,
+        role,
+      },
       triggers: {
         list: triggers,
         summary: {
@@ -62,7 +70,8 @@ async function adminDiagTriggersHandler(req, context) {
         },
       },
       diagnostics: {
-        has_queue_trigger: triggers.some((t) => t.type === "storageQueue" && t.queueName === queueConfig.queueName),
+        role,
+        has_queue_trigger: hasQueueTrigger,
         queue_trigger_details: triggers.find((t) => t.type === "storageQueue" && t.queueName === queueConfig.queueName) || {
           name: "import-resume-worker-queue-trigger",
           type: "storageQueue",
@@ -72,10 +81,15 @@ async function adminDiagTriggersHandler(req, context) {
         connection_ready: Boolean(queueConfig.connectionString),
         recommendation: (() => {
           if (!queueConfig.connectionString) {
-            return "⚠️ Queue connection not configured. Set ENRICHMENT_QUEUE_CONNECTION_STRING or AzureWebJobsStorage.";
+            return isDedicatedWorker
+              ? "⚠️ Worker missing queue connection. Set AzureWebJobsStorage on this app."
+              : "⚠️ Enqueuer missing queue connection. Set ENRICHMENT_QUEUE_CONNECTION_STRING on this app.";
           }
-          if (!triggers.some((t) => t.type === "storageQueue" && t.queueName === queueConfig.queueName)) {
-            return "⚠️ Queue trigger not found in registered triggers. Check if api/import/resume-worker/index.js is loaded.";
+          if (isDedicatedWorker && !hasQueueTrigger) {
+            return "⚠️ Dedicated worker missing queue trigger. Redeploy api/import/resume-worker to this app.";
+          }
+          if (!isDedicatedWorker && !hasQueueTrigger) {
+            return "ℹ️ This app enqueues only. Queue trigger lives on the dedicated worker app — verify there.";
           }
           return "✅ Queue trigger is configured and registered.";
         })(),
