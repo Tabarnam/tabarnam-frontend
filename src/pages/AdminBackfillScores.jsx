@@ -178,10 +178,11 @@ function ActivityRow({ r, onRetry, retryingId }) {
   );
 }
 
-function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId }) {
+function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId, onScoreMany, bulkScoring }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all"); // all | scored | manual | unscored
   const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState(() => new Set());
   const pageSize = 50;
 
   const filtered = useMemo(() => {
@@ -213,6 +214,57 @@ function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId }) 
     }
     return c;
   }, [companies]);
+
+  const toggleOne = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const pageAllSelected = pageRows.length > 0 && pageRows.every((r) => selected.has(r.id));
+  const togglePage = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (pageAllSelected) {
+        for (const r of pageRows) next.delete(r.id);
+      } else {
+        for (const r of pageRows) next.add(r.id);
+      }
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const r of filtered) next.add(r.id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const selectedCompanies = useMemo(
+    () => (companies || []).filter((c) => selected.has(c.id)),
+    [companies, selected]
+  );
+
+  const handleScoreSelected = () => {
+    if (selectedCompanies.length === 0 || !onScoreMany) return;
+    const n = selectedCompanies.length;
+    if (n > 20) {
+      const ok = window.confirm(
+        `Score ${n} companies? Each takes ~30-60s, so this could run for roughly ${Math.ceil((n * 45) / 60)} minutes. Runs sequentially in the browser — keep this tab open until it finishes.`
+      );
+      if (!ok) return;
+    }
+    onScoreMany(selectedCompanies).then(() => {
+      clearSelection();
+    });
+  };
 
   return (
     <div className="bg-white dark:bg-card rounded-lg border border-slate-200 dark:border-border p-4 space-y-3">
@@ -252,12 +304,71 @@ function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId }) 
             ))}
           </div>
 
+          {/* Selection bar */}
+          {selected.size > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded bg-emerald-50 dark:bg-emerald-900/15 border border-emerald-200 dark:border-emerald-800">
+              <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                {selected.size} selected
+              </span>
+              {selected.size < filtered.length ? (
+                <button
+                  type="button"
+                  onClick={selectAllFiltered}
+                  className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline"
+                >
+                  Select all {filtered.length} filtered
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+              <div className="ml-auto">
+                <Button
+                  size="sm"
+                  onClick={handleScoreSelected}
+                  disabled={bulkScoring?.active}
+                >
+                  {bulkScoring?.active ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      Scoring {bulkScoring.done}/{bulkScoring.total}…
+                    </>
+                  ) : (
+                    <>Score selected ({selected.size})</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {bulkScoring?.active && bulkScoring.current ? (
+            <div className="text-xs text-muted-foreground">
+              Currently scoring: <span className="text-foreground font-medium">{bulkScoring.current}</span>
+              {bulkScoring.lastError ? (
+                <span className="ml-2 text-red-500">· last error: {bulkScoring.lastError}</span>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="text-xs text-muted-foreground">
             Showing {filtered.length === 0 ? 0 : page * pageSize + 1}–{Math.min(filtered.length, page * pageSize + pageSize)} of {filtered.length}
           </div>
 
           <div className="border border-slate-200 dark:border-border rounded overflow-hidden">
-            <div className="grid grid-cols-[1fr_180px_70px_70px_70px_120px] gap-2 bg-slate-50 dark:bg-muted px-2 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+            <div className="grid grid-cols-[32px_1fr_180px_70px_70px_70px_120px] gap-2 bg-slate-50 dark:bg-muted px-2 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide items-center">
+              <div>
+                <input
+                  type="checkbox"
+                  checked={pageAllSelected}
+                  onChange={togglePage}
+                  title={pageAllSelected ? "Deselect page" : "Select all on this page"}
+                  className="h-3.5 w-3.5"
+                />
+              </div>
               <div>Company</div>
               <div>Domain</div>
               <div className="text-right">Rep</div>
@@ -266,33 +377,49 @@ function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId }) 
               <div>Updated</div>
             </div>
             <div className="divide-y divide-slate-100 dark:divide-border max-h-[500px] overflow-y-auto">
-              {pageRows.map((c) => (
-                <div key={c.id} className="grid grid-cols-[1fr_180px_70px_70px_70px_120px] gap-2 px-2 py-1.5 text-xs items-center hover:bg-slate-50 dark:hover:bg-muted/50">
-                  <div className="truncate">
-                    <span className="text-foreground font-medium">{c.name || "(unnamed)"}</span>
-                    {onRetry && c.state !== "unscored" ? (
-                      <button
-                        type="button"
-                        className="ml-2 text-[10px] text-primary hover:underline"
-                        onClick={() =>
-                          onRetry({ company_id: c.id, normalized_domain: c.domain, company_name: c.name })
-                        }
-                        disabled={retryingId === c.id}
-                        title="Re-score via admin-score-company with force=true"
-                      >
-                        {retryingId === c.id ? "…" : "rescore"}
-                      </button>
-                    ) : null}
+              {pageRows.map((c) => {
+                const isSelected = selected.has(c.id);
+                return (
+                  <div
+                    key={c.id}
+                    className={`grid grid-cols-[32px_1fr_180px_70px_70px_70px_120px] gap-2 px-2 py-1.5 text-xs items-center ${
+                      isSelected ? "bg-emerald-50/50 dark:bg-emerald-900/10" : "hover:bg-slate-50 dark:hover:bg-muted/50"
+                    }`}
+                  >
+                    <div>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleOne(c.id)}
+                        className="h-3.5 w-3.5"
+                      />
+                    </div>
+                    <div className="truncate">
+                      <span className="text-foreground font-medium">{c.name || "(unnamed)"}</span>
+                      {onRetry && c.state !== "unscored" ? (
+                        <button
+                          type="button"
+                          className="ml-2 text-[10px] text-primary hover:underline"
+                          onClick={() =>
+                            onRetry({ company_id: c.id, normalized_domain: c.domain, company_name: c.name })
+                          }
+                          disabled={retryingId === c.id}
+                          title="Re-score via admin-score-company with force=true"
+                        >
+                          {retryingId === c.id ? "…" : "rescore"}
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="truncate text-muted-foreground">{c.domain || "—"}</div>
+                    <div className="text-right tabular-nums text-foreground">{typeof c.star4 === "number" ? c.star4.toFixed(2) : "—"}</div>
+                    <div className="text-right tabular-nums text-foreground">{typeof c.star5 === "number" ? c.star5.toFixed(2) : "—"}</div>
+                    <div className="text-center"><StateBadge state={c.state} /></div>
+                    <div className="text-muted-foreground truncate">
+                      {c.updated_at ? new Date(c.updated_at).toISOString().slice(0, 10) : "—"}
+                    </div>
                   </div>
-                  <div className="truncate text-muted-foreground">{c.domain || "—"}</div>
-                  <div className="text-right tabular-nums text-foreground">{typeof c.star4 === "number" ? c.star4.toFixed(2) : "—"}</div>
-                  <div className="text-right tabular-nums text-foreground">{typeof c.star5 === "number" ? c.star5.toFixed(2) : "—"}</div>
-                  <div className="text-center"><StateBadge state={c.state} /></div>
-                  <div className="text-muted-foreground truncate">
-                    {c.updated_at ? new Date(c.updated_at).toISOString().slice(0, 10) : "—"}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {pageRows.length === 0 ? (
                 <div className="text-center text-xs text-muted-foreground py-4">No matches</div>
               ) : null}
@@ -338,6 +465,7 @@ export default function AdminBackfillScores() {
   const [companies, setCompanies] = useState(null);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [retryingId, setRetryingId] = useState(null);
+  const [bulkScoring, setBulkScoring] = useState({ active: false, done: 0, total: 0, current: null, lastError: null });
   const intervalRef = useRef(null);
 
   const fetchStatus = useCallback(async () => {
@@ -435,6 +563,49 @@ export default function AdminBackfillScores() {
       setError(e?.message || `Failed to ${action}`);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleScoreMany = async (companiesToScore) => {
+    if (!Array.isArray(companiesToScore) || companiesToScore.length === 0) return;
+    setError(null);
+    setBulkScoring({ active: true, done: 0, total: companiesToScore.length, current: null, lastError: null });
+    try {
+      for (let i = 0; i < companiesToScore.length; i++) {
+        const c = companiesToScore[i];
+        if (!c?.id || !c?.domain) {
+          setBulkScoring((prev) => ({ ...prev, done: i + 1, lastError: `Skipped ${c?.name || c?.id}: missing id/domain` }));
+          continue;
+        }
+        setBulkScoring((prev) => ({ ...prev, current: c.name || c.id }));
+        try {
+          const res = await apiFetch("/xadmin-api-score-company", {
+            method: "POST",
+            body: JSON.stringify({
+              company_id: c.id,
+              normalized_domain: c.domain,
+              force: true,
+            }),
+          });
+          const data = await readJsonOrText(res);
+          if (!data?.ok) {
+            setBulkScoring((prev) => ({
+              ...prev,
+              lastError: `${c.name || c.id}: ${data?.reason || data?.error || "unknown"}`,
+            }));
+          }
+        } catch (e) {
+          setBulkScoring((prev) => ({
+            ...prev,
+            lastError: `${c.name || c.id}: ${e?.message || "request failed"}`,
+          }));
+        }
+        setBulkScoring((prev) => ({ ...prev, done: i + 1 }));
+      }
+    } finally {
+      setBulkScoring((prev) => ({ ...prev, active: false, current: null }));
+      await fetchStatus();
+      if (companies) await fetchCompanies();
     }
   };
 
@@ -608,6 +779,8 @@ export default function AdminBackfillScores() {
           onRefresh={fetchCompanies}
           onRetry={handleRetry}
           retryingId={retryingId}
+          onScoreMany={handleScoreMany}
+          bulkScoring={bulkScoring}
         />
 
         {/* Job details */}
