@@ -69,12 +69,45 @@ function repairOrphanObjects(text) {
   return safeJsonParse(repaired);
 }
 
+/**
+ * Remove trailing commas before `}` or `]` (valid JS, invalid JSON).
+ * String-aware so commas inside quoted values are preserved.
+ * Grok intermittently emits e.g. `"quality_reasoning": "...",\n}`.
+ */
+function stripTrailingCommas(text) {
+  if (typeof text !== "string") return text;
+  let out = "";
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (esc) { out += ch; esc = false; continue; }
+    if (ch === "\\" && inStr) { out += ch; esc = true; continue; }
+    if (ch === '"') { out += ch; inStr = !inStr; continue; }
+    if (!inStr && ch === ",") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (j < text.length && (text[j] === "}" || text[j] === "]")) {
+        continue; // drop this comma
+      }
+    }
+    out += ch;
+  }
+  return out;
+}
+
 function extractJsonFromText(text) {
   const raw = asString(text).trim();
   if (!raw) return null;
 
   const direct = safeJsonParse(raw);
   if (direct != null) return direct;
+
+  const directRelaxed = safeJsonParse(stripTrailingCommas(raw));
+  if (directRelaxed != null) {
+    console.log(`[extractJsonFromText] Repaired trailing commas`);
+    return directRelaxed;
+  }
 
   // Prefer object extraction first, as it can contain embedded arrays and metadata.
   const objStart = raw.indexOf("{");
@@ -83,6 +116,12 @@ function extractJsonFromText(text) {
     const slice = raw.slice(objStart, objEnd + 1);
     const parsed = safeJsonParse(slice);
     if (parsed != null) return parsed;
+
+    const sliceRelaxed = safeJsonParse(stripTrailingCommas(slice));
+    if (sliceRelaxed != null) {
+      console.log(`[extractJsonFromText] Repaired trailing commas in slice`);
+      return sliceRelaxed;
+    }
 
     // Repair: Grok sometimes wraps fields in orphan { } objects without keys.
     // This is invalid JSON but the data inside is valid — unwrap and retry.

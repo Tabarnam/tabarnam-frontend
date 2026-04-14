@@ -178,7 +178,7 @@ function ActivityRow({ r, onRetry, retryingId }) {
   );
 }
 
-function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId, onScoreMany, bulkScoring }) {
+function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId, onScoreMany, bulkScoring, onDismissBulkSummary }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all"); // all | scored | manual | unscored
   const [page, setPage] = useState(0);
@@ -354,6 +354,37 @@ function CompaniesTable({ companies, loading, onRefresh, onRetry, retryingId, on
             </div>
           ) : null}
 
+          {!bulkScoring?.active && bulkScoring?.completedAt ? (
+            <div className={`rounded border p-2 text-xs ${
+              bulkScoring.errors.length > 0
+                ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
+                : "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20"
+            }`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-foreground">
+                  Scored {bulkScoring.done - bulkScoring.errors.length} of {bulkScoring.total}
+                  {bulkScoring.errors.length > 0 ? ` · ${bulkScoring.errors.length} failed` : ""}
+                </span>
+                {onDismissBulkSummary ? (
+                  <button
+                    type="button"
+                    onClick={onDismissBulkSummary}
+                    className="text-muted-foreground hover:text-foreground text-[11px]"
+                  >
+                    Dismiss
+                  </button>
+                ) : null}
+              </div>
+              {bulkScoring.errors.length > 0 ? (
+                <ul className="mt-1 space-y-0.5 list-disc list-inside text-red-600 dark:text-red-400">
+                  {bulkScoring.errors.map((msg, i) => (
+                    <li key={i} className="break-all">{msg}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="text-xs text-muted-foreground">
             Showing {filtered.length === 0 ? 0 : page * pageSize + 1}–{Math.min(filtered.length, page * pageSize + pageSize)} of {filtered.length}
           </div>
@@ -465,7 +496,7 @@ export default function AdminBackfillScores() {
   const [companies, setCompanies] = useState(null);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [retryingId, setRetryingId] = useState(null);
-  const [bulkScoring, setBulkScoring] = useState({ active: false, done: 0, total: 0, current: null, lastError: null });
+  const [bulkScoring, setBulkScoring] = useState({ active: false, done: 0, total: 0, current: null, lastError: null, errors: [], completedAt: null });
   const intervalRef = useRef(null);
 
   const fetchStatus = useCallback(async () => {
@@ -569,15 +600,17 @@ export default function AdminBackfillScores() {
   const handleScoreMany = async (companiesToScore) => {
     if (!Array.isArray(companiesToScore) || companiesToScore.length === 0) return;
     setError(null);
-    setBulkScoring({ active: true, done: 0, total: companiesToScore.length, current: null, lastError: null });
+    setBulkScoring({ active: true, done: 0, total: companiesToScore.length, current: null, lastError: null, errors: [], completedAt: null });
     try {
       for (let i = 0; i < companiesToScore.length; i++) {
         const c = companiesToScore[i];
+        const label = c?.name || c?.id || "(unknown)";
         if (!c?.id || !c?.domain) {
-          setBulkScoring((prev) => ({ ...prev, done: i + 1, lastError: `Skipped ${c?.name || c?.id}: missing id/domain` }));
+          const msg = `${label}: missing id/domain`;
+          setBulkScoring((prev) => ({ ...prev, done: i + 1, lastError: msg, errors: [...prev.errors, msg] }));
           continue;
         }
-        setBulkScoring((prev) => ({ ...prev, current: c.name || c.id }));
+        setBulkScoring((prev) => ({ ...prev, current: label }));
         try {
           const res = await apiFetch("/xadmin-api-score-company", {
             method: "POST",
@@ -589,24 +622,24 @@ export default function AdminBackfillScores() {
           });
           const data = await readJsonOrText(res);
           if (!data?.ok) {
-            setBulkScoring((prev) => ({
-              ...prev,
-              lastError: `${c.name || c.id}: ${data?.reason || data?.error || "unknown"}`,
-            }));
+            const msg = `${label}: ${data?.reason || data?.error || "unknown"}`;
+            setBulkScoring((prev) => ({ ...prev, lastError: msg, errors: [...prev.errors, msg] }));
           }
         } catch (e) {
-          setBulkScoring((prev) => ({
-            ...prev,
-            lastError: `${c.name || c.id}: ${e?.message || "request failed"}`,
-          }));
+          const msg = `${label}: ${e?.message || "request failed"}`;
+          setBulkScoring((prev) => ({ ...prev, lastError: msg, errors: [...prev.errors, msg] }));
         }
         setBulkScoring((prev) => ({ ...prev, done: i + 1 }));
       }
     } finally {
-      setBulkScoring((prev) => ({ ...prev, active: false, current: null }));
+      setBulkScoring((prev) => ({ ...prev, active: false, current: null, completedAt: new Date().toISOString() }));
       await fetchStatus();
       if (companies) await fetchCompanies();
     }
+  };
+
+  const dismissBulkSummary = () => {
+    setBulkScoring({ active: false, done: 0, total: 0, current: null, lastError: null, errors: [], completedAt: null });
   };
 
   const handleRetry = async (row) => {
@@ -781,6 +814,7 @@ export default function AdminBackfillScores() {
           retryingId={retryingId}
           onScoreMany={handleScoreMany}
           bulkScoring={bulkScoring}
+          onDismissBulkSummary={dismissBulkSummary}
         />
 
         {/* Job details */}
