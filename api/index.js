@@ -687,6 +687,14 @@ try {
 } catch (e) {
   console.error("[api] ❌ Failed to load xadmin-api-score-status:", e?.message || e);
 }
+
+try {
+  console.log("[api] Registering: xadmin-api-score-batch-worker");
+  require("./xadmin-api-score-batch-worker/index.js");
+  console.log("[api] ✓ xadmin-api-score-batch-worker registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-score-batch-worker:", e?.message || e);
+}
 }
 
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");

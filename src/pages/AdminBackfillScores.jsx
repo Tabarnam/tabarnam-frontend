@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { apiFetch, readJsonOrText } from "@/lib/api";
+import { apiFetch, readJsonOrText, API_BASE, join } from "@/lib/api";
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -635,6 +635,32 @@ export default function AdminBackfillScores() {
   const [diagnostics, setDiagnostics] = useState(null);
   const [diagnosing, setDiagnosing] = useState(false);
   const intervalRef = useRef(null);
+  // Stall watchdog state — tracks (job_id, last_updated, last_seen_at) so we can
+  // detect a worker that has stopped making progress and kick a fresh one.
+  const lastProgressRef = useRef({ jobId: null, lastUpdated: null, lastSeenAt: 0 });
+  const workerKickInFlightRef = useRef(false);
+
+  // Fire-and-forget POST to the score-batch-worker. Keepalive allows it to
+  // survive a page nav/unload; we never await the response. Mirrors the
+  // admin/import → primary-worker pattern in AdminImport.jsx.
+  const kickScoreBatchWorker = useCallback((jobId, cycleCount = 0) => {
+    if (!jobId) return;
+    if (workerKickInFlightRef.current) return;
+    workerKickInFlightRef.current = true;
+    try {
+      const workerUrl = join(API_BASE, "xadmin-api-score-batch-worker");
+      fetch(workerUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId, cycle_count: cycleCount }),
+        keepalive: true,
+      })
+        .catch(() => {})
+        .finally(() => { workerKickInFlightRef.current = false; });
+    } catch {
+      workerKickInFlightRef.current = false;
+    }
+  }, []);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -689,6 +715,35 @@ export default function AdminBackfillScores() {
     };
   }, [status?.job?.status, fetchStatus]);
 
+  // Stall watchdog — if the job is running but last_updated hasn't advanced
+  // for >60s, assume the previous score-batch-worker invocation exited (time
+  // cap, function restart, transient error) and fire a fresh one to resume.
+  useEffect(() => {
+    const job = status?.job;
+    if (!job || job.status !== "running" || !job.job_id) {
+      lastProgressRef.current = { jobId: null, lastUpdated: null, lastSeenAt: 0 };
+      return;
+    }
+    const now = Date.now();
+    const prev = lastProgressRef.current;
+    const lastUpdated = job.last_updated || null;
+
+    if (prev.jobId !== job.job_id || prev.lastUpdated !== lastUpdated) {
+      // Progress advanced (or new job) — reset the watchdog window.
+      lastProgressRef.current = { jobId: job.job_id, lastUpdated, lastSeenAt: now };
+      return;
+    }
+
+    // Same (jobId, last_updated) as last poll — check staleness.
+    const stalledMs = now - (prev.lastSeenAt || now);
+    if (stalledMs > 60000) {
+      kickScoreBatchWorker(job.job_id, job.cycle_count || 0);
+      // Push the window forward so we don't re-kick every 3s while waiting
+      // for the new worker's first write.
+      lastProgressRef.current = { jobId: job.job_id, lastUpdated, lastSeenAt: now };
+    }
+  }, [status?.job?.job_id, status?.job?.status, status?.job?.last_updated, status?.job?.cycle_count, kickScoreBatchWorker]);
+
   const handleStart = async () => {
     setStarting(true);
     setError(null);
@@ -703,6 +758,13 @@ export default function AdminBackfillScores() {
       });
       const data = await readJsonOrText(res);
       if (data?.ok) {
+        // Kick the inline worker immediately. The worker drives scoring
+        // via processBackfillScoreBatch until the job is done or it hits
+        // the 9-min time cap. If it exits early, the stall watchdog below
+        // re-fires it.
+        if (data.job_id) {
+          kickScoreBatchWorker(data.job_id, 0);
+        }
         await fetchStatus();
       } else {
         setError(data?.error || "Failed to start backfill");

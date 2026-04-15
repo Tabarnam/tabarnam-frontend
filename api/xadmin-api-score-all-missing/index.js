@@ -1,6 +1,5 @@
 const { app } = require("../_app");
 const { CosmosClient } = require("@azure/cosmos");
-const { enqueueResumeRun } = require("../_enrichmentQueue");
 const { computeReputationQualityScores } = require("../_companyScoring");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
@@ -121,49 +120,14 @@ async function adminScoreAllMissingHandler(req, context) {
 
     await jobsContainer.items.upsert(jobDoc, { partitionKey: jobId });
 
-    // Enqueue first batch
-    const enqueueResult = await enqueueResumeRun({
-      session_id: jobId,
-      reason: "backfill_score",
-      run_after_ms: 0,
-      cycle_count: 0,
-      requested_by: "admin",
-    });
+    context.log(`[score-all-missing] Created job ${jobId}: total=${totalToScore}, batch_size=${batchSize}`);
 
-    context.log(`[score-all-missing] Created job ${jobId}: total=${totalToScore}, batch_size=${batchSize}, enqueue_ok=${enqueueResult?.ok}`);
-
-    // Safety net: if enqueue failed, mark the job failed immediately so the Job
-    // Health panel shows the real state instead of a running job that will never
-    // tick. Without this the job sits in status=running forever until an operator
-    // notices and cancels it.
-    if (!enqueueResult?.ok) {
-      const failedAt = new Date().toISOString();
-      const enqueueError = enqueueResult?.error || "enqueue_failed";
-      try {
-        const failedDoc = {
-          ...jobDoc,
-          status: "failed",
-          failed_at: failedAt,
-          last_updated: failedAt,
-          enqueue_error: enqueueError,
-        };
-        await jobsContainer.items.upsert(failedDoc, { partitionKey: jobId });
-        context.log(`[score-all-missing] Marked job ${jobId} as failed due to enqueue error: ${enqueueError}`);
-      } catch (markErr) {
-        context.log(`[score-all-missing] Failed to mark job ${jobId} as failed: ${markErr?.message || markErr}`);
-      }
-      return json({
-        ok: false,
-        job_id: jobId,
-        status: "failed",
-        error: "enqueue_failed",
-        enqueue_error: enqueueError,
-        total_to_score: totalToScore,
-        batch_size: batchSize,
-        max_companies: maxCompanies,
-      }, 500);
-    }
-
+    // The frontend fires a keepalive POST to /xadmin-api-score-batch-worker
+    // immediately after this response returns; that worker drives scoring
+    // inline via processBackfillScoreBatch until done OR the 9-minute time
+    // cap. This mirrors the admin/import → primary-worker keepalive pattern
+    // and avoids the Storage Queue path entirely (Flex Consumption doesn't
+    // reliably poll queue triggers without Always Ready instances).
     return json({
       ok: true,
       job_id: jobId,
@@ -173,7 +137,6 @@ async function adminScoreAllMissingHandler(req, context) {
       remaining: totalToScore,
       batch_size: batchSize,
       max_companies: maxCompanies,
-      enqueue_ok: enqueueResult?.ok ?? false,
     });
   } catch (e) {
     context.log("Error in admin-score-all-missing:", e?.message || e, e?.stack || "");
@@ -406,21 +369,14 @@ async function processBackfillScoreBatch(queueBody, context) {
     job.status === "running" &&
     (maxCompanies == null || job.processed < maxCompanies);
 
-  if (shouldContinue) {
-    const enqueueResult = await enqueueResumeRun({
-      session_id: jobId,
-      reason: "backfill_score",
-      run_after_ms: 2000,
-      cycle_count: job.cycle_count,
-      requested_by: "backfill_auto",
-    });
-    context.log(`[backfill-score] Enqueued next batch: ok=${enqueueResult?.ok}, cycle=${job.cycle_count}`);
-  } else {
+  if (!shouldContinue) {
     job.status = "completed";
     job.last_updated = new Date().toISOString();
     await jobsContainer.items.upsert(job, { partitionKey: jobId });
     context.log(`[backfill-score] Job ${jobId} completed: processed=${job.processed}, failed=${job.failed}`);
   }
+  // Else: the score-batch-worker loop (or the frontend stall watchdog) drives
+  // the next cycle. No enqueue step.
 
   return {
     ok: true,
