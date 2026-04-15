@@ -122,10 +122,11 @@ async function adminDiagTriggersHandler(req, context) {
 }
 
 app.http("adminDiagTriggers", {
-  // Route must match the frontend call (`apiFetch("/admin-diag-triggers")`)
-  // AND the folder name so SWA's routing doesn't get confused. Changing this
-  // will silently 404 the diagnostics button.
-  route: "admin-diag-triggers",
+  // Must use xadmin-api-* prefix. Routes matching /api/admin-* or /api/admin/*
+  // are reserved/blocked at the platform routing layer and will silently 404
+  // even when the function is registered. The frontend must call this URL:
+  // apiFetch("/xadmin-api-diag-triggers").
+  route: "xadmin-api-diag-triggers",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: adminDiagTriggersHandler,

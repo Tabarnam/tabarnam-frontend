@@ -779,7 +779,7 @@ export default function AdminBackfillScores() {
     setDiagnosing(true);
     setError(null);
     try {
-      const res = await apiFetch("/admin-diag-triggers");
+      const res = await apiFetch("/xadmin-api-diag-triggers");
       const data = await readJsonOrText(res);
       if (data && typeof data === "object") {
         const diag = data.diagnostics || {};
