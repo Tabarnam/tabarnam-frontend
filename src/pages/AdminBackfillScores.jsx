@@ -634,6 +634,11 @@ export default function AdminBackfillScores() {
   const [bulkScoring, setBulkScoring] = useState({ active: false, done: 0, total: 0, current: null, lastError: null, errors: [], completedAt: null });
   const [diagnostics, setDiagnostics] = useState(null);
   const [diagnosing, setDiagnosing] = useState(false);
+  // Session-scoped completion log: ordered list of all companies the page has
+  // seen completed since it was loaded, accumulated client-side from each
+  // status poll's `last_batch_results`. Deduped by company_id; survives job
+  // changes (pause/resume, new backfill). Only a full page refresh clears it.
+  const [sessionCompleted, setSessionCompleted] = useState([]);
   const intervalRef = useRef(null);
   // Stall watchdog state — tracks (job_id, last_updated, last_seen_at) so we can
   // detect a worker that has stopped making progress and kick a fresh one.
@@ -674,6 +679,28 @@ export default function AdminBackfillScores() {
           setError(`Query failed: ${data.query_error}`);
         } else {
           setError(null);
+        }
+
+        // Accumulate session-completed companies from each poll. The job doc's
+        // last_batch_results is capped at 100 server-side and ordered newest-first
+        // (per processBackfillScoreBatch); we dedupe by company_id and keep
+        // chronological (oldest-first → newest-last) order. Accumulates across
+        // jobs — only a full page refresh resets the list.
+        const incomingResults = Array.isArray(data?.job?.last_batch_results) ? data.job.last_batch_results : [];
+        if (incomingResults.length > 0) {
+          setSessionCompleted((prev) => {
+            const seen = new Set(prev.map((x) => x.company_id || x.company_name));
+            const additions = [];
+            // Iterate oldest-first so chronological order is preserved.
+            for (let i = incomingResults.length - 1; i >= 0; i--) {
+              const r = incomingResults[i];
+              const key = r?.company_id || r?.company_name;
+              if (!key || seen.has(key)) continue;
+              seen.add(key);
+              additions.push(r);
+            }
+            return additions.length === 0 ? prev : [...prev, ...additions];
+          });
         }
       }
     } catch (e) {
@@ -905,7 +932,6 @@ export default function AdminBackfillScores() {
   const totalToScore = job?.total_to_score ?? status?.missing_companies ?? 0;
   const remaining = job?.remaining ?? status?.missing_companies ?? 0;
   const estimatedMinutes = job?.estimated_minutes_remaining;
-  const batchResults = Array.isArray(job?.last_batch_results) ? job.last_batch_results : [];
   const currentCompany = isRunning ? job?.current_company : null;
 
   return (
@@ -1027,18 +1053,23 @@ export default function AdminBackfillScores() {
           </div>
         </div>
 
-        {/* Activity log */}
-        {batchResults.length > 0 && (
-          <div className="bg-white dark:bg-card rounded-lg border border-slate-200 dark:border-border p-4 space-y-2">
-            <h2 className="text-sm font-medium text-foreground">
-              Recent Activity <span className="text-muted-foreground font-normal">(last {batchResults.length})</span>
-            </h2>
-            <div className="divide-y divide-slate-100 dark:divide-border max-h-[480px] overflow-y-auto">
-              {batchResults.map((r, i) => (
+        {/* Session-completed log — collapsible, accumulates across all jobs until page refresh */}
+        {sessionCompleted.length > 0 && (
+          <details
+            className="bg-white dark:bg-card rounded-lg border border-slate-200 dark:border-border p-4"
+            open
+          >
+            <summary className="text-sm font-medium text-foreground cursor-pointer">
+              Companies completed this session{" "}
+              <span className="text-muted-foreground font-normal">({sessionCompleted.length})</span>
+            </summary>
+            <div className="mt-3 divide-y divide-slate-100 dark:divide-border max-h-[480px] overflow-y-auto">
+              {/* Newest first — reverse for display without mutating the accumulator */}
+              {[...sessionCompleted].reverse().map((r, i) => (
                 <ActivityRow key={`${r.company_id || r.company_name}-${i}`} r={r} onRetry={handleRetry} retryingId={retryingId} />
               ))}
             </div>
-          </div>
+          </details>
         )}
 
         {/* Companies search table */}
