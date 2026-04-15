@@ -145,6 +145,24 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
     return { ok: false, reason: "missing_company_data" };
   }
 
+  // Skip-call short-circuit: if we have essentially no reviews AND no about/site content,
+  // the xAI call will produce low-quality hedged output. Return an insufficient-info
+  // result directly and save the tokens. Threshold is low (40 chars) to avoid skipping
+  // companies that have even a single short review or tagline worth scoring against.
+  const reviewsSummary = buildReviewsSummary(companyDoc);
+  const aboutContent = buildAboutContent(companyDoc);
+  if (reviewsSummary.length < 40 && aboutContent.length < 40) {
+    console.log(`[scoring] Skipping xAI call for ${companyDoc.company_name} — insufficient signal (reviews=${reviewsSummary.length}ch, about=${aboutContent.length}ch)`);
+    return {
+      ok: true,
+      reputation_score: 0,
+      quality_score: 0,
+      reputation_reasoning: "- Insufficient public information to evaluate reputation.",
+      quality_reasoning: "- Insufficient public information to evaluate product quality.",
+      skipped_xai_call: true,
+    };
+  }
+
   const userPrompt = buildUserPrompt(companyDoc);
   const fullPrompt = `${SCORING_SYSTEM_PROMPT}\n\n---\n\n${userPrompt}`;
 
