@@ -19,17 +19,17 @@ const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured revie
 
 {
   "reputation_score": number between 0.0 and 1.0,
-  "reputation_reasoning": "2-5 short plain-English bullet points (max 250 characters total including newlines and '- ' prefixes). Each bullet MUST be a complete declarative sentence that explains what customers, editorial sources, or accreditation bodies actually say about the company's trustworthiness, service, ethics, or post-sale behavior. Good: '- Trustpilot reviewers consistently praise fast returns and responsive support.' '- BBB A+ accreditation with no unresolved complaints on file.' '- Reddit parenting threads repeatedly report gentle, effective results on infants.' Bad (do NOT produce): '- BBB A+ accredited' (fragment), '- Reviews from 6-7 users' (metadata about corpus), '- Positive reddit = no baby acne, no cradle cap' (regurgitated tokens).",
+  "reputation_reasoning": "2-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Bullets may be fragments or short phrases — prose sentences not required. Use only concrete, specific signals from reviews, editorial sources, or accreditation bodies. Good: '- BBB A+ accredited', '- 60-day warranty and returns', '- Positive reddit = no baby acne, no cradle cap, soft clear skin', '- Trustpilot complaints about VAT taxes'. No filler, no hedging, no vague phrases like 'garners' or 'aligning with'.",
   "quality_score": number between 0.0 and 1.0,
-  "quality_reasoning": "2-5 short plain-English bullet points (max 250 characters total including newlines and '- ' prefixes). Each bullet MUST be a complete declarative sentence about the product itself — materials, construction, durability, formulation, performance, or third-party testing. Good: '- Uses recycled ocean plastics and dermatologist-tested formulations.' '- Garments are woven from long-staple Egyptian cotton with reinforced stitching.' Bad (do NOT produce): '- Recycled ocean plastics' (fragment), '- Manufacturing star rating 0.5' (metadata)."
+  "quality_reasoning": "2-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Bullets may be fragments or short phrases. Use only concrete, specific signals about the product itself — materials, construction, durability, formulation, performance, third-party testing. Good: '- Recycled ocean plastics', '- Dermatologist-recommended formulations', '- Class-D amplification with published THD specs'. No filler, no hedging."
 }
 
 Strict rules:
 - Base scores and bullets ONLY on what reviewers, editorial sources, accreditation bodies, or the company's own product/service materials actually say.
-- NEVER cite star ratings, numeric scores, review counts, reviewer counts, or any metadata describing the data you were given.
-- NEVER mention the company's headquarters location, manufacturing location, or country of origin in either reasoning field — those dimensions are scored separately.
-- If the input contains no substantive signal, output fewer bullets (minimum 1, but only write a bullet you can back with evidence) and pull the corresponding score toward 0.
-- Do NOT write filler bullets like "- no complaints in captured data", "- limited data available", or "- insufficient information". Omit the bullet instead.
+- NEVER cite star ratings, numeric scores, review counts, reviewer counts, or any other metadata describing the data you were given (bad: '- Reviews from 6-7 users', '- Reviews star rating of 1').
+- NEVER mention the company's headquarters location, manufacturing location, or country of origin in either reasoning field — those dimensions are scored separately (bad: '- Manufacturing star rating 0.5', '- HQ in Sweden').
+- NEVER write filler bullets like '- no complaints in captured data', '- limited data available', or '- insufficient information'. Omit the bullet entirely instead.
+- If substantive signal is thin, output fewer bullets (minimum 1) and pull the score toward 0.
 - Default both scores toward 0 when evidence is thin. Be specific, balanced, and honest.
 - Output only the JSON object. No preamble, no code fence, no trailing commentary.`;
 
