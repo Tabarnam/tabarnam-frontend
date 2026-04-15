@@ -132,10 +132,13 @@ function JobHealth({ job, onRunDiagnostics, diagnostics, diagnosing }) {
   const total = job.total_to_score || 0;
   const jobIdShort = (job.job_id || "").slice(0, 8);
 
-  // Stall detection only applies while the job is running. Suppress on terminal.
-  const stalledNoProgress = !isTerminal && status === "running" && cycleCount === 0 && (startedMs || 0) > 60_000;
-  const stalledMidRun = !isTerminal && status === "running" && cycleCount > 0 && (lastUpdatedMs || 0) > 120_000;
-  const isStalled = stalledNoProgress || stalledMidRun;
+  // Stall detection: `last_updated` is written before each company starts and
+  // after each completes. A single company can take ~50s, so 180s of silence
+  // is a real signal the worker has crashed / been recycled. Single condition
+  // works regardless of cycle count — the old cycleCount===0 check produced
+  // false alarms on legitimately-running first batches.
+  const stalled = !isTerminal && status === "running" && (lastUpdatedMs || 0) > 180_000;
+  const isStalled = stalled;
 
   return (
     <div
@@ -180,7 +183,7 @@ function JobHealth({ job, onRunDiagnostics, diagnostics, diagnosing }) {
           <div className="text-foreground tabular-nums">{formatRelativeAge(lastUpdatedMs)}</div>
         </div>
         <div>
-          <div className="text-muted-foreground">Cycles</div>
+          <div className="text-muted-foreground">Batches</div>
           <div className="text-foreground tabular-nums">{cycleCount}</div>
         </div>
         <div>
@@ -191,16 +194,11 @@ function JobHealth({ job, onRunDiagnostics, diagnostics, diagnosing }) {
           </div>
         </div>
       </div>
-      {stalledNoProgress ? (
+      {stalled ? (
         <div className="text-xs text-amber-800 dark:text-amber-300 border-t border-amber-200 dark:border-amber-800/50 pt-2">
-          ⚠️ Job has been in <code className="font-mono">running</code> for{" "}
-          {formatRelativeAge(startedMs).replace(" ago", "")} but no batch has completed. The queue
-          worker (dedicated app) may not be picking up messages. Click <strong>Run diagnostics</strong> above.
-        </div>
-      ) : null}
-      {stalledMidRun ? (
-        <div className="text-xs text-amber-800 dark:text-amber-300 border-t border-amber-200 dark:border-amber-800/50 pt-2">
-          ⚠️ Job last updated {formatRelativeAge(lastUpdatedMs)} — the worker may have stopped.
+          ⚠️ No progress for {formatRelativeAge(lastUpdatedMs).replace(" ago", "")} — the inline
+          worker may have been recycled. The frontend will auto-retry shortly; if it keeps
+          stalling, click <strong>Run diagnostics</strong>.
         </div>
       ) : null}
       {diagnostics ? (
@@ -961,7 +959,7 @@ export default function AdminBackfillScores() {
           <StatCard
             label="Job Status"
             value={job ? <StatusBadge status={jobStatus} /> : "No job"}
-            sub={job ? `Cycle ${job.cycle_count || 0}` : null}
+            sub={job ? `Batch ${job.cycle_count || 0}` : null}
           />
         </div>
 

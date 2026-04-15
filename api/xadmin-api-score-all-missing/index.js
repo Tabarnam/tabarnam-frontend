@@ -209,7 +209,17 @@ async function processBackfillScoreBatch(queueBody, context) {
         : undefined;
       return typeof v === "number" && v > 0;
     };
-    const unscored = (listRows || []).filter((r) => !isScored(r)).slice(0, batchSize);
+    // Enforce max_companies here (not just on the shouldContinue tail).
+    // Without this, a batch_size=12 job with max_companies=2 would still
+    // score 12 before stopping.
+    const maxCompanies = job.max_companies;
+    const remainingAllowed = maxCompanies != null
+      ? Math.max(0, Number(maxCompanies) - (job.processed || 0))
+      : batchSize;
+    const takeN = Math.min(batchSize, remainingAllowed);
+    const unscored = takeN > 0
+      ? (listRows || []).filter((r) => !isScored(r)).slice(0, takeN)
+      : [];
 
     // Fetch full docs for the selected IDs (one read per doc; batch is small)
     for (const row of unscored) {
@@ -231,6 +241,20 @@ async function processBackfillScoreBatch(queueBody, context) {
   let scored = 0;
   let failures = 0;
   const batchResults = [];
+
+  // Helper: prepend a just-finished result to job.last_batch_results (capped at
+  // 100) and upsert the doc. Gives the admin UI live per-company visibility
+  // instead of a dump at end-of-cycle, which matters for long batches.
+  async function publishCompletion(entry) {
+    try {
+      const existing = Array.isArray(job.last_batch_results) ? job.last_batch_results : [];
+      job.last_batch_results = [entry, ...existing].slice(0, 100);
+      job.last_updated = new Date().toISOString();
+      await jobsContainer.items.upsert(job, { partitionKey: jobId });
+    } catch (e) {
+      context.log(`[backfill-score] publishCompletion upsert failed: ${e?.message || e}`);
+    }
+  }
 
   // Process each company sequentially.
   // Writes `current_company` to the job doc before each call so the admin UI
@@ -266,7 +290,7 @@ async function processBackfillScoreBatch(queueBody, context) {
       if (!scoring.ok) {
         context.log(`[backfill-score] scoring_call: company=${companyName}, ok=false, reason=${scoring.reason}, duration=${(companyDurationMs / 1000).toFixed(1)}s`);
         failures++;
-        batchResults.push({
+        const entry = {
           company_id: company.id,
           normalized_domain: company.normalized_domain || null,
           company_name: companyName,
@@ -274,7 +298,9 @@ async function processBackfillScoreBatch(queueBody, context) {
           reason: scoring.reason,
           started_at: companyStartedAt,
           duration_ms: companyDurationMs,
-        });
+        };
+        batchResults.push(entry);
+        await publishCompletion(entry);
         continue;
       }
 
@@ -294,7 +320,7 @@ async function processBackfillScoreBatch(queueBody, context) {
 
       context.log(`[backfill-score] scoring_call: company=${companyName}, star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}, reasoning_populated=true, duration=${(companyDurationMs / 1000).toFixed(1)}s`);
       scored++;
-      batchResults.push({
+      const okEntry = {
         company_id: company.id,
         normalized_domain: company.normalized_domain || null,
         company_name: companyName,
@@ -303,12 +329,14 @@ async function processBackfillScoreBatch(queueBody, context) {
         star5: scoring.quality_score,
         started_at: companyStartedAt,
         duration_ms: companyDurationMs,
-      });
+      };
+      batchResults.push(okEntry);
+      await publishCompletion(okEntry);
     } catch (e) {
       const companyDurationMs = Date.now() - companyStartMs;
       context.log(`[backfill-score] Error scoring ${companyName}: ${e?.message || e}`);
       failures++;
-      batchResults.push({
+      const errEntry = {
         company_id: company.id,
         normalized_domain: company.normalized_domain || null,
         company_name: companyName,
@@ -316,7 +344,9 @@ async function processBackfillScoreBatch(queueBody, context) {
         reason: e?.message || "exception",
         started_at: companyStartedAt,
         duration_ms: companyDurationMs,
-      });
+      };
+      batchResults.push(errEntry);
+      await publishCompletion(errEntry);
     }
   }
 
@@ -354,10 +384,8 @@ async function processBackfillScoreBatch(queueBody, context) {
     job.estimated_minutes_remaining = Math.round((job.remaining * msPerCompany) / 60000);
   }
 
-  // Keep last 100 batch results
-  const existingResults = Array.isArray(job.last_batch_results) ? job.last_batch_results : [];
-  job.last_batch_results = [...batchResults, ...existingResults].slice(0, 100);
-
+  // last_batch_results is already maintained live by publishCompletion().
+  // Just persist the final counters/remaining/estimate update.
   await jobsContainer.items.upsert(job, { partitionKey: jobId });
 
   context.log(`[backfill-score] Job ${jobId} batch done: scored=${scored}, failed=${failures}, remaining=${job.remaining}, duration=${(batchDurationMs / 1000).toFixed(1)}s`);
