@@ -28,9 +28,10 @@ Strict rules:
 - Base scores and bullets ONLY on what reviewers, editorial sources, accreditation bodies, or the company's own product/service materials actually say.
 - NEVER cite star ratings, numeric scores, review counts, reviewer counts, or any other metadata describing the data you were given (bad: '- Reviews from 6-7 users', '- Reviews star rating of 1').
 - NEVER mention the company's headquarters location, manufacturing location, or country of origin in either reasoning field — those dimensions are scored separately (bad: '- Manufacturing star rating 0.5', '- HQ in Sweden').
-- NEVER write filler bullets like '- no complaints in captured data', '- limited data available', or '- insufficient information'. Omit the bullet entirely instead.
-- If substantive signal is thin, output fewer bullets (minimum 1) and pull the score toward 0.
-- Default both scores toward 0 when evidence is thin. Be specific, balanced, and honest.
+- NEVER write pure filler like '- limited data available' or '- insufficient information'. Name concrete absences instead: '- No BBB accreditation or warranty signals on site', '- No independent consumer reviews captured', '- No third-party testing or certifications referenced'.
+- Score and bullets MUST be internally consistent. Never pair a score below 0.5 with only-positive bullets — if the score is low, at least one bullet must cite a concrete negative: a complaint found in a review, a regulatory/legal issue, a controversy, a recall, or a specific absence of signals consumers would expect (no warranty, no accreditation, no independent reviews, marketing-only content).
+- Score the evidence as it actually reads. If captured signal is uniformly positive, score 0.6–0.9. If mixed, 0.4–0.7. If uniformly negative, 0.1–0.4. If genuinely nothing substantive was captured, score 0.4–0.5 (neutral/unknown) and state the absence concretely — do NOT drag the score down arbitrarily.
+- Tabarnam's job is to give consumers an honest picture, not to cheerlead and not to punish. Balanced bullets that explain the score win; one-sided bullets that contradict the score fail.
 - Output only the JSON object. No preamble, no code fence, no trailing commentary.`;
 
 const SCORING_MAX_TOKENS = 300;       // JSON + reasoning ≈ 200 tokens
