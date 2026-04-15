@@ -19,12 +19,19 @@ const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured revie
 
 {
   "reputation_score": number between 0.0 and 1.0,
-  "reputation_reasoning": "2-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Use only concrete, specific signals from the reviews and content (examples: '- BBB A+ accredited', '- 60-day warranty and returns', '- Trustpilot complaints about VAT taxes', '- Recycled ocean plastics used in products'). No prose sentences, no filler words, no hedging, no vague phrases like 'garners', 'aligning with', or 'however'.",
+  "reputation_reasoning": "2-5 short plain-English bullet points (max 250 characters total including newlines and '- ' prefixes). Each bullet MUST be a complete declarative sentence that explains what customers, editorial sources, or accreditation bodies actually say about the company's trustworthiness, service, ethics, or post-sale behavior. Good: '- Trustpilot reviewers consistently praise fast returns and responsive support.' '- BBB A+ accreditation with no unresolved complaints on file.' '- Reddit parenting threads repeatedly report gentle, effective results on infants.' Bad (do NOT produce): '- BBB A+ accredited' (fragment), '- Reviews from 6-7 users' (metadata about corpus), '- Positive reddit = no baby acne, no cradle cap' (regurgitated tokens).",
   "quality_score": number between 0.0 and 1.0,
-  "quality_reasoning": "2-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Use only concrete, specific signals from materials, manufacturing, and reviews (examples: '- Recycled ocean plastics', '- Eco-friendly metals and high-quality cords', '- Dermatologist recommended formulations', '- Manufactured in Seoul, South Korea'). No prose sentences, no filler words, no hedging, no vague phrases."
+  "quality_reasoning": "2-5 short plain-English bullet points (max 250 characters total including newlines and '- ' prefixes). Each bullet MUST be a complete declarative sentence about the product itself — materials, construction, durability, formulation, performance, or third-party testing. Good: '- Uses recycled ocean plastics and dermatologist-tested formulations.' '- Garments are woven from long-staple Egyptian cotton with reinforced stitching.' Bad (do NOT produce): '- Recycled ocean plastics' (fragment), '- Manufacturing star rating 0.5' (metadata)."
 }
 
-Default to 0 if data is limited. Be extremely specific and balanced. No extra fields or reasoning outside the JSON.`;
+Strict rules:
+- Base scores and bullets ONLY on what reviewers, editorial sources, accreditation bodies, or the company's own product/service materials actually say.
+- NEVER cite star ratings, numeric scores, review counts, reviewer counts, or any metadata describing the data you were given.
+- NEVER mention the company's headquarters location, manufacturing location, or country of origin in either reasoning field — those dimensions are scored separately.
+- If the input contains no substantive signal, output fewer bullets (minimum 1, but only write a bullet you can back with evidence) and pull the corresponding score toward 0.
+- Do NOT write filler bullets like "- no complaints in captured data", "- limited data available", or "- insufficient information". Omit the bullet instead.
+- Default both scores toward 0 when evidence is thin. Be specific, balanced, and honest.
+- Output only the JSON object. No preamble, no code fence, no trailing commentary.`;
 
 const SCORING_MAX_TOKENS = 300;       // JSON + reasoning ≈ 200 tokens
 const SCORING_MAX_TOOL_CALLS = 0;     // 0 = no web search; set to 3 for light browsing
@@ -90,18 +97,14 @@ function buildAboutContent(company) {
  * Build the user prompt for the scoring call.
  */
 function buildUserPrompt(company) {
-  const rating = company.rating && typeof company.rating === "object" ? company.rating : {};
-  const star1Val = rating.star1?.value ?? 0;
-  const star2Val = rating.star2?.value ?? 0;
-  const star3Val = rating.star3?.value ?? 0;
-
+  // Deliberately excluded from the prompt: star1/star2/star3 numeric ratings,
+  // headquarters_location, manufacturing_locations count. Those are scored
+  // elsewhere and were leaking into reputation/quality bullets when included
+  // (e.g., "Manufacturing star rating 0.5" appearing in Quality reasoning).
   const industries = Array.isArray(company.industries) ? company.industries.join(", ") : "";
   const keywords = Array.isArray(company.product_keywords)
     ? company.product_keywords.map((k) => (typeof k === "string" ? k : k?.keyword || "")).filter(Boolean).join(", ")
     : "";
-
-  const mfgCount = Array.isArray(company.manufacturing_locations) ? company.manufacturing_locations.length : 0;
-  const hq = asString(company.headquarters_location).trim();
 
   const reviewsSummary = buildReviewsSummary(company);
   const aboutContent = buildAboutContent(company);
@@ -113,10 +116,6 @@ function buildUserPrompt(company) {
 
   if (industries) parts.push(`Industries: ${industries}`);
   if (keywords) parts.push(`Keywords: ${keywords}`);
-
-  parts.push(`\nStar ratings: Manufacturing=${star1Val}, HQ=${star2Val}, Reviews=${star3Val}`);
-  if (hq) parts.push(`Headquarters: ${hq}`);
-  parts.push(`Manufacturing locations: ${mfgCount} location${mfgCount !== 1 ? "s" : ""}`);
 
   if (aboutContent) {
     parts.push(`\nAbout/site content:\n${aboutContent}`);
