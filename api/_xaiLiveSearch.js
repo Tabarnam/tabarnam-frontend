@@ -234,6 +234,7 @@ async function xaiLiveSearch({
   useTools = false,
   enableImageUnderstanding = false,
   signal, // Optional: external AbortSignal — cancels fetch when worker is orphaned
+  conversationId, // Optional: xAI conversation_id for prefix caching (reuses cached system prompt across calls)
 } = {}) {
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
@@ -340,11 +341,17 @@ async function xaiLiveSearch({
       (search_parameters.mode === "on" || Object.keys(search_parameters).length > 0)
     );
 
+    // conversation_id enables xAI prefix caching: when the same conversation_id
+    // is sent across calls, xAI caches the shared prompt prefix (system instructions)
+    // and only processes the per-call delta, reducing token cost on batch operations.
+    const resolvedConversationId = asString(conversationId).trim() || null;
+
     const payload = useResponsesFormat
       ? {
           model: resolvedModel,
           input: [{ role: "user", content: asString(prompt) }],
           ...(shouldEnableTools ? { tools: buildToolsArray(search_parameters, { enableImageUnderstanding }) } : {}),
+          ...(resolvedConversationId ? { conversation_id: resolvedConversationId } : {}),
         }
       : {
           // /v1/chat/completions format
@@ -357,6 +364,7 @@ async function xaiLiveSearch({
             ...(search_parameters && typeof search_parameters === "object" ? search_parameters : {}),
             mode: "on",
           },
+          // conversation_id not supported on /chat/completions — omit
         };
 
     if (!axios) {
@@ -528,6 +536,7 @@ async function xaiLiveSearchStreaming({
   enableImageUnderstanding = false,
   signal,
   maxToolCalls = 5,
+  conversationId, // Optional: xAI conversation_id for prefix caching
 } = {}) {
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
@@ -567,11 +576,14 @@ async function xaiLiveSearchStreaming({
       headers.Authorization = `Bearer ${key}`;
     }
 
+    const resolvedConversationId = asString(conversationId).trim() || null;
+
     const payload = {
       model: resolvedModel,
       input: [{ role: "user", content: asString(prompt) }],
       tools: buildToolsArray(search_parameters, { enableImageUnderstanding }),
       stream: true,
+      ...(resolvedConversationId ? { conversation_id: resolvedConversationId } : {}),
     };
 
     const res = await fetch(url, {

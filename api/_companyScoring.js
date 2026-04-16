@@ -11,6 +11,7 @@
 
 const { xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
+const crypto = require("crypto");
 
 // ── Tunable constants ──────────────────────────────────────────────────
 // Edit these to adjust scoring behavior without touching logic.
@@ -46,6 +47,18 @@ const SCORING_MAX_TOKENS = 300;       // JSON + reasoning ≈ 200 tokens
 const SCORING_MAX_TOOL_CALLS = 0;     // 0 = no web search; set to 3 for light browsing
 const REVIEWS_CHAR_LIMIT = 500;       // Max chars of review text to include
 const ABOUT_CHAR_LIMIT = 1000;        // Max chars of about/site content to include
+
+// xAI prefix caching: conversation_id lets xAI cache the shared system prompt
+// across scoring calls, reducing token cost during batch rescoring.
+// Enable by setting XAI_SCORING_CONV_ID to any truthy value (e.g. "1").
+// The conversation_id is derived from a SHA-256 hash of the system prompt, so
+// it automatically invalidates when the prompt changes.
+const SCORING_CONVERSATION_ID = (() => {
+  const flag = (process.env.XAI_SCORING_CONV_ID || "").trim();
+  if (!flag || flag === "0" || flag.toLowerCase() === "false") return null;
+  const hash = crypto.createHash("sha256").update(SCORING_SYSTEM_PROMPT).digest("hex").substring(0, 16);
+  return `tabarnam-scoring-${hash}`;
+})();
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -229,7 +242,7 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
   const userPrompt = buildUserPrompt(companyDoc);
   const fullPrompt = `${SCORING_SYSTEM_PROMPT}\n\n---\n\n${userPrompt}`;
 
-  console.log(`[scoring] Prompt for ${companyDoc.company_name} (${userPrompt.length} chars):\n${userPrompt.substring(0, 500)}`);
+  console.log(`[scoring] Prompt for ${companyDoc.company_name} (${userPrompt.length} chars, conv_id=${SCORING_CONVERSATION_ID || "off"}):\n${userPrompt.substring(0, 500)}`);
 
   try {
     const result = await xaiLiveSearchStreaming({
@@ -238,6 +251,7 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
       maxToolCalls: SCORING_MAX_TOOL_CALLS,
       xaiUrl,
       xaiKey,
+      ...(SCORING_CONVERSATION_ID ? { conversationId: SCORING_CONVERSATION_ID } : {}),
     });
 
     if (!result || !result.ok) {
