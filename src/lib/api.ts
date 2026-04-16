@@ -344,6 +344,13 @@ function normalizeRequestInit(init?: RequestInit) {
 
   nextInit.headers = headers;
 
+  // Always include credentials so Azure Static Web Apps injects the
+  // x-ms-client-principal header for admin-authenticated endpoints.
+  // Without this, admin endpoints return 401 "missing_auth".
+  if (nextInit.credentials === undefined) {
+    nextInit.credentials = "include";
+  }
+
   return { init: nextInit, originalBody };
 }
 
@@ -554,6 +561,21 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
   try {
     const response = await fetch(url, normalizedInit);
+
+    // Auto-redirect to login on 401 from admin endpoints — the Azure SWA
+    // session cookie has expired. This prevents the user from seeing stale
+    // "Unauthorized" errors and needing to manually log out.
+    if (response.status === 401 && /\/xadmin-api-|\/admin\/|\/import-preflight|\/import\/preflight/i.test(path)) {
+      try {
+        if (typeof window !== "undefined") {
+          const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+          // Use SWA login redirect — refreshes the session cookie without losing location
+          window.location.href = `/.auth/login/aad?post_login_redirect_uri=${returnTo}`;
+          // Return a pending-forever response so callers don't process the 401
+          return new Promise(() => {}) as unknown as Response;
+        }
+      } catch { /* fall through to normal error handling */ }
+    }
 
     if (!response.ok) {
       const { data, text } = await readJsonIfLooksJson(response);
