@@ -842,6 +842,50 @@ export default function AdminBackfillScores() {
         setBulkScoring((prev) => ({ ...prev, current: label }));
         const startedAt = new Date().toISOString();
         const t0 = Date.now();
+
+        // Helper: push a successful entry into the session-completed panel.
+        const publishSuccess = (scored) => {
+          const entry = {
+            company_id: c.id,
+            normalized_domain: c.domain,
+            company_name: scored?.company_name || label,
+            ok: true,
+            star4: typeof scored?.star4 === "number" ? scored.star4 : null,
+            star5: typeof scored?.star5 === "number" ? scored.star5 : null,
+            started_at: startedAt,
+            duration_ms: typeof scored?.duration_ms === "number" ? scored.duration_ms : (Date.now() - t0),
+          };
+          setSessionCompleted((prev) => {
+            const key = entry.company_id || entry.company_name;
+            const idx = prev.findIndex((x) => (x.company_id || x.company_name) === key);
+            if (idx === -1) return [...prev, entry];
+            const next = [...prev];
+            next[idx] = entry;
+            return next;
+          });
+        };
+
+        // Helper: SWA proxy can timeout long-running scoring calls (~45s on
+        // Free plan) while the backend completes successfully. Wait briefly
+        // then call without force (returns immediately if star4 > 0).
+        const tryRecoverFromTimeout = async () => {
+          try {
+            await new Promise((r) => setTimeout(r, 3000));
+            const checkRes = await apiFetch("/xadmin-api-score-company", {
+              method: "POST",
+              body: JSON.stringify({ company_id: c.id, normalized_domain: c.domain }),
+            });
+            const checkData = await readJsonOrText(checkRes);
+            if (checkData?.ok && checkData?.skipped && typeof checkData?.star4 === "number" && checkData.star4 > 0) {
+              publishSuccess(checkData);
+              return true;
+            }
+          } catch {
+            // Recovery also failed
+          }
+          return false;
+        };
+
         try {
           const res = await apiFetch("/xadmin-api-score-company", {
             method: "POST",
@@ -853,33 +897,20 @@ export default function AdminBackfillScores() {
           });
           const data = await readJsonOrText(res);
           if (!data?.ok) {
-            const msg = `${label}: ${data?.reason || data?.error || "unknown"}`;
-            setBulkScoring((prev) => ({ ...prev, lastError: msg, errors: [...prev.errors, msg] }));
+            const recovered = await tryRecoverFromTimeout();
+            if (!recovered) {
+              const msg = `${label}: ${data?.reason || data?.error || "unknown"}`;
+              setBulkScoring((prev) => ({ ...prev, lastError: msg, errors: [...prev.errors, msg] }));
+            }
           } else {
-            // Publish to the session-completed panel so multi-select runs show up
-            // alongside backfill-job runs (same entry shape as backfill publishes).
-            const entry = {
-              company_id: c.id,
-              normalized_domain: c.domain,
-              company_name: data?.company_name || label,
-              ok: true,
-              star4: typeof data?.star4 === "number" ? data.star4 : null,
-              star5: typeof data?.star5 === "number" ? data.star5 : null,
-              started_at: startedAt,
-              duration_ms: typeof data?.duration_ms === "number" ? data.duration_ms : (Date.now() - t0),
-            };
-            setSessionCompleted((prev) => {
-              const key = entry.company_id || entry.company_name;
-              const idx = prev.findIndex((x) => (x.company_id || x.company_name) === key);
-              if (idx === -1) return [...prev, entry];
-              const next = [...prev];
-              next[idx] = entry;
-              return next;
-            });
+            publishSuccess(data);
           }
         } catch (e) {
-          const msg = `${label}: ${e?.message || "request failed"}`;
-          setBulkScoring((prev) => ({ ...prev, lastError: msg, errors: [...prev.errors, msg] }));
+          const recovered = await tryRecoverFromTimeout();
+          if (!recovered) {
+            const msg = `${label}: ${e?.message || "request failed"}`;
+            setBulkScoring((prev) => ({ ...prev, lastError: msg, errors: [...prev.errors, msg] }));
+          }
         }
         setBulkScoring((prev) => ({ ...prev, done: i + 1 }));
       }
