@@ -5,15 +5,21 @@ const { enqueueResumeRun } = require("../_enrichmentQueue");
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
 // Self-drive tuning (mirrors import-status → primary-worker pattern):
-//   - Every status poll invokes the batch worker if the job is running AND
-//     the lock is free/stale. The worker runs a bounded 4-min invocation
-//     and yields; the next poll re-invokes to continue.
+//   - Every status poll invokes the batch worker ONLY if the job is running
+//     AND the lock is free (or expired). The worker runs a bounded 4-min
+//     invocation and yields; the next poll re-invokes to continue.
 //   - Stale lock = lock_expires_at is in the past. Lets recovery happen
 //     automatically after a function timeout / worker recycle.
-//   - Stale heartbeat = last_heartbeat_at > HEARTBEAT_STALE_MS ago. This
-//     is informational only for the UI; the worker's lock TTL is the real
-//     recovery mechanism.
-const HEARTBEAT_STALE_MS = 120_000;    // 2 min — worker should heartbeat every 30s mid-wave
+//   - Stale heartbeat = last_heartbeat_at > HEARTBEAT_STALE_MS ago. This is
+//     PURELY INFORMATIONAL for the UI ("this wave is taking a while"); it
+//     does NOT drive a new worker fire. The worker itself heartbeats every
+//     20s mid-wave (see IN_WAVE_HEARTBEAT_MS in xadmin-api-score-all-missing),
+//     so a stale heartbeat WITH a valid lock means the worker is doing work
+//     — firing another worker would just bounce off the lock and spam logs.
+//   - The lock TTL (5 min, set by the worker) is the real recovery mechanism:
+//     if a worker dies silently, the lock expires and the next poll drives
+//     a fresh worker.
+const HEARTBEAT_STALE_MS = 120_000;    // 2 min — surfaced to UI, not a drive trigger
 const SELF_DRIVE_TIMEOUT_MS = 8_000;   // Don't let status calls block > 8s on worker fire-off
 
 // Resolve worker URL from same env as frontend would hit. We call the worker
@@ -310,10 +316,17 @@ async function adminScoreStatusHandler(req, context) {
       // Empty/missing container is OK — just no job to return
     }
 
-    // ── Self-drive: if the latest job is "running" and its worker lock is
-    // free or stale, fire off the batch worker. This is the mechanism that
-    // drives a large backfill to completion across multiple function
+    // ── Self-drive: if the latest job is "running" AND its worker lock is
+    // free (or expired), fire off the batch worker. This is the mechanism
+    // that drives a large backfill to completion across multiple function
     // invocations without the frontend needing to kick anything.
+    //
+    // We deliberately do NOT fire on a stale heartbeat alone — if the lock
+    // is still held and valid, the worker is alive (or will be recovered
+    // when its lock TTL expires). Firing a new worker against a live lock
+    // just wastes invocations and spams the log with lock_not_claimed
+    // bounces. Stale heartbeat is surfaced via `heartbeat_stale` in the
+    // drive info so the UI can show a "this is taking a while" indicator.
     let driveInfo = null;
     if (latestJob && latestJob.status === "running") {
       const now = Date.now();
@@ -322,17 +335,17 @@ async function adminScoreStatusHandler(req, context) {
       const lockFree = !latestJob.locked_by || lockExpiresAt <= now;
       const heartbeatStale = lastHeartbeatAt && (now - lastHeartbeatAt) > HEARTBEAT_STALE_MS;
 
-      if (lockFree || heartbeatStale) {
+      if (lockFree) {
         const origin = getSelfOrigin(req);
         try {
           const fired = await fireBatchWorker({ origin, jobId: latestJob.job_id, context });
           driveInfo = {
             fired: true,
-            lock_free: lockFree,
+            lock_free: true,
             heartbeat_stale: heartbeatStale,
             response: fired?.status ?? null,
           };
-          context.log(`[score-status] self-drive fired worker for ${latestJob.job_id} (lock_free=${lockFree}, hb_stale=${heartbeatStale})`);
+          context.log(`[score-status] self-drive fired worker for ${latestJob.job_id} (lock_free=true, hb_stale=${heartbeatStale})`);
         } catch (e) {
           driveInfo = { fired: false, error: e?.message || String(e) };
         }
@@ -341,6 +354,7 @@ async function adminScoreStatusHandler(req, context) {
           fired: false,
           reason: "worker_active",
           lock_expires_in_s: Math.round((lockExpiresAt - now) / 1000),
+          heartbeat_stale: heartbeatStale,
         };
       }
     }

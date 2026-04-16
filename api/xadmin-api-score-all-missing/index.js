@@ -185,7 +185,9 @@ async function adminScoreAllMissingHandler(req, context) {
 
 const DEFAULT_INVOCATION_BUDGET_MS = 4 * 60 * 1000;       // 4 min — half of Azure's 10-min kill
 const WAVE_SAFETY_MARGIN_MS = 75 * 1000;                  // Abort a wave if < 75s remaining
-const PER_CALL_TIMEOUT_MS = 60 * 1000;                    // Per-company scoring timeout
+const PER_CALL_TIMEOUT_MS = 60 * 1000;                    // Per-company scoring timeout (inner AbortController)
+const PER_CALL_HARD_TIMEOUT_MS = 90 * 1000;               // Belt-and-suspenders: outer Promise.race cap
+const IN_WAVE_HEARTBEAT_MS = 20 * 1000;                   // Refresh heartbeat every 20s during a wave
 
 async function processBackfillScoreBatch(queueBody, context) {
   const jobId = String(queueBody?.session_id || "").trim();
@@ -359,17 +361,41 @@ async function processBackfillScoreBatch(queueBody, context) {
       `(batch ${companiesThisInvocation}/${batchSize}, budget ${((budgetDeadlineMs - Date.now()) / 1000).toFixed(0)}s left)`
     );
 
-    // Compute per-call timeout: shorter of PER_CALL_TIMEOUT_MS or remaining budget
+    // Compute per-call timeout: shorter of PER_CALL_TIMEOUT_MS or remaining budget.
+    // The outer hard-timeout (belt-and-suspenders) is slightly larger so it only
+    // trips when the inner AbortController fails to cancel the fetch.
     const remainingBudgetMs = Math.max(15_000, budgetDeadlineMs - Date.now() - 5_000);
     const perCallTimeoutMs = Math.min(PER_CALL_TIMEOUT_MS, remainingBudgetMs);
-
-    // Run the wave in parallel
-    const waveResults = await Promise.allSettled(
-      companies.map((company) => scoreOneCompany(company, {
-        companiesContainer,
-        perCallTimeoutMs,
-      }))
+    const perCallHardTimeoutMs = Math.min(
+      PER_CALL_HARD_TIMEOUT_MS,
+      Math.max(perCallTimeoutMs + 15_000, remainingBudgetMs)
     );
+
+    // Start an in-wave heartbeat ticker. We refresh `last_heartbeat_at` every
+    // IN_WAVE_HEARTBEAT_MS so the status endpoint's stale-heartbeat detector
+    // doesn't false-positive on a live-but-slow wave. The ticker stops when
+    // the wave finishes (or errors out).
+    let heartbeatTicker = setInterval(() => {
+      // Fire-and-forget: don't await, don't let a failed upsert take down the wave.
+      persistJob({ last_heartbeat_at: new Date().toISOString() }).catch(() => {});
+    }, IN_WAVE_HEARTBEAT_MS);
+
+    // Run the wave in parallel. Each call is wrapped in an outer hard-timeout
+    // so Promise.allSettled is guaranteed to resolve within perCallHardTimeoutMs
+    // even if xAI's internal AbortController fails to cancel the fetch.
+    let waveResults;
+    try {
+      waveResults = await Promise.allSettled(
+        companies.map((company) => scoreOneCompanyWithHardTimeout(company, {
+          companiesContainer,
+          perCallTimeoutMs,
+          perCallHardTimeoutMs,
+        }))
+      );
+    } finally {
+      clearInterval(heartbeatTicker);
+      heartbeatTicker = null;
+    }
 
     // Process wave results and persist each
     for (let i = 0; i < waveResults.length; i++) {
@@ -516,6 +542,40 @@ async function processBackfillScoreBatch(queueBody, context) {
     exit_reason: exitReason,
     status: job?.status ?? "running",
   };
+}
+
+// Wrap scoreOneCompany in an outer Promise.race hard timeout. This is a safety
+// net for cases where xAI's internal AbortController fails to actually cancel
+// the fetch (rare Node-fetch edge case observed in prod). The inner timeout
+// (perCallTimeoutMs) still fires first in the normal path; the hard timeout
+// only trips when the inner abort is ignored.
+//
+// When the hard timeout trips we return a fulfilled POJO (like scoreOneCompany
+// does), so Promise.allSettled sees a clean result and the wave proceeds.
+// The orphaned inner fetch is abandoned; Azure will GC it when the invocation
+// ends.
+async function scoreOneCompanyWithHardTimeout(company, opts) {
+  const hardMs = Math.max(30_000, Number(opts.perCallHardTimeoutMs) || 90_000);
+  let hardTimer = null;
+  const hardTimeoutPromise = new Promise((resolve) => {
+    hardTimer = setTimeout(() => {
+      resolve({
+        ok: false,
+        reason: `hard_timeout_${hardMs}ms`,
+        started_at: new Date().toISOString(),
+        duration_ms: hardMs,
+        _hard_timed_out: true,
+      });
+    }, hardMs);
+  });
+  try {
+    return await Promise.race([
+      scoreOneCompany(company, opts),
+      hardTimeoutPromise,
+    ]);
+  } finally {
+    if (hardTimer) clearTimeout(hardTimer);
+  }
 }
 
 // Score one company. Returns a POJO — never throws, so Promise.allSettled
