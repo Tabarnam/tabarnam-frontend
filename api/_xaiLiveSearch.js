@@ -578,10 +578,19 @@ async function xaiLiveSearchStreaming({
 
     const resolvedConversationId = asString(conversationId).trim() || null;
 
+    // When the caller sets maxToolCalls <= 0, omit the `tools` field entirely
+    // so the model is never offered web_search. The grace-window cap inside the
+    // stream loop only fires *after* the first tool call, so it can't prevent
+    // a call with a zero budget — declaring no tools is the only hard block.
+    // Scoring relies on this: the prompt contract says "score what you see",
+    // and web browsing injects outside context (real BBB, real lawsuits) that
+    // contradicts the captured-data-only inputs.
+    const toolsEnabled = Number(maxToolCalls) > 0;
+
     const payload = {
       model: resolvedModel,
       input: [{ role: "user", content: asString(prompt) }],
-      tools: buildToolsArray(search_parameters, { enableImageUnderstanding }),
+      ...(toolsEnabled ? { tools: buildToolsArray(search_parameters, { enableImageUnderstanding }) } : {}),
       stream: true,
       ...(resolvedConversationId ? { conversation_id: resolvedConversationId } : {}),
     };
