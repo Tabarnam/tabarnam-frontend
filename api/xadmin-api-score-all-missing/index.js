@@ -98,9 +98,10 @@ async function adminScoreAllMissingHandler(req, context) {
     }
 
     // Parallelism: default 4, override via body.concurrency. Each parallel slot
-    // runs one scoring call at a time. xAI has not been rate-limit tested above
-    // this; start conservative and raise after observation.
-    const concurrency = Math.max(1, Math.min(10, Number(body?.concurrency) || 4));
+    // runs one scoring call at a time. Cap at 50 to match batch_size ceiling
+    // and guard against runaway typos; observed runs at c=10/b=20 hit ~14.5
+    // companies/min with no rate-limit issues, so c=20-30 is the next test target.
+    const concurrency = Math.max(1, Math.min(50, Number(body?.concurrency) || 4));
 
     // Create job document
     const jobId = uuid();
@@ -240,7 +241,7 @@ async function processBackfillScoreBatch(queueBody, context) {
   }
 
   const batchSize = Math.max(1, Number(job.batch_size) || 12);
-  const concurrency = Math.max(1, Math.min(10, Number(job.concurrency) || 4));
+  const concurrency = Math.max(1, Math.min(50, Number(job.concurrency) || 4));
   const maxCompanies = job.max_companies;
 
   let scoredThisInvocation = 0;

@@ -1109,9 +1109,9 @@ export default function AdminBackfillScores() {
               <Input
                 type="number"
                 min={1}
-                max={10}
+                max={50}
                 value={concurrency}
-                onChange={(e) => setConcurrency(Math.max(1, Math.min(10, Number(e.target.value) || 4)))}
+                onChange={(e) => setConcurrency(Math.max(1, Math.min(50, Number(e.target.value) || 4)))}
                 className="w-20 h-9"
                 disabled={isRunning}
               />
