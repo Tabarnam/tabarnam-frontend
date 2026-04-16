@@ -158,6 +158,9 @@ async function adminScoreCompanyHandler(req, context) {
       star5: scoring.quality_score,
       duration_ms: durationMs,
       company_name: company.company_name,
+      // Return the updated company so the caller (e.g. admin editor auto-rescore
+      // on save) can patch its in-memory draft and row without a follow-up GET.
+      company,
       ...(debug ? { _debug: { prompt: scoring._debug_prompt, response: scoring._debug_response, parsed: scoring._debug_parsed } } : {}),
     });
 

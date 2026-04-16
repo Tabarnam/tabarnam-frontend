@@ -540,6 +540,40 @@ const REFRESH_FIELD_STATUS = {
   reviews: "Finding & verifying reviews\u2026",
 };
 
+/**
+ * Build a stable fingerprint of the fields that should trigger a rescore of
+ * reputation (star4) and quality (star5) when they change:
+ *   - curated_reviews: new review added, edited, or removed
+ *   - rating.star4.notes: admin note added/edited/removed on reputation
+ *   - rating.star5.notes: admin note added/edited/removed on quality
+ *
+ * Other edits (logo, HQ, keywords, star1/star2/star3) don't affect the xAI
+ * scoring prompt and should not trigger an xAI call on save.
+ */
+function scoringSignalFingerprint(company) {
+  if (!company || typeof company !== "object") return "";
+  const curated = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
+  const curatedFingerprint = curated
+    .map((r) => [r?.source_name || r?.source || "", r?.author || "", r?.title || "", r?.excerpt || r?.text || r?.review_text || r?.body || r?.content || r?.summary || ""].join("|"))
+    .sort()
+    .join("~");
+
+  const rating = company.rating && typeof company.rating === "object" ? company.rating : {};
+  const notesFingerprint = (star) => {
+    const notes = Array.isArray(star?.notes) ? star.notes : [];
+    return notes
+      .map((n) => [n?.id || "", n?.text || "", n?.is_public ? "1" : "0"].join("|"))
+      .sort()
+      .join("~");
+  };
+
+  return JSON.stringify({
+    cr: curatedFingerprint,
+    s4n: notesFingerprint(rating.star4),
+    s5n: notesFingerprint(rating.star5),
+  });
+}
+
 export default function CompanyDashboard() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -2310,8 +2344,27 @@ export default function CompanyDashboard() {
     });
   }, []);
 
+  const updateCompanyInState = useCallback((companyId, patch) => {
+    const id = asString(companyId).trim();
+    if (!id) return;
+    setItems((prev) =>
+      prev.map((c) => {
+        if (getCompanyId(c) !== id) return c;
+        return { ...c, ...(patch || {}) };
+      })
+    );
+  }, []);
+
   const saveEditor = useCallback(async ({ closeAfter = true } = {}) => {
     if (!editorDraft) return;
+
+    // Snapshot the pre-save state of scoring-relevant fields so we can detect
+    // whether curated_reviews or star4/star5 admin notes changed on this save
+    // and trigger an auto-rescore after persisting.
+    const preSaveCompany = editorOriginalId
+      ? items.find((c) => getCompanyId(c) === editorOriginalId) || null
+      : null;
+    const preSaveScoringFingerprint = preSaveCompany ? scoringSignalFingerprint(preSaveCompany) : "";
 
     const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
     const protectedKeys = new Set(["logo_url", "notes", "notes_entries", "rating"]);
@@ -2493,6 +2546,62 @@ export default function CompanyDashboard() {
         return [savedCompany, ...next];
       });
 
+      // Auto-rescore reputation/quality when curated_reviews or star4/star5
+      // admin notes changed on this save. Admin took the time to add a note
+      // or review — that's a signal worth re-scoring against.
+      // Fire-and-forget; the rescore happens in the background and updates
+      // the editor draft + row when it returns. Skipped for new companies
+      // (they get scored by the standard backfill pipeline).
+      const postSaveScoringFingerprint = scoringSignalFingerprint(savedCompany);
+      const scoringInputChanged =
+        !isNew && preSaveScoringFingerprint !== postSaveScoringFingerprint;
+      if (scoringInputChanged && savedId) {
+        const normalizedDomain = asString(savedCompany?.normalized_domain || draftForSave?.normalized_domain).trim();
+        if (normalizedDomain) {
+          const rescoreToastId = toast.info("Rescoring reputation & quality in background…", { duration: 30000 });
+          (async () => {
+            try {
+              const res = await apiFetch("/xadmin-api-score-company", {
+                method: "POST",
+                body: {
+                  company_id: savedId,
+                  normalized_domain: normalizedDomain,
+                  force: true,
+                },
+              });
+              const data = await res.json().catch(() => ({}));
+              if (data?.ok === true) {
+                const s4 = typeof data.star4 === "number" ? data.star4 : null;
+                const s5 = typeof data.star5 === "number" ? data.star5 : null;
+                const s4Txt = s4 != null ? s4.toFixed(2) : "—";
+                const s5Txt = s5 != null ? s5.toFixed(2) : "—";
+                if (rescoreToastId != null) toast.dismiss(rescoreToastId);
+                toast.branded(`Rescored: Reputation ${s4Txt} · Quality ${s5Txt}`);
+
+                // Patch the editor draft (if still open on this company) and
+                // the row in items so the UI reflects the new scores and
+                // reasoning without requiring a manual reload.
+                if (data.company && typeof data.company === "object") {
+                  const savedCompanyUpdated = data.company;
+                  updateCompanyInState(savedId, savedCompanyUpdated);
+                  setEditorDraft((prev) => {
+                    if (!prev || getCompanyId(prev) !== savedId) return prev;
+                    const merged = buildCompanyDraft(savedCompanyUpdated);
+                    return merged;
+                  });
+                }
+              } else {
+                if (rescoreToastId != null) toast.dismiss(rescoreToastId);
+                toast.error(`Rescore failed: ${data?.reason || data?.error || "unknown"}`);
+              }
+            } catch (e) {
+              if (rescoreToastId != null) toast.dismiss(rescoreToastId);
+              toast.error(`Rescore failed: ${e?.message || e}`);
+            }
+          })();
+        }
+      }
+
       const label = isNew ? "Company created" : "Company saved";
       const reviewDetail = autoAddedReviews
         ? `${autoAddedReviews} review${autoAddedReviews === 1 ? "" : "s"} saved and visible on public profile${
@@ -2517,7 +2626,7 @@ export default function CompanyDashboard() {
     } finally {
       setEditorSaving(false);
     }
-  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, proposedDraft, refreshDiffFields, refreshSelection, refreshTaglineMeta]);
+  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, items, proposedDraft, refreshDiffFields, refreshSelection, refreshTaglineMeta, updateCompanyInState]);
 
   const handleSaveClick = useCallback(() => {
     // Only gate when editing an existing company (not creating)
@@ -2559,17 +2668,6 @@ export default function CompanyDashboard() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [editorOpen, editorHistory]);
-
-  const updateCompanyInState = useCallback((companyId, patch) => {
-    const id = asString(companyId).trim();
-    if (!id) return;
-    setItems((prev) =>
-      prev.map((c) => {
-        if (getCompanyId(c) !== id) return c;
-        return { ...c, ...(patch || {}) };
-      })
-    );
-  }, []);
 
   const applyReviewsFromNotes = useCallback(async () => {
     const companyId = asString(editorDraft?.company_id).trim() || asString(editorOriginalId).trim();

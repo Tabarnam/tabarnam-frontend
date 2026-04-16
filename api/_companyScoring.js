@@ -15,7 +15,7 @@ const { extractJsonFromText } = require("./_curatedReviewsXai");
 // ── Tunable constants ──────────────────────────────────────────────────
 // Edit these to adjust scoring behavior without touching logic.
 
-const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured reviews, and site content. Output **only** a clean JSON object with exactly these four fields:
+const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured reviews, site content, and admin notes. Output **only** a clean JSON object with exactly these four fields:
 
 {
   "reputation_score": number between 0.0 and 1.0,
@@ -25,8 +25,9 @@ const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured revie
 }
 
 Strict rules:
-- You are scoring from a narrow slice of data: a handful of editorial review excerpts plus a short About/homepage snippet. You have NOT browsed the company's full site, you have NOT checked BBB, you have NOT looked up certifications. Do not claim things are missing. Only cite what the provided data actually contains.
-- Base scores and bullets ONLY on what the provided reviews and site snippet actually say.
+- You are scoring from a narrow slice of data: a handful of editorial review excerpts, a short About/homepage snippet, and (optionally) admin notes left by Tabarnam moderators. You have NOT browsed the company's full site, you have NOT checked BBB, you have NOT looked up certifications. Do not claim things are missing. Only cite what the provided data actually contains.
+- Base scores and bullets ONLY on what the provided reviews, site snippet, and admin notes actually say.
+- Admin notes (when present) are authoritative signal from Tabarnam moderators who have reviewed this company's situation directly. Treat them as high-priority evidence: if an admin note reports a concrete positive or negative signal, cite it in the matching star's bullets (prefix source as '- Admin note:' when the bullet originates from a note) and let it move the score accordingly. Notes attached to star4 inform reputation; notes attached to star5 inform quality. Do not ignore admin notes even if other captured data is thin.
 - NEVER cite star ratings, numeric scores, review counts, reviewer counts, or any other metadata describing the data you were given (bad: '- Reviews from 6-7 users', '- Reviews star rating of 1').
 - NEVER mention the company's headquarters location, manufacturing location, or country of origin in either reasoning field — those dimensions are scored separately.
 - NEVER write absence bullets. Forbidden patterns: '- No BBB accreditation', '- No warranty signals', '- No third-party testing', '- No independent reviews captured', '- No certifications referenced', '- Marketing-only content'. We didn't look for those things, so their absence from the provided data is not evidence. Similarly forbidden: pure filler like '- limited data available' or '- insufficient information'.
@@ -81,6 +82,44 @@ function buildReviewsSummary(company) {
 }
 
 /**
+ * Build a compact text summary of admin notes attached to star4 (reputation)
+ * and star5 (quality). Notes are authoritative ground truth from Tabarnam
+ * moderators and should factor into both scores and reasoning bullets.
+ *
+ * Returns { star4Text, star5Text, combinedText }. combinedText is used for
+ * the skip-call length check; star4Text/star5Text are emitted as labeled
+ * sections in the user prompt so Grok can attribute them to the right star.
+ */
+function buildAdminNotes(company) {
+  const rating = company && typeof company.rating === "object" && company.rating !== null ? company.rating : {};
+
+  const pluckNoteTexts = (star) => {
+    const notes = Array.isArray(star?.notes) ? star.notes : [];
+    const out = [];
+    for (const n of notes) {
+      const text = asString(n?.text).trim();
+      if (!text) continue;
+      const visibility = n?.is_public ? "public" : "private";
+      out.push(`(${visibility}) ${text}`);
+    }
+    return out;
+  };
+
+  const star4Notes = pluckNoteTexts(rating.star4);
+  const star5Notes = pluckNoteTexts(rating.star5);
+
+  const star4Text = star4Notes.join("\n- ");
+  const star5Text = star5Notes.join("\n- ");
+  const combinedText = [...star4Notes, ...star5Notes].join(" | ");
+
+  return {
+    star4Text: star4Text ? `- ${star4Text}` : "",
+    star5Text: star5Text ? `- ${star5Text}` : "",
+    combinedText,
+  };
+}
+
+/**
  * Build a compact text summary of site content for the scoring prompt.
  */
 function buildAboutContent(company) {
@@ -116,6 +155,7 @@ function buildUserPrompt(company) {
 
   const reviewsSummary = buildReviewsSummary(company);
   const aboutContent = buildAboutContent(company);
+  const adminNotes = buildAdminNotes(company);
 
   const parts = [
     `Company: ${asString(company.company_name || company.name).trim()}`,
@@ -131,6 +171,14 @@ function buildUserPrompt(company) {
 
   if (reviewsSummary) {
     parts.push(`\nCaptured reviews:\n${reviewsSummary}`);
+  }
+
+  if (adminNotes.star4Text) {
+    parts.push(`\nAdmin notes on reputation (star4) — authoritative Tabarnam moderator input:\n${adminNotes.star4Text}`);
+  }
+
+  if (adminNotes.star5Text) {
+    parts.push(`\nAdmin notes on quality (star5) — authoritative Tabarnam moderator input:\n${adminNotes.star5Text}`);
   }
 
   return parts.join("\n");
@@ -153,14 +201,21 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
     return { ok: false, reason: "missing_company_data" };
   }
 
-  // Skip-call short-circuit: if we have essentially no reviews AND no about/site content,
-  // the xAI call will produce low-quality hedged output. Return an insufficient-info
-  // result directly and save the tokens. Threshold is low (40 chars) to avoid skipping
-  // companies that have even a single short review or tagline worth scoring against.
+  // Skip-call short-circuit: if we have essentially no reviews AND no about/site content
+  // AND no admin notes, the xAI call will produce low-quality hedged output. Return an
+  // insufficient-info result directly and save the tokens. Threshold is low (40 chars)
+  // to avoid skipping companies that have even a single short review, tagline, or admin
+  // note worth scoring against. Admin notes always bypass the skip — if an admin took
+  // the time to write one, we want the model to factor it in.
   const reviewsSummary = buildReviewsSummary(companyDoc);
   const aboutContent = buildAboutContent(companyDoc);
-  if (reviewsSummary.length < 40 && aboutContent.length < 40) {
-    console.log(`[scoring] Skipping xAI call for ${companyDoc.company_name} — insufficient signal (reviews=${reviewsSummary.length}ch, about=${aboutContent.length}ch)`);
+  const adminNotes = buildAdminNotes(companyDoc);
+  if (
+    reviewsSummary.length < 40 &&
+    aboutContent.length < 40 &&
+    adminNotes.combinedText.length < 1
+  ) {
+    console.log(`[scoring] Skipping xAI call for ${companyDoc.company_name} — insufficient signal (reviews=${reviewsSummary.length}ch, about=${aboutContent.length}ch, admin_notes=${adminNotes.combinedText.length}ch)`);
     return {
       ok: true,
       reputation_score: 0.25,
