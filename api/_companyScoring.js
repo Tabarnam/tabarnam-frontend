@@ -47,6 +47,21 @@ const SCORING_MAX_TOOL_CALLS = 0;     // 0 = no web search; set to 3 for light b
 const REVIEWS_CHAR_LIMIT = 500;       // Max chars of review text to include
 const ABOUT_CHAR_LIMIT = 1000;        // Max chars of about/site content to include
 
+// Scoring-only model selection. This is intentionally separate from the import
+// path's model chain (XAI_SEARCH_MODEL / XAI_CHAT_MODEL / XAI_MODEL) so that
+// flipping the scoring model does NOT touch /admin/import behavior.
+//
+// Default is grok-3-mini: this task is pure structured-JSON sentiment
+// classification + short bullet summarization, no tools, no web search,
+// no multi-step reasoning. Mini is purpose-built for this and is roughly
+// 20–50× cheaper and 1.5–2× faster than grok-4-latest with comparable
+// quality on structured-output tasks.
+//
+// Override in Azure App Settings via XAI_SCORING_MODEL (e.g. set to
+// "grok-4-latest" as a safety pin during A/B testing, or to "grok-3-mini-fast"
+// / "grok-4-fast-non-reasoning" to try a different variant).
+const SCORING_MODEL = (process.env.XAI_SCORING_MODEL || "grok-3-mini").trim();
+
 // xAI prefix caching: conversation_id lets xAI cache the shared system prompt
 // across scoring calls, reducing token cost during batch rescoring.
 // Enable by setting XAI_SCORING_CONV_ID to any truthy value (e.g. "1").
@@ -241,11 +256,15 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
   const userPrompt = buildUserPrompt(companyDoc);
   const fullPrompt = `${SCORING_SYSTEM_PROMPT}\n\n---\n\n${userPrompt}`;
 
-  console.log(`[scoring] Prompt for ${companyDoc.company_name} (${userPrompt.length} chars, conv_id=${SCORING_CONVERSATION_ID || "off"}):\n${userPrompt.substring(0, 500)}`);
+  console.log(`[scoring] Prompt for ${companyDoc.company_name} (${userPrompt.length} chars, model=${SCORING_MODEL}, conv_id=${SCORING_CONVERSATION_ID || "off"}):\n${userPrompt.substring(0, 500)}`);
 
   try {
     const result = await xaiLiveSearchStreaming({
       prompt: fullPrompt,
+      // Pass SCORING_MODEL explicitly so this call ignores the shared
+      // XAI_SEARCH_MODEL / XAI_CHAT_MODEL / XAI_MODEL env chain that the
+      // import path uses. Scoring and import can run on different models.
+      model: SCORING_MODEL,
       timeoutMs: Math.max(5000, Math.trunc(Number(timeoutMs) || 60000)),
       maxToolCalls: SCORING_MAX_TOOL_CALLS,
       xaiUrl,
@@ -305,6 +324,7 @@ module.exports = {
   computeReputationQualityScores,
   // Exported for testing/tuning visibility:
   SCORING_SYSTEM_PROMPT,
+  SCORING_MODEL,
   SCORING_MAX_TOKENS,
   SCORING_MAX_TOOL_CALLS,
   REVIEWS_CHAR_LIMIT,
