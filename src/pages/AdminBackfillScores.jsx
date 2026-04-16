@@ -270,7 +270,7 @@ function ActivityRow({ r, onRetry, retryingId }) {
         )}
         {r.started_at ? (
           <span className="text-[10px] text-muted-foreground tabular-nums flex-none" title={r.started_at}>
-            {(() => { try { return new Date(r.started_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch { return ""; } })()}
+            {(() => { try { return new Date(r.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }); } catch { return ""; } })()}
           </span>
         ) : null}
         {r.duration_ms != null ? (
