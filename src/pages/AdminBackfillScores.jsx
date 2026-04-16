@@ -835,6 +835,8 @@ export default function AdminBackfillScores() {
           continue;
         }
         setBulkScoring((prev) => ({ ...prev, current: label }));
+        const startedAt = new Date().toISOString();
+        const t0 = Date.now();
         try {
           const res = await apiFetch("/xadmin-api-score-company", {
             method: "POST",
@@ -848,6 +850,27 @@ export default function AdminBackfillScores() {
           if (!data?.ok) {
             const msg = `${label}: ${data?.reason || data?.error || "unknown"}`;
             setBulkScoring((prev) => ({ ...prev, lastError: msg, errors: [...prev.errors, msg] }));
+          } else {
+            // Publish to the session-completed panel so multi-select runs show up
+            // alongside backfill-job runs (same entry shape as backfill publishes).
+            const entry = {
+              company_id: c.id,
+              normalized_domain: c.domain,
+              company_name: data?.company_name || label,
+              ok: true,
+              star4: typeof data?.star4 === "number" ? data.star4 : null,
+              star5: typeof data?.star5 === "number" ? data.star5 : null,
+              started_at: startedAt,
+              duration_ms: typeof data?.duration_ms === "number" ? data.duration_ms : (Date.now() - t0),
+            };
+            setSessionCompleted((prev) => {
+              const key = entry.company_id || entry.company_name;
+              const idx = prev.findIndex((x) => (x.company_id || x.company_name) === key);
+              if (idx === -1) return [...prev, entry];
+              const next = [...prev];
+              next[idx] = entry;
+              return next;
+            });
           }
         } catch (e) {
           const msg = `${label}: ${e?.message || "request failed"}`;
