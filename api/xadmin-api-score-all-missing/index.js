@@ -74,7 +74,7 @@ async function adminScoreAllMissingHandler(req, context) {
       body = {};
     }
 
-    const batchSize = Math.max(1, Math.min(50, Number(body?.batch_size) || 12));
+    const batchSize = Math.max(1, Math.min(200, Number(body?.batch_size) || 12));
     const maxCompanies = body?.max_companies != null ? Math.max(1, Number(body.max_companies)) : null;
     const force = Boolean(body?.force);
 
@@ -98,10 +98,13 @@ async function adminScoreAllMissingHandler(req, context) {
     }
 
     // Parallelism: default 4, override via body.concurrency. Each parallel slot
-    // runs one scoring call at a time. Cap at 50 to match batch_size ceiling
-    // and guard against runaway typos; observed runs at c=10/b=20 hit ~14.5
-    // companies/min with no rate-limit issues, so c=20-30 is the next test target.
-    const concurrency = Math.max(1, Math.min(50, Number(body?.concurrency) || 4));
+    // runs one scoring call at a time. Cap at 100 — we've cleanly run c=20 on
+    // grok-3-mini at 36 companies/min with zero failures and a 42.5s p99
+    // straggler (well under the 70s PER_CALL_TIMEOUT_MS). c=40-50 is the next
+    // test target, c=100 is headroom in case grok-3-mini turns out to scale
+    // further. batch_size cap (200) is sized so c=50 × 4 waves still fits in
+    // the 240s Function budget.
+    const concurrency = Math.max(1, Math.min(100, Number(body?.concurrency) || 4));
 
     // Create job document
     const jobId = uuid();
@@ -241,7 +244,7 @@ async function processBackfillScoreBatch(queueBody, context) {
   }
 
   const batchSize = Math.max(1, Number(job.batch_size) || 12);
-  const concurrency = Math.max(1, Math.min(50, Number(job.concurrency) || 4));
+  const concurrency = Math.max(1, Math.min(100, Number(job.concurrency) || 4));
   const maxCompanies = job.max_companies;
 
   let scoredThisInvocation = 0;

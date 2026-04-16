@@ -1095,9 +1095,9 @@ export default function AdminBackfillScores() {
               <Input
                 type="number"
                 min={1}
-                max={50}
+                max={200}
                 value={batchSize}
-                onChange={(e) => setBatchSize(Math.max(1, Math.min(50, Number(e.target.value) || 12)))}
+                onChange={(e) => setBatchSize(Math.max(1, Math.min(200, Number(e.target.value) || 12)))}
                 className="w-20 h-9"
                 disabled={isRunning}
               />
@@ -1109,9 +1109,9 @@ export default function AdminBackfillScores() {
               <Input
                 type="number"
                 min={1}
-                max={50}
+                max={100}
                 value={concurrency}
-                onChange={(e) => setConcurrency(Math.max(1, Math.min(50, Number(e.target.value) || 4)))}
+                onChange={(e) => setConcurrency(Math.max(1, Math.min(100, Number(e.target.value) || 4)))}
                 className="w-20 h-9"
                 disabled={isRunning}
               />
