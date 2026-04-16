@@ -19,19 +19,26 @@ const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured revie
 
 {
   "reputation_score": number between 0.0 and 1.0,
-  "reputation_reasoning": "2-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Bullets may be fragments or short phrases — prose sentences not required. Use only concrete, specific signals from reviews, editorial sources, or accreditation bodies. Good: '- BBB A+ accredited', '- 60-day warranty and returns', '- Positive reddit = no baby acne, no cradle cap, soft clear skin', '- Trustpilot complaints about VAT taxes'. No filler, no hedging, no vague phrases like 'garners' or 'aligning with'.",
+  "reputation_reasoning": "1-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Bullets may be fragments or short phrases — prose sentences not required. Cite only signals that appear IN the provided reviews and site snippet. Good: '- Forbes: synonymous with exceptional customer service', '- Positive reddit = no baby acne, no cradle cap, soft clear skin', '- Trustpilot complaints about VAT taxes', '- NYT: ended lifetime guarantee due to policy abuse'. No filler, no hedging, no vague phrases like 'garners' or 'aligning with'.",
   "quality_score": number between 0.0 and 1.0,
-  "quality_reasoning": "2-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Bullets may be fragments or short phrases. Use only concrete, specific signals about the product itself — materials, construction, durability, formulation, performance, third-party testing. Good: '- Recycled ocean plastics', '- Dermatologist-recommended formulations', '- Class-D amplification with published THD specs'. No filler, no hedging."
+  "quality_reasoning": "1-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Bullets may be fragments or short phrases. Cite only signals that appear IN the provided reviews and site snippet about the product itself — materials, construction, durability, formulation, performance. Good: '- Recycled ocean plastics per About page', '- Reviewers praise Class-D amplification, full bass, inviting midrange', '- 100% long-staple cotton, pill-resistant in lab tests (per review)'. No filler, no hedging."
 }
 
 Strict rules:
-- Base scores and bullets ONLY on what reviewers, editorial sources, accreditation bodies, or the company's own product/service materials actually say.
+- You are scoring from a narrow slice of data: a handful of editorial review excerpts plus a short About/homepage snippet. You have NOT browsed the company's full site, you have NOT checked BBB, you have NOT looked up certifications. Do not claim things are missing. Only cite what the provided data actually contains.
+- Base scores and bullets ONLY on what the provided reviews and site snippet actually say.
 - NEVER cite star ratings, numeric scores, review counts, reviewer counts, or any other metadata describing the data you were given (bad: '- Reviews from 6-7 users', '- Reviews star rating of 1').
-- NEVER mention the company's headquarters location, manufacturing location, or country of origin in either reasoning field — those dimensions are scored separately (bad: '- Manufacturing star rating 0.5', '- HQ in Sweden').
-- NEVER write pure filler like '- limited data available' or '- insufficient information'. Name concrete absences instead: '- No BBB accreditation or warranty signals on site', '- No independent consumer reviews captured', '- No third-party testing or certifications referenced'.
-- Score and bullets MUST be internally consistent. Never pair a score below 0.5 with only-positive bullets — if the score is low, at least one bullet must cite a concrete negative: a complaint found in a review, a regulatory/legal issue, a controversy, a recall, or a specific absence of signals consumers would expect (no warranty, no accreditation, no independent reviews, marketing-only content).
-- Score the evidence as it actually reads. If captured signal is uniformly positive, score 0.6–0.9. If mixed, 0.4–0.7. If uniformly negative, 0.1–0.4. If genuinely nothing substantive was captured, score 0.4–0.5 (neutral/unknown) and state the absence concretely — do NOT drag the score down arbitrarily.
-- Tabarnam's job is to give consumers an honest picture, not to cheerlead and not to punish. Balanced bullets that explain the score win; one-sided bullets that contradict the score fail.
+- NEVER mention the company's headquarters location, manufacturing location, or country of origin in either reasoning field — those dimensions are scored separately.
+- NEVER write absence bullets. Forbidden patterns: '- No BBB accreditation', '- No warranty signals', '- No third-party testing', '- No independent reviews captured', '- No certifications referenced', '- Marketing-only content'. We didn't look for those things, so their absence from the provided data is not evidence. Similarly forbidden: pure filler like '- limited data available' or '- insufficient information'.
+- A valid negative bullet MUST cite a concrete negative signal that appears IN the provided data: a complaint from a review ('- Trustpilot complaints about sheets tearing'), a recall ('- 2023 recall for lead contamination'), a controversy ('- NYT reports ending lifetime guarantee due to abuse'), or mixed review sentiment ('- Reviewers report inconsistent sizing'). No concrete negative in the data = no negative bullet.
+- Score the evidence as it actually reads:
+  - Uniformly positive signal in the data → 0.6–0.9
+  - Mixed signal (both positives and negatives present) → 0.35–0.65
+  - Uniformly negative concrete signal → 0.05–0.25
+  - Thin data with only weak/light positives and no negatives → 0.25–0.45
+  - Essentially no substantive signal → around 0.25
+- If the data is thin, output fewer bullets (minimum 1) citing only what IS there. Do not invent absences to justify a low score — the 0.25 baseline already handles thin data.
+- Tabarnam's job is to give consumers an honest picture of what the captured data shows, not to cheerlead and not to fabricate weaknesses. Balanced bullets that reflect the actual data win.
 - Output only the JSON object. No preamble, no code fence, no trailing commentary.`;
 
 const SCORING_MAX_TOKENS = 300;       // JSON + reasoning ≈ 200 tokens
@@ -156,10 +163,10 @@ async function computeReputationQualityScores(companyDoc, { xaiUrl, xaiKey, time
     console.log(`[scoring] Skipping xAI call for ${companyDoc.company_name} — insufficient signal (reviews=${reviewsSummary.length}ch, about=${aboutContent.length}ch)`);
     return {
       ok: true,
-      reputation_score: 0,
-      quality_score: 0,
-      reputation_reasoning: "- Insufficient public information to evaluate reputation.",
-      quality_reasoning: "- Insufficient public information to evaluate product quality.",
+      reputation_score: 0.25,
+      quality_score: 0.25,
+      reputation_reasoning: "- Not enough captured data to assess reputation.",
+      quality_reasoning: "- Not enough captured data to assess product quality.",
       skipped_xai_call: true,
     };
   }
