@@ -227,21 +227,43 @@ function JobHealth({ job, onRunDiagnostics, diagnostics, diagnosing }) {
   );
 }
 
-function NowProcessing({ current }) {
-  const elapsedMs = useElapsed(current?.started_at);
-  if (!current?.name) return null;
+// Renders the 1–N companies currently in-flight in the active scoring wave.
+// The worker runs up to `concurrency` companies in parallel; this shows them
+// all so the admin can see true throughput. Each row gets its own live timer
+// anchored to its own started_at.
+function NowProcessingRow({ entry }) {
+  const elapsedMs = useElapsed(entry?.started_at);
+  if (!entry?.name) return null;
   return (
-    <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/15 p-3 flex items-center gap-3">
-      <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400 animate-pulse flex-none" />
+    <div className="flex items-center gap-3 min-w-0">
       <div className="flex-1 min-w-0">
-        <div className="text-xs text-muted-foreground">Now processing</div>
         <div className="text-sm font-medium text-foreground truncate">
-          {current.name}
-          {current.domain ? <span className="text-muted-foreground font-normal"> · {current.domain}</span> : null}
+          {entry.name}
+          {entry.domain ? <span className="text-muted-foreground font-normal"> · {entry.domain}</span> : null}
         </div>
       </div>
       <div className="text-sm tabular-nums text-emerald-700 dark:text-emerald-400 flex-none">
         {elapsedMs != null ? formatDuration(elapsedMs) : "—"}
+      </div>
+    </div>
+  );
+}
+
+function NowProcessing({ currents }) {
+  const list = Array.isArray(currents) ? currents.filter((c) => c && c.name) : [];
+  if (list.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/15 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400 animate-pulse flex-none" />
+        <div className="text-xs text-muted-foreground">
+          Now processing {list.length > 1 ? `${list.length} in parallel` : ""}
+        </div>
+      </div>
+      <div className="pl-6 space-y-1.5">
+        {list.map((entry) => (
+          <NowProcessingRow key={`${entry.id || entry.name}-${entry.started_at}`} entry={entry} />
+        ))}
       </div>
     </div>
   );
@@ -629,6 +651,7 @@ export default function AdminBackfillScores() {
   const [starting, setStarting] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [batchSize, setBatchSize] = useState(12);
+  const [concurrency, setConcurrency] = useState(4);
   const [maxCompanies, setMaxCompanies] = useState("");
   const [error, setError] = useState(null);
   const [companies, setCompanies] = useState(null);
@@ -745,9 +768,12 @@ export default function AdminBackfillScores() {
     };
   }, [status?.job?.status, fetchStatus]);
 
-  // Stall watchdog — if the job is running but last_updated hasn't advanced
-  // for >60s, assume the previous score-batch-worker invocation exited (time
-  // cap, function restart, transient error) and fire a fresh one to resume.
+  // Stall watchdog (fallback only) — the status endpoint now self-drives the
+  // worker on every poll (see xadmin-api-score-status: fireBatchWorker). This
+  // client-side kick is only a safety net for the unusual case where the
+  // backend self-drive failed for >3 minutes straight (network blip, cold
+  // start cascade, etc.). We kick at a much higher threshold now to avoid
+  // racing the self-drive's own re-invocation.
   useEffect(() => {
     const job = status?.job;
     if (!job || job.status !== "running" || !job.job_id) {
@@ -759,17 +785,16 @@ export default function AdminBackfillScores() {
     const lastUpdated = job.last_updated || null;
 
     if (prev.jobId !== job.job_id || prev.lastUpdated !== lastUpdated) {
-      // Progress advanced (or new job) — reset the watchdog window.
       lastProgressRef.current = { jobId: job.job_id, lastUpdated, lastSeenAt: now };
       return;
     }
 
-    // Same (jobId, last_updated) as last poll — check staleness.
     const stalledMs = now - (prev.lastSeenAt || now);
-    if (stalledMs > 60000) {
+    // 3 min threshold — well past the server-side lock TTL (5 min) and
+    // heartbeat-stale threshold (2 min). If we're still seeing no progress
+    // after 3 min, the self-drive has genuinely failed.
+    if (stalledMs > 180_000) {
       kickScoreBatchWorker(job.job_id, job.cycle_count || 0);
-      // Push the window forward so we don't re-kick every 3s while waiting
-      // for the new worker's first write.
       lastProgressRef.current = { jobId: job.job_id, lastUpdated, lastSeenAt: now };
     }
   }, [status?.job?.job_id, status?.job?.status, status?.job?.last_updated, status?.job?.cycle_count, kickScoreBatchWorker]);
@@ -780,6 +805,7 @@ export default function AdminBackfillScores() {
     try {
       const body = {
         batch_size: batchSize,
+        concurrency,
         max_companies: maxCompanies ? Number(maxCompanies) : null,
       };
       const res = await apiFetch("/xadmin-api-score-all-missing", {
@@ -989,7 +1015,13 @@ export default function AdminBackfillScores() {
   const totalToScore = job?.total_to_score ?? status?.missing_companies ?? 0;
   const remaining = job?.remaining ?? status?.missing_companies ?? 0;
   const estimatedMinutes = job?.estimated_minutes_remaining;
-  const currentCompany = isRunning ? job?.current_company : null;
+  // New schema: current_companies is an array (parallel waves can score N at once).
+  // Fall back to legacy single current_company if a pre-migration job is observed.
+  const currentCompanies = isRunning
+    ? (Array.isArray(job?.current_companies) && job.current_companies.length > 0
+        ? job.current_companies
+        : (job?.current_company ? [job.current_company] : []))
+    : [];
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-background">
@@ -1032,8 +1064,8 @@ export default function AdminBackfillScores() {
           />
         ) : null}
 
-        {/* Now processing banner */}
-        {currentCompany ? <NowProcessing current={currentCompany} /> : null}
+        {/* Now processing banner — renders all in-flight companies (1–N parallel) */}
+        {currentCompanies.length > 0 ? <NowProcessing currents={currentCompanies} /> : null}
 
         {/* Progress bar */}
         {job && totalToScore > 0 && (
@@ -1057,13 +1089,29 @@ export default function AdminBackfillScores() {
           <h2 className="text-sm font-medium text-foreground">Controls</h2>
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">Batch size</label>
+              <label className="text-xs text-muted-foreground block mb-1" title="Companies scored per worker invocation (each invocation ~4 min)">
+                Batch size
+              </label>
               <Input
                 type="number"
                 min={1}
                 max={50}
                 value={batchSize}
                 onChange={(e) => setBatchSize(Math.max(1, Math.min(50, Number(e.target.value) || 12)))}
+                className="w-20 h-9"
+                disabled={isRunning}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1" title="Parallel xAI calls per wave. Higher = faster, risk of rate limits.">
+                Concurrency
+              </label>
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={concurrency}
+                onChange={(e) => setConcurrency(Math.max(1, Math.min(10, Number(e.target.value) || 4)))}
                 className="w-20 h-9"
                 disabled={isRunning}
               />

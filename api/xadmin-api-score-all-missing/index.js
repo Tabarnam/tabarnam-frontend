@@ -97,6 +97,11 @@ async function adminScoreAllMissingHandler(req, context) {
       return json({ ok: true, message: "All companies already scored", total_to_score: 0 });
     }
 
+    // Parallelism: default 4, override via body.concurrency. Each parallel slot
+    // runs one scoring call at a time. xAI has not been rate-limit tested above
+    // this; start conservative and raise after observation.
+    const concurrency = Math.max(1, Math.min(10, Number(body?.concurrency) || 4));
+
     // Create job document
     const jobId = uuid();
     const now = new Date().toISOString();
@@ -105,6 +110,7 @@ async function adminScoreAllMissingHandler(req, context) {
       job_id: jobId,
       status: "running",
       batch_size: batchSize,
+      concurrency,
       max_companies: maxCompanies,
       force,
       total_to_score: totalToScore,
@@ -114,20 +120,27 @@ async function adminScoreAllMissingHandler(req, context) {
       estimated_minutes_remaining: null,
       started_at: now,
       last_updated: now,
+      // Worker lock + heartbeat (import primary-worker pattern):
+      // Each batch-worker invocation claims the lock for LOCK_TTL_MS; another
+      // invocation may claim once the lock expires, letting a fresh worker
+      // resume the job if the previous one was recycled mid-cycle.
+      locked_by: null,
+      lock_expires_at: null,
+      last_heartbeat_at: null,
+      current_companies: [], // Array of { id, name, domain, started_at } for companies in-flight
       last_batch_results: [],
       cycle_count: 0,
     };
 
     await jobsContainer.items.upsert(jobDoc, { partitionKey: jobId });
 
-    context.log(`[score-all-missing] Created job ${jobId}: total=${totalToScore}, batch_size=${batchSize}`);
+    context.log(`[score-all-missing] Created job ${jobId}: total=${totalToScore}, batch_size=${batchSize}, concurrency=${concurrency}`);
 
-    // The frontend fires a keepalive POST to /xadmin-api-score-batch-worker
-    // immediately after this response returns; that worker drives scoring
-    // inline via processBackfillScoreBatch until done OR the 9-minute time
-    // cap. This mirrors the admin/import → primary-worker keepalive pattern
-    // and avoids the Storage Queue path entirely (Flex Consumption doesn't
-    // reliably poll queue triggers without Always Ready instances).
+    // The status endpoint (/xadmin-api-score-status) self-drives the worker on
+    // every poll: if the job is still "running" and the lock is free, it invokes
+    // /xadmin-api-score-batch-worker inline. This mirrors admin/import's
+    // status → primary-worker pattern and lets a 5000-company backfill run
+    // unattended even through Azure Function timeouts / worker recycles.
     return json({
       ok: true,
       job_id: jobId,
@@ -136,6 +149,7 @@ async function adminScoreAllMissingHandler(req, context) {
       processed: 0,
       remaining: totalToScore,
       batch_size: batchSize,
+      concurrency,
       max_companies: maxCompanies,
     });
   } catch (e) {
@@ -144,7 +158,34 @@ async function adminScoreAllMissingHandler(req, context) {
   }
 }
 
-// ── Queue batch processor (called by resume-worker) ────────────────────
+// ── Budget-aware batch processor ───────────────────────────────────────
+//
+// New architecture (replaces the old 9-minute while(true) loop):
+//   - Invocation is bounded by `invocationBudgetMs` (default 4 minutes).
+//   - Inside the budget, we run parallel waves of N scoring calls
+//     (N = job.concurrency).
+//   - Before each wave, we check if the wall-clock has enough budget left
+//     to finish ~one wave (70s safety). If not, we yield early.
+//   - Between waves we refresh the heartbeat so the status endpoint can tell
+//     a live worker from a recycled one.
+//   - If more work remains when we exit, the status endpoint re-invokes
+//     this worker on the next frontend poll.
+//
+// Lock semantics:
+//   - Caller (batch-worker HTTP handler) holds the job lock. We DO NOT
+//     re-claim it here; we just heartbeat it.
+//
+// Invocation budget:
+//   - queueBody.invocationBudgetMs can override. Default 4 minutes.
+//
+// Wave size:
+//   - Wave size = min(concurrency, batch_size, remaining).
+//   - batch_size now acts as "max companies per invocation" — when exhausted,
+//     we yield even if budget remains.
+
+const DEFAULT_INVOCATION_BUDGET_MS = 4 * 60 * 1000;       // 4 min — half of Azure's 10-min kill
+const WAVE_SAFETY_MARGIN_MS = 75 * 1000;                  // Abort a wave if < 75s remaining
+const PER_CALL_TIMEOUT_MS = 60 * 1000;                    // Per-company scoring timeout
 
 async function processBackfillScoreBatch(queueBody, context) {
   const jobId = String(queueBody?.session_id || "").trim();
@@ -159,6 +200,13 @@ async function processBackfillScoreBatch(queueBody, context) {
     context.log("[backfill-score] Cosmos DB not configured");
     return { ok: false, error: "cosmos_not_configured" };
   }
+
+  const invocationStartMs = Date.now();
+  const invocationBudgetMs = Math.max(
+    30_000,
+    Number(queueBody?.invocationBudgetMs) || DEFAULT_INVOCATION_BUDGET_MS
+  );
+  const budgetDeadlineMs = invocationStartMs + invocationBudgetMs;
 
   // Load job document
   let job;
@@ -175,193 +223,231 @@ async function processBackfillScoreBatch(queueBody, context) {
     return { ok: false, error: "job_not_found" };
   }
 
-  // Check status
   if (job.status !== "running") {
     context.log(`[backfill-score] Job ${jobId} status=${job.status}, not running — exiting`);
     return { ok: true, skipped: true, reason: `job status is ${job.status}` };
   }
 
-  // Safety: auto-pause if too many cycles
-  if ((job.cycle_count || 0) > 1000) {
+  if ((job.cycle_count || 0) > 10_000) {
     job.status = "paused";
     job.last_updated = new Date().toISOString();
     await jobsContainer.items.upsert(job, { partitionKey: jobId });
-    context.log(`[backfill-score] Job ${jobId} auto-paused: cycle_count=${job.cycle_count} > 1000`);
-    return { ok: true, auto_paused: true, reason: "cycle_count exceeded 1000" };
+    context.log(`[backfill-score] Job ${jobId} auto-paused: cycle_count=${job.cycle_count} > 10000`);
+    return { ok: true, auto_paused: true, reason: "cycle_count exceeded 10000" };
   }
 
-  const batchSize = job.batch_size || 12;
-  const batchStartMs = Date.now();
+  const batchSize = Math.max(1, Number(job.batch_size) || 12);
+  const concurrency = Math.max(1, Math.min(10, Number(job.concurrency) || 4));
+  const maxCompanies = job.max_companies;
 
-  // Select next batch: two-step to avoid Cosmos short-circuit issue on
-  // heterogeneous rating fields. Step 1: list all non-deleted companies
-  // with their star4.value; filter unscored in JS; take first N. Step 2:
-  // fetch full docs for the selected IDs.
-  let companies = [];
-  try {
-    const listQuery = `SELECT c.id, c.normalized_domain, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
-    const { resources: listRows } = await companiesContainer.items
-      .query(listQuery, { enableCrossPartitionQuery: true })
-      .fetchAll();
-    const isScored = (r) => {
-      const v = r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating)
-        ? r.rating.star4 && typeof r.rating.star4 === "object" ? r.rating.star4.value : undefined
-        : undefined;
-      return typeof v === "number" && v > 0;
-    };
-    // Enforce max_companies here (not just on the shouldContinue tail).
-    // Without this, a batch_size=12 job with max_companies=2 would still
-    // score 12 before stopping.
-    const maxCompanies = job.max_companies;
-    const remainingAllowed = maxCompanies != null
-      ? Math.max(0, Number(maxCompanies) - (job.processed || 0))
-      : batchSize;
-    const takeN = Math.min(batchSize, remainingAllowed);
-    const unscored = takeN > 0
-      ? (listRows || []).filter((r) => !isScored(r)).slice(0, takeN)
-      : [];
+  let scoredThisInvocation = 0;
+  let failuresThisInvocation = 0;
+  let companiesThisInvocation = 0;
+  const results = [];
+  let exitReason = "completed_batch";
 
-    // Fetch full docs for the selected IDs (one read per doc; batch is small)
-    for (const row of unscored) {
-      try {
-        const pk = String(row.normalized_domain || "unknown").trim();
-        const { resource } = await companiesContainer.item(row.id, pk).read();
-        if (resource) companies.push(resource);
-      } catch (e) {
-        context.log(`[backfill-score] Failed to read ${row.id}: ${e?.message || e}`);
-      }
-    }
-  } catch (e) {
-    context.log(`[backfill-score] Query error: ${e?.message || e}`);
-    return { ok: false, error: `query_error: ${e?.message || e}` };
-  }
-
-  context.log(`[backfill-score] Job ${jobId} cycle=${job.cycle_count}: found ${companies.length} unscored companies`);
-
-  let scored = 0;
-  let failures = 0;
-  const batchResults = [];
-
-  // Helper: prepend a just-finished result to job.last_batch_results (capped at
-  // 100) and upsert the doc. Gives the admin UI live per-company visibility
-  // instead of a dump at end-of-cycle, which matters for long batches.
-  async function publishCompletion(entry) {
+  // Helper: re-read job fields we care about for concurrent-safe updates.
+  // Multiple waves will upsert in sequence; we keep a local mirror but
+  // always re-read before writing totals to avoid stomping a parallel
+  // status-endpoint update.
+  async function persistJob(patch) {
     try {
-      const existing = Array.isArray(job.last_batch_results) ? job.last_batch_results : [];
-      job.last_batch_results = [entry, ...existing].slice(0, 100);
-      job.last_updated = new Date().toISOString();
-      await jobsContainer.items.upsert(job, { partitionKey: jobId });
+      const { resource: fresh } = await jobsContainer.item(`job_${jobId}`, jobId).read();
+      if (!fresh) return;
+      Object.assign(fresh, patch, { last_updated: new Date().toISOString() });
+      await jobsContainer.items.upsert(fresh, { partitionKey: jobId });
+      job = fresh;
     } catch (e) {
-      context.log(`[backfill-score] publishCompletion upsert failed: ${e?.message || e}`);
+      context.log(`[backfill-score] persistJob failed: ${e?.message || e}`);
     }
   }
 
-  // Process each company sequentially.
-  // Writes `current_company` to the job doc before each call so the admin UI
-  // can show a "now processing X for Ys" indicator via status polling.
-  for (const company of companies) {
-    const companyName = company.company_name || company.name || company.normalized_domain || "unknown";
-    const companyStartMs = Date.now();
-    const companyStartedAt = new Date(companyStartMs).toISOString();
+  async function heartbeat(extra = {}) {
+    await persistJob({ last_heartbeat_at: new Date().toISOString(), ...extra });
+  }
 
-    // Publish current_company to the job doc for live visibility.
+  // Main wave loop: each wave scores up to `concurrency` companies in parallel.
+  while (true) {
+    const now = Date.now();
+    if (now + WAVE_SAFETY_MARGIN_MS >= budgetDeadlineMs) {
+      exitReason = "budget_exhausted";
+      break;
+    }
+
+    // Respect per-invocation cap (batch_size)
+    if (companiesThisInvocation >= batchSize) {
+      exitReason = "batch_size_reached";
+      break;
+    }
+
+    // Pre-flight status check — admin may have paused/cancelled mid-run.
     try {
-      job.current_company = {
-        id: company.id,
-        name: companyName,
-        domain: company.normalized_domain || null,
-        started_at: companyStartedAt,
+      const { resource: fresh } = await jobsContainer.item(`job_${jobId}`, jobId).read();
+      if (fresh && fresh.status !== "running") {
+        exitReason = `status_changed_to_${fresh.status}`;
+        job = fresh;
+        break;
+      }
+      if (fresh) job = fresh;
+    } catch { /* ignore transient read failure, continue */ }
+
+    // Select next wave of companies: list unscored → take next N
+    let companies = [];
+    try {
+      const listQuery = `SELECT c.id, c.normalized_domain, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const { resources: listRows } = await companiesContainer.items
+        .query(listQuery, { enableCrossPartitionQuery: true })
+        .fetchAll();
+      const isScored = (r) => {
+        const v = r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating)
+          ? r.rating.star4 && typeof r.rating.star4 === "object" ? r.rating.star4.value : undefined
+          : undefined;
+        return typeof v === "number" && v > 0;
       };
-      job.last_updated = companyStartedAt;
-      await jobsContainer.items.upsert(job, { partitionKey: jobId });
-    } catch (e) {
-      context.log(`[backfill-score] current_company upsert failed: ${e?.message || e}`);
-    }
 
-    try {
-      // Initialize rating if missing
-      if (!company.rating || typeof company.rating !== "object") {
-        company.rating = {};
+      const remainingAllowedByMax = maxCompanies != null
+        ? Math.max(0, Number(maxCompanies) - (job.processed || 0) - scoredThisInvocation)
+        : Infinity;
+      const remainingAllowedByBatch = Math.max(0, batchSize - companiesThisInvocation);
+      const waveSize = Math.min(concurrency, remainingAllowedByBatch, remainingAllowedByMax);
+
+      if (waveSize <= 0) {
+        exitReason = maxCompanies != null ? "max_companies_reached" : "batch_size_reached";
+        break;
       }
 
-      const scoring = await computeReputationQualityScores(company, { timeoutMs: 60000 });
-      const companyDurationMs = Date.now() - companyStartMs;
+      const unscoredRows = (listRows || []).filter((r) => !isScored(r)).slice(0, waveSize);
+      if (unscoredRows.length === 0) {
+        exitReason = "no_unscored_remaining";
+        break;
+      }
 
-      if (!scoring.ok) {
-        context.log(`[backfill-score] scoring_call: company=${companyName}, ok=false, reason=${scoring.reason}, duration=${(companyDurationMs / 1000).toFixed(1)}s`);
-        failures++;
-        const entry = {
+      // Fetch full docs in parallel
+      const reads = unscoredRows.map((row) => {
+        const pk = String(row.normalized_domain || "unknown").trim();
+        return companiesContainer.item(row.id, pk).read()
+          .then((r) => r?.resource || null)
+          .catch((e) => {
+            context.log(`[backfill-score] Failed to read ${row.id}: ${e?.message || e}`);
+            return null;
+          });
+      });
+      companies = (await Promise.all(reads)).filter(Boolean);
+    } catch (e) {
+      context.log(`[backfill-score] Wave query error: ${e?.message || e}`);
+      exitReason = `query_error: ${e?.message || e}`;
+      break;
+    }
+
+    if (companies.length === 0) {
+      exitReason = "no_unscored_remaining";
+      break;
+    }
+
+    // Publish current_companies + heartbeat before starting the wave
+    const waveStartMs = Date.now();
+    const currentCompanies = companies.map((c) => ({
+      id: c.id,
+      name: c.company_name || c.name || c.normalized_domain || "unknown",
+      domain: c.normalized_domain || null,
+      started_at: new Date(waveStartMs).toISOString(),
+    }));
+    await heartbeat({ current_companies: currentCompanies });
+
+    context.log(
+      `[backfill-score] Job ${jobId} wave: size=${companies.length} ` +
+      `(batch ${companiesThisInvocation}/${batchSize}, budget ${((budgetDeadlineMs - Date.now()) / 1000).toFixed(0)}s left)`
+    );
+
+    // Compute per-call timeout: shorter of PER_CALL_TIMEOUT_MS or remaining budget
+    const remainingBudgetMs = Math.max(15_000, budgetDeadlineMs - Date.now() - 5_000);
+    const perCallTimeoutMs = Math.min(PER_CALL_TIMEOUT_MS, remainingBudgetMs);
+
+    // Run the wave in parallel
+    const waveResults = await Promise.allSettled(
+      companies.map((company) => scoreOneCompany(company, {
+        companiesContainer,
+        perCallTimeoutMs,
+      }))
+    );
+
+    // Process wave results and persist each
+    for (let i = 0; i < waveResults.length; i++) {
+      const r = waveResults[i];
+      const company = companies[i];
+      const companyName = company.company_name || company.name || company.normalized_domain || "unknown";
+
+      companiesThisInvocation++;
+
+      let entry;
+      if (r.status === "fulfilled") {
+        const payload = r.value;
+        if (payload.ok) {
+          scoredThisInvocation++;
+          entry = {
+            company_id: company.id,
+            normalized_domain: company.normalized_domain || null,
+            company_name: companyName,
+            ok: true,
+            star4: payload.star4,
+            star5: payload.star5,
+            started_at: payload.started_at,
+            duration_ms: payload.duration_ms,
+          };
+          context.log(`[backfill-score] scoring_call: company=${companyName}, star4=${payload.star4.toFixed(2)}, star5=${payload.star5.toFixed(2)}, reasoning_populated=true, duration=${(payload.duration_ms / 1000).toFixed(1)}s`);
+        } else {
+          failuresThisInvocation++;
+          entry = {
+            company_id: company.id,
+            normalized_domain: company.normalized_domain || null,
+            company_name: companyName,
+            ok: false,
+            reason: payload.reason || "unknown",
+            started_at: payload.started_at,
+            duration_ms: payload.duration_ms,
+          };
+          context.log(`[backfill-score] scoring_call: company=${companyName}, ok=false, reason=${payload.reason}, duration=${(payload.duration_ms / 1000).toFixed(1)}s`);
+        }
+      } else {
+        failuresThisInvocation++;
+        entry = {
           company_id: company.id,
           normalized_domain: company.normalized_domain || null,
           company_name: companyName,
           ok: false,
-          reason: scoring.reason,
-          started_at: companyStartedAt,
-          duration_ms: companyDurationMs,
+          reason: r.reason?.message || String(r.reason || "rejected"),
+          started_at: new Date(waveStartMs).toISOString(),
+          duration_ms: Date.now() - waveStartMs,
         };
-        batchResults.push(entry);
-        await publishCompletion(entry);
-        continue;
+        context.log(`[backfill-score] scoring_call: company=${companyName}, rejected=${entry.reason}`);
       }
+      results.push(entry);
+    }
 
-      // Apply scores — preserve existing notes
-      const existingStar4 = company.rating.star4 && typeof company.rating.star4 === "object"
-        ? company.rating.star4 : { value: 0, notes: [] };
-      const existingStar5 = company.rating.star5 && typeof company.rating.star5 === "object"
-        ? company.rating.star5 : { value: 0, notes: [] };
-
-      company.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning };
-      company.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning };
-      company.updated_at = new Date().toISOString();
-
-      // Upsert to Cosmos DB
-      const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
-      await companiesContainer.items.upsert(company, { partitionKey: partitionKeyValue });
-
-      context.log(`[backfill-score] scoring_call: company=${companyName}, star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}, reasoning_populated=true, duration=${(companyDurationMs / 1000).toFixed(1)}s`);
-      scored++;
-      const okEntry = {
-        company_id: company.id,
-        normalized_domain: company.normalized_domain || null,
-        company_name: companyName,
-        ok: true,
-        star4: scoring.reputation_score,
-        star5: scoring.quality_score,
-        started_at: companyStartedAt,
-        duration_ms: companyDurationMs,
-      };
-      batchResults.push(okEntry);
-      await publishCompletion(okEntry);
+    // Publish wave completion: prepend results, update counters, refresh remaining.
+    try {
+      const { resource: fresh } = await jobsContainer.item(`job_${jobId}`, jobId).read();
+      if (fresh) {
+        const existingResults = Array.isArray(fresh.last_batch_results) ? fresh.last_batch_results : [];
+        fresh.last_batch_results = [...results.slice(-companies.length).reverse(), ...existingResults].slice(0, 100);
+        // Don't update processed/failed/cycle_count here — we do it once at exit,
+        // to keep invariants clean (cycle_count increments once per invocation).
+        fresh.current_companies = [];
+        fresh.last_heartbeat_at = new Date().toISOString();
+        fresh.last_updated = new Date().toISOString();
+        await jobsContainer.items.upsert(fresh, { partitionKey: jobId });
+        job = fresh;
+      }
     } catch (e) {
-      const companyDurationMs = Date.now() - companyStartMs;
-      context.log(`[backfill-score] Error scoring ${companyName}: ${e?.message || e}`);
-      failures++;
-      const errEntry = {
-        company_id: company.id,
-        normalized_domain: company.normalized_domain || null,
-        company_name: companyName,
-        ok: false,
-        reason: e?.message || "exception",
-        started_at: companyStartedAt,
-        duration_ms: companyDurationMs,
-      };
-      batchResults.push(errEntry);
-      await publishCompletion(errEntry);
+      context.log(`[backfill-score] wave publish failed: ${e?.message || e}`);
     }
   }
 
-  // Clear current_company — batch finished.
-  job.current_company = null;
+  // ── Exit: finalize invocation totals ────────────────────────────────
+  const invocationDurationMs = Date.now() - invocationStartMs;
 
-  const batchDurationMs = Date.now() - batchStartMs;
-
-  // Update job document
-  job.processed = (job.processed || 0) + scored;
-  job.failed = (job.failed || 0) + failures;
-  job.cycle_count = (job.cycle_count || 0) + 1;
-  job.last_updated = new Date().toISOString();
-
-  // Recalculate remaining: JS-side filter to avoid Cosmos short-circuit issue.
+  // Recalculate remaining from Cosmos (source of truth)
+  let remaining = null;
   try {
     const countQuery = `SELECT c.id, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources: countRows } = await companiesContainer.items
@@ -373,48 +459,110 @@ async function processBackfillScoreBatch(queueBody, context) {
         : undefined;
       return typeof v === "number" && v > 0;
     };
-    job.remaining = (countRows || []).filter((r) => !isScored(r)).length;
-  } catch {
-    job.remaining = Math.max(0, (job.total_to_score || 0) - job.processed);
+    remaining = (countRows || []).filter((r) => !isScored(r)).length;
+  } catch { /* leave null; we'll fall back below */ }
+
+  try {
+    const { resource: fresh } = await jobsContainer.item(`job_${jobId}`, jobId).read();
+    if (fresh) {
+      fresh.processed = (fresh.processed || 0) + scoredThisInvocation;
+      fresh.failed = (fresh.failed || 0) + failuresThisInvocation;
+      fresh.cycle_count = (fresh.cycle_count || 0) + 1;
+      if (remaining != null) fresh.remaining = remaining;
+      else fresh.remaining = Math.max(0, (fresh.total_to_score || 0) - fresh.processed);
+
+      // ETA: companies per second measured across the invocation, scaled by concurrency
+      if (companiesThisInvocation > 0 && invocationDurationMs > 0) {
+        const secsPerCompany = invocationDurationMs / 1000 / companiesThisInvocation;
+        fresh.estimated_minutes_remaining = Math.round((fresh.remaining * secsPerCompany) / 60);
+      }
+
+      fresh.current_companies = [];
+      fresh.last_heartbeat_at = new Date().toISOString();
+      fresh.last_updated = new Date().toISOString();
+
+      const maxReached = fresh.max_companies != null && fresh.processed >= fresh.max_companies;
+      const shouldComplete = fresh.status === "running" && (fresh.remaining === 0 || maxReached);
+
+      if (shouldComplete) {
+        fresh.status = "completed";
+        fresh.completed_at = fresh.last_updated;
+        fresh.locked_by = null;
+        fresh.lock_expires_at = null;
+        context.log(`[backfill-score] Job ${jobId} completed: processed=${fresh.processed}, failed=${fresh.failed}`);
+      }
+
+      await jobsContainer.items.upsert(fresh, { partitionKey: jobId });
+      job = fresh;
+    }
+  } catch (e) {
+    context.log(`[backfill-score] final persistJob failed: ${e?.message || e}`);
   }
 
-  // Estimate remaining time
-  if (job.processed > 0 && batchDurationMs > 0) {
-    const msPerCompany = batchDurationMs / Math.max(1, scored + failures);
-    job.estimated_minutes_remaining = Math.round((job.remaining * msPerCompany) / 60000);
-  }
-
-  // last_batch_results is already maintained live by publishCompletion().
-  // Just persist the final counters/remaining/estimate update.
-  await jobsContainer.items.upsert(job, { partitionKey: jobId });
-
-  context.log(`[backfill-score] Job ${jobId} batch done: scored=${scored}, failed=${failures}, remaining=${job.remaining}, duration=${(batchDurationMs / 1000).toFixed(1)}s`);
-
-  // Determine if we should continue
-  const maxCompanies = job.max_companies;
-  const shouldContinue =
-    job.remaining > 0 &&
-    job.status === "running" &&
-    (maxCompanies == null || job.processed < maxCompanies);
-
-  if (!shouldContinue) {
-    job.status = "completed";
-    job.last_updated = new Date().toISOString();
-    await jobsContainer.items.upsert(job, { partitionKey: jobId });
-    context.log(`[backfill-score] Job ${jobId} completed: processed=${job.processed}, failed=${job.failed}`);
-  }
-  // Else: the score-batch-worker loop (or the frontend stall watchdog) drives
-  // the next cycle. No enqueue step.
+  context.log(
+    `[backfill-score] Job ${jobId} invocation done: scored=${scoredThisInvocation}, ` +
+    `failed=${failuresThisInvocation}, remaining=${job?.remaining ?? "?"}, ` +
+    `duration=${(invocationDurationMs / 1000).toFixed(1)}s, exit=${exitReason}`
+  );
 
   return {
     ok: true,
     job_id: jobId,
-    scored,
-    failed: failures,
-    remaining: job.remaining,
-    cycle_count: job.cycle_count,
-    duration_ms: batchDurationMs,
+    scored: scoredThisInvocation,
+    failed: failuresThisInvocation,
+    remaining: job?.remaining ?? null,
+    cycle_count: job?.cycle_count ?? null,
+    duration_ms: invocationDurationMs,
+    exit_reason: exitReason,
+    status: job?.status ?? "running",
   };
+}
+
+// Score one company. Returns a POJO — never throws, so Promise.allSettled
+// consumers always get `fulfilled` with an ok/!ok payload.
+async function scoreOneCompany(company, { companiesContainer, perCallTimeoutMs }) {
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
+
+  try {
+    if (!company.rating || typeof company.rating !== "object") {
+      company.rating = {};
+    }
+
+    const scoring = await computeReputationQualityScores(company, { timeoutMs: perCallTimeoutMs });
+    const durationMs = Date.now() - startedAtMs;
+
+    if (!scoring.ok) {
+      return { ok: false, reason: scoring.reason || "scoring_failed", started_at: startedAt, duration_ms: durationMs };
+    }
+
+    const existingStar4 = company.rating.star4 && typeof company.rating.star4 === "object"
+      ? company.rating.star4 : { value: 0, notes: [] };
+    const existingStar5 = company.rating.star5 && typeof company.rating.star5 === "object"
+      ? company.rating.star5 : { value: 0, notes: [] };
+
+    company.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning };
+    company.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning };
+    company.updated_at = new Date().toISOString();
+
+    const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
+    await companiesContainer.items.upsert(company, { partitionKey: partitionKeyValue });
+
+    return {
+      ok: true,
+      star4: scoring.reputation_score,
+      star5: scoring.quality_score,
+      started_at: startedAt,
+      duration_ms: durationMs,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      reason: e?.message || "exception",
+      started_at: startedAt,
+      duration_ms: Date.now() - startedAtMs,
+    };
+  }
 }
 
 // ── Register HTTP endpoint ─────────────────────────────────────────────

@@ -1,15 +1,21 @@
 const { app } = require("../_app");
+const { CosmosClient } = require("@azure/cosmos");
 
-// HTTP worker that drives backfill scoring inline until done OR time budget
-// exhausted. Mirrors the api/import/primary-worker pattern used by admin/import:
-// the frontend fires a keepalive POST here after POSTing /xadmin-api-score-all-missing,
-// and polls /xadmin-api-score-status for progress. No queue trigger involved.
+// Budget-aware single-cycle worker. Claims the job lock, drives one bounded
+// invocation of processBackfillScoreBatch (which runs parallel waves inside
+// its budget), releases the lock, and returns. The frontend polls
+// /xadmin-api-score-status, which re-invokes this worker on every poll if
+// the job is still "running" — that polling loop is the thing that drives a
+// 5000-company backfill to completion across many worker invocations.
 //
 // Route: POST /api/xadmin-api-score-batch-worker
-// Body:  { job_id, cycle_count? }
-// Anonymous (same auth posture as /api/import/primary-worker).
+// Body:  { job_id | session_id, cycle_count?, invocation_budget_ms? }
+// Anonymous (same posture as /api/import/primary-worker).
 
-const TIME_CAP_MS = 9 * 60 * 1000; // Stop ~1 min before the 10-min Functions timeout.
+const LOCK_TTL_MS = 5 * 60 * 1000;   // 5 min — enough for one invocation + slack
+const DEFAULT_INVOCATION_BUDGET_MS = 4 * 60 * 1000; // 4 min — stays well under Azure's 10-min kill
+
+const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
 function getCorsHeaders() {
   return {
@@ -26,6 +32,89 @@ const json = (obj, status = 200) => ({
   body: JSON.stringify(obj),
 });
 
+let cosmosClient = null;
+
+function getCosmosClient() {
+  const endpoint = E("COSMOS_DB_ENDPOINT");
+  const key = E("COSMOS_DB_KEY");
+  if (!endpoint || !key) return null;
+  cosmosClient ||= new CosmosClient({ endpoint, key });
+  return cosmosClient;
+}
+
+function getBackfillJobsContainer() {
+  const client = getCosmosClient();
+  if (!client) return null;
+  const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
+  const containerId = E("COSMOS_DB_BACKFILL_JOBS_CONTAINER", "backfill_jobs");
+  return client.database(databaseId).container(containerId);
+}
+
+/**
+ * Try to claim the job lock for this worker invocation.
+ * Returns { claimed: true, job } if we own the lock, or
+ *         { claimed: false, job, reason } if another worker holds it.
+ *
+ * Mirrors the import primary-worker's pessimistic-lock pattern, but simpler:
+ * we don't use etag-based compare-and-swap here because the Cosmos SDK's
+ * `upsert` returns success even under write contention; instead we rely on
+ * the lock TTL to bound orphan-lock damage to LOCK_TTL_MS.
+ */
+async function tryClaimLock({ jobsContainer, jobId, workerId, context }) {
+  let job;
+  try {
+    const { resource } = await jobsContainer.item(`job_${jobId}`, jobId).read();
+    job = resource;
+  } catch (e) {
+    return { claimed: false, job: null, reason: `read_failed: ${e?.message || e}` };
+  }
+  if (!job) return { claimed: false, job: null, reason: "job_not_found" };
+
+  if (job.status !== "running") {
+    return { claimed: false, job, reason: `job_status=${job.status}` };
+  }
+
+  const now = Date.now();
+  const lockedBy = String(job.locked_by || "").trim();
+  const lockExpiresAt = Date.parse(job.lock_expires_at || "") || 0;
+
+  if (lockedBy && lockedBy !== workerId && lockExpiresAt > now) {
+    return {
+      claimed: false,
+      job,
+      reason: `locked_by=${lockedBy}, expires_in=${((lockExpiresAt - now) / 1000).toFixed(0)}s`,
+    };
+  }
+
+  // Stale or free lock — claim it
+  job.locked_by = workerId;
+  job.lock_expires_at = new Date(now + LOCK_TTL_MS).toISOString();
+  job.last_heartbeat_at = new Date(now).toISOString();
+  job.last_updated = job.last_heartbeat_at;
+
+  try {
+    await jobsContainer.items.upsert(job, { partitionKey: jobId });
+    return { claimed: true, job };
+  } catch (e) {
+    return { claimed: false, job, reason: `upsert_failed: ${e?.message || e}` };
+  }
+}
+
+async function releaseLock({ jobsContainer, jobId, workerId, context }) {
+  try {
+    const { resource: fresh } = await jobsContainer.item(`job_${jobId}`, jobId).read();
+    if (!fresh) return;
+    // Only release if we still own it — avoid clobbering a successor's lock
+    if (String(fresh.locked_by || "") !== workerId) return;
+    fresh.locked_by = null;
+    fresh.lock_expires_at = null;
+    fresh.last_updated = new Date().toISOString();
+    await jobsContainer.items.upsert(fresh, { partitionKey: jobId });
+  } catch (e) {
+    context.log(`[score-batch-worker] releaseLock failed: ${e?.message || e}`);
+  }
+}
+
 async function adminScoreBatchWorkerHandler(req, context) {
   const method = String(req?.method || "").toUpperCase();
   if (method === "OPTIONS") return { status: 200, headers: getCorsHeaders() };
@@ -34,11 +123,19 @@ async function adminScoreBatchWorkerHandler(req, context) {
   try { body = (await req.json()) || {}; } catch { body = {}; }
 
   const jobId = String(body?.job_id || body?.session_id || "").trim();
-  const startingCycleCount = Number(body?.cycle_count) || 0;
   if (!jobId) return json({ ok: false, error: "Missing job_id" }, 400);
 
-  // Lazy require to avoid circular load at startup — score-all-missing registers
-  // its own HTTP route; we only need the exported batch processor here.
+  const invocationBudgetMs = Math.max(
+    30_000,
+    Math.min(9 * 60 * 1000, Number(body?.invocation_budget_ms) || DEFAULT_INVOCATION_BUDGET_MS)
+  );
+
+  const jobsContainer = getBackfillJobsContainer();
+  if (!jobsContainer) return json({ ok: false, error: "Cosmos DB not configured" }, 500);
+
+  // Unique worker identity per invocation (used for lock ownership).
+  const workerId = `score-batch-worker-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+
   let processBackfillScoreBatch;
   try {
     ({ processBackfillScoreBatch } = require("../xadmin-api-score-all-missing/index.js"));
@@ -48,73 +145,63 @@ async function adminScoreBatchWorkerHandler(req, context) {
   }
 
   const startedAt = Date.now();
-  let cyclesRun = 0;
-  let totalScored = 0;
-  let totalFailed = 0;
-  let lastResult = null;
-  let stopReason = "unknown";
+  context.log(`[score-batch-worker] start job=${jobId} worker=${workerId} budget=${(invocationBudgetMs / 1000).toFixed(0)}s`);
 
-  context.log(`[score-batch-worker] start job=${jobId} cycle_count=${startingCycleCount}`);
+  // Claim the lock
+  const claim = await tryClaimLock({ jobsContainer, jobId, workerId, context });
+  if (!claim.claimed) {
+    context.log(`[score-batch-worker] lock_not_claimed job=${jobId} reason=${claim.reason}`);
+    return json({
+      ok: true,
+      job_id: jobId,
+      claimed: false,
+      reason: claim.reason,
+      job_status: claim.job?.status || null,
+    });
+  }
 
-  while (true) {
-    if (Date.now() - startedAt > TIME_CAP_MS) {
-      stopReason = "time_cap_reached";
-      break;
-    }
-
-    const queueBody = {
-      session_id: jobId,
-      reason: "backfill_score",
-      cycle_count: startingCycleCount + cyclesRun,
-      requested_by: "score_batch_worker",
-    };
-
-    let result;
-    try {
-      result = await processBackfillScoreBatch(queueBody, context);
-    } catch (e) {
-      context.log(`[score-batch-worker] processBackfillScoreBatch threw: ${e?.message || e}`);
-      stopReason = `error: ${e?.message || e}`;
-      break;
-    }
-
-    lastResult = result;
-    cyclesRun++;
-
-    if (!result?.ok) {
-      stopReason = `batch_failed: ${result?.error || "unknown"}`;
-      break;
-    }
-    if (result.skipped) {
-      // Job was cancelled/paused/completed — processBackfillScoreBatch short-circuits.
-      stopReason = `skipped: ${result.reason || "unknown"}`;
-      break;
-    }
-
-    totalScored += result.scored || 0;
-    totalFailed += result.failed || 0;
-
-    if ((result.remaining || 0) === 0) {
-      stopReason = "all_done";
-      break;
-    }
+  // Drive one bounded invocation. processBackfillScoreBatch runs parallel
+  // waves inside its budget and exits cleanly when budget is exhausted or
+  // work is complete.
+  let result;
+  try {
+    result = await processBackfillScoreBatch(
+      {
+        session_id: jobId,
+        reason: "backfill_score",
+        requested_by: "score_batch_worker",
+        invocationBudgetMs,
+      },
+      context
+    );
+  } catch (e) {
+    context.log(`[score-batch-worker] processBackfillScoreBatch threw: ${e?.message || e}`);
+    result = { ok: false, error: e?.message || String(e) };
+  } finally {
+    await releaseLock({ jobsContainer, jobId, workerId, context });
   }
 
   const elapsedMs = Date.now() - startedAt;
   context.log(
-    `[score-batch-worker] exit job=${jobId} cycles=${cyclesRun} scored=${totalScored} ` +
-    `failed=${totalFailed} stop=${stopReason} elapsed=${(elapsedMs / 1000).toFixed(1)}s`
+    `[score-batch-worker] exit job=${jobId} worker=${workerId} ` +
+    `scored=${result?.scored ?? "?"} failed=${result?.failed ?? "?"} ` +
+    `remaining=${result?.remaining ?? "?"} exit=${result?.exit_reason || result?.error || "?"} ` +
+    `elapsed=${(elapsedMs / 1000).toFixed(1)}s`
   );
 
   return json({
     ok: true,
     job_id: jobId,
-    cycles_run: cyclesRun,
-    total_scored: totalScored,
-    total_failed: totalFailed,
-    stop_reason: stopReason,
+    claimed: true,
+    worker_id: workerId,
+    scored: result?.scored ?? 0,
+    failed: result?.failed ?? 0,
+    remaining: result?.remaining ?? null,
+    cycle_count: result?.cycle_count ?? null,
+    exit_reason: result?.exit_reason || null,
+    status: result?.status || null,
     elapsed_ms: elapsedMs,
-    last_result: lastResult,
+    ...(result?.ok === false ? { error: result?.error } : {}),
   });
 }
 

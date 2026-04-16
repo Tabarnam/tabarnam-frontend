@@ -4,6 +4,78 @@ const { enqueueResumeRun } = require("../_enrichmentQueue");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
+// Self-drive tuning (mirrors import-status → primary-worker pattern):
+//   - Every status poll invokes the batch worker if the job is running AND
+//     the lock is free/stale. The worker runs a bounded 4-min invocation
+//     and yields; the next poll re-invokes to continue.
+//   - Stale lock = lock_expires_at is in the past. Lets recovery happen
+//     automatically after a function timeout / worker recycle.
+//   - Stale heartbeat = last_heartbeat_at > HEARTBEAT_STALE_MS ago. This
+//     is informational only for the UI; the worker's lock TTL is the real
+//     recovery mechanism.
+const HEARTBEAT_STALE_MS = 120_000;    // 2 min — worker should heartbeat every 30s mid-wave
+const SELF_DRIVE_TIMEOUT_MS = 8_000;   // Don't let status calls block > 8s on worker fire-off
+
+// Resolve worker URL from same env as frontend would hit. We call the worker
+// via HTTP so it runs on its own Azure Function invocation (separate timeout
+// budget from the status call).
+function getSelfOrigin(req) {
+  // Try x-forwarded-host first (SWA), then req.url
+  const hdrs = req?.headers || {};
+  const fwdHost = typeof hdrs.get === "function" ? hdrs.get("x-forwarded-host") : hdrs["x-forwarded-host"];
+  const fwdProto = typeof hdrs.get === "function" ? hdrs.get("x-forwarded-proto") : hdrs["x-forwarded-proto"];
+  if (fwdHost) {
+    return `${fwdProto || "https"}://${fwdHost}`;
+  }
+  try {
+    const u = new URL(req.url);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return "http://localhost";
+  }
+}
+
+async function fireBatchWorker({ origin, jobId, context }) {
+  const url = `${origin}/api/xadmin-api-score-batch-worker`;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), SELF_DRIVE_TIMEOUT_MS);
+  try {
+    // Fire-and-forget: we send the request but don't wait for scoring to
+    // complete. The worker runs on its own Azure Function invocation and
+    // keeps running after our status call returns. This is the same pattern
+    // import-status uses to drive the primary-worker.
+    //
+    // We only wait long enough to confirm the worker accepted the request
+    // (lock was claimed or declined). That response comes back within a few
+    // ms of the HTTP 200 — but if it doesn't, we abort and return.
+    const fetchPromise = fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: jobId }),
+      signal: ctl.signal,
+      // keepalive lets the request continue after the status handler returns,
+      // but Node's fetch implementation may not honor it; worst case the
+      // worker is called but the response is discarded — that's fine.
+      keepalive: true,
+    });
+
+    // We only need ~200ms — the worker responds quickly with lock claim status
+    // and then keeps processing in the background. If we waited for the full
+    // 4-min scoring cycle, the status endpoint would block poll responses.
+    const race = await Promise.race([
+      fetchPromise.then((r) => ({ ok: r.ok, status: r.status })),
+      new Promise((res) => setTimeout(() => res({ ok: true, status: "fire_and_forget" }), 800)),
+    ]);
+    return race;
+  } catch (e) {
+    // AbortError or network error — the worker may still have started
+    context.log(`[score-status] fireBatchWorker soft-error: ${e?.message || e}`);
+    return { ok: true, status: "dispatched_no_ack" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function getCorsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -86,9 +158,15 @@ async function adminScoreStatusHandler(req, context) {
 
       if (action === "resume") {
         job.status = "running";
+        // Clear any stale lock so the next status poll will drive a fresh worker.
+        job.locked_by = null;
+        job.lock_expires_at = null;
         job.last_updated = new Date().toISOString();
         await jobsContainer.items.upsert(job, { partitionKey: actionJobId });
 
+        // Legacy: also enqueue a queue-trigger run (harmless on Flex Consumption
+        // where the queue trigger doesn't poll reliably). The self-drive loop
+        // in the default status branch is the primary driver.
         const enqueueResult = await enqueueResumeRun({
           session_id: actionJobId,
           reason: "backfill_score",
@@ -232,12 +310,48 @@ async function adminScoreStatusHandler(req, context) {
       // Empty/missing container is OK — just no job to return
     }
 
+    // ── Self-drive: if the latest job is "running" and its worker lock is
+    // free or stale, fire off the batch worker. This is the mechanism that
+    // drives a large backfill to completion across multiple function
+    // invocations without the frontend needing to kick anything.
+    let driveInfo = null;
+    if (latestJob && latestJob.status === "running") {
+      const now = Date.now();
+      const lockExpiresAt = Date.parse(latestJob.lock_expires_at || "") || 0;
+      const lastHeartbeatAt = Date.parse(latestJob.last_heartbeat_at || "") || 0;
+      const lockFree = !latestJob.locked_by || lockExpiresAt <= now;
+      const heartbeatStale = lastHeartbeatAt && (now - lastHeartbeatAt) > HEARTBEAT_STALE_MS;
+
+      if (lockFree || heartbeatStale) {
+        const origin = getSelfOrigin(req);
+        try {
+          const fired = await fireBatchWorker({ origin, jobId: latestJob.job_id, context });
+          driveInfo = {
+            fired: true,
+            lock_free: lockFree,
+            heartbeat_stale: heartbeatStale,
+            response: fired?.status ?? null,
+          };
+          context.log(`[score-status] self-drive fired worker for ${latestJob.job_id} (lock_free=${lockFree}, hb_stale=${heartbeatStale})`);
+        } catch (e) {
+          driveInfo = { fired: false, error: e?.message || String(e) };
+        }
+      } else {
+        driveInfo = {
+          fired: false,
+          reason: "worker_active",
+          lock_expires_in_s: Math.round((lockExpiresAt - now) / 1000),
+        };
+      }
+    }
+
     return json({
       ok: true,
       total_companies: totalCompanies,
       scored_companies: scoredCompanies,
       missing_companies: missingCompanies,
       job: latestJob || null,
+      ...(driveInfo ? { drive: driveInfo } : {}),
       ...(queryError ? { query_error: queryError } : {}),
     });
   } catch (e) {
