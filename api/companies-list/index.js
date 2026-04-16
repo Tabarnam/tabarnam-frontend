@@ -151,6 +151,8 @@ function normalizeCompanyRating(rating) {
     star3: normalizeStarUnit(r.star3),
     star4: normalizeStarUnit(r.star4),
     star5: normalizeStarUnit(r.star5),
+    // star6 is admin-discretion only — no auto-derived value, no xAI scoring.
+    star6: normalizeStarUnit(r.star6),
   };
 }
 
@@ -575,6 +577,7 @@ async function companiesListHandler(req, context) {
           star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
           star4: { value: 0.0, notes: [] },
           star5: { value: 0.0, notes: [] },
+          star6: { value: 0.0, notes: [] },
         };
 
         const rating = normalizeCompanyRating(base.rating || defaultRating);

@@ -1134,7 +1134,7 @@ function sqlContainsStructuredNotesArray(fieldExpr) {
 }
 
 function sqlContainsRatingNotes() {
-  const stars = ["star1", "star2", "star3", "star4", "star5"];
+  const stars = ["star1", "star2", "star3", "star4", "star5", "star6"];
   const clauses = stars.map((s) => sqlContainsNotesArray(`c.rating.${s}.notes`));
   return `(IS_DEFINED(c.rating) AND IS_OBJECT(c.rating) AND (${clauses.join(" OR ")}))`;
 }

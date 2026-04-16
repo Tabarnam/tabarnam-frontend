@@ -40,7 +40,7 @@ export function CompanyStarsBlock({ company }: { company: CompanyLike }) {
   const publicNotes: StarSignals["notes"] = [];
   const rating = (company as any)?.rating;
   if (rating && typeof rating === "object") {
-    for (const starKey of ["star1", "star2", "star3", "star4", "star5"] as const) {
+    for (const starKey of ["star1", "star2", "star3", "star4", "star5", "star6"] as const) {
       const star = (rating as any)[starKey];
       const notes = star?.notes && Array.isArray(star.notes) ? star.notes : [];
 

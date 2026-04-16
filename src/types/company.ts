@@ -24,6 +24,11 @@ export interface CompanyRating {
   star3: StarUnit;
   star4: StarUnit;
   star5: StarUnit;
+  // star6 is admin-discretion only (no auto value, no enrichment-derived value).
+  // Max 1.0 like the others, but not surfaced to users as a 6th visual icon —
+  // it folds into the existing 0–5 displayed total. Allows admins to add a
+  // bonus (or apply a corrective penalty) on top of the auto-derived stars.
+  star6: StarUnit;
 }
 
 export interface HeadquartersLocation {
@@ -186,6 +191,7 @@ export const defaultRating = (): CompanyRating => ({
   star3: emptyStar(),
   star4: emptyStar(),
   star5: emptyStar(),
+  star6: emptyStar(),
 });
 
 // Helper to ensure company has rating object

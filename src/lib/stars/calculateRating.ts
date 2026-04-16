@@ -12,7 +12,8 @@ export interface StarCalculationInput {
  * - Star 1: 0.5 if manufacturing locations exist, else 0.0
  * - Star 2: 0.5 if headquarters location exists, else 0.0
  * - Star 3: 1.0 if reviews exist, else 0.0
- * - Stars 4-5: Default to 0.0 (manual admin adjustment only)
+ * - Stars 4-5: Default to 0.0 (xAI / manual admin adjustment)
+ * - Star 6: Default to 0.0 (admin discretion only — never auto-derived)
  */
 export function calculateInitialRating(input: StarCalculationInput): CompanyRating {
   return {
@@ -36,12 +37,19 @@ export function calculateInitialRating(input: StarCalculationInput): CompanyRati
       value: 0.0,
       notes: [],
     },
+    star6: {
+      value: 0.0,
+      notes: [],
+    },
   };
 }
 
 /**
  * Calculate total star score from a CompanyRating object.
- * Sums all 5 star values.
+ * Sums all 6 star values (star1–star5 are auto/xAI, star6 is admin discretion),
+ * then clamps to 0–5. The visual star strip shows 5 icons; star6 is a weighting
+ * lever that can push the displayed total up to the 5.0 cap (or, if applied as a
+ * negative-equivalent via low star4/star5, leave headroom for an admin bonus).
  */
 export function calculateTotalScore(rating: CompanyRating | undefined): number {
   if (!rating) return 0;
@@ -49,7 +57,8 @@ export function calculateTotalScore(rating: CompanyRating | undefined): number {
     (rating.star2?.value || 0) +
     (rating.star3?.value || 0) +
     (rating.star4?.value || 0) +
-    (rating.star5?.value || 0);
+    (rating.star5?.value || 0) +
+    (rating.star6?.value || 0);
   return Math.max(0, Math.min(5, sum)); // Clamp between 0-5
 }
 
@@ -118,7 +127,7 @@ export function normalizeRating(rating: any): CompanyRating {
 
   const normalized = defaultRating();
   
-  for (const starKey of ["star1", "star2", "star3", "star4", "star5"] as const) {
+  for (const starKey of ["star1", "star2", "star3", "star4", "star5", "star6"] as const) {
     const star = rating[starKey];
     if (star && typeof star === "object") {
       normalized[starKey].value = clampStarValue(star.value ?? 0);

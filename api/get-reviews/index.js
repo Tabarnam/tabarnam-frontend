@@ -248,7 +248,7 @@ function extractPublicAdminRatingNotes(companyRecord, normalizePublicFlag) {
   const notes = [];
 
   const rating = companyRecord?.rating;
-  const starKeys = ["star1", "star2", "star3", "star4", "star5"];
+  const starKeys = ["star1", "star2", "star3", "star4", "star5", "star6"];
 
   if (rating && typeof rating === "object") {
     for (const starKey of starKeys) {

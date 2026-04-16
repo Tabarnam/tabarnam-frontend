@@ -21,7 +21,8 @@ function isCompanyRating(value: unknown): value is CompanyRating {
     "star2" in value ||
     "star3" in value ||
     "star4" in value ||
-    "star5" in value
+    "star5" in value ||
+    "star6" in value
   );
 }
 

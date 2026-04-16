@@ -290,7 +290,7 @@ export function isDeletedCompany(company) {
 export function normalizeRatingIconType(value, rating) {
   if (value === "heart" || value === "star") return value;
 
-  const starKeys = ["star1", "star2", "star3", "star4", "star5"];
+  const starKeys = ["star1", "star2", "star3", "star4", "star5", "star6"];
   const icons = starKeys.map((k) => rating?.[k]?.icon_type).filter(Boolean);
 
   if (icons.length === 0) return "star";

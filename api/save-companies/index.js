@@ -624,6 +624,7 @@ async function saveCompaniesHandler(req, context) {
             star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
             star4: { value: 0.0, notes: [] },
             star5: { value: 0.0, notes: [] },
+            star6: { value: 0.0, notes: [] },
           };
 
           const nowIso = new Date().toISOString();

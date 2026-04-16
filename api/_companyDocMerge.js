@@ -256,6 +256,8 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
     // Preserve manual admin stars from existing doc (imports should never wipe admin adjustments).
     if (existingRating.star4 && typeof existingRating.star4 === "object") next.star4 = existingRating.star4;
     if (existingRating.star5 && typeof existingRating.star5 === "object") next.star5 = existingRating.star5;
+    // star6 is admin-discretion only — never derived from imports, always preserved.
+    if (existingRating.star6 && typeof existingRating.star6 === "object") next.star6 = existingRating.star6;
 
     // Preserve manual override of review star3.
     if (existingReviewsStarSource === "manual" && existingRating.star3 && typeof existingRating.star3 === "object") {

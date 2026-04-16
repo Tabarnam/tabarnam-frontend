@@ -32,6 +32,11 @@ const STARS = [
   { key: "star3", label: "Reviews", fullLabel: "Reviews", hasAuto: true },
   { key: "star4", label: "Reputation", fullLabel: "Reputation", hasAuto: false, hasReasoning: true },
   { key: "star5", label: "Quality", fullLabel: "Quality", hasAuto: false, hasReasoning: true },
+  // star6 is admin-discretion: no auto value, no xAI scoring. Max 1.0 like
+  // the others. The displayed total still caps at 5.0, so star6 acts as a
+  // weighting lever the admin can use to boost (or, in combination with low
+  // star4/star5, fine-tune) the visible rating.
+  { key: "star6", label: "Admin", fullLabel: "Admin Discretion", hasAuto: false, hasReasoning: true },
 ];
 
 export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
@@ -105,7 +110,7 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
   };
 
   const matchAllStarsToDefault = () => {
-    const starKeys = ["star1", "star2", "star3", "star4", "star5"];
+    const starKeys = ["star1", "star2", "star3", "star4", "star5", "star6"];
     const nextRating = { ...rating };
     for (const k of starKeys) {
       nextRating[k] = { ...(nextRating[k] || {}), icon_type: defaultIconType };

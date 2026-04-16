@@ -113,13 +113,16 @@ function isCompanyRating(value) {
     "star2" in value ||
     "star3" in value ||
     "star4" in value ||
-    "star5" in value
+    "star5" in value ||
+    "star6" in value
   );
 }
 
 function calculateTotalScore(rating) {
   if (!rating || typeof rating !== "object") return 0;
-  const starKeys = ["star1", "star2", "star3", "star4", "star5"];
+  // star6 is admin discretion (max 1.0). Total still clamps to 0–5; the visible
+  // star strip is fixed at 5 icons, with star6 acting as a weighting lever.
+  const starKeys = ["star1", "star2", "star3", "star4", "star5", "star6"];
   let total = 0;
   for (const k of starKeys) {
     const v = rating[k];

@@ -766,6 +766,7 @@ async function saveCompaniesToCosmos({
               star3: { value: hasEditorialReviews ? 1.0 : 0.0, notes: [] },
               star4: { value: 0.0, notes: [] },
               star5: { value: 0.0, notes: [] },
+              star6: { value: 0.0, notes: [] },
             };
 
             const reviewsStarState = resolveReviewsStarState({
