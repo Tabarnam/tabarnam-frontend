@@ -268,6 +268,11 @@ function ActivityRow({ r, onRetry, retryingId }) {
         ) : (
           <span className="text-xs text-red-500 flex-none truncate max-w-[260px]">{r.reason}</span>
         )}
+        {r.started_at ? (
+          <span className="text-[10px] text-muted-foreground tabular-nums flex-none" title={r.started_at}>
+            {(() => { try { return new Date(r.started_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); } catch { return ""; } })()}
+          </span>
+        ) : null}
         {r.duration_ms != null ? (
           <span className="text-[10px] text-muted-foreground tabular-nums flex-none w-14 text-right">
             {formatDuration(r.duration_ms)}
