@@ -185,9 +185,10 @@ async function adminScoreAllMissingHandler(req, context) {
 
 const DEFAULT_INVOCATION_BUDGET_MS = 4 * 60 * 1000;       // 4 min — half of Azure's 10-min kill
 const WAVE_SAFETY_MARGIN_MS = 75 * 1000;                  // Abort a wave if < 75s remaining
-const PER_CALL_TIMEOUT_MS = 60 * 1000;                    // Per-company scoring timeout (inner AbortController)
+const PER_CALL_TIMEOUT_MS = 70 * 1000;                    // Per-company scoring timeout (inner AbortController)
 const PER_CALL_HARD_TIMEOUT_MS = 90 * 1000;               // Belt-and-suspenders: outer Promise.race cap
 const IN_WAVE_HEARTBEAT_MS = 20 * 1000;                   // Refresh heartbeat every 20s during a wave
+const HEARTBEAT_LOCK_EXTENSION_MS = 60 * 1000;            // Each heartbeat extends lock_expires_at by 60s (ticker is 20s, so 3x safety margin)
 
 async function processBackfillScoreBatch(queueBody, context) {
   const jobId = String(queueBody?.session_id || "").trim();
@@ -264,8 +265,17 @@ async function processBackfillScoreBatch(queueBody, context) {
     }
   }
 
+  // Heartbeat extends both last_heartbeat_at AND lock_expires_at. Extending
+  // the lock on every tick shrinks the orphan-lock recovery window from
+  // LOCK_TTL_MS (5 min, held by the caller) down to HEARTBEAT_LOCK_EXTENSION_MS
+  // (~60s): if this worker dies mid-wave, the next status-endpoint poll sees
+  // the stale lock and re-drives the worker after ~60s instead of 5 minutes.
   async function heartbeat(extra = {}) {
-    await persistJob({ last_heartbeat_at: new Date().toISOString(), ...extra });
+    await persistJob({
+      last_heartbeat_at: new Date().toISOString(),
+      lock_expires_at: new Date(Date.now() + HEARTBEAT_LOCK_EXTENSION_MS).toISOString(),
+      ...extra,
+    });
   }
 
   // Main wave loop: each wave scores up to `concurrency` companies in parallel.
@@ -371,13 +381,19 @@ async function processBackfillScoreBatch(queueBody, context) {
       Math.max(perCallTimeoutMs + 15_000, remainingBudgetMs)
     );
 
-    // Start an in-wave heartbeat ticker. We refresh `last_heartbeat_at` every
-    // IN_WAVE_HEARTBEAT_MS so the status endpoint's stale-heartbeat detector
-    // doesn't false-positive on a live-but-slow wave. The ticker stops when
-    // the wave finishes (or errors out).
+    // Start an in-wave heartbeat ticker. We refresh `last_heartbeat_at` AND
+    // extend `lock_expires_at` every IN_WAVE_HEARTBEAT_MS. Extending the lock
+    // on each tick drops the orphan-lock recovery window from ~5 min down to
+    // ~HEARTBEAT_LOCK_EXTENSION_MS (60s): if this worker dies mid-wave, the
+    // status endpoint's next poll sees the stale lock and re-drives the worker
+    // in ~60s instead of 5 minutes. The ticker stops when the wave finishes
+    // (or errors out).
     let heartbeatTicker = setInterval(() => {
       // Fire-and-forget: don't await, don't let a failed upsert take down the wave.
-      persistJob({ last_heartbeat_at: new Date().toISOString() }).catch(() => {});
+      persistJob({
+        last_heartbeat_at: new Date().toISOString(),
+        lock_expires_at: new Date(Date.now() + HEARTBEAT_LOCK_EXTENSION_MS).toISOString(),
+      }).catch(() => {});
     }, IN_WAVE_HEARTBEAT_MS);
 
     // Run the wave in parallel. Each call is wrapped in an outer hard-timeout
@@ -460,6 +476,9 @@ async function processBackfillScoreBatch(queueBody, context) {
         // to keep invariants clean (cycle_count increments once per invocation).
         fresh.current_companies = [];
         fresh.last_heartbeat_at = new Date().toISOString();
+        // Extend lock on wave boundary too: next wave starts immediately, but
+        // if the invocation dies here the recovery window stays at ~60s.
+        fresh.lock_expires_at = new Date(Date.now() + HEARTBEAT_LOCK_EXTENSION_MS).toISOString();
         fresh.last_updated = new Date().toISOString();
         await jobsContainer.items.upsert(fresh, { partitionKey: jobId });
         job = fresh;

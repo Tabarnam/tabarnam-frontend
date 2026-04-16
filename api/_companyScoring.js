@@ -20,19 +20,18 @@ const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured revie
 
 {
   "reputation_score": number between 0.0 and 1.0,
-  "reputation_reasoning": "1-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Bullets may be fragments or short phrases — prose sentences not required. Cite only signals that appear IN the provided reviews and site snippet. Good: '- Forbes: synonymous with exceptional customer service', '- Positive reddit = no baby acne, no cradle cap, soft clear skin', '- Trustpilot complaints about VAT taxes', '- NYT: ended lifetime guarantee due to policy abuse'. No filler, no hedging, no vague phrases like 'garners' or 'aligning with'.",
+  "reputation_reasoning": "1-5 terse bullet points (max 250 characters total, including newlines). Each bullet starts with '- '. Fragments/short phrases OK. Cite only signals that appear IN the provided reviews and site snippet. No filler, no hedging.",
   "quality_score": number between 0.0 and 1.0,
-  "quality_reasoning": "1-5 terse bullet points (max 250 characters total, including newlines). Each bullet must start with '- '. Bullets may be fragments or short phrases. Cite only signals that appear IN the provided reviews and site snippet about the product itself — materials, construction, durability, formulation, performance. Good: '- Recycled ocean plastics per About page', '- Reviewers praise Class-D amplification, full bass, inviting midrange', '- 100% long-staple cotton, pill-resistant in lab tests (per review)'. No filler, no hedging."
+  "quality_reasoning": "1-5 terse bullet points (max 250 characters total, including newlines). Each bullet starts with '- '. Cite only signals about the product itself — materials, construction, durability, formulation, performance — that appear IN the provided reviews and site snippet. No filler, no hedging."
 }
 
 Strict rules:
 - You are scoring from a narrow slice of data: a handful of editorial review excerpts, a short About/homepage snippet, and (optionally) admin notes left by Tabarnam moderators. You have NOT browsed the company's full site, you have NOT checked BBB, you have NOT looked up certifications. Do not claim things are missing. Only cite what the provided data actually contains.
 - Base scores and bullets ONLY on what the provided reviews, site snippet, and admin notes actually say.
 - Admin notes (when present) are authoritative signal from Tabarnam moderators who have reviewed this company's situation directly. Treat them as high-priority evidence: if an admin note reports a concrete positive or negative signal, cite it in the matching star's bullets (prefix source as '- Admin note:' when the bullet originates from a note) and let it move the score accordingly. Notes attached to star4 inform reputation; notes attached to star5 inform quality. Do not ignore admin notes even if other captured data is thin.
-- NEVER cite star ratings, numeric scores, review counts, reviewer counts, or any other metadata describing the data you were given (bad: '- Reviews from 6-7 users', '- Reviews star rating of 1').
-- NEVER mention the company's headquarters location, manufacturing location, or country of origin in either reasoning field — those dimensions are scored separately.
-- NEVER write absence bullets. Forbidden patterns: '- No BBB accreditation', '- No warranty signals', '- No third-party testing', '- No independent reviews captured', '- No certifications referenced', '- Marketing-only content'. We didn't look for those things, so their absence from the provided data is not evidence. Similarly forbidden: pure filler like '- limited data available' or '- insufficient information'.
-- A valid negative bullet MUST cite a concrete negative signal that appears IN the provided data: a complaint from a review ('- Trustpilot complaints about sheets tearing'), a recall ('- 2023 recall for lead contamination'), a controversy ('- NYT reports ending lifetime guarantee due to abuse'), or mixed review sentiment ('- Reviewers report inconsistent sizing'). No concrete negative in the data = no negative bullet.
+- NEVER cite star ratings, numeric scores, review counts, or metadata about the data you were given.
+- NEVER mention headquarters, manufacturing location, or country of origin — scored separately.
+- NEVER write absence bullets (e.g. '- No BBB accreditation', '- No warranty signals', '- No third-party testing', '- limited data'). We didn't look for those things, so their absence is not evidence. A valid negative bullet MUST cite a concrete negative signal that appears IN the provided data (a review complaint, a recall, a controversy, mixed reviewer sentiment).
 - Score the evidence as it actually reads:
   - Uniformly positive signal in the data → 0.6–0.9
   - Mixed signal (both positives and negatives present) → 0.35–0.65
