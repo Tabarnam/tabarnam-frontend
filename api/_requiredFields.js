@@ -701,9 +701,8 @@ function isRealValue(field, value, doc) {
 
     // "incomplete" signals the pipeline found some reviews but below the quality
     // threshold. Return false so the resume-worker re-fetches with the stronger
-    // fetchCuratedReviews() prompt. Threshold matches resume-worker success gate
-    // (line 2508: status === "ok" && curated.length >= 3).
-    const REVIEWS_QUALITY_THRESHOLD = 3;
+    // fetchCuratedReviews() prompt. Threshold matches resume-worker success gate.
+    const REVIEWS_QUALITY_THRESHOLD = 2;
     const stageStatus = (doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status || "")
       .toString().toLowerCase().trim();
     if (stageStatus === "incomplete" && curated.length < REVIEWS_QUALITY_THRESHOLD) return false;

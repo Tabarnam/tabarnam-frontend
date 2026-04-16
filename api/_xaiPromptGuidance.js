@@ -107,7 +107,7 @@ RULES:
     rulesCompact: (companyName, websiteUrl) => {
       const nameRef = companyName || "this company";
       const urlRef = websiteUrl || "(unknown website)";
-      return `Find 2 unique, legitimate third-party reviews of ${nameRef} (${urlRef}) with working URLs. Prefer YouTube reviews and magazine/blog articles. Confirm all URLs are functional. Do not hallucinate.`;
+      return `Find 5 unique, legitimate third-party reviews of ${nameRef} (${urlRef}) with working URLs. Prefer YouTube reviews and magazine/blog articles. Confirm all URLs are functional. Do not hallucinate.`;
     },
     // Full investigation rules for dedicated review fetcher (web_search includes page browsing)
     rulesFull: (companyName, excludeDomains, attemptedUrls, websiteUrl) => {
@@ -123,7 +123,7 @@ RULES:
 
       // ── Single-call prompt: simplified to match working Grok pattern ──
       return `For the company: ${companyName} / ${websiteUrl || "(unknown website)"}
-Find 2 unique, legitimate third-party reviews with working URLs. If fewer than 2 third-party reviews exist, browse ${websiteUrl || "the company website"} for testimonials, press mentions, "as seen in" sections, FAQ highlights, mission statements, or user testimonials and use those as reviews instead.
+Find 5 unique, legitimate third-party reviews with working URLs. If fewer than 5 third-party reviews exist, browse ${websiteUrl || "the company website"} for testimonials, press mentions, "as seen in" sections, FAQ highlights, mission statements, or user testimonials to reach 5 total reviews.
 Do not hallucinate.
 ${excludeStr ? `Do NOT return any URL from: ${excludeStr}` : ""}
 ${attemptedExclusion}`;
@@ -248,10 +248,10 @@ Comma-separated on one line.
 ${logoSection}
 
 Reviews:
-Always return at least 1 review. First check ${url} for testimonials, press mentions, "as seen in" sections, or customer reviews.
-If none found, extract 1-2 sentences from the About page, mission statement, or FAQ as a review (Source: ${name} Website, Author: N/A, Title: "Company Statement").
-Then, if you have web_search calls remaining, find 1 external third-party review using at most 1 search call.
-Do not hallucinate. Output each review in this format (separated by blank line):
+Find 5 unique reviews total. Target mix: 2-3 external third-party reviews (YouTube, magazines, blogs) + 2-3 website testimonials/press mentions.
+First check ${url} for testimonials, press mentions, "as seen in" sections, customer reviews, or FAQ highlights.
+If fewer than 2 external reviews found, use at most 1 search call to find more third-party reviews.
+Always return at least 1 review. Do not hallucinate. Output each review in this format (separated by blank line):
 
 Source: [publication/website]
 Author: [author]

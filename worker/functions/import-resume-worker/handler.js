@@ -2336,7 +2336,7 @@ async function resumeWorkerHandler(req, context) {
             if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
             if (!Number.isFinite(Number(doc.review_count))) doc.review_count = doc.curated_reviews.length;
 
-            if (status === "ok" && curated.length === 4) {
+            if (status === "ok" && curated.length >= 2) {
               doc.curated_reviews = curated.slice(0, 10);
               doc.review_count = curated.length;
               doc.reviews_stage_status = "ok";
@@ -3427,7 +3427,7 @@ async function resumeWorkerHandler(req, context) {
 
       doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
 
-      if (status === "ok" && curated.length === 4) {
+      if (status === "ok" && curated.length >= 2) {
         doc.curated_reviews = curated.slice(0, 10);
 
         const counts = curated

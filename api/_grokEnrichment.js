@@ -1273,7 +1273,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
 
   for (const c of deduped) {
     if (Date.now() - started > budgetMs - 1500) break;
-    if (verified_reviews.length >= 5) break;
+    if (verified_reviews.length >= 8) break;
 
     // Prefer unique blog/magazine domains when possible (YouTube is exempt — multiple
     // videos from different creators on youtube.com are all valid unique reviews).
@@ -1368,7 +1368,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
   const xCount = curated_reviews.filter((r) => isXUrl(r?.source_url)).length;
   const blogCount = curated_reviews.length - youtubeCount - xCount;
 
-  // Target 2 reviews. 1 is acceptable (no retry path). 0 = not_found.
+  // Target 5 reviews. 1 is acceptable (no retry path). 0 = not_found.
   const ok = curated_reviews.length >= 1;
 
   if (!ok) {

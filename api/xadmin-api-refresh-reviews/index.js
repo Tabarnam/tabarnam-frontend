@@ -236,7 +236,7 @@ function reviewTimestampMs(r) {
   return Number.isFinite(ts) ? ts : 0;
 }
 
-function capCuratedReviews(reviews, max = 2) {
+function capCuratedReviews(reviews, max = 5) {
   const n = Math.max(0, Math.trunc(Number(max) || 0));
   if (!n) return [];
 
@@ -1186,8 +1186,8 @@ async function handler(req, context, opts) {
 
         const updatedCuratedRaw = toAdd.length ? existing.concat(toAdd) : existing;
 
-        // Canonical rule: keep at most 2 curated reviews per company.
-        const cappedCurated = capCuratedReviews(updatedCuratedRaw, 2);
+        // Canonical rule: keep at most 5 curated reviews per company.
+        const cappedCurated = capCuratedReviews(updatedCuratedRaw, 5);
 
         const existingKeys = new Set(existing.map(getReviewDedupeKey));
         const additionsPersisted = cappedCurated.filter((r) => !existingKeys.has(getReviewDedupeKey(r)));
@@ -1197,7 +1197,7 @@ async function handler(req, context, opts) {
             stage: "reviews_refresh",
             root_cause: "curated_reviews_capped",
             upstream_status: null,
-            message: `Capped curated reviews to 2; dropped ${toAdd.length - additionsPersisted.length} newly fetched review(s).`,
+            message: `Capped curated reviews to 5; dropped ${toAdd.length - additionsPersisted.length} newly fetched review(s).`,
           });
         }
 

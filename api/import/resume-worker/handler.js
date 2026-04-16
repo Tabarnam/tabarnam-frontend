@@ -3928,7 +3928,7 @@ async function resumeWorkerHandler(req, context) {
 
       doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
 
-      if (status === "ok" && curated.length >= 3) {
+      if (status === "ok" && curated.length >= 2) {
         doc.curated_reviews = curated.slice(0, 10);
 
         const counts = curated
