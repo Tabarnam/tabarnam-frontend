@@ -8,7 +8,7 @@ try {
 const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
-const { parseQuery } = require("../_queryNormalizer");
+const { parseQuery, foldDiacritics } = require("../_queryNormalizer");
 const { expandQueryTermsForFTS, expandProductSynonyms } = require("../_searchSynonyms");
 const { isFuzzyNameMatch, fuzzyScore } = require("../_fuzzyMatch");
 const { simpleStem, stemWords } = require("../_stemmer");
@@ -303,7 +303,9 @@ function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
     asString(company.name).trim(),
   ].filter(Boolean);
 
-  const rawNorm = q_raw ? q_raw.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim() : "";
+  // Fold diacritics BEFORE the strip so "Béis" → "beis" (not "bis" — \w is ASCII-only
+  // so é would otherwise be treated as punctuation and deleted entirely).
+  const rawNorm = q_raw ? foldDiacritics(q_raw.toLowerCase()).replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim() : "";
   const queries = [
     rawNorm,
     q_norm ? q_norm.toLowerCase().trim() : "",
@@ -316,7 +318,8 @@ function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
   let best = 0;
 
   for (const rawName of names) {
-    const nameLower = rawName.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
+    // Fold diacritics so "Béis" (company name) normalizes the same way as "beis" (query).
+    const nameLower = foldDiacritics(rawName.toLowerCase()).replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
     const nameCompact = nameLower.replace(/\s+/g, "");
 
     for (const q of uniqueQueries) {

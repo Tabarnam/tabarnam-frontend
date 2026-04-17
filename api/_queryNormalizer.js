@@ -6,29 +6,49 @@
 const { stemWords } = require("./_stemmer");
 
 /**
+ * Fold diacritics (accented characters) to their base ASCII letter.
+ * "Béis" → "Beis", "café" → "cafe", "naïve" → "naive", "niño" → "nino".
+ *
+ * Uses Unicode NFD normalization to decompose accented characters into
+ * [base letter][combining mark], then strips the combining marks.
+ * This is critical because JavaScript's \w regex class is ASCII-only,
+ * so accented characters would otherwise be treated as punctuation and
+ * deleted entirely instead of folded.
+ */
+function foldDiacritics(s) {
+  if (!s || typeof s !== "string") return "";
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/**
  * Normalize a search query by:
  * 1. Converting to lowercase
  * 2. Trimming whitespace
- * 3. Replacing [_-.,/\\]+ with space
- * 4. Removing other punctuation
- * 5. Collapsing multiple spaces to one
+ * 3. Folding diacritics (é → e, ñ → n, etc.)
+ * 4. Replacing [_-.,/\\]+ with space
+ * 5. Removing other punctuation
+ * 6. Collapsing multiple spaces to one
  */
 function normalizeQuery(raw) {
   if (!raw || typeof raw !== "string") return "";
-  
+
   // 1. Lowercase and trim
   let norm = raw.toLowerCase().trim();
   if (!norm) return "";
-  
-  // 2. Replace [_-.,/\\]+ with space (one or more of these chars -> single space)
+
+  // 2. Fold diacritics so "Béis" and "beis" normalize to the same string
+  norm = foldDiacritics(norm);
+
+  // 3. Replace [_-.,/\\]+ with space (one or more of these chars -> single space)
   norm = norm.replace(/[_\-.,/\\]+/g, " ");
-  
-  // 3. Remove other punctuation (but keep spaces)
-  norm = norm.replace(/[^\w\s]/g, "");
-  
-  // 4. Collapse multiple spaces to single space
+
+  // 4. Remove other punctuation (but keep spaces). Explicit ASCII class,
+  //    since we've already folded non-ASCII letters above.
+  norm = norm.replace(/[^a-z0-9\s]/g, "");
+
+  // 5. Collapse multiple spaces to single space
   norm = norm.replace(/\s+/g, " ").trim();
-  
+
   return norm;
 }
 
@@ -109,6 +129,7 @@ function parseQuery(raw) {
 }
 
 module.exports = {
+  foldDiacritics,
   normalizeQuery,
   compactQuery,
   parseQuery,

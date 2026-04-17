@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
-const { normalizeQuery, compactQuery, parseQuery } = require("./_queryNormalizer");
+const { normalizeQuery, compactQuery, parseQuery, foldDiacritics } = require("./_queryNormalizer");
 
 // ── normalizeQuery ──────────────────────────────────────────────────────────
 
@@ -30,6 +30,42 @@ test("normalizeQuery handles empty/null input", () => {
 
 test("normalizeQuery handles backslash separator", () => {
   assert.equal(normalizeQuery("foo\\bar"), "foo bar");
+});
+
+// ── diacritic folding ──────────────────────────────────────────────────────
+
+test("foldDiacritics folds common accented characters", () => {
+  assert.equal(foldDiacritics("Béis"), "Beis");
+  assert.equal(foldDiacritics("café"), "cafe");
+  assert.equal(foldDiacritics("naïve"), "naive");
+  assert.equal(foldDiacritics("Zoë"), "Zoe");
+  assert.equal(foldDiacritics("niño"), "nino");
+  assert.equal(foldDiacritics("résumé"), "resume");
+});
+
+test("foldDiacritics handles empty/null", () => {
+  assert.equal(foldDiacritics(""), "");
+  assert.equal(foldDiacritics(null), "");
+  assert.equal(foldDiacritics(undefined), "");
+});
+
+test("normalizeQuery folds diacritics so accented and plain queries match", () => {
+  assert.equal(normalizeQuery("Béis"), "beis");
+  assert.equal(normalizeQuery("beis"), "beis");
+  assert.equal(normalizeQuery("café"), "cafe");
+  assert.equal(normalizeQuery("naïve"), "naive");
+  assert.equal(normalizeQuery("Zoë"), "zoe");
+  assert.equal(normalizeQuery("niño"), "nino");
+  assert.equal(normalizeQuery("résumé"), "resume");
+});
+
+test("parseQuery folds diacritics consistently across all forms", () => {
+  const withAccent = parseQuery("Béis");
+  const withoutAccent = parseQuery("beis");
+  assert.equal(withAccent.q_norm, "beis");
+  assert.equal(withAccent.q_compact, "beis");
+  assert.equal(withAccent.q_norm, withoutAccent.q_norm);
+  assert.equal(withAccent.q_compact, withoutAccent.q_compact);
 });
 
 // ── compactQuery ────────────────────────────────────────────────────────────
