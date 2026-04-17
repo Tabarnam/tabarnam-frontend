@@ -312,7 +312,7 @@ CRITICAL OUTPUT RULES (follow exactly):
 - After your 2nd or 3rd tool call you MUST start outputting the list immediately. Do not wait for the full 5 calls.
 - Output incrementally: emit the growing comma-separated list as soon as you have solid coverage, then append new items from later calls.
 - NEVER do extra searches or analysis once you have good coverage — start writing text immediately.
-- Return ONLY a single comma-separated list. Maximum 150 unique items. For catalogs larger than 50 SKUs, group by category and list 5-10 representative products per major category.
+- Return ONLY a single comma-separated list. Maximum 200 unique items. For catalogs larger than 50 SKUs, group by category and list 5-10 representative products per major category.
 - No explanations, no headers, no markdown, no extra text whatsoever.
 
 KEY OUTPUT STYLE (this is what we want):

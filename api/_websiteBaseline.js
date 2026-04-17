@@ -445,7 +445,7 @@ async function fillCompanyBaselineFromWebsite(company, { timeoutMs = 6000, extra
   ]);
 
   const textKeywords = buildTopKeywordsFromText(combinedText, { max: 30 });
-  const mergedKeywords = normalizeKeywordCandidates([...keywordSeeds, ...textKeywords]).slice(0, 25);
+  const mergedKeywords = normalizeKeywordCandidates([...keywordSeeds, ...textKeywords]).slice(0, 200);
 
   const inferredIndustries = inferIndustriesFromText(combinedText);
 
@@ -478,11 +478,11 @@ async function fillCompanyBaselineFromWebsite(company, { timeoutMs = 6000, extra
 
   const existingKeywords = normalizeKeywordList(patch.keywords);
   if (existingKeywords.length < 8 && mergedKeywords.length > 0) {
-    patch.keywords = normalizeKeywordCandidates([...existingKeywords, ...mergedKeywords]).slice(0, 25);
+    patch.keywords = normalizeKeywordCandidates([...existingKeywords, ...mergedKeywords]).slice(0, 200);
     patch.product_keywords = patch.keywords.join(", ");
   } else if (shouldFillString(patch.product_keywords) && mergedKeywords.length > 0) {
     patch.product_keywords = mergedKeywords.join(", ");
-    patch.keywords = existingKeywords.length > 0 ? existingKeywords : mergedKeywords.slice(0, 25);
+    patch.keywords = existingKeywords.length > 0 ? existingKeywords : mergedKeywords.slice(0, 200);
   }
 
   return patch;

@@ -2309,7 +2309,7 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    You are extracting structured product intelligence for a consumer-facing company.
    Your task is to generate a comprehensive, concrete list of the companyâ€™s actual products and product categories.
    Rules:
-   â€¢ Return up to 25 product keywords
+   â€¢ Return up to 200 product keywords
    â€¢ Each keyword must be a real product, product line, or specific product category
    â€¢ Avoid vague marketing terms (e.g., â€œpremium,â€ â€œhigh-quality,â€ â€œinnovative,â€ â€œlifestyleâ€)
    â€¢ Prefer noun-based product names
@@ -2319,7 +2319,7 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    â€¢ Do NOT include services unless the company primarily sells services
    Output format for product_keywords field:
    â€¢ Return a comma-separated list
-   â€¢ Maximum 25 items
+   â€¢ Maximum 200 items
    â€¢ No explanations or extra text
 
 CRITICAL REQUIREMENTS FOR THIS SEARCH:
@@ -2340,7 +2340,7 @@ FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
 - company_name (string): Exact company name
 - website_url (string): Valid company website URL (must work)
 - industries (array): Industry categories
-- product_keywords (string): Comma-separated list of up to 25 concrete product keywords (real products/product lines/product categories; no vague marketing terms; prefer noun phrases; include flagship + secondary products; infer industry-standard product types if needed; no near-duplicates; no services unless primarily services)
+- product_keywords (string): Comma-separated list of up to 200 concrete product keywords (real products/product lines/product categories; no vague marketing terms; prefer noun phrases; include flagship + secondary products; infer industry-standard product types if needed; no near-duplicates; no services unless primarily services)
 - headquarters_location (string, REQUIRED): "City, State/Region, Country" format (or empty string ONLY if truly unknown after checking all sources)
 - manufacturing_locations (array, REQUIRED): Array of location strings (MUST include all credible sources - official, government guides, B2B directories, suppliers, customs, packaging labels). Use country-only entries (e.g., "USA") if that's all that's known.
 - location_sources (array, REQUIRED): Array of objects with structure: { "location": "City, State, Country", "source_url": "https://...", "source_type": "official_website|government_guide|b2b_directory|trade_data|packaging|media|other", "location_type": "headquarters|manufacturing" }. Include ALL sources found for both HQ and manufacturing locations.
@@ -6038,7 +6038,7 @@ Format your response as a valid JSON array with this structure:
 - company_name (string)
 - website_url (string)
 - industries (array)
-- product_keywords (string): Comma-separated list of up to 25 concrete product keywords (real products/product lines/product categories; no vague marketing terms; prefer noun phrases; include flagship + secondary products; infer industry-standard product types if needed; no near-duplicates; no services unless primarily services)
+- product_keywords (string): Comma-separated list of up to 200 concrete product keywords (real products/product lines/product categories; no vague marketing terms; prefer noun phrases; include flagship + secondary products; infer industry-standard product types if needed; no near-duplicates; no services unless primarily services)
 - headquarters_location (string, REQUIRED - "City, State/Region, Country" format, or empty only if truly unknown after checking all sources)
 - manufacturing_locations (array, REQUIRED - must include all locations from government guides, B2B directories, suppliers, customs, packaging, media. Use country-only entries if that's all known. NEVER empty without exhaustive checking)
 - red_flag (boolean, optional)

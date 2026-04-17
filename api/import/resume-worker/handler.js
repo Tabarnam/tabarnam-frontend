@@ -2452,7 +2452,7 @@ async function resumeWorkerHandler(req, context) {
           for (const kw of doc.keywords) {
             if (!merged.some((m) => m.toLowerCase() === kw.toLowerCase())) merged.push(kw);
           }
-          doc.keywords = merged.slice(0, 25);
+          doc.keywords = merged.slice(0, 200);
           doc.product_keywords = doc.keywords.join(", ");
           console.log(`[resume-worker] Merged batch_keywords into doc.keywords: ${doc.keywords.length} items`);
         }
@@ -3603,9 +3603,9 @@ async function resumeWorkerHandler(req, context) {
           for (const kw of sanitized) {
             if (!merged.some((m) => m.toLowerCase() === kw.toLowerCase())) merged.push(kw);
           }
-          doc.keywords = merged.slice(0, 25);
+          doc.keywords = merged.slice(0, 200);
         } else {
-          doc.keywords = sanitized.slice(0, 25);
+          doc.keywords = sanitized.slice(0, 200);
         }
         doc.product_keywords = doc.keywords.join(", ");
         doc.keywords_source = "grok";

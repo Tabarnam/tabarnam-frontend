@@ -92,7 +92,7 @@ Company:
 \u2022 Short description/tagline (if available): ${tagline}
 Rules:
 \u2022 Output ONLY a JSON object with a single field: "keywords".
-\u2022 "keywords" must be an array of 15 to 25 short product phrases the company actually sells or makes.
+\u2022 "keywords" must be an array of up to 200 short product phrases the company actually sells or makes.
 \u2022 Use product-level specificity (e.g., "insulated cooler", "hard-sided cooler", "travel tumbler") not vague categories (e.g., "outdoor", "quality", "premium").
 \u2022 Do NOT include brand name, company name, marketing adjectives, or locations.
 \u2022 Do NOT repeat near-duplicates.
@@ -387,7 +387,7 @@ async function ensureCompanyKeywords(company, enrichCtx) {
     companyName, websiteUrl,
   });
 
-  let finalList = initialList.slice(0, 25);
+  let finalList = initialList.slice(0, 200);
   const debugEntry = {
     company_name: companyName,
     website_url: websiteUrl,
@@ -450,7 +450,7 @@ async function ensureCompanyKeywords(company, enrichCtx) {
     }
   }
 
-  company.keywords = Array.isArray(keywordsAll) ? keywordsAll.slice(0, 25) : [];
+  company.keywords = Array.isArray(keywordsAll) ? keywordsAll.slice(0, 200) : [];
   company.product_keywords = keywordListToString(Array.isArray(keywordsAll) ? keywordsAll : []);
 
   // Industries

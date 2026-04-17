@@ -92,7 +92,7 @@ function normalizeProductKeywords(value, { companyName, websiteUrl } = {}) {
       if (brandToken && (kl === brandToken || kl.includes(brandToken))) return false;
       return true;
     })
-    .slice(0, 25);
+    .slice(0, 200);
 }
 
 function keywordListToString(list) {
