@@ -488,7 +488,8 @@ export function getContractMissingFields(company) {
   if (!company?.unknown_hq) {
     const hasHqTag = fields.some((f) => hqVariants.has(f));
     const hasHq =
-      (Array.isArray(company?.headquarters_locations) && normalizeStructuredLocationList(company.headquarters_locations).length > 0) ||
+      (Array.isArray(company?.headquarters_locations) && company.headquarters_locations.length > 0) ||
+      (Array.isArray(company?.headquarters) && company.headquarters.length > 0) ||
       Boolean(asString(company?.headquarters_location).trim());
     if (!hasHq && !hasHqTag) {
       fields.push("headquarters");
@@ -500,7 +501,7 @@ export function getContractMissingFields(company) {
     const mfgVariants = new Set(["manufacturing", "manufacturing_locations"]);
     const hasMfgTag = fields.some((f) => mfgVariants.has(f));
     const hasMfg =
-      (Array.isArray(company?.manufacturing_locations) && normalizeStructuredLocationList(company.manufacturing_locations).length > 0) ||
+      (Array.isArray(company?.manufacturing_locations) && company.manufacturing_locations.length > 0) ||
       (Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0);
     if (!hasMfg && !hasMfgTag) {
       fields.push("manufacturing");
