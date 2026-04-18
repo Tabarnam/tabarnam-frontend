@@ -4500,48 +4500,56 @@ export default function CompanyDashboard() {
                               />
                             </div>
 
-                            <div className="space-y-1">
-                              <label className="text-sm text-slate-700 dark:text-muted-foreground">Amazon URL</label>
-                              <Input
-                                value={asString(editorDraft.amazon_url)}
-                                onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
-                              />
-                              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-2">
-                                <Checkbox
-                                  checked={Boolean(editorDraft.no_amazon_store)}
-                                  onCheckedChange={(v) =>
-                                    setEditorDraft((d) => ({
-                                      ...(d || {}),
-                                      no_amazon_store: Boolean(v),
-                                    }))
-                                  }
+                            <div className="flex gap-3 items-start">
+                              <div className="flex-1 space-y-1">
+                                <label className="text-sm text-slate-700 dark:text-muted-foreground">Amazon URL</label>
+                                <Input
+                                  value={asString(editorDraft.amazon_url)}
+                                  onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
                                 />
-                                <span>No Amazon Store</span>
-                              </label>
-                            </div>
+                                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-2">
+                                  <Checkbox
+                                    checked={Boolean(editorDraft.no_amazon_store)}
+                                    onCheckedChange={(v) =>
+                                      setEditorDraft((d) => ({
+                                        ...(d || {}),
+                                        no_amazon_store: Boolean(v),
+                                      }))
+                                    }
+                                  />
+                                  <span>No Amazon Store</span>
+                                </label>
+                              </div>
 
-                            <div className="space-y-1">
-                              <label className="text-sm text-slate-700 dark:text-muted-foreground">Email address</label>
-                              <Input
-                                value={asString(editorDraft.email_address)}
-                                onChange={(e) => setEditorDraft((d) => ({ ...d, email_address: e.target.value }))}
-                                placeholder="info@example.com"
-                              />
-                            </div>
-
-                            <div className="space-y-1">
-                              <label className="text-sm text-slate-700 dark:text-muted-foreground">Contact page URL</label>
-                              <Input
-                                value={asString(editorDraft.company_contact_info?.contact_page_url)}
-                                onChange={(e) => setEditorDraft((d) => ({
-                                  ...d,
-                                  company_contact_info: {
-                                    ...(d?.company_contact_info || {}),
-                                    contact_page_url: e.target.value,
-                                  },
-                                }))}
-                                placeholder="https://example.com/contact"
-                              />
+                              <details className="flex-1">
+                                <summary className="text-sm text-slate-500 dark:text-muted-foreground cursor-pointer hover:text-slate-700 dark:hover:text-foreground select-none py-1">
+                                  Contact info
+                                </summary>
+                                <div className="space-y-3 mt-2">
+                                  <div className="space-y-1">
+                                    <label className="text-sm text-slate-700 dark:text-muted-foreground">Email address</label>
+                                    <Input
+                                      value={asString(editorDraft.email_address)}
+                                      onChange={(e) => setEditorDraft((d) => ({ ...d, email_address: e.target.value }))}
+                                      placeholder="info@example.com"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-sm text-slate-700 dark:text-muted-foreground">Contact page URL</label>
+                                    <Input
+                                      value={asString(editorDraft.company_contact_info?.contact_page_url)}
+                                      onChange={(e) => setEditorDraft((d) => ({
+                                        ...d,
+                                        company_contact_info: {
+                                          ...(d?.company_contact_info || {}),
+                                          contact_page_url: e.target.value,
+                                        },
+                                      }))}
+                                      placeholder="https://example.com/contact"
+                                    />
+                                  </div>
+                                </div>
+                              </details>
                             </div>
 
                           </div>
