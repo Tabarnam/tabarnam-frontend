@@ -5271,7 +5271,7 @@ export default function CompanyDashboard() {
                   Cancel
                 </AlertDialogCancel>
                 <AlertDialogAction
-                  variant="outline"
+                  className="border border-border bg-transparent text-foreground hover:bg-muted"
                   onClick={(e) => {
                     e.preventDefault();
                     setRescorePrompt(null);
