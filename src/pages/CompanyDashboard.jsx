@@ -5252,7 +5252,7 @@ export default function CompanyDashboard() {
           </AlertDialog>
 
           {/* Rescore prompt — shown after save when scoring signals changed */}
-          <AlertDialog open={!!rescorePrompt} onOpenChange={(open) => { if (!open) { setRescorePrompt(null); closeEditor(); } }}>
+          <AlertDialog open={!!rescorePrompt} onOpenChange={(open) => { if (!open) setRescorePrompt(null); }}>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Refresh Rep &amp; Quality scores?</AlertDialogTitle>
@@ -5261,8 +5261,17 @@ export default function CompanyDashboard() {
                   updated Reputation and Quality scores via xAI for your review.
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <AlertDialogFooter>
+              <AlertDialogFooter className="flex gap-2 sm:flex-row">
                 <AlertDialogCancel
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setRescorePrompt(null);
+                  }}
+                >
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="outline"
                   onClick={(e) => {
                     e.preventDefault();
                     setRescorePrompt(null);
@@ -5270,7 +5279,7 @@ export default function CompanyDashboard() {
                   }}
                 >
                   Skip Refresh &gt; Save &amp; Close
-                </AlertDialogCancel>
+                </AlertDialogAction>
                 <AlertDialogAction
                   onClick={(e) => {
                     e.preventDefault();
