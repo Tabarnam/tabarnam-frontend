@@ -751,6 +751,8 @@ export default function CompanyDashboard() {
   const [deleteConfirmError, setDeleteConfirmError] = useState(null);
 
   const [proposedConfirmOpen, setProposedConfirmOpen] = useState(false);
+  // Prompt admin to refresh Rep & Quality scores after a save that changed scoring signals
+  const [rescorePrompt, setRescorePrompt] = useState(null); // { savedId, normalizedDomain, savedCompany } or null
 
   const requestSeqRef = useRef(0);
   const abortRef = useRef(null);
@@ -2548,61 +2550,12 @@ export default function CompanyDashboard() {
         return [savedCompany, ...next];
       });
 
-      // Auto-rescore reputation/quality when curated_reviews or star4/star5
-      // admin notes changed on this save. Admin took the time to add a note
-      // or review — that's a signal worth re-scoring against.
-      // Fire-and-forget; the rescore happens in the background and updates
-      // the editor draft + row when it returns. Skipped for new companies
-      // (they get scored by the standard backfill pipeline).
+      // Detect whether scoring-relevant signals (curated_reviews, star4/star5
+      // admin notes) changed on this save. If so, prompt the admin to refresh
+      // Rep & Quality scores before closing — rather than auto-rescoring silently.
       const postSaveScoringFingerprint = scoringSignalFingerprint(savedCompany);
       const scoringInputChanged =
         !isNew && preSaveScoringFingerprint !== postSaveScoringFingerprint;
-      if (scoringInputChanged && savedId) {
-        const normalizedDomain = asString(savedCompany?.normalized_domain || draftForSave?.normalized_domain).trim();
-        if (normalizedDomain) {
-          const rescoreToastId = toast.info("Rescoring reputation & quality in background…", { duration: 30000 });
-          (async () => {
-            try {
-              const res = await apiFetch("/xadmin-api-score-company", {
-                method: "POST",
-                body: {
-                  company_id: savedId,
-                  normalized_domain: normalizedDomain,
-                  force: true,
-                },
-              });
-              const data = await res.json().catch(() => ({}));
-              if (data?.ok === true) {
-                const s4 = typeof data.star4 === "number" ? data.star4 : null;
-                const s5 = typeof data.star5 === "number" ? data.star5 : null;
-                const s4Txt = s4 != null ? s4.toFixed(2) : "—";
-                const s5Txt = s5 != null ? s5.toFixed(2) : "—";
-                if (rescoreToastId != null) toast.dismiss(rescoreToastId);
-                toast.branded(`Rescored: Reputation ${s4Txt} · Quality ${s5Txt}`);
-
-                // Patch the editor draft (if still open on this company) and
-                // the row in items so the UI reflects the new scores and
-                // reasoning without requiring a manual reload.
-                if (data.company && typeof data.company === "object") {
-                  const savedCompanyUpdated = data.company;
-                  updateCompanyInState(savedId, savedCompanyUpdated);
-                  setEditorDraft((prev) => {
-                    if (!prev || getCompanyId(prev) !== savedId) return prev;
-                    const merged = buildCompanyDraft(savedCompanyUpdated);
-                    return merged;
-                  });
-                }
-              } else {
-                if (rescoreToastId != null) toast.dismiss(rescoreToastId);
-                toast.error(`Rescore failed: ${data?.reason || data?.error || "unknown"}`);
-              }
-            } catch (e) {
-              if (rescoreToastId != null) toast.dismiss(rescoreToastId);
-              toast.error(`Rescore failed: ${e?.message || e}`);
-            }
-          })();
-        }
-      }
 
       const label = isNew ? "Company created" : "Company saved";
       const reviewDetail = autoAddedReviews
@@ -2611,13 +2564,18 @@ export default function CompanyDashboard() {
           }`
         : "";
 
+      toast.branded(reviewDetail ? `${label} — ${reviewDetail}` : label);
+
       if (closeAfter) {
-        toast.branded(reviewDetail ? `${label} — ${reviewDetail}` : label);
-        closeEditor();
+        const normalizedDomain = asString(savedCompany?.normalized_domain || draftForSave?.normalized_domain).trim();
+        if (scoringInputChanged && savedId && normalizedDomain) {
+          // Don't close yet — prompt admin to refresh or skip
+          setRescorePrompt({ savedId, normalizedDomain, savedCompany });
+        } else {
+          closeEditor();
+        }
       } else {
         // Inline save (green sticky button) — stay open, show branded toast
-        const msg = reviewDetail ? `${label} — ${reviewDetail}` : label;
-        toast.branded(msg);
         // Update the draft with the saved company so it reflects the persisted state
         const merged = buildCompanyDraft(savedCompany);
         editorHistory.resetHistory(merged);
@@ -5284,6 +5242,72 @@ export default function CompanyDashboard() {
                   }}
                 >
                   Save &amp; Close
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* Rescore prompt — shown after save when scoring signals changed */}
+          <AlertDialog open={!!rescorePrompt} onOpenChange={(open) => { if (!open) { setRescorePrompt(null); closeEditor(); } }}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Refresh Rep &amp; Quality scores?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Reviews or scoring notes changed. Refreshing will re-evaluate
+                  Reputation and Quality scores via xAI before closing.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setRescorePrompt(null);
+                    closeEditor();
+                  }}
+                >
+                  Skip Refresh &gt; Save &amp; Close
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const { savedId, normalizedDomain } = rescorePrompt || {};
+                    setRescorePrompt(null);
+                    if (!savedId || !normalizedDomain) { closeEditor(); return; }
+                    const rescoreToastId = toast.info("Rescoring reputation & quality…", { duration: 30000 });
+                    (async () => {
+                      try {
+                        const res = await apiFetch("/xadmin-api-score-company", {
+                          method: "POST",
+                          body: {
+                            company_id: savedId,
+                            normalized_domain: normalizedDomain,
+                            force: true,
+                          },
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (data?.ok === true) {
+                          const s4 = typeof data.star4 === "number" ? data.star4 : null;
+                          const s5 = typeof data.star5 === "number" ? data.star5 : null;
+                          const s4Txt = s4 != null ? s4.toFixed(2) : "—";
+                          const s5Txt = s5 != null ? s5.toFixed(2) : "—";
+                          if (rescoreToastId != null) toast.dismiss(rescoreToastId);
+                          toast.branded(`Rescored: Reputation ${s4Txt} · Quality ${s5Txt}`);
+                          if (data.company && typeof data.company === "object") {
+                            updateCompanyInState(savedId, data.company);
+                          }
+                        } else {
+                          if (rescoreToastId != null) toast.dismiss(rescoreToastId);
+                          toast.error(`Rescore failed: ${data?.reason || data?.error || "unknown"}`);
+                        }
+                      } catch (err) {
+                        if (rescoreToastId != null) toast.dismiss(rescoreToastId);
+                        toast.error(`Rescore failed: ${err?.message || err}`);
+                      }
+                    })();
+                    closeEditor();
+                  }}
+                >
+                  Refresh Rep &amp; Quality
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
