@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useImperativeHandle, forwardRef } from "react";
 import { ChevronDown, ChevronRight, RefreshCw, Sparkles, Loader2, X } from "lucide-react";
 
 import { apiFetch, readJsonOrText } from "@/lib/api";
@@ -39,7 +39,7 @@ const STARS = [
   { key: "star6", label: "Admin", fullLabel: "Admin Discretion", hasAuto: false, hasReasoning: true },
 ];
 
-export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
+const RatingEditor = forwardRef(function RatingEditor({ draft, onChange, StarNotesEditor }, ref) {
   const [expandedStar, setExpandedStar] = useState(null);
   const [editingText, setEditingText] = useState({});
   const [proposing, setProposing] = useState(false);
@@ -81,6 +81,8 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
       setProposing(false);
     }
   };
+
+  useImperativeHandle(ref, () => ({ fetchProposal }));
 
   const acceptProposal = ({ star4, star5 }) => {
     if (!proposal?.proposal) return;
@@ -479,4 +481,6 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
       </div>
     </div>
   );
-}
+});
+
+export default RatingEditor;

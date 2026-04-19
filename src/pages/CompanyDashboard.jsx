@@ -758,6 +758,7 @@ export default function CompanyDashboard() {
   const abortRef = useRef(null);
   const editorFetchSeqRef = useRef(0);
   const reviewsImportRef = useRef(null);
+  const ratingEditorRef = useRef(null);
   const editorScrollRef = useRef(null);
   const [editorScrollEl, setEditorScrollEl] = useState(null);
 
@@ -4901,7 +4902,7 @@ export default function CompanyDashboard() {
                           </CollapsibleSection>
 
                           <CollapsibleSection title="Stars" isOpen={sidebarSections.stars} onToggle={() => toggleSidebarSection("stars")}>
-                          <RatingEditor draft={editorDraft} onChange={(next) => setEditorDraft(next)} StarNotesEditor={StarNotesEditor} />
+                          <RatingEditor ref={ratingEditorRef} draft={editorDraft} onChange={(next) => setEditorDraft(next)} StarNotesEditor={StarNotesEditor} />
                           </CollapsibleSection>
 
                           <CollapsibleSection title="Fetch Reviews From Web" isOpen={sidebarSections.webReviewFetcher} onToggle={() => toggleSidebarSection("webReviewFetcher")}>
@@ -5253,8 +5254,8 @@ export default function CompanyDashboard() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Refresh Rep &amp; Quality scores?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Reviews or scoring notes changed. Refreshing will re-evaluate
-                  Reputation and Quality scores via xAI before closing.
+                  Reviews or scoring notes changed. Refreshing will propose
+                  updated Reputation and Quality scores via xAI for your review.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -5270,41 +5271,9 @@ export default function CompanyDashboard() {
                 <AlertDialogAction
                   onClick={(e) => {
                     e.preventDefault();
-                    const { savedId, normalizedDomain } = rescorePrompt || {};
                     setRescorePrompt(null);
-                    if (!savedId || !normalizedDomain) { closeEditor(); return; }
-                    const rescoreToastId = toast.info("Rescoring reputation & quality…", { duration: 30000 });
-                    (async () => {
-                      try {
-                        const res = await apiFetch("/xadmin-api-score-company", {
-                          method: "POST",
-                          body: {
-                            company_id: savedId,
-                            normalized_domain: normalizedDomain,
-                            force: true,
-                          },
-                        });
-                        const data = await res.json().catch(() => ({}));
-                        if (data?.ok === true) {
-                          const s4 = typeof data.star4 === "number" ? data.star4 : null;
-                          const s5 = typeof data.star5 === "number" ? data.star5 : null;
-                          const s4Txt = s4 != null ? s4.toFixed(2) : "—";
-                          const s5Txt = s5 != null ? s5.toFixed(2) : "—";
-                          if (rescoreToastId != null) toast.dismiss(rescoreToastId);
-                          toast.branded(`Rescored: Reputation ${s4Txt} · Quality ${s5Txt}`);
-                          if (data.company && typeof data.company === "object") {
-                            updateCompanyInState(savedId, data.company);
-                          }
-                        } else {
-                          if (rescoreToastId != null) toast.dismiss(rescoreToastId);
-                          toast.error(`Rescore failed: ${data?.reason || data?.error || "unknown"}`);
-                        }
-                      } catch (err) {
-                        if (rescoreToastId != null) toast.dismiss(rescoreToastId);
-                        toast.error(`Rescore failed: ${err?.message || err}`);
-                      }
-                    })();
-                    closeEditor();
+                    // Stay in the editor and trigger the proposal workflow
+                    ratingEditorRef.current?.fetchProposal?.();
                   }}
                 >
                   Refresh Rep &amp; Quality
