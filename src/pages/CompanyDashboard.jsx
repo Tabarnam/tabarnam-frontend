@@ -3936,11 +3936,22 @@ export default function CompanyDashboard() {
                                 Bulk paste
                               </Button>
 
-                              {editorOriginalId ? (
-                                <div className="min-w-0 flex-1 max-w-[520px] leading-snug">
-                                  <div className="text-xs text-muted-foreground">
-                                    Click "Refresh search" to fetch proposed updates. Protected fields (logo, notes, manual stars) are never overwritten.
-                                  </div>
+                              {editorProfileInfo ? (
+                                <div className="flex items-center gap-2 ml-auto">
+                                  <span className={`text-xs font-semibold ${
+                                    editorProfileInfo.score >= 85 ? "text-emerald-700 dark:text-emerald-400" :
+                                    editorProfileInfo.score >= 60 ? "text-blue-700 dark:text-blue-400" :
+                                    editorProfileInfo.score >= 35 ? "text-amber-700 dark:text-amber-400" :
+                                    "text-red-700 dark:text-red-400"
+                                  }`}>
+                                    Profile: {editorProfileInfo.score}%
+                                  </span>
+                                  <span className="text-xs text-slate-500 dark:text-muted-foreground">({editorProfileInfo.label})</span>
+                                  {editorProfileInfo.missing.length > 0 ? (
+                                    <span className="text-xs text-slate-500 dark:text-muted-foreground">
+                                      Missing: {editorProfileInfo.missing.join(", ")}
+                                    </span>
+                                  ) : null}
                                 </div>
                               ) : null}
                             </div>
@@ -4392,75 +4403,47 @@ export default function CompanyDashboard() {
                         </div>
                       ) : null}
 
-                      {/* Profile completeness summary */}
-                      {editorProfileInfo ? (
-                        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-2">
-                          <div className="flex items-center gap-2">
-                            <div className={`text-xs font-semibold ${
-                              editorProfileInfo.score >= 85 ? "text-emerald-700 dark:text-emerald-400" :
-                              editorProfileInfo.score >= 60 ? "text-blue-700 dark:text-blue-400" :
-                              editorProfileInfo.score >= 35 ? "text-amber-700 dark:text-amber-400" :
-                              "text-red-700 dark:text-red-400"
-                            }`}>
-                              Profile: {editorProfileInfo.score}%
-                            </div>
-                            <span className="text-xs text-slate-500 dark:text-muted-foreground">({editorProfileInfo.label})</span>
-                          </div>
-                          {editorProfileInfo.missing.length > 0 ? (
-                            <div className="text-xs text-slate-500 dark:text-muted-foreground">
-                              Missing: {editorProfileInfo.missing.join(", ")}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-
                       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,460px)]">
                         <div className="space-y-3">
                           <CollapsibleSection title="Basic Info" isOpen={leftSections.basicInfo} onToggle={() => toggleLeftSection("basicInfo")}>
                           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 px-1 pt-1">
-                            <div className="space-y-1 md:col-span-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <label className="text-sm text-slate-700 dark:text-muted-foreground">
-                                  Company name <span className="text-red-600">*</span>
-                                </label>
-                                {asString(editorDisplayNameOverride).trim() ? (
-                                  <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] text-emerald-900">
-                                    Using display name
-                                  </span>
-                                ) : null}
+                            <div className="md:col-span-2 flex items-end gap-3">
+                              <div className="flex-1 space-y-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <label className="text-sm text-slate-700 dark:text-muted-foreground">
+                                    Company name <span className="text-red-600">*</span>
+                                  </label>
+                                  {asString(editorDisplayNameOverride).trim() ? (
+                                    <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] text-emerald-900">
+                                      Using display name
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <Input
+                                  required
+                                  value={asString(editorDraft.company_name)}
+                                  onChange={(e) => {
+                                    const next = e.target.value;
+                                    setEditorDraft((d) => {
+                                      const base = d && typeof d === "object" ? d : {};
+                                      const override = asString(editorDisplayNameOverride).trim();
+                                      const out = { ...base, company_name: next };
+                                      if (!override) out.name = next;
+                                      return out;
+                                    });
+                                  }}
+                                  placeholder="Acme Corp"
+                                />
                               </div>
-                              <Input
-                                required
-                                value={asString(editorDraft.company_name)}
-                                onChange={(e) => {
-                                  const next = e.target.value;
-                                  setEditorDraft((d) => {
-                                    const base = d && typeof d === "object" ? d : {};
-                                    const override = asString(editorDisplayNameOverride).trim();
-                                    const out = { ...base, company_name: next };
-                                    if (!override) out.name = next;
-                                    return out;
-                                  });
-                                }}
-                                placeholder="Acme Corp"
-                              />
-                            </div>
 
-                            <div className="space-y-2 md:col-span-2">
-                              <button
-                                type="button"
-                                className="flex w-full items-center justify-between rounded-md border border-slate-200 dark:border-border bg-white dark:bg-card px-3 py-2 text-sm text-slate-800 dark:text-foreground hover:bg-slate-50 dark:bg-muted dark:hover:bg-accent"
-                                onClick={() => setEditorShowAdvanced((v) => !v)}
-                                aria-expanded={editorShowAdvanced}
-                              >
-                                <span className="font-medium">Display options</span>
-                                <ChevronDown className={editorShowAdvanced ? "h-4 w-4 rotate-180 transition-transform" : "h-4 w-4 transition-transform"} />
-                              </button>
-
-                              {editorShowAdvanced ? (
-                                <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 space-y-2">
+                              <details className="flex-none w-[200px]">
+                                <summary className="cursor-pointer text-sm text-slate-500 dark:text-muted-foreground hover:text-slate-700 dark:hover:text-foreground select-none flex items-center gap-1 py-2">
+                                  <ChevronRight className="h-3.5 w-3.5" />
+                                  Display options
+                                </summary>
+                                <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-3 space-y-2 mt-1">
                                   <div className="space-y-1">
-                                    <label className="text-sm text-slate-700 dark:text-muted-foreground">Display name (optional)</label>
+                                    <label className="text-sm text-slate-700 dark:text-muted-foreground">Display name</label>
                                     <Input
                                       value={editorDisplayNameOverride}
                                       onChange={(e) => {
@@ -4476,10 +4459,10 @@ export default function CompanyDashboard() {
                                     />
                                   </div>
                                   <div className="text-xs text-slate-600 dark:text-muted-foreground">
-                                    If set, this is what users see. If empty, we show Company name.
+                                    If set, this is what users see.
                                   </div>
                                 </div>
-                              ) : null}
+                              </details>
                             </div>
 
                             <div className="space-y-1 md:col-span-2">
@@ -4551,9 +4534,6 @@ export default function CompanyDashboard() {
                                 </div>
                               </details>
                             </div>
-
-                          </div>
-                          </CollapsibleSection>
 
                           <CollapsibleSection title="Logo" isOpen={leftSections.logo} onToggle={() => toggleLeftSection("logo")}>
                           <div className="space-y-2 px-1 pt-1">
@@ -4775,6 +4755,9 @@ export default function CompanyDashboard() {
                             value={editorDraft.affiliate_link_urls}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
                           />
+                          </CollapsibleSection>
+
+                          </div>
                           </CollapsibleSection>
 
                           <CollapsibleSection title="Locations" isOpen={leftSections.locations} onToggle={() => toggleLeftSection("locations")}>
