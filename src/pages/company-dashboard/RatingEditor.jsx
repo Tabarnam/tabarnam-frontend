@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ChevronDown, ChevronRight, Sparkles, Loader2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw, Sparkles, Loader2, X } from "lucide-react";
 
 import { apiFetch, readJsonOrText } from "@/lib/api";
 import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
@@ -182,9 +182,9 @@ export default function RatingEditor({ draft, onChange, StarNotesEditor }) {
             {proposing ? (
               <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
             ) : (
-              <Sparkles className="h-3.5 w-3.5 mr-1" />
+              <RefreshCw className="h-3.5 w-3.5 mr-1" />
             )}
-            Propose Rep/Quality
+            Rep &amp; Quality score
           </Button>
         </div>
         <div className="flex items-center gap-1.5">

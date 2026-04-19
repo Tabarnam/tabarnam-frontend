@@ -4867,11 +4867,17 @@ export default function CompanyDashboard() {
                               </div>
                             </details>
 
-                            <StringListEditor
-                              label="Affiliate link URLs"
-                              value={editorDraft.affiliate_link_urls}
-                              onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
-                            />
+                            <details>
+                              <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-700 dark:hover:text-blue-400 select-none py-1">
+                                Affiliate link URLs
+                              </summary>
+                              <div className="mt-2">
+                                <StringListEditor
+                                  value={editorDraft.affiliate_link_urls}
+                                  onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
+                                />
+                              </div>
+                            </details>
 
                             {logoFile ? (
                               <div className="text-xs text-slate-600 dark:text-muted-foreground">
