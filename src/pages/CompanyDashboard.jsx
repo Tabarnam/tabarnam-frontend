@@ -2554,9 +2554,12 @@ export default function CompanyDashboard() {
       // Detect whether scoring-relevant signals (curated_reviews, star4/star5
       // admin notes) changed on this save. If so, prompt the admin to refresh
       // Rep & Quality scores before closing — rather than auto-rescoring silently.
-      const postSaveScoringFingerprint = scoringSignalFingerprint(savedCompany);
+      // Compare against draftForSave (what the admin actually edited), not the
+      // API response which may normalize fields differently. Also treat any
+      // reviews added via the import panel as a scoring change regardless.
+      const postSaveScoringFingerprint = scoringSignalFingerprint(draftForSave);
       const scoringInputChanged =
-        !isNew && preSaveScoringFingerprint !== postSaveScoringFingerprint;
+        !isNew && (autoAddedReviews > 0 || preSaveScoringFingerprint !== postSaveScoringFingerprint);
 
       const label = isNew ? "Company created" : "Company saved";
       const reviewDetail = autoAddedReviews
