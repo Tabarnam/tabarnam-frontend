@@ -2440,7 +2440,9 @@ export default function CompanyDashboard() {
       const rating = normalizeRating(draftForSave.rating);
 
       // Auto-populate Mfg (star1) and HQ (star2) based on location presence
-      rating.star1 = { ...(rating.star1 || {}), value: (manuLocations.length > 0 || draftForSave.limited_manufacturing || draftForSave.unknown_manufacturing) ? 0.5 : 0.0 };
+      // Only auto-set if no manual override exists (admin can always overwrite)
+      const mfgAutoValue = manuLocations.length > 0 ? 0.5 : draftForSave.limited_manufacturing ? 0.5 : 0.0;
+      rating.star1 = { ...(rating.star1 || {}), value: mfgAutoValue };
       rating.star2 = { ...(rating.star2 || {}), value: (hqLocations.length > 0 || draftForSave.unknown_hq) ? 0.5 : 0.0 };
 
       const notes_entries = normalizeCompanyNotes(draftForSave.notes_entries);
@@ -4591,10 +4593,8 @@ export default function CompanyDashboard() {
                               onCheckedChange={(v) =>
                                 setEditorDraft((d) => {
                                   const updated = { ...(d || {}), limited_manufacturing: Boolean(v), unknown_manufacturing: false };
-                                  if (v) {
-                                    const curRating = normalizeRating(d?.rating);
-                                    updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: 1.0 } };
-                                  }
+                                  const curRating = normalizeRating(d?.rating);
+                                  updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: v ? 0.5 : 0.0 } };
                                   return updated;
                                 })
                               }
@@ -4609,10 +4609,8 @@ export default function CompanyDashboard() {
                               onCheckedChange={(v) =>
                                 setEditorDraft((d) => {
                                   const updated = { ...(d || {}), unknown_manufacturing: Boolean(v), limited_manufacturing: false };
-                                  if (v) {
-                                    const curRating = normalizeRating(d?.rating);
-                                    updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: 1.0 } };
-                                  }
+                                  const curRating = normalizeRating(d?.rating);
+                                  updated.rating = { ...curRating, star1: { ...(curRating.star1 || {}), value: 0.0 } };
                                   return updated;
                                 })
                               }
