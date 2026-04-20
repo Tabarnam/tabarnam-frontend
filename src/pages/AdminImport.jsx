@@ -2848,6 +2848,10 @@ export default function AdminImport() {
     schedulePoll,
     stopPolling,
     urlTypeValidationError,
+    batchIndustries,
+    batchKeywords,
+    enrichFields,
+    companyUrl,
   ]);
 
   // Shadow import (slot B) — simplified version of beginImport for concurrent succession.
@@ -2986,7 +2990,7 @@ export default function AdminImport() {
       );
       setShadowStatus("error");
     }
-  }, [importConfigured, queryTypes, location, enrichFields, scheduleShadowPoll]);
+  }, [importConfigured, queryTypes, location, enrichFields, scheduleShadowPoll, batchIndustries, batchKeywords]);
 
   const explainImportPayload = useCallback(async () => {
     const q = query.trim();
