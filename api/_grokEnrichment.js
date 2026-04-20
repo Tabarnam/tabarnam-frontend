@@ -2061,7 +2061,7 @@ Return:
     return valueOut;
   }
 
-  const valueOut = { industries: cleaned.slice(0, 7), industries_status: "ok" };
+  const valueOut = { industries: cleaned.slice(0, 15), industries_status: "ok" };
   if (cacheKey) writeStageCache(cacheKey, valueOut);
   return valueOut;
 }
@@ -2647,7 +2647,7 @@ Return STRICT JSON only:
     industries_val_r = industries_val_r.industries;
   }
   const industries_raw = Array.isArray(industries_val_r) ? industries_val_r : [];
-  const industries_cleaned = industries_raw.map((x) => asString(x).trim()).filter(Boolean).slice(0, 7);
+  const industries_cleaned = industries_raw.map((x) => asString(x).trim()).filter(Boolean).slice(0, 15);
   field_statuses.industries = industries_cleaned.length > 0 ? "ok" : "empty";
 
   // Unwrap nested object — XAI sometimes returns { product_keywords: { product_keywords: [...] } }

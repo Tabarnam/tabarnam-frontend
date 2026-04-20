@@ -201,7 +201,7 @@ Output JSON only:
     obj = null;
   }
 
-  const industries = normalizeIndustries(obj?.industries).slice(0, 6);
+  const industries = normalizeIndustries(obj?.industries).slice(0, 15);
 
   const prompt_hash = (() => {
     try {
