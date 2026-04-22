@@ -1262,33 +1262,51 @@ function collectCompanyConceptFields(company) {
 
 // Does the company satisfy EVERY concept? A concept matches when it appears as
 // a phrase (substring for multi-word; word-boundary for single-word) in any
-// one collected field, OR when the exact phrase is found at word boundaries in
-// search_text_norm (the space-padded searchable index). Used to enforce AND
-// semantics on comma-separated queries like "air compressor, tires" without
-// over-broadening to per-word matches in unrelated fields.
+// one collected field, OR when the phrase is found at word boundaries in
+// search_text_norm / search_text_stemmed (the space-padded searchable index).
+// Both the original and stemmed forms of the concept are tried, so that
+// "tires" matches companies whose keyword is "tire inflators" (singular) —
+// mirroring how buildWordBoundaryFilter uses search_text_stemmed at retrieval
+// time. Without this, Cosmos retrieves Viair for "air compressor, tires" (via
+// stemming) but the filter drops it because "tires" doesn't literally appear.
 function companyMatchesAllConcepts(company, concepts) {
   if (!Array.isArray(concepts) || concepts.length === 0) return true;
 
   const fields = collectCompanyConceptFields(company);
   const stn = foldDiacritics(asString(company?.search_text_norm).toLowerCase());
+  const sts = foldDiacritics(asString(company?.search_text_stemmed).toLowerCase());
 
   for (const concept of concepts) {
     const c = (concept || "").trim();
     if (!c) continue;
 
-    const words = c.split(/\s+/).filter(Boolean);
-    const isMultiWord = words.length > 1;
+    // Try the concept in both its original and stemmed forms so plural/
+    // singular differences between the query and the stored data don't
+    // cause false negatives.
+    const cStem = stemWords(c);
+    const variants = cStem && cStem !== c ? [c, cStem] : [c];
 
-    // Multi-word concept → phrase must appear contiguously in some field.
-    // Single-word concept → word-boundary match in any field.
     let matched = false;
-    if (isMultiWord) {
-      if (fields.some((f) => f.includes(c))) matched = true;
-      if (!matched && stn && stn.includes(` ${c} `)) matched = true;
-    } else {
-      const wb = new RegExp(`(?:^|[\\s\\-_])${c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[\\s\\-_])`);
-      if (fields.some((f) => wb.test(f))) matched = true;
-      if (!matched && stn && stn.includes(` ${c} `)) matched = true;
+    for (const variant of variants) {
+      if (matched) break;
+
+      const words = variant.split(/\s+/).filter(Boolean);
+      const isMultiWord = words.length > 1;
+
+      if (isMultiWord) {
+        // Multi-word concept → phrase must appear contiguously in some field
+        // or as a word-boundary phrase in the search-text indexes.
+        if (fields.some((f) => f.includes(variant))) { matched = true; break; }
+        if (stn && stn.includes(` ${variant} `)) { matched = true; break; }
+        if (sts && sts.includes(` ${variant} `)) { matched = true; break; }
+      } else {
+        // Single-word concept → word-boundary match in any field.
+        const esc = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const wb = new RegExp(`(?:^|[\\s\\-_])${esc}(?:$|[\\s\\-_])`);
+        if (fields.some((f) => wb.test(f))) { matched = true; break; }
+        if (stn && stn.includes(` ${variant} `)) { matched = true; break; }
+        if (sts && sts.includes(` ${variant} `)) { matched = true; break; }
+      }
     }
 
     if (!matched) return false;
@@ -2150,4 +2168,5 @@ module.exports._test = {
   computeKeywordMatchScore,
   computeRelevanceScore,
   buildWordBoundaryFilter,
+  companyMatchesAllConcepts,
 };

@@ -631,3 +631,75 @@ test("search-companies triggers fuzzy fallback when primary search returns 0 res
   assert.equal(body.items[0].id, "obrilo");
   assert.equal(body.items[0]._matchType, "fuzzy");
 });
+
+// ── companyMatchesAllConcepts (comma-separated AND semantics) ────────────
+
+test("companyMatchesAllConcepts passes when all concepts match", () => {
+  const company = {
+    company_name: "Viair",
+    tagline: "#1 Brand For Tire Inflators & Air Compressors",
+    keywords: ["tire inflators", "air compressor", "portable compressor"],
+    industries: ["Compressors"],
+    search_text_norm: " viair tire inflators air compressors ",
+    search_text_stemmed: " viair tire inflator air compressor ",
+  };
+  assert.equal(_test.companyMatchesAllConcepts(company, ["air compressor", "tire"]), true);
+});
+
+test("companyMatchesAllConcepts drops companies missing any concept", () => {
+  const vevor = {
+    company_name: "Vevor",
+    tagline: "Upgrade. The Home Creator Way",
+    keywords: ["tire", "vacuum seal", "power tools"],
+    industries: ["Power Tools", "Vacuum Seal"],
+    search_text_norm: " vevor tire vacuum seal power tools ",
+    search_text_stemmed: " vevor tire vacuum seal power tool ",
+  };
+  // Vevor has "tire" but no "air compressor" phrase anywhere → filtered.
+  assert.equal(_test.companyMatchesAllConcepts(vevor, ["air compressor", "tire"]), false);
+});
+
+test("companyMatchesAllConcepts stems concepts so 'tires' matches 'tire' fields", () => {
+  const viair = {
+    company_name: "Viair",
+    keywords: ["tire inflator", "air compressor"],
+    industries: ["Compressors"],
+    search_text_norm: " viair tire inflator air compressor ",
+    search_text_stemmed: " viair tire inflator air compressor ",
+  };
+  // Concept "tires" (plural) should still match via stemming — without this,
+  // Pass 1 retrieves the company but the concept filter would incorrectly drop it.
+  assert.equal(_test.companyMatchesAllConcepts(viair, ["air compressor", "tires"]), true);
+});
+
+test("companyMatchesAllConcepts stems plural concept phrases", () => {
+  const viair = {
+    company_name: "Viair",
+    tagline: "Air Compressors and inflators",
+    keywords: ["air compressor"],
+    search_text_norm: " viair air compressors and inflators ",
+    search_text_stemmed: " viair air compressor and inflator ",
+  };
+  // "air compressors" (plural) concept should stem to "air compressor" and match.
+  assert.equal(_test.companyMatchesAllConcepts(viair, ["air compressors", "tire"]), false); // no tire
+  assert.equal(_test.companyMatchesAllConcepts(viair, ["air compressors"]), true);
+});
+
+test("companyMatchesAllConcepts returns true for empty concepts (no-op)", () => {
+  const anything = { company_name: "Anything" };
+  assert.equal(_test.companyMatchesAllConcepts(anything, []), true);
+  assert.equal(_test.companyMatchesAllConcepts(anything, null), true);
+});
+
+test("companyMatchesAllConcepts folds diacritics consistently", () => {
+  const beis = {
+    company_name: "Béis",
+    keywords: ["travel bags", "luggage"],
+    search_text_norm: " beis travel bags luggage ",
+    search_text_stemmed: " bei travel bag luggage ",
+  };
+  // Concepts are already normalized (lowercase + folded) by the caller, but
+  // the matcher also folds the stored fields so data with leftover accents
+  // (pre-backfill records) still matches.
+  assert.equal(_test.companyMatchesAllConcepts(beis, ["beis", "luggage"]), true);
+});
