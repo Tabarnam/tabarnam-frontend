@@ -3253,6 +3253,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
                 fieldsToEnrich,
+                batchIndustries,
+                batchKeywords,
               }).catch((err) => {
                 console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
                 return { queued: false, invoked: false, error: err?.message };
@@ -5555,6 +5557,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 reason: "seed_complete_auto_enrich",
                 cosmosEnabled,
                 fieldsToEnrich,
+                batchIndustries,
+                batchKeywords,
               }).catch((err) => {
                 console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
                 return { queued: false, invoked: false, error: err?.message };
@@ -6535,6 +6539,8 @@ Return ONLY the JSON array, no other text.`,
                   reason: "seed_complete_auto_enrich",
                   cosmosEnabled,
                   fieldsToEnrich,
+                  batchIndustries,
+                  batchKeywords,
                 }).catch((err) => {
                   console.error(`[import-start] maybeQueueAndInvokeMandatoryEnrichment failed: ${err?.message || err}`);
                   return { queued: false, invoked: false, error: err?.message };
