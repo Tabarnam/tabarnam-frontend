@@ -1669,8 +1669,11 @@ async function fetchManufacturingLocations({ companyName, normalizedDomain, budg
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   const prompt = `For the company: ${name} / ${websiteUrlForPrompt || "(unknown website)"}
-Manufacturing: Browse the company website for manufacturing, facility, or "made in" information. Use web_search "${name} manufacturing locations" or "${name} factory" for additional locations. Include every city and country found, with a deep dive on any US sites to confirm actual cities. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified." For small/artisan producers with no separate facility, return the HQ address as the manufacturing location.
-If you don't find credible info, use [].
+Manufacturing: First browse the company website (about, contact, FAQ, product pages) and any linked parent/subsidiary sites for explicit manufacturing evidence ONLY: "Made in ___", "manufactured in ___", factory address, production facility, sourcing statement, or supplier disclosure. Then run web_search for "${name} manufacturing locations" OR "${name} factory" OR "${name} made in" OR "${name} country of origin".
+Distinguish clearly: HQ/office/sales address is NOT manufacturing. Return a location ONLY if there is affirmative evidence of actual production/assembly there. Never infer manufacturing from absence of other info.
+Only fall back to HQ address if the company EXPLICITLY states it manufactures its products at the HQ (quote the statement). If no affirmative manufacturing evidence is found anywhere, return empty array [].
+If the company is purely a retailer/marketplace/reseller with no own manufacturing, set "mfg_status": "not_applicable".
+Use initials for US states/provinces. Use USA, not US. No explanatory info — just the locations. Separate each location with semicolons.
 Return STRICT JSON only:
 ${FIELD_GUIDANCE.manufacturing.jsonSchemaWithSources}
 `.trim();

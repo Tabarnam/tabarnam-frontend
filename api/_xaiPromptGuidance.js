@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "5.1.0-mfg-strengthened";
+const PROMPT_GUIDANCE_VERSION = "5.2.0-mfg-evidence-required";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -49,7 +49,7 @@ const FIELD_GUIDANCE = {
   },
 
   manufacturing: {
-    rules: `Browse the company website for manufacturing, facility, or "made in" information. Use web_search "[Company Name] manufacturing locations" or "[Company Name] factory" for additional locations. Include every city and country found, with a deep dive on any US sites to confirm actual cities. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified." Separate each location with semicolons. Format: City, ST, Country; City2, ST2, Country2`,
+    rules: `First browse the company website (about, contact, FAQ, product pages) and any linked parent/subsidiary sites for explicit manufacturing evidence ONLY: "Made in ___", "manufactured in ___", factory address, production facility, sourcing statement, or supplier disclosure. Then run web_search for "[Company Name] manufacturing locations" OR "[Company Name] factory" OR "[Company Name] made in" OR "[Company Name] country of origin". Distinguish clearly: HQ/office/sales address is NOT manufacturing. Return a location ONLY if there is affirmative evidence of actual production/assembly there. Never infer manufacturing from absence of other info. Only fall back to HQ address if the company EXPLICITLY states it manufactures its products at the HQ (quote the statement). If no affirmative manufacturing evidence is found anywhere, return empty array []. If the company is purely a retailer/marketplace/reseller with no own manufacturing, set mfg_status: "not_applicable". Use initials for US states/provinces. Use USA, not US. No explanatory info — just the locations. Separate each location with semicolons. Format: City, ST, Country; City2, ST2, Country2`,
     jsonSchema: `"manufacturing_locations": ["City, ST, USA", "City, Country"]`,
     jsonSchemaWithSources: `{
   "manufacturing_locations": ["City, ST, USA", "City, Country"],
@@ -225,15 +225,10 @@ Format: City, ST, USA (use state initials, use "USA" not "US"). For non-US, use 
 Return just the location string, no explanatory info.
 
 Manufacturing:
-Find manufacturing or "made in" info. Check ALL of these sources in order:
-1. Pre-fetched about/contact content above
-2. Homepage footer for "Made in", "Manufactured in", "Crafted in" text
-3. Shipping policy or FAQ pages (often mention origin country)
-4. If the site repeatedly says "hand-crafted in [city]" or "made in our [city] facility", use that location
-5. For small manufacturers with no explicit MFG info, infer from HQ location if reasonable
-Format: City, ST, Country; separate with semicolons.
-If only country known, return country alone (e.g., "USA"). If outsourced, use HQ location. If retailer/marketplace, return: not_applicable
-Return empty string ONLY if truly unknown after checking all sources above.
+Find manufacturing or "made in" info using these sources in order: pre-fetched about/contact content, homepage footer ("Made in", "Manufactured in", "Crafted in"), shipping policy / FAQ / product pages for country-of-origin, then one web_search for "${name} made in" or "${name} country of origin".
+HQ/office/sales address is NOT manufacturing. Only fall back to HQ if the company EXPLICITLY states it manufactures there (a quote like "handmade in our [city] facility" counts; merely sharing a building with HQ does not).
+Format: City, ST, Country; separate with semicolons. If only country known, return country alone (e.g., "USA"). If retailer/marketplace with no own manufacturing, return: not_applicable.
+Return empty string if no affirmative manufacturing evidence is found. Do not infer from HQ, ownership, or absence of other info.
 
 Tagline:
 Find the company's tagline, slogan, or motto from the homepage hero section, header, footer, meta description, og:description, or <title> tag.
