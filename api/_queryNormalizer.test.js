@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
-const { normalizeQuery, compactQuery, parseQuery, foldDiacritics } = require("./_queryNormalizer");
+const { normalizeQuery, compactQuery, parseQuery, foldDiacritics, parseQueryConcepts } = require("./_queryNormalizer");
 
 // ── normalizeQuery ──────────────────────────────────────────────────────────
 
@@ -66,6 +66,45 @@ test("parseQuery folds diacritics consistently across all forms", () => {
   assert.equal(withAccent.q_compact, "beis");
   assert.equal(withAccent.q_norm, withoutAccent.q_norm);
   assert.equal(withAccent.q_compact, withoutAccent.q_compact);
+});
+
+// ── parseQueryConcepts ──────────────────────────────────────────────────────
+
+test("parseQueryConcepts splits on commas into normalized concepts", () => {
+  assert.deepEqual(parseQueryConcepts("air compressor, tires"), ["air compressor", "tires"]);
+});
+
+test("parseQueryConcepts returns single element when no comma", () => {
+  assert.deepEqual(parseQueryConcepts("foo"), ["foo"]);
+  assert.deepEqual(parseQueryConcepts("air compressor"), ["air compressor"]);
+});
+
+test("parseQueryConcepts drops empty segments", () => {
+  assert.deepEqual(parseQueryConcepts(" , , "), []);
+  assert.deepEqual(parseQueryConcepts("foo,,bar"), ["foo", "bar"]);
+  assert.deepEqual(parseQueryConcepts(",foo"), ["foo"]);
+  assert.deepEqual(parseQueryConcepts("foo,"), ["foo"]);
+});
+
+test("parseQueryConcepts folds diacritics and lowercases each concept", () => {
+  assert.deepEqual(parseQueryConcepts("Béis, Café"), ["beis", "cafe"]);
+});
+
+test("parseQueryConcepts handles empty/null", () => {
+  assert.deepEqual(parseQueryConcepts(""), []);
+  assert.deepEqual(parseQueryConcepts(null), []);
+  assert.deepEqual(parseQueryConcepts(undefined), []);
+});
+
+test("parseQuery exposes q_concepts matching parseQueryConcepts", () => {
+  const r = parseQuery("air compressor, tires");
+  assert.deepEqual(r.q_concepts, ["air compressor", "tires"]);
+  assert.equal(r.q_norm, "air compressor tires");
+});
+
+test("parseQuery q_concepts is single-element for non-comma queries", () => {
+  const r = parseQuery("Organic Companies");
+  assert.deepEqual(r.q_concepts, ["organic companies"]);
 });
 
 // ── compactQuery ────────────────────────────────────────────────────────────

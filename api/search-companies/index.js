@@ -1235,6 +1235,68 @@ function companyMatchesLocationFilters(company, filters) {
   return true;
 }
 
+// Lightweight per-field corpus for concept matching: each entry is a single
+// cohesive piece of text (one keyword, one industry, the company name, etc.),
+// pre-lowercased and diacritic-folded to align with how query concepts are
+// normalized upstream. Concepts match against individual entries — a phrase
+// like "air compressor" must appear in a single field, not split across two.
+function collectCompanyConceptFields(company) {
+  const fields = [];
+  const add = (v) => {
+    const s = foldDiacritics(asString(v).toLowerCase()).trim();
+    if (s) fields.push(s);
+  };
+
+  add(company?.company_name);
+  add(company?.display_name);
+  add(company?.name);
+  add(company?.tagline);
+
+  for (const kw of normalizeStringArray(company?.product_keywords)) add(kw);
+  for (const kw of normalizeStringArray(company?.keywords)) add(kw);
+  for (const ind of normalizeStringArray(company?.industries)) add(ind);
+  for (const cat of normalizeStringArray(company?.categories)) add(cat);
+
+  return fields;
+}
+
+// Does the company satisfy EVERY concept? A concept matches when it appears as
+// a phrase (substring for multi-word; word-boundary for single-word) in any
+// one collected field, OR when the exact phrase is found at word boundaries in
+// search_text_norm (the space-padded searchable index). Used to enforce AND
+// semantics on comma-separated queries like "air compressor, tires" without
+// over-broadening to per-word matches in unrelated fields.
+function companyMatchesAllConcepts(company, concepts) {
+  if (!Array.isArray(concepts) || concepts.length === 0) return true;
+
+  const fields = collectCompanyConceptFields(company);
+  const stn = foldDiacritics(asString(company?.search_text_norm).toLowerCase());
+
+  for (const concept of concepts) {
+    const c = (concept || "").trim();
+    if (!c) continue;
+
+    const words = c.split(/\s+/).filter(Boolean);
+    const isMultiWord = words.length > 1;
+
+    // Multi-word concept → phrase must appear contiguously in some field.
+    // Single-word concept → word-boundary match in any field.
+    let matched = false;
+    if (isMultiWord) {
+      if (fields.some((f) => f.includes(c))) matched = true;
+      if (!matched && stn && stn.includes(` ${c} `)) matched = true;
+    } else {
+      const wb = new RegExp(`(?:^|[\\s\\-_])${c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[\\s\\-_])`);
+      if (fields.some((f) => wb.test(f))) matched = true;
+      if (!matched && stn && stn.includes(` ${c} `)) matched = true;
+    }
+
+    if (!matched) return false;
+  }
+
+  return true;
+}
+
 function deduplicateByDomain(companies) {
   if (!Array.isArray(companies) || companies.length <= 1) return companies;
 
@@ -1523,6 +1585,14 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const country = clean(url.searchParams.get("country") || "");
   const state = clean(url.searchParams.get("state") || url.searchParams.get("region") || "");
   const city = clean(url.searchParams.get("city") || "");
+
+  // Comma-separated concepts (pipe-delimited in the URL). When 2+ present, each
+  // concept must match independently — companies missing any concept are filtered.
+  // Single-concept queries are left to the existing soft-AND scoring.
+  const conceptsParam = url.searchParams.get("concepts") || "";
+  const q_concepts = conceptsParam
+    ? conceptsParam.split("|").map((s) => foldDiacritics(s.toLowerCase()).trim()).filter(Boolean)
+    : [];
 
   // For countOnly, fetch up to 500 to get accurate total; otherwise fetch just enough for the page.
   // Location-only queries (no text search) need more rows because post-query location filtering
@@ -1921,6 +1991,14 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           const geos = Array.isArray(c.manufacturing_geocodes) ? c.manufacturing_geocodes : [];
           return geos.some((g) => locationMatchesCountry(g.formatted, tokens));
         });
+      }
+
+      // Comma-separated concept filter: "air compressor, tires" requires BOTH
+      // concepts to find a real match in the company's data. A broad platform
+      // like Vevor that only matches "tires" is dropped so the user's intent
+      // ("air compressor specifically for tires") is honoured.
+      if (q_concepts.length >= 2) {
+        deduped = deduped.filter((c) => companyMatchesAllConcepts(c, q_concepts));
       }
 
       // Attach relevance scores so the frontend can prioritise strong matches

@@ -139,6 +139,26 @@ export function extractSearchTermFromUrl(input: string): string {
 }
 
 /**
+ * Split a raw query on commas into distinct "concepts", then normalize each
+ * concept independently. Users type comma-separated queries when they want
+ * all of the listed concepts to match — e.g. "air compressor, tires" means
+ * "find an air compressor that also relates to tires", not "any of these
+ * three words". Empty segments are dropped.
+ *
+ *   "air compressor, tires"   → ["air compressor", "tires"]
+ *   "foo"                     → ["foo"]
+ *   " , , "                   → []
+ *   "Béis, foo"               → ["beis", "foo"]    (diacritics folded)
+ */
+export function parseQueryConcepts(raw: string): string[] {
+  if (!raw || typeof raw !== "string") return [];
+  return raw
+    .split(",")
+    .map((seg) => normalizeQuery(seg))
+    .filter((seg) => seg.length > 0);
+}
+
+/**
  * Parse a raw query into raw, normalized, compact, and stemmed forms.
  * If the input looks like a URL, the brand name is extracted first.
  */
@@ -148,6 +168,7 @@ export interface QueryNormalizationResult {
   q_compact: string;          // Normalized without spaces
   q_stemmed: string;          // Stemmed with spaces
   q_stemmed_compact: string;  // Stemmed without spaces
+  q_concepts: string[];       // Comma-separated concepts; each requires a match
 }
 
 export function parseQuery(raw: unknown): QueryNormalizationResult {
@@ -160,6 +181,9 @@ export function parseQuery(raw: unknown): QueryNormalizationResult {
   const q_compact = compactQuery(q_norm);
   const q_stemmed = stemWords(q_norm);
   const q_stemmed_compact = compactQuery(q_stemmed);
+  // Parse concepts from the original (pre-URL-extraction) raw so commas in
+  // the user's input survive. URL pastes don't contain commas in practice.
+  const q_concepts = parseQueryConcepts(q_raw);
 
-  return { q_raw, q_norm, q_compact, q_stemmed, q_stemmed_compact };
+  return { q_raw, q_norm, q_compact, q_stemmed, q_stemmed_compact, q_concepts };
 }

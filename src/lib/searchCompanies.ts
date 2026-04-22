@@ -77,15 +77,20 @@ export async function searchCompanies(opts: SearchOptions) {
 
   // Parse query into raw, normalized, and compact forms (skip if no text query)
   let q_raw = "", q_norm = "", q_compact = "";
+  let q_concepts: string[] = [];
   if (q) {
     const parsed = parseQuery(q);
     q_raw = parsed.q_raw;
     q_norm = parsed.q_norm;
     q_compact = parsed.q_compact;
+    q_concepts = parsed.q_concepts;
   }
 
   const params = new URLSearchParams({ raw: q_raw, norm: q_norm, compact: q_compact, sort, take: String(take) });
   if (skip > 0) params.set("skip", String(skip));
+  // Only send concepts when there are 2+ — single-concept queries use existing
+  // soft-AND scoring. Pipe-separated to avoid extra URL encoding of commas.
+  if (q_concepts.length >= 2) params.set("concepts", q_concepts.join("|"));
   const country = asStr(opts.country).trim();
   const state = asStr(opts.state).trim();
   const city = asStr(opts.city).trim();
