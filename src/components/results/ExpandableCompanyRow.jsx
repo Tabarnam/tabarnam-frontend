@@ -566,20 +566,33 @@ export default function ExpandableCompanyRow({
   // --- Strict expand/collapse click-zone logic ---
   // Only card background, company-name area, and the dedicated chevron trigger expand/collapse.
   // All interactive elements (links, buttons, inputs, etc.) are excluded.
-  const INTERACTIVE_SELECTOR =
+  //
+  // When COLLAPSED, .keywordsRow is treated as interactive so that clicks on
+  // empty space between keyword tags don't accidentally expand the card (the
+  // keyword tags are dense and close together).
+  //
+  // When EXPANDED, .keywordsRow is intentionally NOT interactive — the user
+  // should be able to click empty space inside the industries/keywords
+  // sections to collapse the card. The individual <a> keyword/industry tags
+  // still work normally because <a> is in the selector and each tag stops
+  // propagation in its own onClick.
+  const INTERACTIVE_BASE =
     "a, button, [role='button'], input, textarea, select, label, " +
-    ".reviews-widget, .share-button-container, .keywordsRow, " +
+    ".reviews-widget, .share-button-container, " +
     ".location-sources-container, .affiliate-links-zone, .social-links-zone";
 
+  const EXPAND_INTERACTIVE_SELECTOR = INTERACTIVE_BASE + ", .keywordsRow";
+  const COLLAPSE_INTERACTIVE_SELECTOR = INTERACTIVE_BASE;
+
   const handleRowClick = (e) => {
-    if (e.target.closest(INTERACTIVE_SELECTOR)) return;
+    if (e.target.closest(EXPAND_INTERACTIVE_SELECTOR)) return;
     const sel = window.getSelection();
     if (sel && sel.toString().length > 0) return;
     setIsExpanded(true);
   };
 
   const handleExpandedClick = (e) => {
-    if (e.target.closest(INTERACTIVE_SELECTOR)) return;
+    if (e.target.closest(COLLAPSE_INTERACTIVE_SELECTOR)) return;
     const sel = window.getSelection();
     if (sel && sel.toString().length > 0) return;
     setIsExpanded(false);
