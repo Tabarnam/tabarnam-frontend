@@ -140,6 +140,9 @@ export interface Company {
   no_reviews?: boolean;
   tagline?: string;
   logo_url?: string;
+  logo_approved?: boolean;
+  homepage_image_url?: string;
+  homepage_approved?: boolean;
   notes_entries?: CompanyNote[];
   location_sources?: LocationSource[];
   show_location_sources_to_users?: boolean;
