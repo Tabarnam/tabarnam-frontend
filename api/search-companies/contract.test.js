@@ -757,3 +757,89 @@ test("stars sort: exact name match ranks above higher-rated non-exact matches", 
     "Exact name match should rank first despite lower star rating"
   );
 });
+
+// ── substring-coverage bug fix ───────────────────────────────────────────
+
+test("computeKeywordMatchScore: 'bluetooth' no longer counts as covering 'tooth' (word-boundary)", () => {
+  // Pre-fix: kw.includes(w) treated "bluetooth" as covering "tooth",
+  // avoiding the ×0.6 weak-match penalty. Post-fix: we require a word
+  // boundary, so a keyword like "bluetooth enabled" does NOT cover "tooth"
+  // and the partial-coverage penalty correctly fires.
+  const companyBuggy = { keywords: ["bluetooth enabled", "scraper mixer pro"] };
+  const companyFull  = { keywords: ["tooth whitener",    "tongue scraper"] };
+
+  const scoreBuggy = _test.computeKeywordMatchScore(companyBuggy, "tooth scraper", "toothscraper");
+  const scoreFull  = _test.computeKeywordMatchScore(companyFull,  "tooth scraper", "toothscraper");
+
+  // A company that only has "scraper" at a word boundary (and "bluetooth" as
+  // a red herring) should score strictly lower than a company that genuinely
+  // covers BOTH "tooth" and "scraper" at word boundaries.
+  assert.ok(
+    scoreBuggy < scoreFull,
+    `bluetooth red-herring company (${scoreBuggy}) should score below genuine-match company (${scoreFull})`
+  );
+  // And crucially, the red-herring company should be in the weak-match range,
+  // not the coupling-bonus range.
+  assert.ok(scoreBuggy < 60, `bluetooth red-herring score should be < 60 (weak match), got ${scoreBuggy}`);
+});
+
+test("computeKeywordMatchScore: real-word 'tooth' in keyword still covers", () => {
+  // Sanity check: a keyword that legitimately contains "tooth" as a word
+  // (e.g. "tooth whitener") still covers the query word.
+  const company = { keywords: ["tooth whitener", "tongue scraper"] };
+  const score = _test.computeKeywordMatchScore(company, "tooth scraper", "toothscraper");
+  // Both words covered at word boundaries → coupling bonus kicks in.
+  assert.ok(score >= 60, `expected score >= 60 with both words covered, got ${score}`);
+});
+
+// ── industry-affinity bonus via caller-supplied list ─────────────────────
+
+test("computeRelevanceScore applies +25 affinity bonus for matching industry", () => {
+  // search_text_norm must include the query phrase to avoid the synonym-only
+  // ×0.4 penalty (which is an unrelated rank-adjusting mechanism).
+  const company = {
+    company_name: "Toothpro",
+    industries: ["Personal care"],
+    keywords: ["tooth scraper"],
+    search_text_norm: " toothpro tooth scraper personal care ",
+  };
+  const withAffinity = _test.computeRelevanceScore(
+    company, "tooth scraper", "tooth scraper", "toothscraper",
+    ["personal care"]
+  );
+  const withoutAffinity = _test.computeRelevanceScore(
+    company, "tooth scraper", "tooth scraper", "toothscraper",
+    []
+  );
+  // +25 boost when the company's industry is in the affinity list
+  assert.equal(
+    withAffinity._relevanceScore - withoutAffinity._relevanceScore,
+    25,
+    "affinity-aligned company gets +25"
+  );
+});
+
+test("computeRelevanceScore applies −15 affinity penalty for non-matching industry", () => {
+  const company = {
+    company_name: "Breville",
+    industries: ["Kitchen"],
+    keywords: ["scraper mixer pro"],
+    // Include the query phrase in search_text_norm so isSynonymOnlyMatch is
+    // false — we're isolating the affinity-bonus behaviour.
+    search_text_norm: " breville scraper mixer pro tooth scraper kitchen ",
+  };
+  const withAffinity = _test.computeRelevanceScore(
+    company, "tooth scraper", "tooth scraper", "toothscraper",
+    ["personal care"]
+  );
+  const withoutAffinity = _test.computeRelevanceScore(
+    company, "tooth scraper", "tooth scraper", "toothscraper",
+    []
+  );
+  // −15 penalty when there IS an affinity set but the company isn't in it
+  assert.equal(
+    withAffinity._relevanceScore - withoutAffinity._relevanceScore,
+    -15,
+    "non-aligned company gets −15"
+  );
+});

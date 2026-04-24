@@ -12,6 +12,10 @@ const { parseQuery, foldDiacritics } = require("../_queryNormalizer");
 const { expandQueryTermsForFTS, expandProductSynonyms } = require("../_searchSynonyms");
 const { isFuzzyNameMatch, fuzzyScore } = require("../_fuzzyMatch");
 const { simpleStem, stemWords } = require("../_stemmer");
+const {
+  loadIndustryAffinityIndex,
+  getAffinityIndustriesFromIndex,
+} = require("../_industryAffinityIndex");
 
 let cosmosTargetPromise;
 
@@ -417,10 +421,18 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
           }
         }
       }
-      // Track which individual query words this keyword covers
+      // Track which individual query words this keyword covers.
+      // Must be a word-boundary match — using raw substring (kw.includes(w))
+      // wrongly counted "bluetooth" as covering "tooth", letting kitchen
+      // appliances rank above oral-care companies for a "tooth scraper" query.
       if (queryWords.length >= 2) {
         for (const w of queryWords) {
-          if (kw === w || kw.includes(w)) {
+          if (
+            kw === w ||
+            kw.startsWith(w + " ") ||
+            kw.endsWith(" " + w) ||
+            kw.includes(" " + w + " ")
+          ) {
             coveredWords.add(w);
           }
         }
@@ -451,88 +463,6 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
   }
 
   return Math.min(130, Math.round(best * freqMult) + couplingAdj);
-}
-
-/**
- * Industry-affinity map: maps product search terms to the industries most
- * relevant to that product. When a user searches "hoodie", companies in
- * "Apparel" should rank above a coffee company that sells branded hoodies.
- *
- * Built from the same classification rules as _websiteBaseline.js inferIndustriesFromText(),
- * plus product synonym groups from _searchSynonyms.js.
- */
-const PRODUCT_INDUSTRY_AFFINITY = {
-  // Apparel
-  dress: ["Apparel"], shirt: ["Apparel"], tee: ["Apparel"], top: ["Apparel"],
-  pants: ["Apparel"], trousers: ["Apparel"], slacks: ["Apparel"],
-  jeans: ["Apparel"], sweater: ["Apparel"], jumper: ["Apparel"],
-  hoodie: ["Apparel"], hoodies: ["Apparel"], sweatshirt: ["Apparel"], pullover: ["Apparel"],
-  jacket: ["Apparel"], coat: ["Apparel"], parka: ["Apparel"],
-  clothing: ["Apparel"], apparel: ["Apparel"], activewear: ["Apparel"],
-  denim: ["Apparel"], outerwear: ["Apparel"], workwear: ["Apparel"],
-  beanie: ["Apparel"], "knit cap": ["Apparel"], toque: ["Apparel"],
-  // Footwear (Apparel-adjacent)
-  sneakers: ["Apparel"], trainers: ["Apparel"], shoes: ["Apparel"],
-  footwear: ["Apparel"], boots: ["Apparel"], sandals: ["Apparel"],
-  // Home goods
-  bedding: ["Home goods"], sheets: ["Home goods"], linens: ["Home goods"],
-  towel: ["Home goods"], towels: ["Home goods"], blanket: ["Home goods"],
-  pillow: ["Home goods"], cushion: ["Home goods"], rug: ["Home goods"],
-  carpet: ["Home goods"], mat: ["Home goods"],
-  candle: ["Home goods", "Candles"], candles: ["Home goods", "Candles"],
-  furniture: ["Home goods"], sofa: ["Home goods"], couch: ["Home goods"],
-  chair: ["Home goods"], table: ["Home goods"], mattress: ["Home goods"],
-  lamp: ["Home goods"], decor: ["Home goods"],
-  // Beauty / Personal care
-  skincare: ["Beauty"], serum: ["Beauty"], moisturizer: ["Beauty"],
-  cleanser: ["Beauty"], makeup: ["Beauty"], cosmetic: ["Beauty"],
-  soap: ["Beauty", "Personal care"], shampoo: ["Beauty", "Personal care"],
-  lotion: ["Beauty", "Personal care"], deodorant: ["Personal care"],
-  toothbrush: ["Personal care"], toothpaste: ["Personal care"],
-  razor: ["Personal care"], shaver: ["Personal care"],
-  // Food / Drink
-  coffee: ["Food"], tea: ["Food"], snack: ["Food"], chocolate: ["Food"],
-  candy: ["Food"], cookies: ["Food"], jerky: ["Food"], jam: ["Food"],
-  granola: ["Food"], cereal: ["Food"], soda: ["Food"],
-  // Electronics
-  headphones: ["Electronics"], earbuds: ["Electronics"], speaker: ["Electronics"],
-  charger: ["Electronics"], cable: ["Electronics"],
-  // Baby
-  stroller: ["Baby"], diaper: ["Baby"], pacifier: ["Baby"],
-  // Pets
-  "dog food": ["Pets"], "cat food": ["Pets"], kibble: ["Pets"],
-  "pet treat": ["Pets"], "dog treat": ["Pets"],
-  // Kitchen
-  pan: ["Home goods", "Kitchen"], skillet: ["Home goods", "Kitchen"],
-  pot: ["Home goods", "Kitchen"], knife: ["Home goods", "Kitchen"],
-  "cutting board": ["Home goods", "Kitchen"],
-  // Bags
-  backpack: ["Apparel", "Bags"], purse: ["Apparel", "Bags"],
-  handbag: ["Apparel", "Bags"], bag: ["Bags"],
-};
-
-/**
- * Get the expected industries for a search query.
- * Checks whole query first, then individual words.
- */
-function getAffinityIndustries(q_norm) {
-  if (!q_norm) return [];
-  const qLower = q_norm.toLowerCase().trim();
-
-  // Check full query first (handles multi-word like "dog food")
-  if (PRODUCT_INDUSTRY_AFFINITY[qLower]) {
-    return PRODUCT_INDUSTRY_AFFINITY[qLower];
-  }
-
-  // Check individual words
-  const words = qLower.split(/\s+/);
-  for (const word of words) {
-    if (PRODUCT_INDUSTRY_AFFINITY[word]) {
-      return PRODUCT_INDUSTRY_AFFINITY[word];
-    }
-  }
-
-  return [];
 }
 
 /**
@@ -592,7 +522,7 @@ function isSynonymOnlyMatch(company, q_norm, q_compact) {
  * Synonym-only penalty: companies matching only via synonym expansion (not the
  * original query) get a 60% score reduction so direct matches always rank higher.
  */
-function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
+function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndustries = []) {
   const nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
   const keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
   const nameBonus = nameScore >= 60 ? 20 : 0;
@@ -602,16 +532,15 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
   const qLower = (q_norm || "").toLowerCase().trim();
   const industryBonus = qLower && industries.some((ind) => ind === qLower) ? 30 : 0;
 
-  // Industry-affinity bonus: when the search term maps to a product category
-  // (e.g., "hoodie" → Apparel), companies in that industry get a significant boost.
-  // This ensures an apparel company ranks above a coffee company that sells branded hoodies.
-  const affinityIndustries = getAffinityIndustries(q_norm);
+  // Industry-affinity bonus — the list of "expected" industries for this query
+  // is derived from the data-driven inverted index (see _industryAffinityIndex.js)
+  // and supplied by the caller, so we don't reload it per company. When the
+  // query has any affinity industries:
+  //   +25 bonus for companies IN one of those industries
+  //   -15 penalty for companies NOT in any of them
+  // This creates a 40-point gap between aligned and non-aligned companies.
   const hasAffinity = affinityIndustries.length > 0 &&
     industries.some((ind) => affinityIndustries.some((aff) => ind.includes(aff.toLowerCase())));
-  // When the query has a known product-industry affinity:
-  //   +25 bonus for companies IN the expected industry (e.g., Apparel for "hoodie")
-  //   -15 penalty for companies NOT in the expected industry (e.g., Food company selling branded hoodies)
-  // This creates a 40-point gap between industry-aligned and non-aligned companies.
   const affinityBonus = hasAffinity ? 25 : (affinityIndustries.length > 0 ? -15 : 0);
 
   let relevanceScore = nameScore > 0
@@ -2027,6 +1956,20 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         deduped = deduped.filter((c) => companyMatchesAllConcepts(c, q_concepts));
       }
 
+      // Resolve the affinity industries for this query once (data-driven inverted
+      // index — replaces the old hand-curated PRODUCT_INDUSTRY_AFFINITY map).
+      // Falls back to [] when the index isn't built yet; scoring then skips the
+      // affinity bonus/penalty without breaking search.
+      let affinityIndustries = [];
+      if (q_norm) {
+        try {
+          const idx = await loadIndustryAffinityIndex(container);
+          affinityIndustries = getAffinityIndustriesFromIndex(idx, q_norm.split(/\s+/));
+        } catch (err) {
+          context.log?.("[search-companies] loadIndustryAffinityIndex failed:", err?.message);
+        }
+      }
+
       // Attach relevance scores so the frontend can prioritise strong matches
       if (q_norm) {
         for (const company of deduped) {
@@ -2043,7 +1986,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             company._matchType = "fuzzy";
             delete company._fuzzyMatch;
           } else {
-            const scores = computeRelevanceScore(company, q_raw, q_norm, q_compact);
+            const scores = computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndustries);
             company._nameMatchScore = scores._nameMatchScore;
             company._keywordMatchScore = scores._keywordMatchScore;
             company._relevanceScore = scores._relevanceScore;
