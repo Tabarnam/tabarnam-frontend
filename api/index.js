@@ -389,6 +389,30 @@ try {
 }
 
 try {
+  console.log("[api] Registering: upload-homepage-blob");
+  require("./upload-homepage-blob/index.js");
+  console.log("[api] ✓ upload-homepage-blob registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load upload-homepage-blob:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: delete-homepage-blob");
+  require("./delete-homepage-blob/index.js");
+  console.log("[api] ✓ delete-homepage-blob registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load delete-homepage-blob:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: company-homepage");
+  require("./company-homepage/index.js");
+  console.log("[api] ✓ company-homepage registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load company-homepage:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-logos");
   require("./xadmin-api-logos/index.js");
   console.log("[api] ✓ xadmin-api-logos registered");
