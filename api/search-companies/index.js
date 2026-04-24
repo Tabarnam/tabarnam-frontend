@@ -635,11 +635,19 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact) {
 // Coarse relevance tiers used by the "Highest rated" sort so that strong
 // matches (especially exact name matches) cannot be demoted by less-relevant
 // results that happen to have higher star ratings.
-function relevanceTier(score) {
-  if (score >= 90) return 0; // exact / near-exact name match
-  if (score >= 60) return 1; // strong name or keyword match
-  if (score >= 30) return 2; // moderate match
-  return 3;                  // weak match
+//
+// Exact name matches (nameScore >= 100) get their own bucket above every other
+// tier so that e.g. searching "Jerky & Spice" always puts the actual Jerky &
+// Spice company first — even when a food-adjacent competitor (Nesco, Tanners)
+// lands in tier 0 via keyword + industry-affinity bonuses and happens to have
+// a slightly higher star rating. `nameScore` comes from _nameMatchScore, which
+// `computeRelevanceScore` already attaches to each company record.
+function relevanceTier(score, nameScore = 0) {
+  if (nameScore >= 100) return -1; // exact name match — always first
+  if (score >= 90) return 0;       // very-relevant non-exact match
+  if (score >= 60) return 1;       // strong name or keyword match
+  if (score >= 30) return 2;       // moderate match
+  return 3;                        // weak match
 }
 
 // Helper to build search filter that handles both spaced and non-spaced queries
@@ -2078,8 +2086,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       if (sort === "stars" && !sortField) {
         if (q_norm) {
           deduped.sort((a, b) => {
-            const tierA = relevanceTier(a._relevanceScore || 0);
-            const tierB = relevanceTier(b._relevanceScore || 0);
+            const tierA = relevanceTier(a._relevanceScore || 0, a._nameMatchScore || 0);
+            const tierB = relevanceTier(b._relevanceScore || 0, b._nameMatchScore || 0);
             if (tierA !== tierB) return tierA - tierB;
             return getQQScoreLike(b) - getQQScoreLike(a);
           });

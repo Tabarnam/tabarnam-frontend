@@ -703,3 +703,57 @@ test("companyMatchesAllConcepts folds diacritics consistently", () => {
   // (pre-backfill records) still matches.
   assert.equal(_test.companyMatchesAllConcepts(beis, ["beis", "luggage"]), true);
 });
+
+// ── stars sort: exact-name-match promotion ───────────────────────────────
+
+test("stars sort: exact name match ranks above higher-rated non-exact matches", async () => {
+  // Both companies land in tier 0 under the old scoring (Nesco has keyword
+  // matches + Food industry affinity, Jerky & Spice has an exact name match
+  // plus keywords). Nesco outrates Jerky & Spice — before the fix it won;
+  // after the fix, the exact name match is promoted to its own pre-tier-0
+  // bucket and ranks first regardless of stars.
+  const jerkySpice = {
+    id: "jerky-spice",
+    company_name: "Jerky & Spice",
+    normalized_domain: "jerkyandspice.com",
+    keywords: ["jerky", "spice"],
+    industries: ["Snack foods"],
+    search_text_norm: " jerky spice jerky spice snack foods ",
+    search_text_stemmed: " jerky spice jerky spice snack food ",
+    rating: 3.0,
+    star_rating: 3.0,
+    auto_star_rating: 3.0,
+    _ts: 1700000000,
+  };
+  const nesco = {
+    id: "nesco",
+    company_name: "Nesco",
+    normalized_domain: "nesco.com",
+    keywords: ["jerky dehydrator", "spice rub"],
+    industries: ["Food Preservation"],
+    search_text_norm: " nesco jerky dehydrator spice rub food preservation ",
+    search_text_stemmed: " nesco jerky dehydrator spice rub food preservation ",
+    rating: 3.5,
+    star_rating: 3.5,
+    auto_star_rating: 3.5,
+    _ts: 1700000000,
+  };
+
+  const companiesContainer = makeContainer(async () => [nesco, jerkySpice]);
+  const res = await _test.searchCompaniesHandler(
+    makeReq(
+      "https://example.test/api/search-companies?raw=Jerky+%26+Spice&norm=jerky+spice&compact=jerkyspice&sort=stars&take=10"
+    ),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.ok(body.items.length >= 2, "Both companies should be returned");
+  assert.equal(
+    body.items[0].id,
+    "jerky-spice",
+    "Exact name match should rank first despite lower star rating"
+  );
+});
