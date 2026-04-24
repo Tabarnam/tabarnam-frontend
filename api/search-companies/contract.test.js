@@ -843,3 +843,51 @@ test("computeRelevanceScore applies −15 affinity penalty for non-matching indu
     "non-aligned company gets −15"
   );
 });
+
+// ── isSynonymOnlyMatch: partial-match rule for multi-word queries ─────────
+
+test("isSynonymOnlyMatch: company with a direct word-boundary match on ONE query word is NOT synonym-only", () => {
+  // Breville-style: has "scraper" as a keyword but no "tooth" anywhere, and the
+  // full phrase "tooth scraper" also doesn't appear. Pre-fix this was flagged
+  // synonym-only (×0.4 penalty), which combined with other penalties kicked it
+  // under MIN_RELEVANCE and filtered it out of results entirely.
+  const breville = {
+    company_name: "Breville",
+    keywords: ["scraper mixer pro", "bluetooth enabled"],
+    industries: ["Kitchen"],
+  };
+  assert.equal(_test.isSynonymOnlyMatch(breville, "tooth scraper", "toothscraper"), false);
+});
+
+test("isSynonymOnlyMatch: company with no word-boundary match on any query word IS synonym-only", () => {
+  // A company that only matched via synonym expansion — e.g., a "pullover"
+  // keyword matching "hoodie" query. Neither "hoodie" nor "sweatshirt" appear
+  // as words in its data.
+  const company = {
+    company_name: "MerinoCo",
+    keywords: ["pullover", "merino wool"],
+    industries: ["Apparel"],
+  };
+  assert.equal(_test.isSynonymOnlyMatch(company, "hoodie sweatshirt", "hoodiesweatshirt"), true);
+});
+
+test("isSynonymOnlyMatch: full phrase match short-circuits immediately", () => {
+  // If the full q_norm appears, we never reach the multi-word partial rule.
+  const company = {
+    company_name: "Tongue Scraper Co",
+    keywords: ["tongue scraper"],
+    industries: ["Personal care"],
+  };
+  assert.equal(_test.isSynonymOnlyMatch(company, "tongue scraper", "tonguescraper"), false);
+});
+
+test("isSynonymOnlyMatch: single-word query with no data match returns true (unchanged)", () => {
+  const company = {
+    company_name: "Something Unrelated",
+    keywords: ["pullover"],
+    industries: ["Apparel"],
+  };
+  // "hoodie" (single word) has no boundary match in "pullover" / "apparel" /
+  // "something unrelated" — still synonym-only.
+  assert.equal(_test.isSynonymOnlyMatch(company, "hoodie", "hoodie"), true);
+});

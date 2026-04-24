@@ -37,8 +37,17 @@ const STOPWORDS = new Set([
 ]);
 
 const MIN_TOKEN_LEN = 3;
-const MIN_COMPANIES_PER_TERM = 3;    // drop terms appearing in < N companies as noise
-const MAX_INDUSTRIES_PER_TERM = 10;  // cap index size — top-N industries per term
+const MIN_COMPANIES_PER_TERM = 3;     // drop terms appearing in < N companies as noise
+const MAX_INDUSTRIES_PER_TERM = 10;   // cap index size — top-N industries per term
+// Companies in the tabarnam catalog can have very specific free-text "industry"
+// labels ("handmade natural bath body and beard care", "ethnic wear", "desert
+// botanicals"). With ~3.5 unique industry labels per company, TF-IDF over the
+// raw data produces noisy affinities where a term linked to a single niche
+// industry scores very high. Only industries with at least this many companies
+// participate in the affinity signal — the long tail of near-unique labels is
+// treated as "no industry" for affinity purposes, so those companies get the
+// neutral affinityBonus = 0 rather than a misleading boost.
+const MIN_COMPANIES_PER_INDUSTRY = 5;
 
 /**
  * Extract a deduplicated list of normalized terms from a free-text field.
@@ -77,7 +86,10 @@ function uniqueNonEmpty(arr) {
  *
  * Returns the full index doc ready to upsert.
  */
-async function buildIndustryAffinityIndex(container, { log = console.log } = {}) {
+async function buildIndustryAffinityIndex(
+  container,
+  { log = console.log, minCompaniesPerIndustry = MIN_COMPANIES_PER_INDUSTRY } = {}
+) {
   const startedAt = Date.now();
 
   const industryCompanyCount = Object.create(null);  // industry -> # companies in industry
@@ -138,23 +150,32 @@ async function buildIndustryAffinityIndex(container, { log = console.log } = {})
     }
   }
 
-  const allIndustries = Object.keys(industryCompanyCount);
-  const numIndustries = allIndustries.length;
+  // Filter industries by minimum-companies threshold. Industries below the
+  // threshold (long-tail free-text labels like "ethnic wear", "desert
+  // botanicals") contribute noise to TF-IDF — a term appearing in a single
+  // niche-label industry gets amplified to top of the list.
+  const keptIndustries = new Set();
+  for (const [ind, count] of Object.entries(industryCompanyCount)) {
+    if (count >= minCompaniesPerIndustry) keptIndustries.add(ind);
+  }
+  const numIndustries = keptIndustries.size;
   const terms = Object.create(null);
 
   for (const term of Object.keys(termByIndustry)) {
     if (termCompanyCount[term] < MIN_COMPANIES_PER_TERM) continue;
 
     const byIndustry = termByIndustry[term];
-    const industriesWithTerm = Object.keys(byIndustry).length;
-    if (industriesWithTerm === 0) continue;
 
-    // idf: terms that appear in every industry are not discriminating.
-    const idf = Math.log(numIndustries / industriesWithTerm);
+    // Drop per-term entries for industries below the size threshold.
+    const filteredEntries = Object.entries(byIndustry).filter(([ind]) => keptIndustries.has(ind));
+    if (filteredEntries.length === 0) continue;
+
+    // idf over the filtered industry set.
+    const idf = Math.log(numIndustries / filteredEntries.length);
     if (idf <= 0) continue;
 
     const scored = [];
-    for (const [ind, count] of Object.entries(byIndustry)) {
+    for (const [ind, count] of filteredEntries) {
       const tf = count / industryCompanyCount[ind]; // how typical is term for this industry?
       const score = tf * idf;
       if (score > 0) scored.push([ind, score]);
@@ -180,6 +201,7 @@ async function buildIndustryAffinityIndex(container, { log = console.log } = {})
     build_ms: Date.now() - startedAt,
     total_companies: totalCompanies,
     industry_count: numIndustries,
+    industry_count_raw: Object.keys(industryCompanyCount).length,
     term_count: Object.keys(terms).length,
     terms,
   };
@@ -289,6 +311,7 @@ module.exports = {
   tokenize,
   INDEX_DOC_ID,
   INDEX_PARTITION_KEY,
+  MIN_COMPANIES_PER_INDUSTRY,
   STOPWORDS,
   _resetCache,
 };

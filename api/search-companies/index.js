@@ -472,11 +472,18 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
  * Returns true if the company has NO direct match on the original query in
  * its name, keywords, product_keywords, industries, or search_text_norm —
  * meaning it only appeared in results because a synonym matched.
+ *
+ * For MULTI-WORD queries, a company counts as "directly matching" if ANY of
+ * the query words appears at a word boundary in its data. Before this rule
+ * was added, a keyword like "scraper mixer pro" against query "tooth scraper"
+ * failed the full-phrase check and was wrongly flagged synonym-only — taking
+ * a ×0.4 penalty that, combined with the substring penalty and MIN_RELEVANCE
+ * cutoff, removed the company from results entirely. That's too aggressive:
+ * a direct partial match is a real match, not a synonym match.
  */
 function isSynonymOnlyMatch(company, q_norm, q_compact) {
   if (!q_norm) return false;
 
-  // Check company name
   const names = [
     asString(company.company_name),
     asString(company.display_name),
@@ -485,11 +492,10 @@ function isSynonymOnlyMatch(company, q_norm, q_compact) {
 
   for (const name of names) {
     if (name.includes(q_norm) || (q_compact && name.replace(/\s+/g, "").includes(q_compact))) {
-      return false; // direct name match
+      return false; // direct name match on the whole phrase
     }
   }
 
-  // Check keywords, product_keywords, industries
   const allKeywords = [
     ...normalizeStringArray(company.product_keywords),
     ...normalizeStringArray(company.keywords),
@@ -497,17 +503,35 @@ function isSynonymOnlyMatch(company, q_norm, q_compact) {
   ].map((k) => asString(k).toLowerCase().trim()).filter(Boolean);
 
   for (const kw of allKeywords) {
-    if (kw.includes(q_norm) || q_norm.includes(kw)) return false; // direct keyword match
+    if (kw.includes(q_norm) || q_norm.includes(kw)) return false;
     if (q_compact && (kw.includes(q_compact) || q_compact.includes(kw))) return false;
   }
 
-  // Check search_text_norm with word-boundary (space-padded) matching
   const stn = asString(company.search_text_norm).toLowerCase();
   if (stn && (stn.includes(` ${q_norm} `) || stn.includes(q_norm))) {
-    return false; // direct search_text_norm match
+    return false; // direct search_text_norm match on the whole phrase
   }
 
-  // No direct match found — this company only matched via synonym expansion
+  // Multi-word partial-match rule: if any query word appears at a word
+  // boundary in any of the company's fields, it's a real (partial) match,
+  // not a synonym-only match.
+  const queryWords = q_norm.split(/\s+/).filter((w) => w.length >= 2);
+  if (queryWords.length >= 2) {
+    for (const w of queryWords) {
+      for (const kw of allKeywords) {
+        if (
+          kw === w ||
+          kw.startsWith(w + " ") ||
+          kw.endsWith(" " + w) ||
+          kw.includes(" " + w + " ")
+        ) {
+          return false;
+        }
+      }
+      if (stn && stn.includes(` ${w} `)) return false;
+    }
+  }
+
   return true;
 }
 
@@ -2120,4 +2144,5 @@ module.exports._test = {
   computeRelevanceScore,
   buildWordBoundaryFilter,
   companyMatchesAllConcepts,
+  isSynonymOnlyMatch,
 };

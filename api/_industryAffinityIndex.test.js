@@ -57,7 +57,7 @@ test("buildIndustryAffinityIndex computes TF-IDF style affinity", async () => {
   ];
   const container = makeContainer(companies);
 
-  const doc = await buildIndustryAffinityIndex(container, { log: () => {} });
+  const doc = await buildIndustryAffinityIndex(container, { log: () => {}, minCompaniesPerIndustry: 2 });
   assert.equal(doc.id, INDEX_DOC_ID);
   assert.equal(doc.normalized_domain, INDEX_PARTITION_KEY);
   assert.equal(doc.total_companies, 8);
@@ -89,10 +89,47 @@ test("buildIndustryAffinityIndex drops terms appearing in < 3 companies", async 
     { id: "e", company_name: "E", industries: ["Apparel"], keywords: ["shirt"] },
     { id: "f", company_name: "F", industries: ["Apparel"], keywords: ["shirt"] },
   ];
-  const doc = await buildIndustryAffinityIndex(makeContainer(companies), { log: () => {} });
+  const doc = await buildIndustryAffinityIndex(makeContainer(companies), { log: () => {}, minCompaniesPerIndustry: 2 });
   assert.equal(doc.terms.unique_term_xyz, undefined, "unique rare term filtered as noise");
   assert.ok(doc.terms.coffee, "coffee (3 companies) survives");
   assert.ok(doc.terms.shirt, "shirt (3 companies) survives");
+});
+
+test("buildIndustryAffinityIndex filters out long-tail industries below size threshold", async () => {
+  // Fixture designed to exercise the industry-size filter: "Oral Care" and
+  // "Apparel" have 5 companies each (above threshold) and should survive;
+  // "Ethnic Wear" has 1 (a typical long-tail free-text label) and should be
+  // dropped from the affinity signal — a term that co-occurs with it should
+  // NOT show it.
+  const companies = [
+    { id: "o1", company_name: "O1", industries: ["Oral Care"], keywords: ["tooth scraper"] },
+    { id: "o2", company_name: "O2", industries: ["Oral Care"], keywords: ["tooth cleaner"] },
+    { id: "o3", company_name: "O3", industries: ["Oral Care"], keywords: ["tooth whitener"] },
+    { id: "o4", company_name: "O4", industries: ["Oral Care"], keywords: ["tooth brush"] },
+    { id: "o5", company_name: "O5", industries: ["Oral Care"], keywords: ["tooth floss"] },
+    { id: "a1", company_name: "A1", industries: ["Apparel"],   keywords: ["shirt"] },
+    { id: "a2", company_name: "A2", industries: ["Apparel"],   keywords: ["shirt"] },
+    { id: "a3", company_name: "A3", industries: ["Apparel"],   keywords: ["shirt"] },
+    { id: "a4", company_name: "A4", industries: ["Apparel"],   keywords: ["shirt"] },
+    { id: "a5", company_name: "A5", industries: ["Apparel"],   keywords: ["shirt"] },
+    { id: "e1", company_name: "Weird", industries: ["Ethnic Wear"], keywords: ["tooth jewelry"] }, // singleton
+  ];
+
+  // Use the production default (MIN_COMPANIES_PER_INDUSTRY=5) explicitly.
+  const doc = await buildIndustryAffinityIndex(makeContainer(companies), {
+    log: () => {},
+    minCompaniesPerIndustry: 5,
+  });
+
+  assert.equal(doc.industry_count, 2, "Oral Care and Apparel survive the size filter");
+  assert.equal(doc.industry_count_raw, 3, "raw count records the original 3 industries");
+  assert.ok(doc.terms.tooth, "tooth term indexed");
+  assert.ok(doc.terms.tooth["oral care"] > 0, "tooth → oral care present");
+  assert.equal(
+    doc.terms.tooth["ethnic wear"],
+    undefined,
+    "long-tail singleton industry must not pollute the tooth affinity"
+  );
 });
 
 test("buildIndustryAffinityIndex ignores companies with no industries", async () => {
@@ -103,7 +140,7 @@ test("buildIndustryAffinityIndex ignores companies with no industries", async ()
     { id: "x", company_name: "X", industries: [],       keywords: ["coffee"] }, // skipped
     { id: "y", company_name: "Y",                        keywords: ["coffee"] }, // no industries field
   ];
-  const doc = await buildIndustryAffinityIndex(makeContainer(companies), { log: () => {} });
+  const doc = await buildIndustryAffinityIndex(makeContainer(companies), { log: () => {}, minCompaniesPerIndustry: 2 });
   assert.equal(doc.total_companies, 3);
 });
 
