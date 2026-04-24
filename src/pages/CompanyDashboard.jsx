@@ -39,8 +39,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import { API_BASE, apiFetch, apiFetchParsed, getCachedBuildId, getLastApiRequestExplain, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
-import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
+import { deleteHomepageBlob, deleteLogoBlob, uploadHomepageBlobFile, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
+import { getCompanyHomepageUrl } from "@/lib/homepageUrl";
 import { getAdminUser } from "@/lib/azureAuth";
 import {
   Dialog,
@@ -666,6 +667,12 @@ export default function CompanyDashboard() {
   const [logoDeleting, setLogoDeleting] = useState(false);
   const [logoPreviewFailed, setLogoPreviewFailed] = useState(false);
 
+  const [homepageFile, setHomepageFile] = useState(null);
+  const [homepageUploading, setHomepageUploading] = useState(false);
+  const [homepageUploadError, setHomepageUploadError] = useState(null);
+  const [homepageDeleting, setHomepageDeleting] = useState(false);
+  const [homepagePreviewFailed, setHomepagePreviewFailed] = useState(false);
+
   const [logoFetchOpen, setLogoFetchOpen] = useState(false);
   const [logoFetchWebsiteUrl, setLogoFetchWebsiteUrl] = useState("");
   const [logoFetchSelector, setLogoFetchSelector] = useState("");
@@ -697,6 +704,7 @@ export default function CompanyDashboard() {
   const [leftSections, setLeftSections] = useState({
     basicInfo: true,
     logo: true,
+    homepage: true,
     locations: true,
     categories: true,
     reviews: true,
@@ -744,6 +752,10 @@ export default function CompanyDashboard() {
   useEffect(() => {
     setLogoPreviewFailed(false);
   }, [asString(editorDraft?.logo_url).trim()]);
+
+  useEffect(() => {
+    setHomepagePreviewFailed(false);
+  }, [asString(editorDraft?.homepage_image_url).trim()]);
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -964,6 +976,11 @@ export default function CompanyDashboard() {
     setLogoUpdating(false);
     setLogoDeleting(false);
 
+    setHomepageFile(null);
+    setHomepageUploadError(null);
+    setHomepageUploading(false);
+    setHomepageDeleting(false);
+
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
@@ -991,12 +1008,15 @@ export default function CompanyDashboard() {
 
     setEditorOriginalId(id || null);
     draft.logo_approved = false;
+    draft.homepage_approved = false;
     editorHistory.resetHistory(draft);
     setEditorShowAdvanced(false);
     setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
     setEditorLoadError(null);
     setLogoFile(null);
     setLogoUploadError(null);
+    setHomepageFile(null);
+    setHomepageUploadError(null);
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
@@ -1038,6 +1058,8 @@ export default function CompanyDashboard() {
     setEditorDisplayNameOverride("");
     setLogoFile(null);
     setLogoUploadError(null);
+    setHomepageFile(null);
+    setHomepageUploadError(null);
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
@@ -2482,6 +2504,8 @@ export default function CompanyDashboard() {
         tagline: asString(draftForSave.tagline).trim(),
         logo_url: asString(draftForSave.logo_url).trim(),
         logo_approved: Boolean(draftForSave.logo_approved),
+        homepage_image_url: asString(draftForSave.homepage_image_url).trim(),
+        homepage_approved: Boolean(draftForSave.homepage_approved),
         amazon_url: asString(draftForSave.amazon_url).trim(),
         amazon_store_url: asString(draftForSave.amazon_store_url).trim(),
         affiliate_link_urls,
@@ -2897,6 +2921,107 @@ export default function CompanyDashboard() {
     toast.success("Logo URL updated (save to persist)");
     setLogoFetchResult(null);
   }, [logoFetchResult]);
+
+  const isAllowedHomepageType = useCallback((type) => {
+    return type === "image/png" || type === "image/jpeg" || type === "image/webp";
+  }, []);
+
+  const uploadHomepage = useCallback(async (fileArg) => {
+    const file = fileArg || homepageFile;
+    const companyId = asString(editorOriginalId).trim();
+    if (!companyId) {
+      toast.error("Save the company first to generate a company_id, then upload the homepage image.");
+      return;
+    }
+
+    if (!file) {
+      toast.error("Choose a homepage image first.");
+      return;
+    }
+
+    setHomepageUploading(true);
+    setHomepageUploadError(null);
+
+    try {
+      const url = await uploadHomepageBlobFile(file, companyId);
+      setEditorDraft((d) => ({ ...(d || {}), homepage_image_url: url, homepage_approved: true }));
+      updateCompanyInState(companyId, { homepage_image_url: url });
+      setHomepageFile(null);
+      toast.success("Homepage image uploaded");
+    } catch (e) {
+      const msg = e?.message || "Homepage upload failed";
+      setHomepageUploadError(msg);
+      toast.error(msg);
+    } finally {
+      setHomepageUploading(false);
+    }
+  }, [editorOriginalId, homepageFile, updateCompanyInState]);
+
+  const handleHomepageFileChange = useCallback(
+    (e) => {
+      const file = e?.target?.files?.[0] || null;
+      setHomepageUploadError(null);
+      setHomepageFile(null);
+
+      if (!file) return;
+
+      if (!isAllowedHomepageType(file.type)) {
+        setHomepageUploadError("Invalid file type. Use PNG, JPG, or WebP.");
+        return;
+      }
+
+      const maxBytes = 5 * 1024 * 1024;
+      if (typeof file.size === "number" && file.size > maxBytes) {
+        setHomepageUploadError("File too large. Max size is 5MB.");
+        return;
+      }
+
+      setHomepageFile(file);
+      uploadHomepage(file);
+    },
+    [isAllowedHomepageType, uploadHomepage]
+  );
+
+  const clearHomepageReference = useCallback(() => {
+    const companyId = asString(editorOriginalId).trim();
+    setEditorDraft((d) => ({ ...(d || {}), homepage_image_url: "" }));
+    if (companyId) updateCompanyInState(companyId, { homepage_image_url: "" });
+    toast.success("Homepage cleared (save to persist)");
+  }, [editorOriginalId, updateCompanyInState]);
+
+  const deleteHomepageFromStorage = useCallback(async () => {
+    const companyId = asString(editorOriginalId).trim();
+    const current = asString(editorDraft?.homepage_image_url).trim();
+
+    if (!companyId) {
+      toast.error("Missing company_id");
+      return;
+    }
+
+    if (!current) {
+      toast.error("No homepage image to delete");
+      return;
+    }
+
+    const isAzure = current.includes(".blob.core.windows.net") && current.includes("/company-homepages/");
+    if (!isAzure) {
+      toast.error("This homepage image is not stored in Azure Blob Storage. Use Clear instead.");
+      return;
+    }
+
+    setHomepageDeleting(true);
+    try {
+      await deleteHomepageBlob(current);
+      setEditorDraft((d) => ({ ...(d || {}), homepage_image_url: "" }));
+      updateCompanyInState(companyId, { homepage_image_url: "" });
+      toast.success("Homepage image deleted");
+    } catch (e) {
+      const msg = e?.message || "Failed to delete homepage image";
+      toast.error(msg);
+    } finally {
+      setHomepageDeleting(false);
+    }
+  }, [editorDraft, editorOriginalId, updateCompanyInState]);
 
   const deleteCompany = useCallback(async (companyId) => {
     const safeId = asString(companyId).trim();
@@ -4846,6 +4971,108 @@ export default function CompanyDashboard() {
                             ) : null}
 
                             {logoUploadError ? <div className="text-xs text-red-700">{logoUploadError}</div> : null}
+
+                            {!editorOriginalId ? (
+                              <div className="text-xs text-slate-600 dark:text-muted-foreground">Save the company first to enable uploads.</div>
+                            ) : null}
+                          </div>
+                          </CollapsibleSection>
+
+                          <CollapsibleSection title="Homepage" isOpen={leftSections.homepage} onToggle={() => toggleLeftSection("homepage")}>
+                          <div className="space-y-2 px-1 pt-1">
+                            {(() => {
+                              const rawHomepageUrl = asString(editorDraft?.homepage_image_url).trim();
+
+                              if (!rawHomepageUrl) {
+                                return (
+                                  <div className="text-xs text-slate-500 dark:text-muted-foreground">
+                                    No homepage image uploaded.
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-2">
+                                  {!homepagePreviewFailed ? (
+                                    <img
+                                      src={getCompanyHomepageUrl({ ...editorDraft, id: editorOriginalId, homepage_image_url: rawHomepageUrl })}
+                                      alt="Company homepage"
+                                      className="h-12 w-20 rounded border border-slate-200 dark:border-border object-cover bg-white dark:bg-card transition-transform duration-200 origin-bottom-left hover:scale-[5] hover:z-50 hover:relative hover:shadow-lg"
+                                      loading="lazy"
+                                      onError={() => setHomepagePreviewFailed(true)}
+                                    />
+                                  ) : (
+                                    <div className="h-12 w-20 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted flex items-center justify-center text-[11px] text-slate-600 dark:text-muted-foreground text-center px-1">
+                                      Preview unavailable
+                                    </div>
+                                  )}
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-slate-500 dark:text-muted-foreground">Current homepage_image_url</div>
+                                    <div className="text-xs text-slate-800 dark:text-foreground break-all">{rawHomepageUrl}</div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                variant="outline"
+                                onClick={() => document.getElementById("homepage-file-input")?.click()}
+                                disabled={homepageUploading || homepageDeleting}
+                              >
+                                {homepageUploading ? "Uploading…" : "Choose File"}
+                              </Button>
+                              <input
+                                id="homepage-file-input"
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp"
+                                onChange={handleHomepageFileChange}
+                                className="hidden"
+                                disabled={homepageUploading || homepageDeleting}
+                              />
+
+                              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
+                                <Checkbox
+                                  checked={!!editorDraft?.homepage_approved}
+                                  onCheckedChange={(v) => setEditorDraft((d) => ({ ...d, homepage_approved: Boolean(v) }))}
+                                  disabled={!asString(editorDraft?.homepage_image_url).trim()}
+                                />
+                                Approve Homepage
+                              </label>
+
+                              <Button
+                                variant="outline"
+                                onClick={clearHomepageReference}
+                                disabled={homepageUploading || homepageDeleting || !asString(editorDraft.homepage_image_url).trim()}
+                              >
+                                Clear
+                              </Button>
+
+                              <Button
+                                variant="outline"
+                                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                                onClick={deleteHomepageFromStorage}
+                                disabled={
+                                  homepageUploading ||
+                                  homepageDeleting ||
+                                  !editorOriginalId ||
+                                  !asString(editorDraft.homepage_image_url).trim() ||
+                                  !(asString(editorDraft.homepage_image_url).includes(".blob.core.windows.net") &&
+                                    asString(editorDraft.homepage_image_url).includes("/company-homepages/"))
+                                }
+                              >
+                                {homepageDeleting ? "Deleting…" : "Delete from storage"}
+                              </Button>
+                            </div>
+
+                            {homepageFile ? (
+                              <div className="text-xs text-slate-600 dark:text-muted-foreground">
+                                Selected: {homepageFile.name} ({Math.round((homepageFile.size / 1024) * 10) / 10}KB)
+                              </div>
+                            ) : null}
+
+                            {homepageUploadError ? <div className="text-xs text-red-700">{homepageUploadError}</div> : null}
 
                             {!editorOriginalId ? (
                               <div className="text-xs text-slate-600 dark:text-muted-foreground">Save the company first to enable uploads.</div>

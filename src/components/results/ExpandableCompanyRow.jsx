@@ -10,6 +10,7 @@ import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQScore } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
+import { getCompanyHomepageUrl } from "@/lib/homepageUrl";
 import { normalizeCountryDisplay, normalizeLocationString } from "@/lib/location";
 
 // Renders reasoning as a tight bullet list. Accepts newline-separated bullets
@@ -237,6 +238,12 @@ export default function ExpandableCompanyRow({
 
   const logoStatus = typeof company?.logo_status === "string" ? company.logo_status.trim().toLowerCase() : "";
   const shouldShowLogo = Boolean(logoUrl) && !logoFailed;
+
+  // Homepage preview — shown on hover over the logo when present + admin-approved.
+  const homepagePreviewUrl =
+    company?.homepage_approved && typeof company?.homepage_image_url === "string" && company.homepage_image_url.trim()
+      ? getCompanyHomepageUrl(company)
+      : "";
 
   const websiteUrl =
     company.website_url ||
@@ -691,7 +698,7 @@ export default function ExpandableCompanyRow({
 
           </div>
 
-          <div className="col-span-2 lg:col-span-1">
+          <div className="col-span-2 lg:col-span-1 relative group">
             {shouldShowLogo ? (
               websiteUrl ? (
                 <a
@@ -732,6 +739,16 @@ export default function ExpandableCompanyRow({
                 )}
               </div>
             )}
+
+            {homepagePreviewUrl ? (
+              <img
+                src={homepagePreviewUrl}
+                alt={`${displayName} homepage preview`}
+                aria-hidden="true"
+                className="hidden lg:block pointer-events-none absolute left-full top-0 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
+                loading="lazy"
+              />
+            ) : null}
           </div>
 
           {/* Right 3 columns + reasoning wrapped together so they're independent of left column height */}
@@ -973,7 +990,7 @@ export default function ExpandableCompanyRow({
       </div>
 
       {/* Logo Column */}
-      <div className="col-span-2 lg:col-span-1 flex items-center justify-center">
+      <div className="col-span-2 lg:col-span-1 flex items-center justify-center relative group">
         {shouldShowLogo ? (
           websiteUrl ? (
             <a
@@ -1014,6 +1031,16 @@ export default function ExpandableCompanyRow({
             )}
           </div>
         )}
+
+        {homepagePreviewUrl ? (
+          <img
+            src={homepagePreviewUrl}
+            alt={`${displayName} homepage preview`}
+            aria-hidden="true"
+            className="hidden lg:block pointer-events-none absolute left-full top-0 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
+            loading="lazy"
+          />
+        ) : null}
       </div>
 
       {/* Manufacturing/HQ/QQ columns - spans 3 columns */}
