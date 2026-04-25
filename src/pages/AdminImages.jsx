@@ -32,6 +32,46 @@ function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
+// Renders an <img> only after the wrapper enters the viewport. Once loaded,
+// stays loaded (no unmount on scroll-out). Uses IntersectionObserver with a
+// generous root margin so the image appears just before it scrolls into view.
+function LazyImage({ src, alt, className }) {
+  const ref = useRef(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
+
+  useEffect(() => {
+    if (shouldLoad) return;
+    const node = ref.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setShouldLoad(true);
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            setShouldLoad(true);
+            obs.disconnect();
+            break;
+          }
+        }
+      },
+      { root: null, rootMargin: "300px 0px", threshold: 0.01 }
+    );
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, [shouldLoad]);
+
+  return (
+    <span ref={ref} className="contents">
+      {shouldLoad && src ? (
+        <img key={src} src={src} alt={alt} className={className} loading="lazy" />
+      ) : null}
+    </span>
+  );
+}
+
 // Renders a hover preview at fixed coordinates via a portal so it can escape
 // the table's overflow clipping and the column borders.
 function HoverPreviewPortal({ src, anchorRect, alt }) {
@@ -128,12 +168,10 @@ function ImageCell({
         className={`relative ${aspectClass} bg-white dark:bg-slate-100 rounded border border-slate-300 dark:border-slate-600 overflow-hidden flex items-center justify-center hover:ring-2 hover:ring-teal-500 transition`}
       >
         {src ? (
-          <img
-            key={src}
+          <LazyImage
             src={src}
             alt={alt}
             className={`${thumbClass} object-contain`}
-            loading="lazy"
           />
         ) : (
           <div className="flex flex-col items-center gap-0.5 text-slate-500 px-1 text-[10px] text-center">
@@ -739,7 +777,7 @@ export default function AdminImages() {
                 <div className="text-slate-400 py-10 text-sm">Loading…</div>
               }
               pagination
-              paginationPerPage={50}
+              paginationPerPage={25}
               paginationRowsPerPageOptions={[25, 50, 100, 250, 500]}
               fixedHeader
               fixedHeaderScrollHeight="calc(100vh - 220px)"
