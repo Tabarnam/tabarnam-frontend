@@ -4572,7 +4572,7 @@ export default function CompanyDashboard() {
                             </div>
 
                             <div className="flex gap-3 items-start">
-                              <div className="flex-1 space-y-1">
+                              <div className="flex-[2] space-y-1">
                                 <label className="text-sm text-slate-700 dark:text-muted-foreground">Amazon URL</label>
                                 <Input
                                   value={asString(editorDraft.amazon_url)}
