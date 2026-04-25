@@ -183,6 +183,7 @@ export default function AdminImages() {
 
   const [companies, setCompanies] = useState([]);
   const [totalCount, setTotalCount] = useState(null);
+  const [approvedCount, setApprovedCount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -209,6 +210,7 @@ export default function AdminImages() {
       const items = (data?.items || []).filter((c) => c && typeof c === "object");
       setCompanies(items);
       if (typeof data?.totalCount === "number") setTotalCount(data.totalCount);
+      if (typeof data?.approvedCount === "number") setApprovedCount(data.approvedCount);
     } catch (e) {
       if (e?.name === "AbortError") return;
       setError(e?.message || "Failed to load companies");
@@ -268,8 +270,15 @@ export default function AdminImages() {
   }, [updateLocal]);
 
   // Toggling the master "Approved" box also toggles per-image approvals so the
-  // logo and homepage are simultaneously approved/un-approved.
+  // logo and homepage are simultaneously approved/un-approved. Adjust the
+  // server-side approved count optimistically so the tally counters react.
   const persistMasterApproval = useCallback((company, value) => {
+    const wasApproved = !!company?.images_approved;
+    if (wasApproved !== value) {
+      setApprovedCount((prev) =>
+        typeof prev === "number" ? Math.max(0, prev + (value ? 1 : -1)) : prev
+      );
+    }
     return persistFields(company, {
       images_approved: value,
       logo_approved: value,
@@ -347,7 +356,17 @@ export default function AdminImages() {
     });
   }, [companies, statusFilter]);
 
+  // Tally counters reflect the full company set (server-side totals), not
+  // the loaded slice. Falls back to the loaded slice if the API didn't
+  // return totals for some reason.
   const counts = useMemo(() => {
+    if (totalCount != null && approvedCount != null) {
+      return {
+        all: totalCount,
+        approved: approvedCount,
+        pending: Math.max(0, totalCount - approvedCount),
+      };
+    }
     let approved = 0;
     for (const c of companies) {
       if (c?.images_approved) approved += 1;
@@ -357,7 +376,7 @@ export default function AdminImages() {
       approved,
       pending: companies.length - approved,
     };
-  }, [companies]);
+  }, [companies, totalCount, approvedCount]);
 
   const columns = useMemo(() => {
     return [

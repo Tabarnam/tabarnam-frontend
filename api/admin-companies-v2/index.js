@@ -1300,6 +1300,31 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             return null;
           });
 
+        // Count of companies whose images have been admin-approved (master flag).
+        // Returned alongside totalCount so the /admin/images tally counters can
+        // display approved/pending counts across the full dataset.
+        const approvedCountPromise = container.items
+          .query(
+            `SELECT VALUE c.id FROM c WHERE ${baseWhereStr} AND IS_DEFINED(c.images_approved) AND c.images_approved = true`,
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll()
+          .then((r) => (r.resources || []).length)
+          .catch((e) => {
+            context.log("[admin-companies-v2] approvedCount query error:", e?.message, e?.code);
+            return null;
+          });
+
+        // Optional filter: restrict the items list to approved or pending only.
+        // images_approved=true → only approved
+        // images_approved=false → only pending (i.e. flag missing or false)
+        const imagesApprovedRaw = String(req.query?.images_approved || "").toLowerCase().trim();
+        if (imagesApprovedRaw === "true") {
+          whereClauses.push("IS_DEFINED(c.images_approved) AND c.images_approved = true");
+        } else if (imagesApprovedRaw === "false") {
+          whereClauses.push("(NOT IS_DEFINED(c.images_approved) OR c.images_approved != true)");
+        }
+
         if (search) {
           parameters.push({ name: "@q", value: search });
           parameters.push({ name: "@q_compact", value: searchCompact });
@@ -1333,6 +1358,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         }
 
         let totalCount = await countPromise;
+        const approvedCount = await approvedCountPromise;
 
         // Fallback: if id-based count query returned 0 or null but data query found items,
         // use the deduplicated items count (guaranteed non-zero when companies exist).
@@ -1341,10 +1367,11 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           totalCount = items.length;
         }
 
-        context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length, "total:", totalCount);
+        context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length, "total:", totalCount, "approved:", approvedCount);
         return json({
           items, count: items.length,
           ...(totalCount != null && totalCount > 0 ? { totalCount } : {}),
+          ...(approvedCount != null ? { approvedCount } : {}),
           ...(cosmosTarget ? cosmosTarget : {}),
         }, 200);
       }
