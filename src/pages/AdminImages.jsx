@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Helmet } from "react-helmet-async";
 import { Link } from "react-router-dom";
+import { useTheme } from "next-themes";
 import DataTable from "react-data-table-component";
-import { Copy, ImageOff, Pencil, Search, Upload, X } from "lucide-react";
+import { Check, Copy, ImageOff, Pencil, Search, Upload, X } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
@@ -30,7 +32,45 @@ function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
-// Hover-pop preview ~480px wide, 2x the company-edit hover size.
+// Renders a hover preview at fixed coordinates via a portal so it can escape
+// the table's overflow clipping and the column borders.
+function HoverPreviewPortal({ src, anchorRect, alt }) {
+  if (!src || !anchorRect) return null;
+
+  const PREVIEW_WIDTH = 480;
+  const MARGIN = 12;
+  const viewportW = typeof window !== "undefined" ? window.innerWidth : 1200;
+
+  // Prefer right of anchor; fall back to left if off-screen.
+  let left = anchorRect.right + MARGIN;
+  if (left + PREVIEW_WIDTH > viewportW - 8) {
+    left = Math.max(8, anchorRect.left - PREVIEW_WIDTH - MARGIN);
+  }
+
+  // Center vertically against anchor; clamp to viewport.
+  const anchorCenterY = anchorRect.top + anchorRect.height / 2;
+  const top = Math.max(8, anchorCenterY);
+
+  return createPortal(
+    <img
+      src={src}
+      alt={alt}
+      aria-hidden="true"
+      className="fixed pointer-events-none rounded-md border border-slate-300 dark:border-slate-700 shadow-2xl bg-white"
+      style={{
+        left,
+        top,
+        width: PREVIEW_WIDTH,
+        maxWidth: "40vw",
+        transform: "translateY(-50%)",
+        zIndex: 9999,
+      }}
+      loading="lazy"
+    />,
+    document.body
+  );
+}
+
 function ImageCell({
   src,
   alt,
@@ -44,6 +84,9 @@ function ImageCell({
   thumbClass,
 }) {
   const fileRef = useRef(null);
+  const buttonRef = useRef(null);
+  const [hoverRect, setHoverRect] = useState(null);
+  const [recentlyUploaded, setRecentlyUploaded] = useState(false);
 
   const handlePick = (e) => {
     e.stopPropagation();
@@ -51,52 +94,64 @@ function ImageCell({
     fileRef.current?.click();
   };
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e?.target?.files?.[0];
-    if (file) onUpload(file);
+    if (file) {
+      await onUpload(file);
+      setRecentlyUploaded(true);
+      // Visual affirmation: green check overlay fades out after 2.5s
+      window.setTimeout(() => setRecentlyUploaded(false), 2500);
+    }
     if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const handleMouseEnter = () => {
+    if (!src) return;
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) setHoverRect(rect);
+  };
+
+  const handleMouseLeave = () => {
+    setHoverRect(null);
   };
 
   return (
     <div className="flex flex-col items-center gap-1 py-1">
-      <div className="relative group inline-block">
-        <button
-          type="button"
-          onClick={handlePick}
-          disabled={uploading}
-          title={src ? "Click to replace" : "Click to upload"}
-          className={`relative ${aspectClass} bg-white dark:bg-slate-900 rounded border border-slate-300 dark:border-border overflow-hidden flex items-center justify-center hover:ring-2 hover:ring-teal-500 transition`}
-        >
-          {src ? (
-            <img
-              src={src}
-              alt={alt}
-              className={`${thumbClass} object-contain`}
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex flex-col items-center gap-0.5 text-slate-400 px-1 text-[10px] text-center">
-              <Upload className="w-4 h-4" />
-              <span>{emptyLabel}</span>
-            </div>
-          )}
-          {uploading ? (
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-[10px]">
-              Uploading…
-            </div>
-          ) : null}
-        </button>
-
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={handlePick}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        disabled={uploading}
+        title={src ? "Click to replace" : "Click to upload"}
+        className={`relative ${aspectClass} bg-white dark:bg-slate-100 rounded border border-slate-300 dark:border-slate-600 overflow-hidden flex items-center justify-center hover:ring-2 hover:ring-teal-500 transition`}
+      >
         {src ? (
           <img
+            key={src}
             src={src}
-            alt=""
-            aria-hidden="true"
-            className="hidden lg:block pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
+            alt={alt}
+            className={`${thumbClass} object-contain`}
             loading="lazy"
           />
+        ) : (
+          <div className="flex flex-col items-center gap-0.5 text-slate-500 px-1 text-[10px] text-center">
+            <Upload className="w-4 h-4" />
+            <span>{emptyLabel}</span>
+          </div>
+        )}
+        {uploading ? (
+          <div className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-[10px]">
+            Uploading…
+          </div>
         ) : null}
-      </div>
+        {recentlyUploaded && !uploading ? (
+          <div className="absolute inset-0 bg-emerald-500/80 flex items-center justify-center text-white pointer-events-none">
+            <Check className="w-6 h-6" />
+          </div>
+        ) : null}
+      </button>
 
       <input
         ref={fileRef}
@@ -107,7 +162,7 @@ function ImageCell({
         disabled={uploading}
       />
 
-      <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-muted-foreground select-none">
+      <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 select-none">
         <Checkbox
           checked={!!approved}
           onCheckedChange={(v) => onApproveChange(Boolean(v))}
@@ -115,11 +170,16 @@ function ImageCell({
         />
         Approve
       </label>
+
+      <HoverPreviewPortal src={src} anchorRect={hoverRect} alt={alt} />
     </div>
   );
 }
 
 export default function AdminImages() {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -462,6 +522,73 @@ export default function AdminImages() {
     savingIds,
   ]);
 
+  const tableTheme = useMemo(
+    () => ({
+      table: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 10% 93%)" : undefined,
+        },
+      },
+      headRow: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 12% 15%)" : undefined,
+          color: isDark ? "hsl(187 10% 93%)" : undefined,
+          borderBottomColor: isDark ? "hsl(187 10% 18%)" : undefined,
+        },
+      },
+      headCells: {
+        style: {
+          fontWeight: 600,
+          fontSize: "11px",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          color: isDark ? "hsl(187 15% 65%)" : undefined,
+        },
+      },
+      rows: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 10% 93%)" : undefined,
+          borderBottomColor: isDark ? "hsl(187 10% 18%)" : undefined,
+          minHeight: "92px",
+          "&:hover": {
+            backgroundColor: isDark ? "hsl(187 12% 15%)" : undefined,
+          },
+        },
+      },
+      pagination: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 10% 93%)" : undefined,
+          borderTopColor: isDark ? "hsl(187 10% 18%)" : undefined,
+        },
+        pageButtonsStyle: isDark
+          ? {
+              color: "hsl(187 10% 93%)",
+              fill: "hsl(187 10% 93%)",
+              "&:disabled": { color: "hsl(187 10% 30%)", fill: "hsl(187 10% 30%)" },
+              "&:hover:not(:disabled)": { backgroundColor: "hsl(187 12% 18%)" },
+              "&:focus": { backgroundColor: "hsl(187 12% 18%)" },
+            }
+          : undefined,
+      },
+      noData: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 15% 55%)" : undefined,
+        },
+      },
+      progress: {
+        style: {
+          backgroundColor: isDark ? "hsl(187 15% 11%)" : undefined,
+          color: isDark ? "hsl(187 15% 55%)" : undefined,
+        },
+      },
+    }),
+    [isDark]
+  );
+
   return (
     <>
       <Helmet>
@@ -507,7 +634,7 @@ export default function AdminImages() {
             </div>
           )}
 
-          <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card overflow-x-auto">
+          <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[hsl(187_15%_11%)]">
             <DataTable
               columns={columns}
               data={filteredItems}
@@ -523,6 +650,7 @@ export default function AdminImages() {
               highlightOnHover
               defaultSortFieldId="issues"
               defaultSortAsc={false}
+              customStyles={tableTheme}
               noDataComponent={
                 <div className="py-8 text-slate-500 text-sm">
                   {companies.length === 0 ? "No companies yet." : "No matches."}
