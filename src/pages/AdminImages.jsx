@@ -362,7 +362,7 @@ export default function AdminImages() {
         selector: (row) => getCompanyName(row),
         sortable: true,
         wrap: true,
-        grow: 1.5,
+        width: "220px",
         cell: (row) => {
           const name = getCompanyName(row);
           return (
@@ -392,6 +392,7 @@ export default function AdminImages() {
         selector: (row) => asString(row?.normalized_domain).trim(),
         sortable: true,
         wrap: true,
+        width: "200px",
         cell: (row) => {
           const domain = asString(row?.normalized_domain).trim();
           return (
@@ -652,7 +653,7 @@ export default function AdminImages() {
       <AdminHeader />
 
       <div className="bg-slate-50 dark:bg-slate-950 min-h-screen p-6">
-        <div className="max-w-[1600px] mx-auto">
+        <div className="max-w-[1400px] mx-auto">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">Images</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
             {companies.length} companies
