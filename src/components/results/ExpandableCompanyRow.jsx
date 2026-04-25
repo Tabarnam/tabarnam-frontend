@@ -745,7 +745,7 @@ export default function ExpandableCompanyRow({
                 src={homepagePreviewUrl}
                 alt={`${displayName} homepage preview`}
                 aria-hidden="true"
-                className="hidden lg:block pointer-events-none absolute left-full top-0 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
+                className="hidden lg:block pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
                 loading="lazy"
               />
             ) : null}
@@ -1037,7 +1037,7 @@ export default function ExpandableCompanyRow({
             src={homepagePreviewUrl}
             alt={`${displayName} homepage preview`}
             aria-hidden="true"
-            className="hidden lg:block pointer-events-none absolute left-full top-0 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
+            className="hidden lg:block pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
             loading="lazy"
           />
         ) : null}
