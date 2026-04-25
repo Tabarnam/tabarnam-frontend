@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Helmet } from "react-helmet-async";
-import { Link } from "react-router-dom";
 import { useTheme } from "next-themes";
 import DataTable from "react-data-table-component";
 import { Check, Copy, ImageOff, Pencil, Search, Upload, X } from "lucide-react";
@@ -184,6 +183,10 @@ export default function AdminImages() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // "all" | "approved" | "pending"
+  // "approved" = both logo_approved AND homepage_approved
+  // "pending"  = at least one is unapproved
+  const [statusFilter, setStatusFilter] = useState("all");
   const [savingIds, setSavingIds] = useState(() => new Set());
   const [uploadingLogoIds, setUploadingLogoIds] = useState(() => new Set());
   const [uploadingHomepageIds, setUploadingHomepageIds] = useState(() => new Set());
@@ -300,14 +303,20 @@ export default function AdminImages() {
 
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return companies;
     return companies.filter((c) => {
+      // Status filter
+      const bothApproved = !!c?.logo_approved && !!c?.homepage_approved;
+      if (statusFilter === "approved" && !bothApproved) return false;
+      if (statusFilter === "pending" && bothApproved) return false;
+
+      // Text search
+      if (!q) return true;
       const name = (getCompanyName(c) || "").toLowerCase();
       const url = (c.website_url || c.normalized_domain || "").toLowerCase();
       const id = (getCompanyId(c) || "").toLowerCase();
       return name.includes(q) || url.includes(q) || id.includes(q);
     });
-  }, [companies, searchQuery]);
+  }, [companies, searchQuery, statusFilter]);
 
   const columns = useMemo(() => {
     return [
@@ -318,11 +327,16 @@ export default function AdminImages() {
         cell: (row) => {
           const id = getCompanyId(row);
           return (
-            <Link to={`/admin?company_id=${encodeURIComponent(id)}`}>
+            <a
+              href={`/admin?company_id=${encodeURIComponent(id)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open editor in new tab"
+            >
               <Button size="sm" variant="ghost">
                 <Pencil className="h-4 w-4" />
               </Button>
-            </Link>
+            </a>
           );
         },
         width: "70px",
@@ -382,6 +396,36 @@ export default function AdminImages() {
                   <Copy className="h-3 w-3" />
                 </button>
               )}
+            </div>
+          );
+        },
+      },
+      {
+        id: "approved",
+        name: "Approved",
+        // Sortable by approval count: 2 = both, 1 = partial, 0 = neither.
+        selector: (row) => (row?.logo_approved ? 1 : 0) + (row?.homepage_approved ? 1 : 0),
+        sortable: true,
+        width: "115px",
+        cell: (row) => {
+          const logoOk = !!row?.logo_approved;
+          const pageOk = !!row?.homepage_approved;
+          const pill = (label, ok) => (
+            <span
+              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                ok
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                  : "border-slate-300 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+              }`}
+            >
+              {ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+              {label}
+            </span>
+          );
+          return (
+            <div className="flex flex-col gap-1 py-1">
+              {pill("Logo", logoOk)}
+              {pill("Page", pageOk)}
             </div>
           );
         },
@@ -608,24 +652,56 @@ export default function AdminImages() {
             )}
           </p>
 
-          <div className="relative mb-4 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, domain, or company id…"
-              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md pl-9 pr-9 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name, domain, or company id…"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md pl-9 pr-9 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div
+              role="radiogroup"
+              aria-label="Filter by approval status"
+              className="inline-flex rounded-md border border-slate-300 dark:border-slate-700 overflow-hidden text-sm"
+            >
+              {[
+                { value: "all", label: "Show All" },
+                { value: "approved", label: "Approved" },
+                { value: "pending", label: "Pending" },
+              ].map((opt) => {
+                const active = statusFilter === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setStatusFilter(opt.value)}
+                    className={`px-3 py-2 transition border-r last:border-r-0 border-slate-300 dark:border-slate-700 ${
+                      active
+                        ? "bg-teal-600 text-white"
+                        : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {error && (
@@ -648,7 +724,7 @@ export default function AdminImages() {
               fixedHeader
               fixedHeaderScrollHeight="calc(100vh - 220px)"
               highlightOnHover
-              defaultSortFieldId="issues"
+              defaultSortFieldId="updated"
               defaultSortAsc={false}
               customStyles={tableTheme}
               noDataComponent={
