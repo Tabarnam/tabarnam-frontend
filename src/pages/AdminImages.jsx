@@ -193,47 +193,42 @@ export default function AdminImages() {
   const [uploadingLogoIds, setUploadingLogoIds] = useState(() => new Set());
   const [uploadingHomepageIds, setUploadingHomepageIds] = useState(() => new Set());
 
-  const fetchCompanies = useCallback(async () => {
-    setLoading(true);
+  const fetchCompanies = useCallback(async (search, signal) => {
     setError(null);
-    // Two-phase fetch: grab a small first batch so rows paint quickly, then
-    // pull the full dataset in the background so search/sort can work across
-    // every company. Mirrors the responsiveness of the public search page,
-    // which returns a small result set near-instantly.
-    const PRIMARY_TAKE = 500;
-    const FULL_TAKE = 5000;
-
+    const params = new URLSearchParams();
+    const trimmed = (search || "").trim();
+    // Empty search → small batch of recently-updated rows for instant paint.
+    // Non-empty search → bigger window, server-side filter, full dataset reachable.
+    params.set("take", trimmed ? "500" : "100");
+    if (trimmed) params.set("search", trimmed);
     try {
-      const primaryRes = await apiFetch(`/xadmin-api-companies?take=${PRIMARY_TAKE}`);
-      const primaryData = await readJsonOrText(primaryRes);
-      if (!primaryRes.ok) {
-        throw new Error(primaryData?.error || `HTTP ${primaryRes.status}`);
-      }
-      const primaryItems = (primaryData?.items || []).filter((c) => c && typeof c === "object");
-      setCompanies(primaryItems);
-      setLoading(false);
-
-      // Fire-and-forget the larger fetch. If it succeeds, replace the list;
-      // if it fails, keep the primary batch the admin already sees.
-      if (primaryItems.length >= PRIMARY_TAKE) {
-        apiFetch(`/xadmin-api-companies?take=${FULL_TAKE}`)
-          .then(async (res) => {
-            if (!res.ok) return;
-            const data = await readJsonOrText(res);
-            const items = (data?.items || []).filter((c) => c && typeof c === "object");
-            if (items.length > primaryItems.length) setCompanies(items);
-          })
-          .catch(() => { /* keep primary batch on background-fetch error */ });
-      }
+      const res = await apiFetch(`/xadmin-api-companies?${params.toString()}`, { signal });
+      const data = await readJsonOrText(res);
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      const items = (data?.items || []).filter((c) => c && typeof c === "object");
+      setCompanies(items);
     } catch (e) {
+      if (e?.name === "AbortError") return;
       setError(e?.message || "Failed to load companies");
+    } finally {
       setLoading(false);
     }
   }, []);
 
+  // Debounce the search box so we don't fire a request on every keystroke.
   useEffect(() => {
-    fetchCompanies();
-  }, [fetchCompanies]);
+    const controller = new AbortController();
+    const trimmed = searchQuery.trim();
+    const delay = trimmed ? 250 : 0;
+    setLoading(true);
+    const t = window.setTimeout(() => {
+      fetchCompanies(trimmed, controller.signal);
+    }, delay);
+    return () => {
+      window.clearTimeout(t);
+      controller.abort();
+    };
+  }, [searchQuery, fetchCompanies]);
 
   const updateLocal = useCallback((id, patch) => {
     setCompanies((prev) =>
@@ -340,22 +335,15 @@ export default function AdminImages() {
   }, [updateLocal]);
 
   const filteredItems = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    // Text search is now server-side; here we only apply the local
+    // status filter against whichever batch is currently loaded.
     return companies.filter((c) => {
-      // Status filter — driven by the master images_approved flag, not the
-      // per-image logo_approved / homepage_approved booleans.
       const masterApproved = !!c?.images_approved;
       if (statusFilter === "approved" && !masterApproved) return false;
       if (statusFilter === "pending" && masterApproved) return false;
-
-      // Text search
-      if (!q) return true;
-      const name = (getCompanyName(c) || "").toLowerCase();
-      const url = (c.website_url || c.normalized_domain || "").toLowerCase();
-      const id = (getCompanyId(c) || "").toLowerCase();
-      return name.includes(q) || url.includes(q) || id.includes(q);
+      return true;
     });
-  }, [companies, searchQuery, statusFilter]);
+  }, [companies, statusFilter]);
 
   const counts = useMemo(() => {
     let approved = 0;
@@ -685,12 +673,9 @@ export default function AdminImages() {
         <div className="max-w-[1200px] mx-auto">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">Images</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
-            {companies.length} companies
-            {searchQuery && filteredItems.length !== companies.length && (
-              <span className="ml-2 text-slate-500">
-                (showing {filteredItems.length} matching &ldquo;{searchQuery}&rdquo;)
-              </span>
-            )}
+            {searchQuery
+              ? `${filteredItems.length} matching "${searchQuery}"`
+              : `${filteredItems.length} most-recently-updated companies`}
           </p>
 
           <div className="flex flex-wrap items-center gap-3 mb-4">
