@@ -15,6 +15,7 @@ import AdminPanel from "@pages/AdminPanel";
 import CompanyDashboard from "@pages/CompanyDashboard";
 import AdminImport from "@pages/AdminImport";
 import AdminLogoReview from "@pages/AdminLogoReview";
+import AdminImages from "@pages/AdminImages";
 import AdminSearchEdit from "@pages/AdminSearchEdit";
 import AdminBackfillScores from "@pages/AdminBackfillScores";
 import ResultsPage from "@pages/ResultsPage";
@@ -138,6 +139,14 @@ export default function App() {
                 element={
                   <AdminRoute>
                     <AdminLogoReview />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/images"
+                element={
+                  <AdminRoute>
+                    <AdminImages />
                   </AdminRoute>
                 }
               />
