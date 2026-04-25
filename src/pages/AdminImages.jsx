@@ -182,6 +182,7 @@ export default function AdminImages() {
   const isDark = resolvedTheme === "dark";
 
   const [companies, setCompanies] = useState([]);
+  const [totalCount, setTotalCount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -207,6 +208,7 @@ export default function AdminImages() {
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       const items = (data?.items || []).filter((c) => c && typeof c === "object");
       setCompanies(items);
+      if (typeof data?.totalCount === "number") setTotalCount(data.totalCount);
     } catch (e) {
       if (e?.name === "AbortError") return;
       setError(e?.message || "Failed to load companies");
@@ -673,9 +675,20 @@ export default function AdminImages() {
         <div className="max-w-[1200px] mx-auto">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">Images</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
-            {searchQuery
-              ? `${filteredItems.length} matching "${searchQuery}"`
-              : `${filteredItems.length} most-recently-updated companies`}
+            {searchQuery ? (
+              <>
+                {filteredItems.length} matching &ldquo;{searchQuery}&rdquo;
+              </>
+            ) : (
+              <>
+                {totalCount != null ? `${totalCount.toLocaleString()} companies total` : `${filteredItems.length} companies loaded`}
+                {totalCount != null && filteredItems.length < totalCount ? (
+                  <span className="ml-2 text-slate-400 dark:text-slate-500">
+                    (showing the {filteredItems.length} most recently updated; type to search the rest)
+                  </span>
+                ) : null}
+              </>
+            )}
           </p>
 
           <div className="flex flex-wrap items-center gap-3 mb-4">
