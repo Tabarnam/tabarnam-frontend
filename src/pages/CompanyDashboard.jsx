@@ -5031,22 +5031,6 @@ export default function CompanyDashboard() {
                               >
                                 Clear
                               </Button>
-
-                              <Button
-                                variant="outline"
-                                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                                onClick={deleteHomepageFromStorage}
-                                disabled={
-                                  homepageUploading ||
-                                  homepageDeleting ||
-                                  !editorOriginalId ||
-                                  !asString(editorDraft.homepage_image_url).trim() ||
-                                  !(asString(editorDraft.homepage_image_url).includes(".blob.core.windows.net") &&
-                                    asString(editorDraft.homepage_image_url).includes("/company-homepages/"))
-                                }
-                              >
-                                {homepageDeleting ? "Deleting…" : "Delete from storage"}
-                              </Button>
                             </div>
 
                             {homepageFile ? (
