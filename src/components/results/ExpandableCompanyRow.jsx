@@ -698,57 +698,59 @@ export default function ExpandableCompanyRow({
 
           </div>
 
-          <div className="col-span-2 lg:col-span-1 relative group">
-            {shouldShowLogo ? (
-              websiteUrl ? (
-                <a
-                  href={websiteUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="block"
-                >
+          <div className="col-span-2 lg:col-span-1">
+            <div className="relative group inline-block w-full">
+              {shouldShowLogo ? (
+                websiteUrl ? (
+                  <a
+                    href={websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="block"
+                  >
+                    <img
+                      src={logoUrl}
+                      alt={displayName}
+                      className="w-full max-h-40 h-auto object-contain"
+                      onError={() => setLogoFailed(true)}
+                    />
+                  </a>
+                ) : (
                   <img
                     src={logoUrl}
                     alt={displayName}
                     className="w-full max-h-40 h-auto object-contain"
                     onError={() => setLogoFailed(true)}
                   />
-                </a>
+                )
               ) : (
-                <img
-                  src={logoUrl}
-                  alt={displayName}
-                  className="w-full max-h-40 h-auto object-contain"
-                  onError={() => setLogoFailed(true)}
-                />
-              )
-            ) : (
-              <div className="w-full h-32 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
-                {logoStatus === "not_found_on_site" ? (
-                  <span className="text-xs font-semibold text-muted-foreground">No logo found on company website</span>
-                ) : logoStatus === "not_found" ? (
-                  <span className="text-xs font-semibold text-muted-foreground">No logo found</span>
-                ) : (
-                  displayName
-                    .split(" ")
-                    .map((w) => w[0])
-                    .join("")
-                    .substring(0, 2)
-                    .toUpperCase()
-                )}
-              </div>
-            )}
+                <div className="w-full h-32 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
+                  {logoStatus === "not_found_on_site" ? (
+                    <span className="text-xs font-semibold text-muted-foreground">No logo found on company website</span>
+                  ) : logoStatus === "not_found" ? (
+                    <span className="text-xs font-semibold text-muted-foreground">No logo found</span>
+                  ) : (
+                    displayName
+                      .split(" ")
+                      .map((w) => w[0])
+                      .join("")
+                      .substring(0, 2)
+                      .toUpperCase()
+                  )}
+                </div>
+              )}
 
-            {homepagePreviewUrl ? (
-              <img
-                src={homepagePreviewUrl}
-                alt={`${displayName} homepage preview`}
-                aria-hidden="true"
-                className="hidden lg:block pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
-                loading="lazy"
-              />
-            ) : null}
+              {homepagePreviewUrl ? (
+                <img
+                  src={homepagePreviewUrl}
+                  alt={`${displayName} homepage preview`}
+                  aria-hidden="true"
+                  className="hidden lg:block pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
+                  loading="lazy"
+                />
+              ) : null}
+            </div>
           </div>
 
           {/* Right 3 columns + reasoning wrapped together so they're independent of left column height */}
@@ -990,57 +992,59 @@ export default function ExpandableCompanyRow({
       </div>
 
       {/* Logo Column */}
-      <div className="col-span-2 lg:col-span-1 flex items-center justify-center relative group">
-        {shouldShowLogo ? (
-          websiteUrl ? (
-            <a
-              href={websiteUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="block"
-            >
+      <div className="col-span-2 lg:col-span-1 flex items-center justify-center">
+        <div className="relative group inline-block w-full">
+          {shouldShowLogo ? (
+            websiteUrl ? (
+              <a
+                href={websiteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="block"
+              >
+                <img
+                  src={logoUrl}
+                  alt={displayName}
+                  className="w-full max-h-60 h-auto object-contain"
+                  onError={() => setLogoFailed(true)}
+                />
+              </a>
+            ) : (
               <img
                 src={logoUrl}
                 alt={displayName}
                 className="w-full max-h-60 h-auto object-contain"
                 onError={() => setLogoFailed(true)}
               />
-            </a>
+            )
           ) : (
-            <img
-              src={logoUrl}
-              alt={displayName}
-              className="w-full max-h-60 h-auto object-contain"
-              onError={() => setLogoFailed(true)}
-            />
-          )
-        ) : (
-          <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
-            {logoStatus === "not_found_on_site" ? (
-              <span className="text-xs font-semibold text-muted-foreground">No logo found on company website</span>
-            ) : logoStatus === "not_found" ? (
-              <span className="text-xs font-semibold text-muted-foreground">No logo found</span>
-            ) : (
-              displayName
-                .split(" ")
-                .map((w) => w[0])
-                .join("")
-                .substring(0, 2)
-                .toUpperCase()
-            )}
-          </div>
-        )}
+            <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
+              {logoStatus === "not_found_on_site" ? (
+                <span className="text-xs font-semibold text-muted-foreground">No logo found on company website</span>
+              ) : logoStatus === "not_found" ? (
+                <span className="text-xs font-semibold text-muted-foreground">No logo found</span>
+              ) : (
+                displayName
+                  .split(" ")
+                  .map((w) => w[0])
+                  .join("")
+                  .substring(0, 2)
+                  .toUpperCase()
+              )}
+            </div>
+          )}
 
-        {homepagePreviewUrl ? (
-          <img
-            src={homepagePreviewUrl}
-            alt={`${displayName} homepage preview`}
-            aria-hidden="true"
-            className="hidden lg:block pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
-            loading="lazy"
-          />
-        ) : null}
+          {homepagePreviewUrl ? (
+            <img
+              src={homepagePreviewUrl}
+              alt={`${displayName} homepage preview`}
+              aria-hidden="true"
+              className="hidden lg:block pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 w-[480px] max-w-[40vw] rounded-md border border-border shadow-xl bg-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-50"
+              loading="lazy"
+            />
+          ) : null}
+        </div>
       </div>
 
       {/* Manufacturing/HQ/QQ columns - spans 3 columns */}
