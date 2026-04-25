@@ -3811,7 +3811,7 @@ export default function CompanyDashboard() {
           </section>
 
           <Dialog open={editorOpen} onOpenChange={handleEditorOpenChange}>
-            <DialogContent className="w-[95vw] max-w-[1500px] h-[90vh] max-h-[90vh] p-0 bg-white dark:bg-card overflow-hidden flex flex-col gap-0">
+            <DialogContent className="w-[95vw] max-w-[1500px] h-[100vh] max-h-[100vh] top-0 translate-y-0 rounded-none p-0 bg-white dark:bg-card overflow-hidden flex flex-col gap-0">
               <ErrorBoundary
                 resetKeys={[editorOriginalId, editorOpen]}
                 fallback={({ error }) => (
@@ -3865,13 +3865,12 @@ export default function CompanyDashboard() {
 
                   {editorDraft ? (
                     <div className="space-y-5">
-                      <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-4">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="min-w-0">
-                            <div className="text-xs font-medium text-slate-700 dark:text-muted-foreground">company_id</div>
-                            <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+                      <div className="rounded-lg border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
                               <div className="flex flex-wrap items-center gap-2">
-                                <code className="rounded bg-white dark:bg-card border border-slate-200 dark:border-border px-2 py-1 text-xs text-slate-900 dark:text-foreground">
+                                <code className="rounded bg-white dark:bg-card border border-slate-200 dark:border-border px-2 py-1 text-xs text-slate-900 dark:text-foreground" title="company_id">
                                   {editorOriginalId ? asString(editorDraft.company_id).trim() || "(missing)" : editorCompanyId || "(auto)"}
                                 </code>
                                 <Button
