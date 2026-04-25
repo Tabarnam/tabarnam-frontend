@@ -4621,6 +4621,18 @@ export default function CompanyDashboard() {
                                   </div>
                                 </div>
                               </details>
+
+                              <details className="flex-1">
+                                <summary className="text-sm text-slate-500 dark:text-muted-foreground cursor-pointer hover:text-slate-700 dark:hover:text-foreground select-none py-1">
+                                  Affiliate link URLs
+                                </summary>
+                                <div className="mt-2">
+                                  <StringListEditor
+                                    value={editorDraft.affiliate_link_urls}
+                                    onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
+                                  />
+                                </div>
+                              </details>
                             </div>
 
                           </div>
@@ -4844,22 +4856,6 @@ export default function CompanyDashboard() {
                               >
                                 Clear
                               </Button>
-
-                              <Button
-                                variant="outline"
-                                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                                onClick={deleteLogoFromStorage}
-                                disabled={
-                                  logoUploading ||
-                                  logoDeleting ||
-                                  !editorOriginalId ||
-                                  !asString(editorDraft.logo_url).trim() ||
-                                  !(asString(editorDraft.logo_url).includes(".blob.core.windows.net") &&
-                                    asString(editorDraft.logo_url).includes("/company-logos/"))
-                                }
-                              >
-                                {logoDeleting ? "Deleting…" : "Delete from storage"}
-                              </Button>
                             </div>
 
                             <details>
@@ -4948,18 +4944,6 @@ export default function CompanyDashboard() {
                                     </div>
                                   </div>
                                 )}
-                              </div>
-                            </details>
-
-                            <details>
-                              <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-700 dark:hover:text-blue-400 select-none py-1">
-                                Affiliate link URLs
-                              </summary>
-                              <div className="mt-2">
-                                <StringListEditor
-                                  value={editorDraft.affiliate_link_urls}
-                                  onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
-                                />
                               </div>
                             </details>
 
