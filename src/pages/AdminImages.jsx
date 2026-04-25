@@ -196,15 +196,37 @@ export default function AdminImages() {
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
     setError(null);
+    // Two-phase fetch: grab a small first batch so rows paint quickly, then
+    // pull the full dataset in the background so search/sort can work across
+    // every company. Mirrors the responsiveness of the public search page,
+    // which returns a small result set near-instantly.
+    const PRIMARY_TAKE = 500;
+    const FULL_TAKE = 5000;
+
     try {
-      const res = await apiFetch(`/xadmin-api-companies?take=5000`);
-      const data = await readJsonOrText(res);
-      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      const items = (data?.items || []).filter((c) => c && typeof c === "object");
-      setCompanies(items);
+      const primaryRes = await apiFetch(`/xadmin-api-companies?take=${PRIMARY_TAKE}`);
+      const primaryData = await readJsonOrText(primaryRes);
+      if (!primaryRes.ok) {
+        throw new Error(primaryData?.error || `HTTP ${primaryRes.status}`);
+      }
+      const primaryItems = (primaryData?.items || []).filter((c) => c && typeof c === "object");
+      setCompanies(primaryItems);
+      setLoading(false);
+
+      // Fire-and-forget the larger fetch. If it succeeds, replace the list;
+      // if it fails, keep the primary batch the admin already sees.
+      if (primaryItems.length >= PRIMARY_TAKE) {
+        apiFetch(`/xadmin-api-companies?take=${FULL_TAKE}`)
+          .then(async (res) => {
+            if (!res.ok) return;
+            const data = await readJsonOrText(res);
+            const items = (data?.items || []).filter((c) => c && typeof c === "object");
+            if (items.length > primaryItems.length) setCompanies(items);
+          })
+          .catch(() => { /* keep primary batch on background-fetch error */ });
+      }
     } catch (e) {
       setError(e?.message || "Failed to load companies");
-    } finally {
       setLoading(false);
     }
   }, []);
