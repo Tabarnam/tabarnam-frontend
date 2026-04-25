@@ -217,7 +217,7 @@ export default function AdminImages() {
     );
   }, []);
 
-  const persistApproval = useCallback(async (company, field, value) => {
+  const persistFields = useCallback(async (company, patch) => {
     const id = getCompanyId(company);
     if (!id) {
       toast.error("Missing company id");
@@ -228,15 +228,15 @@ export default function AdminImages() {
       const res = await apiFetch(`/xadmin-api-companies/${encodeURIComponent(id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [field]: value }),
+        body: JSON.stringify(patch),
       });
       if (!res.ok) {
         const data = await readJsonOrText(res);
         throw new Error(data?.error || `HTTP ${res.status}`);
       }
-      updateLocal(id, { [field]: value });
+      updateLocal(id, patch);
     } catch (e) {
-      toast.error(`Failed to save ${field}: ${e?.message || e}`);
+      toast.error(`Failed to save: ${e?.message || e}`);
     } finally {
       setSavingIds((prev) => {
         const next = new Set(prev);
@@ -245,6 +245,20 @@ export default function AdminImages() {
       });
     }
   }, [updateLocal]);
+
+  // Toggling the master "Approved" box also toggles per-image approvals so the
+  // logo and homepage are simultaneously approved/un-approved.
+  const persistMasterApproval = useCallback((company, value) => {
+    return persistFields(company, {
+      images_approved: value,
+      logo_approved: value,
+      homepage_approved: value,
+    });
+  }, [persistFields]);
+
+  const persistApproval = useCallback((company, field, value) => {
+    return persistFields(company, { [field]: value });
+  }, [persistFields]);
 
   const handleLogoUpload = useCallback(async (company, file) => {
     const id = getCompanyId(company);
@@ -414,7 +428,7 @@ export default function AdminImages() {
             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200 select-none cursor-pointer">
               <Checkbox
                 checked={checked}
-                onCheckedChange={(v) => persistApproval(row, "images_approved", Boolean(v))}
+                onCheckedChange={(v) => persistMasterApproval(row, Boolean(v))}
                 disabled={savingIds.has(id)}
               />
               {checked ? (
@@ -555,6 +569,7 @@ export default function AdminImages() {
     ];
   }, [
     persistApproval,
+    persistMasterApproval,
     handleLogoUpload,
     handleHomepageUpload,
     uploadingLogoIds,
