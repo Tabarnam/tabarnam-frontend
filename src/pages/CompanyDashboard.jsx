@@ -3811,7 +3811,7 @@ export default function CompanyDashboard() {
           </section>
 
           <Dialog open={editorOpen} onOpenChange={handleEditorOpenChange}>
-            <DialogContent className="w-[95vw] max-w-[1500px] h-[100vh] max-h-[100vh] top-0 translate-y-0 rounded-none p-0 bg-white dark:bg-card overflow-hidden flex flex-col gap-0">
+            <DialogContent className="w-[95vw] max-w-[1500px] !top-0 !translate-y-0 !h-screen !max-h-screen !rounded-none p-0 bg-white dark:bg-card overflow-hidden flex flex-col gap-0">
               <ErrorBoundary
                 resetKeys={[editorOriginalId, editorOpen]}
                 fallback={({ error }) => (
