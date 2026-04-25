@@ -6,6 +6,7 @@ import DataTable from "react-data-table-component";
 import { Check, Copy, ImageOff, Pencil, Search, Upload, X } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
+import TallyCounter from "@/components/TallyCounter";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiFetch, readJsonOrText } from "@/lib/api";
@@ -333,6 +334,18 @@ export default function AdminImages() {
     });
   }, [companies, searchQuery, statusFilter]);
 
+  const counts = useMemo(() => {
+    let approved = 0;
+    for (const c of companies) {
+      if (c?.images_approved) approved += 1;
+    }
+    return {
+      all: companies.length,
+      approved,
+      pending: companies.length - approved,
+    };
+  }, [companies]);
+
   const columns = useMemo(() => {
     return [
       {
@@ -362,7 +375,7 @@ export default function AdminImages() {
         selector: (row) => getCompanyName(row),
         sortable: true,
         wrap: true,
-        width: "220px",
+        width: "145px",
         cell: (row) => {
           const name = getCompanyName(row);
           return (
@@ -392,7 +405,7 @@ export default function AdminImages() {
         selector: (row) => asString(row?.normalized_domain).trim(),
         sortable: true,
         wrap: true,
-        width: "200px",
+        width: "135px",
         cell: (row) => {
           const domain = asString(row?.normalized_domain).trim();
           return (
@@ -424,20 +437,13 @@ export default function AdminImages() {
         width: "110px",
         cell: (row) => {
           const id = getCompanyId(row);
-          const checked = !!row?.images_approved;
           return (
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200 select-none cursor-pointer">
-              <Checkbox
-                checked={checked}
-                onCheckedChange={(v) => persistMasterApproval(row, Boolean(v))}
-                disabled={savingIds.has(id)}
-              />
-              {checked ? (
-                <span className="text-emerald-600 dark:text-emerald-400 text-xs font-medium">Approved</span>
-              ) : (
-                <span className="text-slate-500 dark:text-slate-400 text-xs">Pending</span>
-              )}
-            </label>
+            <Checkbox
+              checked={!!row?.images_approved}
+              onCheckedChange={(v) => persistMasterApproval(row, Boolean(v))}
+              disabled={savingIds.has(id)}
+              aria-label="Master approve"
+            />
           );
         },
       },
@@ -545,7 +551,7 @@ export default function AdminImages() {
           return n;
         },
         sortable: true,
-        width: "120px",
+        width: "75px",
         cell: (row) => {
           const issues = [];
           if (!row?.logo_approved) issues.push("logo");
@@ -554,7 +560,7 @@ export default function AdminImages() {
             return <span className="text-xs text-emerald-500">OK</span>;
           }
           return (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-col gap-1 items-start">
               {issues.map((tag) => (
                 <span
                   key={tag}
@@ -653,7 +659,7 @@ export default function AdminImages() {
       <AdminHeader />
 
       <div className="bg-slate-50 dark:bg-slate-950 min-h-screen p-6">
-        <div className="max-w-[1400px] mx-auto">
+        <div className="max-w-[1200px] mx-auto">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">Images</h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
             {companies.length} companies
@@ -688,29 +694,31 @@ export default function AdminImages() {
             <div
               role="radiogroup"
               aria-label="Filter by approval status"
-              className="inline-flex rounded-md border border-slate-300 dark:border-slate-700 overflow-hidden text-sm"
+              className="flex items-end gap-2"
             >
               {[
-                { value: "all", label: "Show All" },
-                { value: "approved", label: "Approved" },
-                { value: "pending", label: "Pending" },
+                { value: "all", label: "Show All", count: counts.all },
+                { value: "approved", label: "Approved", count: counts.approved },
+                { value: "pending", label: "Pending", count: counts.pending },
               ].map((opt) => {
                 const active = statusFilter === opt.value;
                 return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => setStatusFilter(opt.value)}
-                    className={`px-3 py-2 transition border-r last:border-r-0 border-slate-300 dark:border-slate-700 ${
-                      active
-                        ? "bg-teal-600 text-white"
-                        : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
+                  <div key={opt.value} className="flex flex-col items-center gap-1">
+                    <TallyCounter value={opt.count} label="" />
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setStatusFilter(opt.value)}
+                      className={`px-3 py-2 text-sm rounded border transition ${
+                        active
+                          ? "bg-teal-600 border-teal-600 text-white"
+                          : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  </div>
                 );
               })}
             </div>
