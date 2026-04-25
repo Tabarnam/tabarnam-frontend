@@ -304,10 +304,11 @@ export default function AdminImages() {
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return companies.filter((c) => {
-      // Status filter
-      const bothApproved = !!c?.logo_approved && !!c?.homepage_approved;
-      if (statusFilter === "approved" && !bothApproved) return false;
-      if (statusFilter === "pending" && bothApproved) return false;
+      // Status filter — driven by the master images_approved flag, not the
+      // per-image logo_approved / homepage_approved booleans.
+      const masterApproved = !!c?.images_approved;
+      if (statusFilter === "approved" && !masterApproved) return false;
+      if (statusFilter === "pending" && masterApproved) return false;
 
       // Text search
       if (!q) return true;
@@ -403,30 +404,25 @@ export default function AdminImages() {
       {
         id: "approved",
         name: "Approved",
-        // Sortable by approval count: 2 = both, 1 = partial, 0 = neither.
-        selector: (row) => (row?.logo_approved ? 1 : 0) + (row?.homepage_approved ? 1 : 0),
+        selector: (row) => (row?.images_approved ? 1 : 0),
         sortable: true,
-        width: "115px",
+        width: "110px",
         cell: (row) => {
-          const logoOk = !!row?.logo_approved;
-          const pageOk = !!row?.homepage_approved;
-          const pill = (label, ok) => (
-            <span
-              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
-                ok
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                  : "border-slate-300 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-              }`}
-            >
-              {ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
-              {label}
-            </span>
-          );
+          const id = getCompanyId(row);
+          const checked = !!row?.images_approved;
           return (
-            <div className="flex flex-col gap-1 py-1">
-              {pill("Logo", logoOk)}
-              {pill("Page", pageOk)}
-            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200 select-none cursor-pointer">
+              <Checkbox
+                checked={checked}
+                onCheckedChange={(v) => persistApproval(row, "images_approved", Boolean(v))}
+                disabled={savingIds.has(id)}
+              />
+              {checked ? (
+                <span className="text-emerald-600 dark:text-emerald-400 text-xs font-medium">Approved</span>
+              ) : (
+                <span className="text-slate-500 dark:text-slate-400 text-xs">Pending</span>
+              )}
+            </label>
           );
         },
       },
