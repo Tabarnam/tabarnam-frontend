@@ -8,7 +8,7 @@
 const { tryLoadSharp } = require("./_shared");
 const { sharp, reason: sharpLoadError } = tryLoadSharp();
 
-const MICROLINK_BASE = "https://api.microlink.io/";
+const MICROLINK_BASE = "https://pro.microlink.io/";
 const SCREENSHOT_TIMEOUT_MS = 60_000;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const TARGET_WIDTH = 1280;
