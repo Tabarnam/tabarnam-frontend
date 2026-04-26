@@ -766,18 +766,18 @@ export default function ExpandableCompanyRow({
               ))}
             </div>
 
-            {/* Reputation & Quality reasoning — directly under locations */}
+            {/* Reputation & Quality reasoning — directly under locations.
+                Headers ("Reputation" / "Quality") intentionally hidden;
+                the bullet reasoning carries the meaning on its own. */}
             {(company.rating?.star4?.reasoning || company.rating?.star5?.reasoning) && (
               <div className="grid grid-cols-2 gap-4 mt-3">
                 {company.rating?.star4?.reasoning && (
                   <div className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">Reputation</span>
                     {renderReasoning(company.rating.star4.reasoning)}
                   </div>
                 )}
                 {company.rating?.star5?.reasoning && (
                   <div className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">Quality</span>
                     {renderReasoning(company.rating.star5.reasoning)}
                   </div>
                 )}
