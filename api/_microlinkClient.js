@@ -32,10 +32,6 @@ function getMicrolinkUrl(websiteUrl) {
   // Microlink Pro adblocking + cookie banner removal
   u.searchParams.set("adblock", "true");
   u.searchParams.set("device", "desktop");
-  // Residential proxy bypasses Cloudflare/PerimeterX bot challenges that
-  // otherwise return "Resolved URL failed. Make sure your URL has HTML
-  // content." for sites that load fine in a real browser.
-  u.searchParams.set("proxy", "true");
   return u.toString();
 }
 
