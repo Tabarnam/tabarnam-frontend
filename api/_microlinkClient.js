@@ -25,10 +25,17 @@ function getMicrolinkUrl(websiteUrl) {
   u.searchParams.set("screenshot", "true");
   u.searchParams.set("viewport.width", String(TARGET_WIDTH));
   u.searchParams.set("viewport.height", String(TARGET_HEIGHT));
-  u.searchParams.set("waitFor", "2000");
+  // Slower waitFor: many of our companies are mid-tier shops where the hero
+  // image lazy-loads after first paint. 5s gives that time without busting
+  // our 70s per-call budget.
+  u.searchParams.set("waitFor", "5000");
   // Microlink Pro adblocking + cookie banner removal
   u.searchParams.set("adblock", "true");
   u.searchParams.set("device", "desktop");
+  // Residential proxy bypasses Cloudflare/PerimeterX bot challenges that
+  // otherwise return "Resolved URL failed. Make sure your URL has HTML
+  // content." for sites that load fine in a real browser.
+  u.searchParams.set("proxy", "true");
   return u.toString();
 }
 
