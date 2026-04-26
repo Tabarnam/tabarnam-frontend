@@ -19,6 +19,7 @@ import AdminImages from "@pages/AdminImages";
 import AdminSearchEdit from "@pages/AdminSearchEdit";
 import AdminBackfillScores from "@pages/AdminBackfillScores";
 import AdminBackfillHomepages from "@pages/AdminBackfillHomepages";
+import AdminBackfillLogos from "@pages/AdminBackfillLogos";
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
 import Login from "@pages/Login";
@@ -172,6 +173,14 @@ export default function App() {
                 element={
                   <AdminRoute>
                     <AdminBackfillHomepages />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/backfill-logos"
+                element={
+                  <AdminRoute>
+                    <AdminBackfillLogos />
                   </AdminRoute>
                 }
               />

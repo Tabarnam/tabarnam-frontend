@@ -144,8 +144,117 @@ async function reencodeAsWebp(bytes) {
     .toBuffer();
 }
 
+// Logo extraction reuses the same Microlink endpoint without the screenshot
+// params — Microlink returns `data.logo.url` by default from meta-tag and
+// favicon analysis. No render needed; this is a meta-only call so it
+// completes faster (~1-3s typical) and is much more reliable than screenshots.
+const LOGO_TIMEOUT_MS = 30_000;
+const LOGO_DOWNLOAD_TIMEOUT_MS = 20_000;
+const LOGO_MIN_BYTES = 256;
+
+function getMicrolinkLogoUrl(websiteUrl) {
+  const u = new URL(MICROLINK_BASE);
+  u.searchParams.set("url", websiteUrl);
+  // Don't request screenshot/viewport/waitFor — those force a full render.
+  // Logo extraction works off meta tags + favicon, no render needed.
+  return u.toString();
+}
+
+function inferExtFromContentType(contentType) {
+  const ct = String(contentType || "").toLowerCase().split(";")[0].trim();
+  if (ct === "image/svg+xml") return "svg";
+  if (ct === "image/png") return "png";
+  if (ct === "image/jpeg" || ct === "image/jpg") return "jpg";
+  if (ct === "image/webp") return "webp";
+  if (ct === "image/gif") return "gif";
+  if (ct === "image/x-icon" || ct === "image/vnd.microsoft.icon") return "ico";
+  return "bin";
+}
+
+/**
+ * Call Microlink for the company logo on a given website. Returns:
+ *   { ok: true,  bytes: Buffer, contentType: "image/png", ext: "png", sourceUrl: "..." }
+ *   { ok: false, reason: "..." }
+ */
+async function fetchMicrolinkLogo(websiteUrl, ctx) {
+  const apiKey = getMicrolinkKey();
+  if (!apiKey) return { ok: false, reason: "missing_microlink_api_key" };
+
+  let raw = String(websiteUrl || "").trim();
+  if (!raw) return { ok: false, reason: "missing_website_url" };
+  if (!/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
+
+  const url = getMicrolinkLogoUrl(raw);
+  ctx?.log?.(`[microlink] requesting logo for ${raw}`);
+
+  let res;
+  try {
+    res = await fetchWithTimeout(
+      url,
+      { method: "GET", headers: { "x-api-key": apiKey, accept: "application/json" } },
+      LOGO_TIMEOUT_MS
+    );
+  } catch (e) {
+    return { ok: false, reason: `microlink_request_failed: ${e?.message || e}` };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch (e) {
+    return { ok: false, reason: `microlink_invalid_json: ${e?.message || e}` };
+  }
+
+  if (!res.ok || payload?.status !== "success") {
+    const detail = payload?.message || payload?.code || `http_${res.status}`;
+    const diag = `http=${res.status} status=${payload?.status || "n/a"} code=${payload?.code || "n/a"}`;
+    ctx?.log?.(`[microlink] error for ${raw}: ${detail} (${diag})`);
+    return { ok: false, reason: `microlink_error: ${detail}` };
+  }
+
+  const logoUrl = payload?.data?.logo?.url;
+  if (!logoUrl || typeof logoUrl !== "string") {
+    return { ok: false, reason: "microlink_no_logo_url" };
+  }
+
+  // Download the logo from whatever CDN/source URL Microlink returned
+  let imgRes;
+  try {
+    imgRes = await fetchWithTimeout(logoUrl, { method: "GET" }, LOGO_DOWNLOAD_TIMEOUT_MS);
+  } catch (e) {
+    return { ok: false, reason: `download_failed: ${e?.message || e}` };
+  }
+  if (!imgRes.ok) {
+    return { ok: false, reason: `download_http_${imgRes.status}` };
+  }
+
+  let bytes;
+  try {
+    const ab = await imgRes.arrayBuffer();
+    bytes = Buffer.from(ab);
+  } catch (e) {
+    return { ok: false, reason: `download_buffer_failed: ${e?.message || e}` };
+  }
+
+  // Logos can legitimately be small (a 1KB SVG is fine), but anything under
+  // 256 bytes is almost certainly a 1x1 tracking pixel or empty file.
+  if (!bytes || bytes.length < LOGO_MIN_BYTES) {
+    return { ok: false, reason: "download_too_small" };
+  }
+
+  const contentType = imgRes.headers?.get?.("content-type") || "application/octet-stream";
+  return {
+    ok: true,
+    bytes,
+    contentType,
+    ext: inferExtFromContentType(contentType),
+    sourceUrl: logoUrl,
+  };
+}
+
 module.exports = {
   fetchMicrolinkScreenshot,
+  fetchMicrolinkLogo,
   reencodeAsWebp,
   TARGET_WIDTH,
   TARGET_HEIGHT,
