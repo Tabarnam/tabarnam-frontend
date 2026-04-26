@@ -719,6 +719,30 @@ try {
 } catch (e) {
   console.error("[api] ❌ Failed to load xadmin-api-score-batch-worker:", e?.message || e);
 }
+
+try {
+  console.log("[api] Registering: xadmin-api-backfill-homepages-start");
+  require("./xadmin-api-backfill-homepages-start/index.js");
+  console.log("[api] ✓ xadmin-api-backfill-homepages-start registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-backfill-homepages-start:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-backfill-homepages-status");
+  require("./xadmin-api-backfill-homepages-status/index.js");
+  console.log("[api] ✓ xadmin-api-backfill-homepages-status registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-backfill-homepages-status:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-backfill-homepages-worker");
+  require("./xadmin-api-backfill-homepages-worker/index.js");
+  console.log("[api] ✓ xadmin-api-backfill-homepages-worker registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-backfill-homepages-worker:", e?.message || e);
+}
 }
 
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
