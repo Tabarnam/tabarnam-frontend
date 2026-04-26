@@ -31,6 +31,7 @@ export default function AdminBackfillHomepages() {
   const [concurrency, setConcurrency] = useState(5);
   const [maxCompanies, setMaxCompanies] = useState("");
   const [includeFailed, setIncludeFailed] = useState(false);
+  const [maxAttempts, setMaxAttempts] = useState(3);
   const [error, setError] = useState(null);
   const [sessionCompleted, setSessionCompleted] = useState([]);
   const [logOpen, setLogOpen] = useState(false);
@@ -122,7 +123,7 @@ export default function AdminBackfillHomepages() {
     setError(null);
     setSessionCompleted([]);
     try {
-      const body = { batch_size: batchSize, concurrency, include_failed: includeFailed };
+      const body = { batch_size: batchSize, concurrency, include_failed: includeFailed, max_attempts: maxAttempts };
       const m = String(maxCompanies).trim();
       if (m && Number.isFinite(Number(m))) body.max_companies = Number(m);
       const res = await apiFetch("/xadmin-api-backfill-homepages-start", {
@@ -140,7 +141,7 @@ export default function AdminBackfillHomepages() {
     } finally {
       setStarting(false);
     }
-  }, [batchSize, concurrency, includeFailed, maxCompanies, fetchStatus, kickWorker]);
+  }, [batchSize, concurrency, includeFailed, maxCompanies, maxAttempts, fetchStatus, kickWorker]);
 
   const sendAction = useCallback(async (action) => {
     const jobId = status?.job?.job_id;
@@ -213,7 +214,7 @@ export default function AdminBackfillHomepages() {
 
           {/* Controls */}
           <section className="rounded-lg border border-slate-800 bg-slate-900 p-4 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Batch size (per invocation)</label>
                 <input type="number" min={1} max={500} value={batchSize}
@@ -233,6 +234,13 @@ export default function AdminBackfillHomepages() {
                 <input type="number" min={1} value={maxCompanies}
                   onChange={(e) => setMaxCompanies(e.target.value)}
                   placeholder="all"
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-100"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1" title="When 'Retry previously failed' is on, sites already failed this many times are skipped permanently">Max attempts per company</label>
+                <input type="number" min={1} max={20} value={maxAttempts}
+                  onChange={(e) => setMaxAttempts(Number(e.target.value) || 3)}
                   className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-100"
                 />
               </div>
