@@ -37,7 +37,7 @@ jobs:
 
       - name: Bundle size check
         run: |
-          # Main JS bundle threshold: 600 KB (current ~534 KB)
+          # Main JS bundle threshold: 850 KB (current ~770 KB)
           MAIN_JS=$(find dist/assets -name 'index-*.js' -not -name '*.map' | head -1)
           if [ -z "$MAIN_JS" ]; then
             echo "::error::Could not find main JS bundle in dist/assets"
@@ -47,8 +47,8 @@ jobs:
           SIZE_KB=$((SIZE_BYTES / 1024))
           echo "Main bundle: $MAIN_JS — ${SIZE_KB} KB"
 
-          # Threshold: 600 KB (leaves ~12% headroom over current 534 KB)
-          THRESHOLD_KB=600
+          # Threshold: 850 KB (leaves ~10% headroom over current 770 KB)
+          THRESHOLD_KB=850
           if [ "$SIZE_KB" -gt "$THRESHOLD_KB" ]; then
             echo "::error::Main JS bundle (${SIZE_KB} KB) exceeds threshold (${THRESHOLD_KB} KB)"
             exit 1

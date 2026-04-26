@@ -112,10 +112,11 @@ test("normalizeProductKeywords filters out brand token from website URL", () => 
   assert.ok(result.includes("widgets"));
 });
 
-test("normalizeProductKeywords caps at 25 keywords", () => {
-  const many = Array.from({ length: 30 }, (_, i) => `keyword${i}`).join(", ");
+test("normalizeProductKeywords caps at 200 keywords", () => {
+  // Cap raised in api/import-start/_importStartCompanyUtils.js:95.
+  const many = Array.from({ length: 250 }, (_, i) => `keyword${i}`).join(", ");
   const result = normalizeProductKeywords(many);
-  assert.equal(result.length, 25);
+  assert.equal(result.length, 200);
 });
 
 test("normalizeProductKeywords handles empty input gracefully", () => {
