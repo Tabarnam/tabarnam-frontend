@@ -230,6 +230,11 @@ async function processBackfillHomepagesBatch(queueBody, context) {
   let companiesThisInv = 0;
   const results = [];
   let exitReason = "completed_batch";
+  // Each company gets at most one Microlink call per worker invocation —
+  // even with include_failed=true, otherwise sites that fail every time
+  // (Cloudflare-blocked, dead, etc.) re-queue every wave and burn the whole
+  // 4-min budget without making progress.
+  const attemptedThisInv = new Set();
 
   async function persistJob(patch) {
     try {
@@ -270,8 +275,12 @@ async function processBackfillHomepagesBatch(queueBody, context) {
       const waveSize = Math.min(concurrency, remByBatch, remByMax);
       if (waveSize <= 0) { exitReason = maxCompanies != null ? "max_companies_reached" : "batch_size_reached"; break; }
 
-      const pendingRows = (listRows || []).filter((r) => isPending(r, includeFailed)).slice(0, waveSize);
+      const pendingRows = (listRows || [])
+        .filter((r) => isPending(r, includeFailed))
+        .filter((r) => !attemptedThisInv.has(r.id))
+        .slice(0, waveSize);
       if (pendingRows.length === 0) { exitReason = "no_pending_remaining"; break; }
+      for (const r of pendingRows) attemptedThisInv.add(r.id);
 
       const reads = pendingRows.map((row) => {
         const pk = String(row.normalized_domain || "unknown").trim();
