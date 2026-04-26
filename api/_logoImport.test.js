@@ -41,10 +41,13 @@ test("stripCdnResizeParams handles Shopify CDN subdomain variations", () => {
 
 // ── Non-CDN URLs unchanged ───────────────────────────────────────────────────
 
-test("stripCdnResizeParams leaves non-CDN URL with query params unchanged", () => {
+test("stripCdnResizeParams strips resize params regardless of host", () => {
+  // Impl (api/_logoImport.js:34) strips listed params on any URL, not just
+  // CDNs — call sites only feed it logo URLs, so this is effectively a no-op
+  // off-CDN.
   const url = "https://example.com/logo.png?width=200&height=100";
   const result = stripCdnResizeParams(url);
-  assert.equal(result, url);
+  assert.equal(result, "https://example.com/logo.png");
 });
 
 test("stripCdnResizeParams leaves URL with no params unchanged", () => {
