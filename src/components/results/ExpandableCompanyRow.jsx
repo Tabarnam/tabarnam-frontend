@@ -643,7 +643,7 @@ export default function ExpandableCompanyRow({
               </span>
             </h2>
             {company.tagline && (
-              <div className="italic text-base text-primary mt-2">{company.tagline}</div>
+              <div className="italic text-base text-primary mt-2">&ldquo;{company.tagline}&rdquo;</div>
             )}
 
             {debugScores && (
@@ -914,7 +914,7 @@ export default function ExpandableCompanyRow({
           </span>
         </h2>
         {company.tagline && (
-          <div className="italic text-sm text-primary mt-2">{company.tagline}</div>
+          <div className="italic text-sm text-primary mt-2">&ldquo;{company.tagline}&rdquo;</div>
         )}
 
         {debugScores && (
