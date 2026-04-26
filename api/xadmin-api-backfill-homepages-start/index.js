@@ -330,9 +330,11 @@ async function processBackfillHomepagesBatch(queueBody, context) {
             doc.homepage_fetch_status = "ok";
             doc.homepage_fetch_error = null;
             doc.homepage_fetched_at = new Date().toISOString();
-            // Backfilled screenshots always require manual admin review.
-            doc.homepage_approved = false;
-            doc.images_approved = false;
+            // Backfilled screenshots are auto-approved so users see them on
+            // the public frontend immediately. Admins can still un-approve
+            // any bad ones in /admin/images (filter: Approved).
+            doc.homepage_approved = true;
+            doc.images_approved = true;
           } else {
             doc.homepage_fetch_status = "failed";
             doc.homepage_fetch_error = String(payload.reason || "unknown");
