@@ -187,6 +187,7 @@ export default function AdminImages() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [loadAll, setLoadAll] = useState(false);
   // "all" | "approved" | "pending"
   // "approved" = both logo_approved AND homepage_approved
   // "pending"  = at least one is unapproved
@@ -195,13 +196,15 @@ export default function AdminImages() {
   const [uploadingLogoIds, setUploadingLogoIds] = useState(() => new Set());
   const [uploadingHomepageIds, setUploadingHomepageIds] = useState(() => new Set());
 
-  const fetchCompanies = useCallback(async (search, signal) => {
+  const fetchCompanies = useCallback(async (search, all, signal) => {
     setError(null);
     const params = new URLSearchParams();
     const trimmed = (search || "").trim();
     // Empty search → small batch of recently-updated rows for instant paint.
     // Non-empty search → bigger window, server-side filter, full dataset reachable.
-    params.set("take", trimmed ? "500" : "100");
+    // "Load all" → pull the full dataset (server caps at 5000).
+    if (all) params.set("take", "5000");
+    else params.set("take", trimmed ? "500" : "100");
     if (trimmed) params.set("search", trimmed);
     try {
       const res = await apiFetch(`/xadmin-api-companies?${params.toString()}`, { signal });
@@ -226,13 +229,19 @@ export default function AdminImages() {
     const delay = trimmed ? 250 : 0;
     setLoading(true);
     const t = window.setTimeout(() => {
-      fetchCompanies(trimmed, controller.signal);
+      fetchCompanies(trimmed, loadAll, controller.signal);
     }, delay);
     return () => {
       window.clearTimeout(t);
       controller.abort();
     };
-  }, [searchQuery, fetchCompanies]);
+  }, [searchQuery, loadAll, fetchCompanies]);
+
+  // Typing a search term resets the "Load all" state so the search request
+  // doesn't fight with a 5000-row fetch.
+  useEffect(() => {
+    if (searchQuery.trim()) setLoadAll(false);
+  }, [searchQuery]);
 
   const updateLocal = useCallback((id, patch) => {
     setCompanies((prev) =>
@@ -703,7 +712,20 @@ export default function AdminImages() {
                 {totalCount != null ? `${totalCount.toLocaleString()} companies total` : `${filteredItems.length} companies loaded`}
                 {totalCount != null && filteredItems.length < totalCount ? (
                   <span className="ml-2 text-slate-400 dark:text-slate-500">
-                    (showing the {filteredItems.length} most recently updated; type to search the rest)
+                    (showing the {filteredItems.length} most recently updated;{" "}
+                    <button
+                      type="button"
+                      onClick={() => setLoadAll(true)}
+                      disabled={loading}
+                      className="underline decoration-dotted hover:text-teal-500 dark:hover:text-teal-400 disabled:opacity-50"
+                    >
+                      load all {totalCount.toLocaleString()}
+                    </button>{" "}
+                    or type to search)
+                  </span>
+                ) : loadAll && totalCount != null ? (
+                  <span className="ml-2 text-slate-400 dark:text-slate-500">
+                    (showing all {filteredItems.length.toLocaleString()})
                   </span>
                 ) : null}
               </>
