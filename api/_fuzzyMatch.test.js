@@ -40,26 +40,25 @@ test("levenshtein handles completely different strings", () => {
 
 // ── maxEditDistance ──────────────────────────────────────────────────────────
 
-test("maxEditDistance returns 0 for very short words (<=3)", () => {
+// Mirrors the impl in api/_fuzzyMatch.js:72 — bands tightened to reduce
+// false positives on short queries.
+test("maxEditDistance returns 0 for very short words (<=4)", () => {
   assert.equal(maxEditDistance(1), 0);
   assert.equal(maxEditDistance(2), 0);
   assert.equal(maxEditDistance(3), 0);
+  assert.equal(maxEditDistance(4), 0);
 });
 
-test("maxEditDistance returns 1 for short words (4-5)", () => {
-  assert.equal(maxEditDistance(4), 1);
+test("maxEditDistance returns 1 for short words (5-7)", () => {
   assert.equal(maxEditDistance(5), 1);
+  assert.equal(maxEditDistance(6), 1);
+  assert.equal(maxEditDistance(7), 1);
 });
 
-test("maxEditDistance returns 2 for medium words (6-8)", () => {
-  assert.equal(maxEditDistance(6), 2);
-  assert.equal(maxEditDistance(7), 2);
+test("maxEditDistance returns 2 for longer words (>=8)", () => {
   assert.equal(maxEditDistance(8), 2);
-});
-
-test("maxEditDistance returns 3 for long words (>8)", () => {
-  assert.equal(maxEditDistance(9), 3);
-  assert.equal(maxEditDistance(20), 3);
+  assert.equal(maxEditDistance(9), 2);
+  assert.equal(maxEditDistance(20), 2);
 });
 
 // ── isFuzzyNameMatch ────────────────────────────────────────────────────────
