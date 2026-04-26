@@ -32,6 +32,9 @@ function getMicrolinkUrl(websiteUrl) {
   // Microlink Pro adblocking + cookie banner removal
   u.searchParams.set("adblock", "true");
   u.searchParams.set("device", "desktop");
+  // Residential proxy bypasses Cloudflare/PerimeterX bot challenges. Included
+  // in Microlink Pro by default — no separate add-on required.
+  u.searchParams.set("proxy", "true");
   return u.toString();
 }
 
@@ -81,6 +84,12 @@ async function fetchMicrolinkScreenshot(websiteUrl, ctx) {
 
   if (!res.ok || payload?.status !== "success") {
     const detail = payload?.message || payload?.code || `http_${res.status}`;
+    // Surface the upstream code/status alongside the message so we can tell
+    // "API rejected the request" (fast, plan/quota/syntax) apart from "render
+    // failed for this site" (slow, target-specific). Without this, both look
+    // identical in the logs.
+    const diag = `http=${res.status} status=${payload?.status || "n/a"} code=${payload?.code || "n/a"}`;
+    ctx?.log?.(`[microlink] error for ${raw}: ${detail} (${diag})`);
     return { ok: false, reason: `microlink_error: ${detail}` };
   }
 
