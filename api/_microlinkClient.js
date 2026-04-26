@@ -32,9 +32,11 @@ function getMicrolinkUrl(websiteUrl) {
   // Microlink Pro adblocking + cookie banner removal
   u.searchParams.set("adblock", "true");
   u.searchParams.set("device", "desktop");
-  // Residential proxy bypasses Cloudflare/PerimeterX bot challenges. Included
-  // in Microlink Pro by default — no separate add-on required.
-  u.searchParams.set("proxy", "true");
+  // Don't set `proxy` — the param expects a WHATWG URL string for a BYO
+  // proxy, not a boolean. Sending `proxy=true` returns code=EINVALPROXY and
+  // 400s every request. Microlink Pro auto-routes through its own proxy pool
+  // on blocked sites without us having to ask, so omitting the param is
+  // correct. See: https://microlink.io/docs/api/parameters/proxy
   return u.toString();
 }
 

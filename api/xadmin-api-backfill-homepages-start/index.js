@@ -60,13 +60,18 @@ function getContainerClient() {
   return blobService.getContainerClient("company-homepages");
 }
 
-function isPending(c, includeFailed) {
+function isPending(c, includeFailed, maxAttempts) {
   if (!c) return false;
   const hasUrl = typeof c.website_url === "string" && c.website_url.trim().length > 0;
   if (!hasUrl) return false;
   const hasImage = typeof c.homepage_image_url === "string" && c.homepage_image_url.trim().length > 0;
   if (hasImage) return false;
   if (!includeFailed && c.homepage_fetch_status === "failed") return false;
+  // Even when retrying failures, give up on companies that have already failed
+  // maxAttempts times. Otherwise sites that block all renderers (Cloudflare,
+  // PerimeterX, dead domains) re-queue every wave forever and starve the rest
+  // of the queue. Counter resets on a successful fetch.
+  if (includeFailed && Number.isFinite(maxAttempts) && (Number(c.homepage_fetch_attempts) || 0) >= maxAttempts) return false;
   return true;
 }
 
@@ -92,13 +97,14 @@ async function handler(req, context) {
   const concurrency = Math.max(1, Math.min(20, Number(body?.concurrency) || 5));
   const maxCompanies = body?.max_companies != null ? Math.max(1, Number(body.max_companies)) : null;
   const includeFailed = Boolean(body?.include_failed);
+  const maxAttempts = Math.max(1, Math.min(20, Number(body?.max_attempts) || 3));
 
   // Count pending companies
   let totalPending = 0;
   try {
-    const q = `SELECT c.id, c.website_url, c.homepage_image_url, c.homepage_fetch_status FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const q = `SELECT c.id, c.website_url, c.homepage_image_url, c.homepage_fetch_status, c.homepage_fetch_attempts FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources } = await companiesContainer.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
-    totalPending = (resources || []).filter((c) => isPending(c, includeFailed)).length;
+    totalPending = (resources || []).filter((c) => isPending(c, includeFailed, maxAttempts)).length;
   } catch (e) {
     return json({ error: `pending count failed: ${e?.message || e}` }, 500);
   }
@@ -118,6 +124,7 @@ async function handler(req, context) {
     concurrency,
     max_companies: maxCompanies,
     include_failed: includeFailed,
+    max_attempts: maxAttempts,
     total_to_process: totalPending,
     processed: 0,
     failed: 0,
@@ -134,7 +141,7 @@ async function handler(req, context) {
   };
 
   await jobsContainer.items.upsert(jobDoc, { partitionKey: jobId });
-  context.log(`[backfill-homepages-start] job=${jobId} total=${totalPending} batch=${batchSize} concurrency=${concurrency} include_failed=${includeFailed}`);
+  context.log(`[backfill-homepages-start] job=${jobId} total=${totalPending} batch=${batchSize} concurrency=${concurrency} include_failed=${includeFailed} max_attempts=${maxAttempts}`);
 
   return json({
     ok: true,
@@ -147,6 +154,7 @@ async function handler(req, context) {
     concurrency,
     max_companies: maxCompanies,
     include_failed: includeFailed,
+    max_attempts: maxAttempts,
   });
 }
 
@@ -224,6 +232,8 @@ async function processBackfillHomepagesBatch(queueBody, context) {
   const concurrency = Math.max(1, Math.min(20, Number(job.concurrency) || 5));
   const maxCompanies = job.max_companies;
   const includeFailed = Boolean(job.include_failed);
+  // Default to 3 for jobs created before this field existed.
+  const maxAttempts = Math.max(1, Math.min(20, Number(job.max_attempts) || 3));
 
   let processedThisInv = 0;
   let failuresThisInv = 0;
@@ -267,7 +277,7 @@ async function processBackfillHomepagesBatch(queueBody, context) {
 
     let companies = [];
     try {
-      const listQuery = `SELECT c.id, c.normalized_domain, c.company_name, c.name, c.website_url, c.homepage_image_url, c.homepage_fetch_status FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const listQuery = `SELECT c.id, c.normalized_domain, c.company_name, c.name, c.website_url, c.homepage_image_url, c.homepage_fetch_status, c.homepage_fetch_attempts FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
       const { resources: listRows } = await companiesContainer.items.query(listQuery, { enableCrossPartitionQuery: true }).fetchAll();
 
       const remByMax = maxCompanies != null ? Math.max(0, Number(maxCompanies) - (job.processed || 0) - processedThisInv) : Infinity;
@@ -276,7 +286,7 @@ async function processBackfillHomepagesBatch(queueBody, context) {
       if (waveSize <= 0) { exitReason = maxCompanies != null ? "max_companies_reached" : "batch_size_reached"; break; }
 
       const pendingRows = (listRows || [])
-        .filter((r) => isPending(r, includeFailed))
+        .filter((r) => isPending(r, includeFailed, maxAttempts))
         .filter((r) => !attemptedThisInv.has(r.id))
         .slice(0, waveSize);
       if (pendingRows.length === 0) { exitReason = "no_pending_remaining"; break; }
@@ -339,6 +349,9 @@ async function processBackfillHomepagesBatch(queueBody, context) {
             doc.homepage_fetch_status = "ok";
             doc.homepage_fetch_error = null;
             doc.homepage_fetched_at = new Date().toISOString();
+            // A successful capture clears the failure counter so future audits
+            // (e.g. an admin tool that surfaces "tried N times") read clean.
+            doc.homepage_fetch_attempts = 0;
             // Backfilled screenshots are auto-approved so users see them on
             // the public frontend immediately. Admins can still un-approve
             // any bad ones in /admin/images (filter: Approved).
@@ -348,6 +361,10 @@ async function processBackfillHomepagesBatch(queueBody, context) {
             doc.homepage_fetch_status = "failed";
             doc.homepage_fetch_error = String(payload.reason || "unknown");
             doc.homepage_fetched_at = new Date().toISOString();
+            // Persistent across jobs so a site that's failed every renderer
+            // we've ever tried stops being re-pulled. Capped by maxAttempts
+            // in isPending().
+            doc.homepage_fetch_attempts = (Number(doc.homepage_fetch_attempts) || 0) + 1;
           }
           doc.updated_at = new Date().toISOString();
           await companiesContainer.items.upsert(doc, { partitionKey: partitionKeyValue });
@@ -391,9 +408,9 @@ async function processBackfillHomepagesBatch(queueBody, context) {
   const invocationDurationMs = Date.now() - invocationStartMs;
   let remaining = null;
   try {
-    const q = `SELECT c.id, c.website_url, c.homepage_image_url, c.homepage_fetch_status FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const q = `SELECT c.id, c.website_url, c.homepage_image_url, c.homepage_fetch_status, c.homepage_fetch_attempts FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources } = await companiesContainer.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
-    remaining = (resources || []).filter((c) => isPending(c, includeFailed)).length;
+    remaining = (resources || []).filter((c) => isPending(c, includeFailed, maxAttempts)).length;
   } catch { /* leave null */ }
 
   try {
