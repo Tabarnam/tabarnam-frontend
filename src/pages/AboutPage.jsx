@@ -2,7 +2,7 @@ import { Helmet } from 'react-helmet-async';
 import { Building2 } from 'lucide-react';
 
 export default function AboutPage() {
-  const contactEmail = 'ben@tabarnam.com';
+  const contactEmail = 'duh@tabarnam.com';
   const description =
     'Tabarnam is a product transparency platform and mobile app that helps consumers and businesses discover where products are manufactured, compare headquarters vs. production locations, explore company profiles, reviews, and tags. Search by brand, product, or location for transparent sourcing insights. Est. 2016 | San Dimas, CA.';
 
