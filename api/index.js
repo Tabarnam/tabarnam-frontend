@@ -743,6 +743,38 @@ try {
 } catch (e) {
   console.error("[api] ❌ Failed to load xadmin-api-backfill-homepages-worker:", e?.message || e);
 }
+
+try {
+  console.log("[api] Registering: xadmin-api-backfill-logos-start");
+  require("./xadmin-api-backfill-logos-start/index.js");
+  console.log("[api] ✓ xadmin-api-backfill-logos-start registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-backfill-logos-start:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-backfill-logos-status");
+  require("./xadmin-api-backfill-logos-status/index.js");
+  console.log("[api] ✓ xadmin-api-backfill-logos-status registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-backfill-logos-status:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-backfill-logos-worker");
+  require("./xadmin-api-backfill-logos-worker/index.js");
+  console.log("[api] ✓ xadmin-api-backfill-logos-worker registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-backfill-logos-worker:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-microlink-fetch-one");
+  require("./xadmin-api-microlink-fetch-one/index.js");
+  console.log("[api] ✓ xadmin-api-microlink-fetch-one registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-microlink-fetch-one:", e?.message || e);
+}
 }
 
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");

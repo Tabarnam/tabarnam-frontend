@@ -88,6 +88,17 @@ function ImageCell({
   const buttonRef = useRef(null);
   const [hoverRect, setHoverRect] = useState(null);
   const [recentlyUploaded, setRecentlyUploaded] = useState(false);
+  // Elapsed seconds visible inside the "Fetching…" overlay so the admin
+  // sees the call is still alive (Microlink screenshots can take 30-60s).
+  const [fetchElapsed, setFetchElapsed] = useState(0);
+  useEffect(() => {
+    if (!fetching) { setFetchElapsed(0); return; }
+    const startedAt = Date.now();
+    const t = window.setInterval(() => {
+      setFetchElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 250);
+    return () => window.clearInterval(t);
+  }, [fetching]);
 
   const handlePick = (e) => {
     e.stopPropagation();
@@ -149,8 +160,9 @@ function ImageCell({
           </div>
         ) : null}
         {fetching && !uploading ? (
-          <div className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-[10px]">
-            Fetching…
+          <div className="absolute inset-0 bg-black/55 flex flex-col items-center justify-center text-white text-[10px] gap-0.5">
+            <span>Fetching…</span>
+            <span className="tabular-nums opacity-80">{fetchElapsed}s</span>
           </div>
         ) : null}
         {recentlyUploaded && !uploading ? (
