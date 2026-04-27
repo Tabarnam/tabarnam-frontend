@@ -184,28 +184,35 @@ export default function AdminImages() {
   const [companies, setCompanies] = useState([]);
   const [totalCount, setTotalCount] = useState(null);
   const [approvedCount, setApprovedCount] = useState(null);
+  // filteredTotalCount reflects the active search + filter, used by the
+  // paginator. totalCount and approvedCount stay unconditional for tally.
+  const [filteredTotalCount, setFilteredTotalCount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [loadAll, setLoadAll] = useState(false);
   // "all" | "approved" | "pending"
-  // "approved" = both logo_approved AND homepage_approved
+  // "approved" = both logo_approved AND homepage_approved (master flag)
   // "pending"  = at least one is unapproved
+  // Filter is applied server-side; switching it triggers a refetch.
   const [statusFilter, setStatusFilter] = useState("all");
+  // Server-side pagination state. Page is 1-indexed to match react-data-table.
+  // Changing page, perPage, search, or status all trigger a refetch.
+  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPerPage, setCurrentPerPage] = useState(25);
   const [savingIds, setSavingIds] = useState(() => new Set());
   const [uploadingLogoIds, setUploadingLogoIds] = useState(() => new Set());
   const [uploadingHomepageIds, setUploadingHomepageIds] = useState(() => new Set());
 
-  const fetchCompanies = useCallback(async (search, all, signal) => {
+  const fetchCompanies = useCallback(async (search, status, page, perPage, signal) => {
     setError(null);
     const params = new URLSearchParams();
     const trimmed = (search || "").trim();
-    // Empty search → small batch of recently-updated rows for instant paint.
-    // Non-empty search → bigger window, server-side filter, full dataset reachable.
-    // "Load all" → pull the full dataset (server caps at 5000).
-    if (all) params.set("take", "5000");
-    else params.set("take", trimmed ? "500" : "100");
+    const skip = Math.max(0, (page - 1) * perPage);
+    params.set("take", String(perPage));
+    params.set("skip", String(skip));
     if (trimmed) params.set("search", trimmed);
+    if (status === "approved") params.set("images_approved", "true");
+    else if (status === "pending") params.set("images_approved", "false");
     try {
       const res = await apiFetch(`/xadmin-api-companies?${params.toString()}`, { signal });
       const data = await readJsonOrText(res);
@@ -214,6 +221,7 @@ export default function AdminImages() {
       setCompanies(items);
       if (typeof data?.totalCount === "number") setTotalCount(data.totalCount);
       if (typeof data?.approvedCount === "number") setApprovedCount(data.approvedCount);
+      if (typeof data?.filteredTotalCount === "number") setFilteredTotalCount(data.filteredTotalCount);
     } catch (e) {
       if (e?.name === "AbortError") return;
       setError(e?.message || "Failed to load companies");
@@ -222,26 +230,36 @@ export default function AdminImages() {
     }
   }, []);
 
-  // Debounce the search box so we don't fire a request on every keystroke.
+  // Refetch on any of: search, filter, page, perPage. Search is debounced;
+  // the others fire immediately. AbortController kills any in-flight request
+  // when the user types again or paginates faster than the network responds.
   useEffect(() => {
     const controller = new AbortController();
     const trimmed = searchQuery.trim();
     const delay = trimmed ? 250 : 0;
     setLoading(true);
     const t = window.setTimeout(() => {
-      fetchCompanies(trimmed, loadAll, controller.signal);
+      fetchCompanies(trimmed, statusFilter, currentPage, currentPerPage, controller.signal);
     }, delay);
     return () => {
       window.clearTimeout(t);
       controller.abort();
     };
-  }, [searchQuery, loadAll, fetchCompanies]);
+  }, [searchQuery, statusFilter, currentPage, currentPerPage, fetchCompanies]);
 
-  // Typing a search term resets the "Load all" state so the search request
-  // doesn't fight with a 5000-row fetch.
-  useEffect(() => {
-    if (searchQuery.trim()) setLoadAll(false);
-  }, [searchQuery]);
+  // Typing a search term or switching the status filter resets the paginator
+  // back to page 1 — otherwise you'd land on, say, page 5 of a different
+  // result set with no rows.
+  useEffect(() => { setCurrentPage(1); }, [searchQuery, statusFilter]);
+
+  const handlePageChange = useCallback((page) => {
+    setCurrentPage(page);
+  }, []);
+
+  const handlePerPageChange = useCallback((newPerPage, page) => {
+    setCurrentPerPage(newPerPage);
+    setCurrentPage(page);
+  }, []);
 
   const updateLocal = useCallback((id, patch) => {
     setCompanies((prev) =>
@@ -354,20 +372,12 @@ export default function AdminImages() {
     }
   }, [updateLocal]);
 
-  const filteredItems = useMemo(() => {
-    // Text search is now server-side; here we only apply the local
-    // status filter against whichever batch is currently loaded.
-    return companies.filter((c) => {
-      const masterApproved = !!c?.images_approved;
-      if (statusFilter === "approved" && !masterApproved) return false;
-      if (statusFilter === "pending" && masterApproved) return false;
-      return true;
-    });
-  }, [companies, statusFilter]);
+  // Search and status filter run server-side; `companies` already holds the
+  // current page's worth of filtered rows. The DataTable renders it directly
+  // with paginationTotalRows={filteredTotalCount} for the paginator math.
 
-  // Tally counters reflect the full company set (server-side totals), not
-  // the loaded slice. Falls back to the loaded slice if the API didn't
-  // return totals for some reason.
+  // Tally counters reflect the FULL dataset regardless of active filter, so
+  // they show consistent totals as the user toggles between All/Approved/Pending.
   const counts = useMemo(() => {
     if (totalCount != null && approvedCount != null) {
       return {
@@ -376,16 +386,8 @@ export default function AdminImages() {
         pending: Math.max(0, totalCount - approvedCount),
       };
     }
-    let approved = 0;
-    for (const c of companies) {
-      if (c?.images_approved) approved += 1;
-    }
-    return {
-      all: companies.length,
-      approved,
-      pending: companies.length - approved,
-    };
-  }, [companies, totalCount, approvedCount]);
+    return { all: companies.length, approved: 0, pending: companies.length };
+  }, [companies.length, totalCount, approvedCount]);
 
   const columns = useMemo(() => {
     return [
@@ -705,29 +707,16 @@ export default function AdminImages() {
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
             {searchQuery ? (
               <>
-                {filteredItems.length} matching &ldquo;{searchQuery}&rdquo;
+                {filteredTotalCount != null ? filteredTotalCount.toLocaleString() : companies.length} matching &ldquo;{searchQuery}&rdquo;
               </>
             ) : (
               <>
-                {totalCount != null ? `${totalCount.toLocaleString()} companies total` : `${filteredItems.length} companies loaded`}
-                {totalCount != null && filteredItems.length < totalCount ? (
+                {totalCount != null ? `${totalCount.toLocaleString()} companies total` : `${companies.length} companies loaded`}
+                {statusFilter !== "all" && filteredTotalCount != null && (
                   <span className="ml-2 text-slate-400 dark:text-slate-500">
-                    (showing the {filteredItems.length} most recently updated;{" "}
-                    <button
-                      type="button"
-                      onClick={() => setLoadAll(true)}
-                      disabled={loading}
-                      className="underline decoration-dotted hover:text-teal-500 dark:hover:text-teal-400 disabled:opacity-50"
-                    >
-                      load all {totalCount.toLocaleString()}
-                    </button>{" "}
-                    or type to search)
+                    ({filteredTotalCount.toLocaleString()} {statusFilter})
                   </span>
-                ) : loadAll && totalCount != null ? (
-                  <span className="ml-2 text-slate-400 dark:text-slate-500">
-                    (showing all {filteredItems.length.toLocaleString()})
-                  </span>
-                ) : null}
+                )}
               </>
             )}
           </p>
@@ -795,14 +784,19 @@ export default function AdminImages() {
           <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[hsl(187_15%_11%)]">
             <DataTable
               columns={columns}
-              data={filteredItems}
+              data={companies}
               progressPending={loading && companies.length === 0}
               progressComponent={
                 <div className="text-slate-400 py-10 text-sm">Loading…</div>
               }
               pagination
-              paginationPerPage={25}
-              paginationRowsPerPageOptions={[25, 50, 100, 250, 500]}
+              paginationServer
+              paginationTotalRows={filteredTotalCount ?? totalCount ?? 0}
+              paginationPerPage={currentPerPage}
+              paginationDefaultPage={currentPage}
+              paginationRowsPerPageOptions={[25, 50, 100, 250, 500, 1000]}
+              onChangePage={handlePageChange}
+              onChangeRowsPerPage={handlePerPageChange}
               highlightOnHover
               defaultSortFieldId="updated"
               defaultSortAsc={false}

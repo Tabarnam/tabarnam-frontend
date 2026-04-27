@@ -1270,9 +1270,17 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const search = (req.query?.search || req.query?.q || "").toString().toLowerCase().trim();
         // Compact form: strip spaces and punctuation so "Bamboo Boxer Co." matches "Bambooboxerco"
         const searchCompact = search.replace(/[^a-z0-9]/g, "");
-        const take = Math.min(5000, Math.max(1, parseInt((req.query?.take || "1000").toString())));
+        // 1000 is plenty for any single-page request now that pagination is
+        // server-side. The historical 5000 cap existed to support "load all"
+        // from /admin/images; with skip-based paging we never need that much
+        // in one query.
+        const take = Math.min(1000, Math.max(1, parseInt((req.query?.take || "1000").toString())));
+        const skip = Math.max(0, parseInt((req.query?.skip || "0").toString()));
 
-        const parameters = [{ name: "@take", value: take }];
+        const parameters = [
+          { name: "@take", value: take },
+          { name: "@skip", value: skip },
+        ];
         const whereClauses = [
           "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)",
           "NOT STARTSWITH(c.id, '_import_')",
@@ -1280,9 +1288,11 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           "(NOT IS_DEFINED(c.type) OR c.type != 'import_control')",
         ];
 
-        // Total count of all consumer-facing companies (runs in parallel with data query).
-        // Uses SELECT VALUE c.id (not an aggregate COUNT) because Cosmos DB SDK v4
-        // aggregate queries can return empty/unexpected results cross-partition.
+        // baseWhereStr is fixed (the soft-delete / control-doc filters).
+        // totalCount and approvedCount stay UNCONDITIONAL by design — they
+        // power the tally counters at the top of the admin pages, which need
+        // the full dataset's stats regardless of what the current view is
+        // filtered to.
         const baseWhereStr = whereClauses.join(" AND ");
         const countPromise = container.items
           .query(
@@ -1299,10 +1309,6 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             context.log("[admin-companies-v2] totalCount query error:", e?.message, e?.code);
             return null;
           });
-
-        // Count of companies whose images have been admin-approved (master flag).
-        // Returned alongside totalCount so the /admin/images tally counters can
-        // display approved/pending counts across the full dataset.
         const approvedCountPromise = container.items
           .query(
             `SELECT VALUE c.id FROM c WHERE ${baseWhereStr} AND IS_DEFINED(c.images_approved) AND c.images_approved = true`,
@@ -1332,8 +1338,29 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           whereClauses.push(buildSearchWhereClause(variantClauses));
         }
 
+        // filteredTotalCount runs against the active filter set (search +
+        // images_approved). The paginator uses this so "1-100 of N" reflects
+        // exactly what the user is paging through. Distinct from totalCount
+        // (unconditional) so existing callers that use totalCount for tally
+        // purposes don't break.
+        const filteredWhereStr = whereClauses.join(" AND ");
+        const filteredCountPromise = container.items
+          .query(
+            { query: `SELECT VALUE c.id FROM c WHERE ${filteredWhereStr}`, parameters: parameters.filter((p) => p.name !== "@take" && p.name !== "@skip") },
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll()
+          .then((r) => (r.resources || []).length)
+          .catch((e) => {
+            context.log("[admin-companies-v2] filteredTotalCount query error:", e?.message, e?.code);
+            return null;
+          });
+
         const whereClause = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
-        const sql = "SELECT TOP @take * FROM c " + whereClause + " ORDER BY c._ts DESC";
+        // OFFSET/LIMIT replaces SELECT TOP so the same endpoint can serve any
+        // page of results, not just the first N. Cosmos requires both clauses
+        // and a stable ORDER BY for deterministic paging.
+        const sql = "SELECT * FROM c " + whereClause + " ORDER BY c._ts DESC OFFSET @skip LIMIT @take";
 
         const { resources } = await container.items
           .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
@@ -1359,6 +1386,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
 
         let totalCount = await countPromise;
         const approvedCount = await approvedCountPromise;
+        const filteredTotalCount = await filteredCountPromise;
 
         // Fallback: if id-based count query returned 0 or null but data query found items,
         // use the deduplicated items count (guaranteed non-zero when companies exist).
@@ -1367,11 +1395,13 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           totalCount = items.length;
         }
 
-        context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length, "total:", totalCount, "approved:", approvedCount);
+        context.log("[admin-companies-v2] GET count after soft-delete filter:", allItems.length, "deduped:", items.length, "total:", totalCount, "filtered:", filteredTotalCount, "approved:", approvedCount, "skip:", skip, "take:", take);
         return json({
           items, count: items.length,
           ...(totalCount != null && totalCount > 0 ? { totalCount } : {}),
+          ...(filteredTotalCount != null ? { filteredTotalCount } : {}),
           ...(approvedCount != null ? { approvedCount } : {}),
+          skip, take,
           ...(cosmosTarget ? cosmosTarget : {}),
         }, 200);
       }
