@@ -462,9 +462,20 @@ export default function AdminImages() {
     }
   }, [updateLocal]);
 
-  // Search and status filter run server-side; `companies` already holds the
-  // current page's worth of filtered rows. The DataTable renders it directly
-  // with paginationTotalRows={filteredTotalCount} for the paginator math.
+  // Search and status filter run server-side, but a thin client post-filter
+  // on top makes optimistic approval toggles feel instant: if you check the
+  // master Approve box while viewing the Pending bucket, the row should
+  // disappear from view immediately instead of waiting for the next refetch.
+  // The server-side count drives the paginator; minor "1-25 of N" drift after
+  // toggles is corrected on the next page change.
+  const visibleCompanies = useMemo(() => {
+    if (statusFilter === "all") return companies;
+    return companies.filter((c) => {
+      const masterApproved = !!c?.images_approved;
+      if (statusFilter === "approved") return masterApproved;
+      return !masterApproved; // "pending"
+    });
+  }, [companies, statusFilter]);
 
   // Tally counters reflect the FULL dataset regardless of active filter, so
   // they show consistent totals as the user toggles between All/Approved/Pending.
@@ -904,7 +915,7 @@ export default function AdminImages() {
           <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[hsl(187_15%_11%)]">
             <DataTable
               columns={columns}
-              data={companies}
+              data={visibleCompanies}
               progressPending={loading && companies.length === 0}
               progressComponent={
                 <div className="text-slate-400 py-10 text-sm">Loading…</div>
