@@ -8,9 +8,8 @@
 // body.include_failed === true.
 const { app } = require("../_app");
 const { CosmosClient } = require("@azure/cosmos");
-const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const { v4: uuidv4 } = require("uuid");
-const { fetchMicrolinkScreenshot, reencodeAsWebp } = require("../_microlinkClient");
+const { fetchAndPersistHomepageForCompany } = require("../_microlinkBackfill");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -46,18 +45,6 @@ function getBackfillJobsContainer() {
   const c = getCosmosClient();
   if (!c) return null;
   return c.database(E("COSMOS_DB_DATABASE", "tabarnam-db")).container(E("COSMOS_DB_BACKFILL_JOBS_CONTAINER", "backfill_jobs"));
-}
-
-let blobService = null;
-function getContainerClient() {
-  const accountName = E("AZURE_STORAGE_ACCOUNT_NAME", "tabarnamstor2356");
-  const accountKey = E("AZURE_STORAGE_ACCOUNT_KEY");
-  if (!accountKey) return null;
-  if (!blobService) {
-    const creds = new StorageSharedKeyCredential(accountName, accountKey);
-    blobService = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, creds);
-  }
-  return blobService.getContainerClient("company-homepages");
 }
 
 function isPending(c, includeFailed, maxAttempts) {
@@ -161,42 +148,24 @@ async function handler(req, context) {
 // ── Batch processor (runs inside the worker invocation) ────────────────
 const DEFAULT_INVOCATION_BUDGET_MS = 4 * 60 * 1000;
 const WAVE_SAFETY_MARGIN_MS = 75 * 1000;
-const PER_CALL_TIMEOUT_MS = 70 * 1000;
 const PER_CALL_HARD_TIMEOUT_MS = 90 * 1000;
 const IN_WAVE_HEARTBEAT_MS = 20 * 1000;
 const HEARTBEAT_LOCK_EXTENSION_MS = 60 * 1000;
 
-async function uploadOneCompany(company, { containerClient, perCallTimeoutMs, ctx }) {
-  const startedAtMs = Date.now();
-  const startedAt = new Date(startedAtMs).toISOString();
-  try {
-    const fetched = await fetchMicrolinkScreenshot(company.website_url, ctx);
-    if (!fetched.ok) return { ok: false, reason: fetched.reason, started_at: startedAt, duration_ms: Date.now() - startedAtMs };
-
-    let webp;
-    try { webp = await reencodeAsWebp(fetched.bytes); }
-    catch (e) { return { ok: false, reason: `reencode_failed: ${e?.message || e}`, started_at: startedAt, duration_ms: Date.now() - startedAtMs }; }
-
-    const blobName = `${company.id}/${uuidv4()}.webp`;
-    const blob = containerClient.getBlockBlobClient(blobName);
-    try {
-      await blob.upload(webp, webp.length, { blobHTTPHeaders: { blobContentType: "image/webp" } });
-    } catch (e) {
-      return { ok: false, reason: `blob_upload_failed: ${e?.message || e}`, started_at: startedAt, duration_ms: Date.now() - startedAtMs };
-    }
-
-    return { ok: true, homepage_image_url: blob.url, started_at: startedAt, duration_ms: Date.now() - startedAtMs };
-  } catch (e) {
-    return { ok: false, reason: `exception: ${e?.message || e}`, started_at: startedAt, duration_ms: Date.now() - startedAtMs };
-  }
-}
-
-async function uploadOneCompanyWithHardTimeout(company, opts) {
-  const hardMs = Math.max(30_000, Number(opts.perCallHardTimeoutMs) || PER_CALL_HARD_TIMEOUT_MS);
+// Per-company fetch + persist now lives in api/_microlinkBackfill.js so both
+// this bulk worker and the per-row admin endpoint share field-write logic.
+// We keep a hard-timeout race here because the bulk job has a finite
+// invocation budget and a single stuck Microlink call can otherwise burn it.
+async function uploadOneCompanyWithHardTimeout(company, { perCallHardTimeoutMs, ctx }) {
+  const hardMs = Math.max(30_000, Number(perCallHardTimeoutMs) || PER_CALL_HARD_TIMEOUT_MS);
   let timer = null;
   const hard = new Promise((res) => { timer = setTimeout(() => res({ ok: false, reason: `hard_timeout_${hardMs}ms`, started_at: new Date().toISOString(), duration_ms: hardMs }), hardMs); });
-  try { return await Promise.race([uploadOneCompany(company, opts), hard]); }
-  finally { if (timer) clearTimeout(timer); }
+  try {
+    return await Promise.race([
+      fetchAndPersistHomepageForCompany(company, ctx, { autoApprove: true }),
+      hard,
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
 }
 
 async function processBackfillHomepagesBatch(queueBody, context) {
@@ -205,9 +174,7 @@ async function processBackfillHomepagesBatch(queueBody, context) {
 
   const companiesContainer = getCompaniesContainer();
   const jobsContainer = getBackfillJobsContainer();
-  const containerClient = getContainerClient();
   if (!companiesContainer || !jobsContainer) return { ok: false, error: "cosmos_not_configured" };
-  if (!containerClient) return { ok: false, error: "blob_storage_not_configured" };
 
   const invocationStartMs = Date.now();
   const invocationBudgetMs = Math.max(30_000, Number(queueBody?.invocationBudgetMs) || DEFAULT_INVOCATION_BUDGET_MS);
@@ -313,8 +280,10 @@ async function processBackfillHomepagesBatch(queueBody, context) {
     context.log(`[backfill-homepages] wave size=${companies.length} batch=${companiesThisInv}/${batchSize} budget=${((budgetDeadlineMs - Date.now()) / 1000).toFixed(0)}s`);
 
     const remainingBudgetMs = Math.max(15_000, budgetDeadlineMs - Date.now() - 5_000);
-    const perCallTimeoutMs = Math.min(PER_CALL_TIMEOUT_MS, remainingBudgetMs);
-    const perCallHardTimeoutMs = Math.min(PER_CALL_HARD_TIMEOUT_MS, Math.max(perCallTimeoutMs + 15_000, remainingBudgetMs));
+    // Hard timeout bounded by what's left in the invocation budget so a stuck
+    // Microlink call can't run past the wave deadline. The fetchMicrolink*
+    // helpers enforce their own 60s soft timeout internally.
+    const perCallHardTimeoutMs = Math.min(PER_CALL_HARD_TIMEOUT_MS, remainingBudgetMs);
 
     const heartbeatTicker = setInterval(() => {
       persistJob({
@@ -326,11 +295,16 @@ async function processBackfillHomepagesBatch(queueBody, context) {
     let waveResults;
     try {
       waveResults = await Promise.allSettled(
-        companies.map((c) => uploadOneCompanyWithHardTimeout(c, { containerClient, perCallTimeoutMs, perCallHardTimeoutMs, ctx: context }))
+        // Hard-timeout race protects the bulk job's 4-min invocation budget
+        // from a single stuck Microlink call. The inner fetch already
+        // enforces its own per-request timeout.
+        companies.map((c) => uploadOneCompanyWithHardTimeout(c, { perCallHardTimeoutMs, ctx: context }))
       );
     } finally { clearInterval(heartbeatTicker); }
 
-    // Persist per-company results to Cosmos and accumulate for the job log
+    // The shared persist function in _microlinkBackfill.js has already
+    // mutated each company doc; this loop just aggregates the wave's results
+    // for the job log + counters.
     for (let i = 0; i < waveResults.length; i++) {
       const r = waveResults[i];
       const company = companies[i];
@@ -338,40 +312,6 @@ async function processBackfillHomepagesBatch(queueBody, context) {
       companiesThisInv++;
 
       const payload = r.status === "fulfilled" ? r.value : { ok: false, reason: r.reason?.message || String(r.reason || "rejected"), started_at: new Date(waveStartMs).toISOString(), duration_ms: Date.now() - waveStartMs };
-
-      // Mutate the company doc with success or failure metadata
-      try {
-        const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
-        const { resource: doc } = await companiesContainer.item(company.id, partitionKeyValue).read();
-        if (doc) {
-          if (payload.ok) {
-            doc.homepage_image_url = payload.homepage_image_url;
-            doc.homepage_fetch_status = "ok";
-            doc.homepage_fetch_error = null;
-            doc.homepage_fetched_at = new Date().toISOString();
-            // A successful capture clears the failure counter so future audits
-            // (e.g. an admin tool that surfaces "tried N times") read clean.
-            doc.homepage_fetch_attempts = 0;
-            // Backfilled screenshots are auto-approved so users see them on
-            // the public frontend immediately. Admins can still un-approve
-            // any bad ones in /admin/images (filter: Approved).
-            doc.homepage_approved = true;
-            doc.images_approved = true;
-          } else {
-            doc.homepage_fetch_status = "failed";
-            doc.homepage_fetch_error = String(payload.reason || "unknown");
-            doc.homepage_fetched_at = new Date().toISOString();
-            // Persistent across jobs so a site that's failed every renderer
-            // we've ever tried stops being re-pulled. Capped by maxAttempts
-            // in isPending().
-            doc.homepage_fetch_attempts = (Number(doc.homepage_fetch_attempts) || 0) + 1;
-          }
-          doc.updated_at = new Date().toISOString();
-          await companiesContainer.items.upsert(doc, { partitionKey: partitionKeyValue });
-        }
-      } catch (e) {
-        context.log(`[backfill-homepages] persist company ${company.id} failed: ${e?.message || e}`);
-      }
 
       if (payload.ok) processedThisInv++;
       else failuresThisInv++;

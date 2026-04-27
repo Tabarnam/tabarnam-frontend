@@ -12,8 +12,7 @@
 const { app } = require("../_app");
 const { CosmosClient } = require("@azure/cosmos");
 const { v4: uuidv4 } = require("uuid");
-const { fetchMicrolinkLogo } = require("../_microlinkClient");
-const { uploadBufferToBlob } = require("../_logoImport");
+const { fetchAndPersistLogoForCompany } = require("../_microlinkBackfill");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -168,50 +167,24 @@ async function handler(req, context) {
 // invocation.
 const DEFAULT_INVOCATION_BUDGET_MS = 4 * 60 * 1000;
 const WAVE_SAFETY_MARGIN_MS = 45 * 1000;
-const PER_CALL_TIMEOUT_MS = 35 * 1000;
 const PER_CALL_HARD_TIMEOUT_MS = 45 * 1000;
 const IN_WAVE_HEARTBEAT_MS = 20 * 1000;
 const HEARTBEAT_LOCK_EXTENSION_MS = 60 * 1000;
 
-async function uploadOneCompany(company, { ctx }) {
-  const startedAtMs = Date.now();
-  const startedAt = new Date(startedAtMs).toISOString();
-  try {
-    const fetched = await fetchMicrolinkLogo(company.website_url, ctx);
-    if (!fetched.ok) return { ok: false, reason: fetched.reason, started_at: startedAt, duration_ms: Date.now() - startedAtMs };
-
-    // force=true: our pending-criterion has already decided the existing logo
-    // (if any) is replaceable. The blob-size guard inside uploadBufferToBlob
-    // would otherwise silently drop legitimate replacements.
-    let blobUrl;
-    try {
-      blobUrl = await uploadBufferToBlob(
-        { companyId: company.id, buffer: fetched.bytes, ext: fetched.ext, contentType: fetched.contentType },
-        ctx,
-        { force: true }
-      );
-    } catch (e) {
-      return { ok: false, reason: `blob_upload_failed: ${e?.message || e}`, started_at: startedAt, duration_ms: Date.now() - startedAtMs };
-    }
-
-    return {
-      ok: true,
-      logo_url: blobUrl,
-      logo_source_url: fetched.sourceUrl,
-      started_at: startedAt,
-      duration_ms: Date.now() - startedAtMs,
-    };
-  } catch (e) {
-    return { ok: false, reason: `exception: ${e?.message || e}`, started_at: startedAt, duration_ms: Date.now() - startedAtMs };
-  }
-}
-
-async function uploadOneCompanyWithHardTimeout(company, opts) {
-  const hardMs = Math.max(20_000, Number(opts.perCallHardTimeoutMs) || PER_CALL_HARD_TIMEOUT_MS);
+// Per-company fetch + persist now lives in api/_microlinkBackfill.js so both
+// this bulk worker and the per-row admin endpoint share field-write logic.
+// We keep a hard-timeout race here because the bulk job has a finite
+// invocation budget and a single stuck Microlink call can otherwise burn it.
+async function uploadOneCompanyWithHardTimeout(company, { perCallHardTimeoutMs, ctx }) {
+  const hardMs = Math.max(20_000, Number(perCallHardTimeoutMs) || PER_CALL_HARD_TIMEOUT_MS);
   let timer = null;
   const hard = new Promise((res) => { timer = setTimeout(() => res({ ok: false, reason: `hard_timeout_${hardMs}ms`, started_at: new Date().toISOString(), duration_ms: hardMs }), hardMs); });
-  try { return await Promise.race([uploadOneCompany(company, opts), hard]); }
-  finally { if (timer) clearTimeout(timer); }
+  try {
+    return await Promise.race([
+      fetchAndPersistLogoForCompany(company, ctx),
+      hard,
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
 }
 
 async function processBackfillLogosBatch(queueBody, context) {
@@ -322,8 +295,10 @@ async function processBackfillLogosBatch(queueBody, context) {
     context.log(`[backfill-logos] wave size=${companies.length} batch=${companiesThisInv}/${batchSize} budget=${((budgetDeadlineMs - Date.now()) / 1000).toFixed(0)}s`);
 
     const remainingBudgetMs = Math.max(15_000, budgetDeadlineMs - Date.now() - 5_000);
-    const perCallTimeoutMs = Math.min(PER_CALL_TIMEOUT_MS, remainingBudgetMs);
-    const perCallHardTimeoutMs = Math.min(PER_CALL_HARD_TIMEOUT_MS, Math.max(perCallTimeoutMs + 10_000, remainingBudgetMs));
+    // Hard timeout bounded by what's left in the invocation budget so a stuck
+    // Microlink call can't run past the wave deadline. The fetchMicrolink*
+    // helpers enforce their own soft timeout internally.
+    const perCallHardTimeoutMs = Math.min(PER_CALL_HARD_TIMEOUT_MS, remainingBudgetMs);
 
     const heartbeatTicker = setInterval(() => {
       persistJob({
@@ -335,11 +310,13 @@ async function processBackfillLogosBatch(queueBody, context) {
     let waveResults;
     try {
       waveResults = await Promise.allSettled(
-        companies.map((c) => uploadOneCompanyWithHardTimeout(c, { perCallTimeoutMs, perCallHardTimeoutMs, ctx: context }))
+        companies.map((c) => uploadOneCompanyWithHardTimeout(c, { perCallHardTimeoutMs, ctx: context }))
       );
     } finally { clearInterval(heartbeatTicker); }
 
-    // Persist per-company results to Cosmos and accumulate for the job log
+    // The shared persist function in _microlinkBackfill.js has already
+    // mutated each company doc; this loop just aggregates the wave's results
+    // for the job log + counters.
     for (let i = 0; i < waveResults.length; i++) {
       const r = waveResults[i];
       const company = companies[i];
@@ -347,37 +324,6 @@ async function processBackfillLogosBatch(queueBody, context) {
       companiesThisInv++;
 
       const payload = r.status === "fulfilled" ? r.value : { ok: false, reason: r.reason?.message || String(r.reason || "rejected"), started_at: new Date(waveStartMs).toISOString(), duration_ms: Date.now() - waveStartMs };
-
-      // Mutate the company doc with success or failure metadata
-      try {
-        const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
-        const { resource: doc } = await companiesContainer.item(company.id, partitionKeyValue).read();
-        if (doc) {
-          if (payload.ok) {
-            doc.logo_url = payload.logo_url;
-            doc.logo_source_url = payload.logo_source_url || null;
-            doc.logo_source_type = "microlink_backfill";
-            doc.logo_status = "imported";
-            doc.logo_import_status = "imported";
-            doc.logo_stage_status = "imported";
-            doc.logo_error = null;
-            doc.logo_fetched_at = new Date().toISOString();
-            doc.logo_fetch_attempts = 0;
-            // DO NOT auto-approve. Admin reviews the new logo in /admin/images
-            // and flips logo_approved (or images_approved) manually.
-            doc.logo_approved = false;
-          } else {
-            doc.logo_status = "failed";
-            doc.logo_error = String(payload.reason || "unknown");
-            doc.logo_fetched_at = new Date().toISOString();
-            doc.logo_fetch_attempts = (Number(doc.logo_fetch_attempts) || 0) + 1;
-          }
-          doc.updated_at = new Date().toISOString();
-          await companiesContainer.items.upsert(doc, { partitionKey: partitionKeyValue });
-        }
-      } catch (e) {
-        context.log(`[backfill-logos] persist company ${company.id} failed: ${e?.message || e}`);
-      }
 
       if (payload.ok) processedThisInv++;
       else failuresThisInv++;

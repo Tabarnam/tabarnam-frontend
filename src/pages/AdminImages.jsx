@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Helmet } from "react-helmet-async";
 import { useTheme } from "next-themes";
 import DataTable from "react-data-table-component";
-import { Check, Copy, ImageOff, Pencil, Search, Upload, X } from "lucide-react";
+import { Check, Copy, ImageOff, Pencil, Search, Sparkles, Upload, X } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import TallyCounter from "@/components/TallyCounter";
@@ -77,7 +77,9 @@ function ImageCell({
   approved,
   onApproveChange,
   onUpload,
+  onMicrolinkFetch,
   uploading,
+  fetching,
   saving,
   emptyLabel,
   aspectClass,
@@ -90,7 +92,7 @@ function ImageCell({
 
   const handlePick = (e) => {
     e.stopPropagation();
-    if (uploading || saving) return;
+    if (uploading || fetching || saving) return;
     fileRef.current?.click();
   };
 
@@ -103,6 +105,13 @@ function ImageCell({
       window.setTimeout(() => setRecentlyUploaded(false), 2500);
     }
     if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const handleMicrolinkClick = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (uploading || fetching || saving) return;
+    onMicrolinkFetch?.();
   };
 
   const handleMouseEnter = () => {
@@ -123,7 +132,7 @@ function ImageCell({
         onClick={handlePick}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        disabled={uploading}
+        disabled={uploading || fetching}
         title={src ? "Click to replace" : "Click to upload"}
         className={`relative ${aspectClass} bg-white dark:bg-slate-100 rounded border border-slate-300 dark:border-slate-600 overflow-hidden flex items-center justify-center hover:ring-2 hover:ring-teal-500 transition`}
       >
@@ -147,6 +156,11 @@ function ImageCell({
             Uploading…
           </div>
         ) : null}
+        {fetching && !uploading ? (
+          <div className="absolute inset-0 bg-black/55 flex items-center justify-center text-white text-[10px]">
+            Fetching…
+          </div>
+        ) : null}
         {recentlyUploaded && !uploading ? (
           <div className="absolute inset-0 bg-emerald-500/80 flex items-center justify-center text-white pointer-events-none">
             <Check className="w-6 h-6" />
@@ -163,14 +177,30 @@ function ImageCell({
         disabled={uploading}
       />
 
-      <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 select-none">
-        <Checkbox
-          checked={!!approved}
-          onCheckedChange={(v) => onApproveChange(Boolean(v))}
-          disabled={!src || saving}
-        />
-        Approve
-      </label>
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 select-none">
+          <Checkbox
+            checked={!!approved}
+            onCheckedChange={(v) => onApproveChange(Boolean(v))}
+            disabled={!src || saving}
+          />
+          Approve
+        </label>
+        {/* Per-row Microlink fetch — only useful when not yet approved.
+            Approved images already passed admin review; re-fetching would
+            just replace a known-good asset. Hidden in that case. */}
+        {!approved && onMicrolinkFetch ? (
+          <button
+            type="button"
+            onClick={handleMicrolinkClick}
+            disabled={uploading || fetching || saving}
+            title={src ? "Re-fetch from Microlink" : "Fetch from Microlink"}
+            className="opacity-60 hover:opacity-100 disabled:opacity-25 disabled:cursor-not-allowed transition-opacity text-teal-600 dark:text-teal-400"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+          </button>
+        ) : null}
+      </div>
 
       <HoverPreviewPortal src={src} anchorRect={hoverRect} alt={alt} />
     </div>
@@ -195,6 +225,8 @@ export default function AdminImages() {
   const [savingIds, setSavingIds] = useState(() => new Set());
   const [uploadingLogoIds, setUploadingLogoIds] = useState(() => new Set());
   const [uploadingHomepageIds, setUploadingHomepageIds] = useState(() => new Set());
+  const [fetchingLogoIds, setFetchingLogoIds] = useState(() => new Set());
+  const [fetchingHomepageIds, setFetchingHomepageIds] = useState(() => new Set());
 
   const fetchCompanies = useCallback(async (search, all, signal) => {
     setError(null);
@@ -320,6 +352,59 @@ export default function AdminImages() {
       toast.error(e?.message || "Logo upload failed");
     } finally {
       setUploadingLogoIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, [updateLocal]);
+
+  // Per-row Microlink fetch — calls the synchronous endpoint that wraps
+  // the same persist logic used by the bulk backfill jobs. Backfilled
+  // images land UNAPPROVED so the admin reviews them right here.
+  const handleMicrolinkFetch = useCallback(async (company, asset) => {
+    const id = getCompanyId(company);
+    if (!id) {
+      toast.error("Missing company id");
+      return;
+    }
+    const setter = asset === "logo" ? setFetchingLogoIds : setFetchingHomepageIds;
+    setter((prev) => new Set(prev).add(id));
+    try {
+      const res = await apiFetch(`/xadmin-api-microlink-fetch-one`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company_id: id, asset }),
+      });
+      const data = await readJsonOrText(res);
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      if (!data?.ok) {
+        toast.error(`Microlink: ${data?.reason || "fetch failed"}`);
+        return;
+      }
+      if (asset === "logo") {
+        updateLocal(id, {
+          logo_url: data.logo_url,
+          logo_source_url: data.logo_source_url || null,
+          logo_source_type: "microlink_backfill",
+          logo_status: "imported",
+          logo_import_status: "imported",
+          logo_stage_status: "imported",
+          logo_approved: false,
+        });
+        toast.success("Logo fetched — review and approve");
+      } else {
+        updateLocal(id, {
+          homepage_image_url: data.homepage_image_url,
+          homepage_fetch_status: "ok",
+          homepage_approved: false,
+        });
+        toast.success("Homepage fetched — review and approve");
+      }
+    } catch (e) {
+      toast.error(e?.message || "Microlink fetch failed");
+    } finally {
+      setter((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
@@ -502,7 +587,9 @@ export default function AdminImages() {
               approved={!!row?.logo_approved}
               onApproveChange={(v) => persistApproval(row, "logo_approved", v)}
               onUpload={(file) => handleLogoUpload(row, file)}
+              onMicrolinkFetch={() => handleMicrolinkFetch(row, "logo")}
               uploading={uploadingLogoIds.has(id)}
+              fetching={fetchingLogoIds.has(id)}
               saving={savingIds.has(id)}
               emptyLabel="No logo"
               aspectClass="h-14 w-14"
@@ -525,7 +612,9 @@ export default function AdminImages() {
               approved={!!row?.homepage_approved}
               onApproveChange={(v) => persistApproval(row, "homepage_approved", v)}
               onUpload={(file) => handleHomepageUpload(row, file)}
+              onMicrolinkFetch={() => handleMicrolinkFetch(row, "homepage")}
               uploading={uploadingHomepageIds.has(id)}
+              fetching={fetchingHomepageIds.has(id)}
               saving={savingIds.has(id)}
               emptyLabel="No image"
               aspectClass="h-14 w-24"
@@ -620,8 +709,11 @@ export default function AdminImages() {
     persistMasterApproval,
     handleLogoUpload,
     handleHomepageUpload,
+    handleMicrolinkFetch,
     uploadingLogoIds,
     uploadingHomepageIds,
+    fetchingLogoIds,
+    fetchingHomepageIds,
     savingIds,
   ]);
 
