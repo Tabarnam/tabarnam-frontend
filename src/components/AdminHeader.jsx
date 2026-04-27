@@ -167,6 +167,9 @@ export default function AdminHeader() {
               <NavLink to="/admin/backfill-homepages" className={navLinkClass}>
                 Backfill Pages
               </NavLink>
+              <NavLink to="/admin/backfill-logos" className={navLinkClass}>
+                Backfill Logos
+              </NavLink>
               <NavLink to="/admin/diagnostics" className={navLinkClass}>
                 Diagnostics
               </NavLink>

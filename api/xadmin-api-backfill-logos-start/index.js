@@ -1,15 +1,18 @@
-// Backfill homepages — START endpoint.
-// Mirrors xadmin-api-score-all-missing exactly: creates a Cosmos `backfill_jobs`
-// doc with job_type="homepages", returns job_id. The status endpoint
-// (xadmin-api-backfill-homepages-status) self-drives the worker on every poll.
+// Backfill logos — START endpoint.
+// Mirrors xadmin-api-backfill-homepages-start. Creates a Cosmos `backfill_jobs`
+// doc with job_type="logos", returns job_id. The status endpoint
+// (xadmin-api-backfill-logos-status) self-drives the worker on every poll.
 //
-// Pending criterion: company has website_url but no homepage_image_url.
-// Failed records (homepage_fetch_status === "failed") are skipped unless
-// body.include_failed === true.
+// Pending criterion: company has website_url AND (no logo_url OR logo_approved !== true),
+// AND logo_stage_status is NOT "ok"/"imported" (the merge guard — a verified blob
+// logo from the existing import pipeline never gets clobbered).
+//
+// Failed records (logo_status === "failed") are skipped unless body.include_failed
+// is set. Backfilled logos land UNAPPROVED — admin reviews in /admin/images.
 const { app } = require("../_app");
 const { CosmosClient } = require("@azure/cosmos");
 const { v4: uuidv4 } = require("uuid");
-const { fetchAndPersistHomepageForCompany } = require("../_microlinkBackfill");
+const { fetchAndPersistLogoForCompany } = require("../_microlinkBackfill");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -47,18 +50,31 @@ function getBackfillJobsContainer() {
   return c.database(E("COSMOS_DB_DATABASE", "tabarnam-db")).container(E("COSMOS_DB_BACKFILL_JOBS_CONTAINER", "backfill_jobs"));
 }
 
+// Skip companies whose existing logo is already a verified blob from the
+// import pipeline (logo_stage_status of "ok" or "imported"). The blob path
+// or stage_status alone would each be insufficient — paired they uniquely
+// identify "we own this and someone has reviewed it".
+function isStageVerified(c) {
+  return c?.logo_stage_status === "ok" || c?.logo_stage_status === "imported";
+}
+
 function isPending(c, includeFailed, maxAttempts) {
   if (!c) return false;
   const hasUrl = typeof c.website_url === "string" && c.website_url.trim().length > 0;
   if (!hasUrl) return false;
-  const hasImage = typeof c.homepage_image_url === "string" && c.homepage_image_url.trim().length > 0;
-  if (hasImage) return false;
-  if (!includeFailed && c.homepage_fetch_status === "failed") return false;
+
+  const hasLogo = typeof c.logo_url === "string" && c.logo_url.trim().length > 0;
+  const isApproved = c.logo_approved === true;
+  // "missing or unapproved" scope — anything not yet approved is fair game,
+  // unless the merge guard says hands off.
+  if (hasLogo && isApproved) return false;
+  if (isStageVerified(c)) return false;
+
+  if (!includeFailed && c.logo_status === "failed") return false;
   // Even when retrying failures, give up on companies that have already failed
-  // maxAttempts times. Otherwise sites that block all renderers (Cloudflare,
-  // PerimeterX, dead domains) re-queue every wave forever and starve the rest
-  // of the queue. Counter resets on a successful fetch.
-  if (includeFailed && Number.isFinite(maxAttempts) && (Number(c.homepage_fetch_attempts) || 0) >= maxAttempts) return false;
+  // maxAttempts times so they stop starving the queue. Counter resets on
+  // a successful fetch.
+  if (includeFailed && Number.isFinite(maxAttempts) && (Number(c.logo_fetch_attempts) || 0) >= maxAttempts) return false;
   return true;
 }
 
@@ -89,7 +105,7 @@ async function handler(req, context) {
   // Count pending companies
   let totalPending = 0;
   try {
-    const q = `SELECT c.id, c.website_url, c.homepage_image_url, c.homepage_fetch_status, c.homepage_fetch_attempts FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const q = `SELECT c.id, c.website_url, c.logo_url, c.logo_approved, c.logo_stage_status, c.logo_status, c.logo_fetch_attempts FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources } = await companiesContainer.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
     totalPending = (resources || []).filter((c) => isPending(c, includeFailed, maxAttempts)).length;
   } catch (e) {
@@ -97,7 +113,7 @@ async function handler(req, context) {
   }
 
   if (totalPending === 0) {
-    return json({ ok: true, message: "No companies need homepage backfill", total_to_process: 0 });
+    return json({ ok: true, message: "No companies need logo backfill", total_to_process: 0 });
   }
 
   const jobId = uuid();
@@ -105,7 +121,7 @@ async function handler(req, context) {
   const jobDoc = {
     id: `job_${jobId}`,
     job_id: jobId,
-    job_type: "homepages",
+    job_type: "logos",
     status: "running",
     batch_size: batchSize,
     concurrency,
@@ -128,7 +144,7 @@ async function handler(req, context) {
   };
 
   await jobsContainer.items.upsert(jobDoc, { partitionKey: jobId });
-  context.log(`[backfill-homepages-start] job=${jobId} total=${totalPending} batch=${batchSize} concurrency=${concurrency} include_failed=${includeFailed} max_attempts=${maxAttempts}`);
+  context.log(`[backfill-logos-start] job=${jobId} total=${totalPending} batch=${batchSize} concurrency=${concurrency} include_failed=${includeFailed} max_attempts=${maxAttempts}`);
 
   return json({
     ok: true,
@@ -146,9 +162,12 @@ async function handler(req, context) {
 }
 
 // ── Batch processor (runs inside the worker invocation) ────────────────
+// Logos are much faster than screenshots (no render, just meta-tag extraction
+// + small download). Tighter timeouts let us pack more companies per
+// invocation.
 const DEFAULT_INVOCATION_BUDGET_MS = 4 * 60 * 1000;
-const WAVE_SAFETY_MARGIN_MS = 75 * 1000;
-const PER_CALL_HARD_TIMEOUT_MS = 90 * 1000;
+const WAVE_SAFETY_MARGIN_MS = 45 * 1000;
+const PER_CALL_HARD_TIMEOUT_MS = 45 * 1000;
 const IN_WAVE_HEARTBEAT_MS = 20 * 1000;
 const HEARTBEAT_LOCK_EXTENSION_MS = 60 * 1000;
 
@@ -157,18 +176,18 @@ const HEARTBEAT_LOCK_EXTENSION_MS = 60 * 1000;
 // We keep a hard-timeout race here because the bulk job has a finite
 // invocation budget and a single stuck Microlink call can otherwise burn it.
 async function uploadOneCompanyWithHardTimeout(company, { perCallHardTimeoutMs, ctx }) {
-  const hardMs = Math.max(30_000, Number(perCallHardTimeoutMs) || PER_CALL_HARD_TIMEOUT_MS);
+  const hardMs = Math.max(20_000, Number(perCallHardTimeoutMs) || PER_CALL_HARD_TIMEOUT_MS);
   let timer = null;
   const hard = new Promise((res) => { timer = setTimeout(() => res({ ok: false, reason: `hard_timeout_${hardMs}ms`, started_at: new Date().toISOString(), duration_ms: hardMs }), hardMs); });
   try {
     return await Promise.race([
-      fetchAndPersistHomepageForCompany(company, ctx, { autoApprove: true }),
+      fetchAndPersistLogoForCompany(company, ctx),
       hard,
     ]);
   } finally { if (timer) clearTimeout(timer); }
 }
 
-async function processBackfillHomepagesBatch(queueBody, context) {
+async function processBackfillLogosBatch(queueBody, context) {
   const jobId = String(queueBody?.session_id || queueBody?.job_id || "").trim();
   if (!jobId) return { ok: false, error: "missing_job_id" };
 
@@ -207,10 +226,6 @@ async function processBackfillHomepagesBatch(queueBody, context) {
   let companiesThisInv = 0;
   const results = [];
   let exitReason = "completed_batch";
-  // Each company gets at most one Microlink call per worker invocation —
-  // even with include_failed=true, otherwise sites that fail every time
-  // (Cloudflare-blocked, dead, etc.) re-queue every wave and burn the whole
-  // 4-min budget without making progress.
   const attemptedThisInv = new Set();
 
   async function persistJob(patch) {
@@ -220,7 +235,7 @@ async function processBackfillHomepagesBatch(queueBody, context) {
       Object.assign(fresh, patch, { last_updated: new Date().toISOString() });
       await jobsContainer.items.upsert(fresh, { partitionKey: jobId });
       job = fresh;
-    } catch (e) { context.log(`[backfill-homepages] persistJob failed: ${e?.message || e}`); }
+    } catch (e) { context.log(`[backfill-logos] persistJob failed: ${e?.message || e}`); }
   }
 
   async function heartbeat(extra = {}) {
@@ -244,7 +259,7 @@ async function processBackfillHomepagesBatch(queueBody, context) {
 
     let companies = [];
     try {
-      const listQuery = `SELECT c.id, c.normalized_domain, c.company_name, c.name, c.website_url, c.homepage_image_url, c.homepage_fetch_status, c.homepage_fetch_attempts FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+      const listQuery = `SELECT c.id, c.normalized_domain, c.company_name, c.name, c.website_url, c.logo_url, c.logo_approved, c.logo_stage_status, c.logo_status, c.logo_fetch_attempts FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
       const { resources: listRows } = await companiesContainer.items.query(listQuery, { enableCrossPartitionQuery: true }).fetchAll();
 
       const remByMax = maxCompanies != null ? Math.max(0, Number(maxCompanies) - (job.processed || 0) - processedThisInv) : Infinity;
@@ -277,12 +292,12 @@ async function processBackfillHomepagesBatch(queueBody, context) {
     }));
     await heartbeat({ current_companies: currentCompanies });
 
-    context.log(`[backfill-homepages] wave size=${companies.length} batch=${companiesThisInv}/${batchSize} budget=${((budgetDeadlineMs - Date.now()) / 1000).toFixed(0)}s`);
+    context.log(`[backfill-logos] wave size=${companies.length} batch=${companiesThisInv}/${batchSize} budget=${((budgetDeadlineMs - Date.now()) / 1000).toFixed(0)}s`);
 
     const remainingBudgetMs = Math.max(15_000, budgetDeadlineMs - Date.now() - 5_000);
     // Hard timeout bounded by what's left in the invocation budget so a stuck
     // Microlink call can't run past the wave deadline. The fetchMicrolink*
-    // helpers enforce their own 60s soft timeout internally.
+    // helpers enforce their own soft timeout internally.
     const perCallHardTimeoutMs = Math.min(PER_CALL_HARD_TIMEOUT_MS, remainingBudgetMs);
 
     const heartbeatTicker = setInterval(() => {
@@ -295,9 +310,6 @@ async function processBackfillHomepagesBatch(queueBody, context) {
     let waveResults;
     try {
       waveResults = await Promise.allSettled(
-        // Hard-timeout race protects the bulk job's 4-min invocation budget
-        // from a single stuck Microlink call. The inner fetch already
-        // enforces its own per-request timeout.
         companies.map((c) => uploadOneCompanyWithHardTimeout(c, { perCallHardTimeoutMs, ctx: context }))
       );
     } finally { clearInterval(heartbeatTicker); }
@@ -321,11 +333,11 @@ async function processBackfillHomepagesBatch(queueBody, context) {
         normalized_domain: company.normalized_domain || null,
         company_name: companyName,
         ok: payload.ok,
-        ...(payload.ok ? { homepage_image_url: payload.homepage_image_url } : { reason: payload.reason }),
+        ...(payload.ok ? { logo_url: payload.logo_url, logo_source_url: payload.logo_source_url } : { reason: payload.reason }),
         started_at: payload.started_at,
         duration_ms: payload.duration_ms,
       });
-      context.log(`[backfill-homepages] ${companyName} ${payload.ok ? "OK" : "FAIL " + payload.reason} (${(payload.duration_ms / 1000).toFixed(1)}s)`);
+      context.log(`[backfill-logos] ${companyName} ${payload.ok ? "OK" : "FAIL " + payload.reason} (${(payload.duration_ms / 1000).toFixed(1)}s)`);
     }
 
     // Wave complete: prepend results, refresh heartbeat / lock
@@ -341,14 +353,14 @@ async function processBackfillHomepagesBatch(queueBody, context) {
         await jobsContainer.items.upsert(fresh, { partitionKey: jobId });
         job = fresh;
       }
-    } catch (e) { context.log(`[backfill-homepages] wave publish failed: ${e?.message || e}`); }
+    } catch (e) { context.log(`[backfill-logos] wave publish failed: ${e?.message || e}`); }
   }
 
   // Finalize
   const invocationDurationMs = Date.now() - invocationStartMs;
   let remaining = null;
   try {
-    const q = `SELECT c.id, c.website_url, c.homepage_image_url, c.homepage_fetch_status, c.homepage_fetch_attempts FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const q = `SELECT c.id, c.website_url, c.logo_url, c.logo_approved, c.logo_stage_status, c.logo_status, c.logo_fetch_attempts FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
     const { resources } = await companiesContainer.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
     remaining = (resources || []).filter((c) => isPending(c, includeFailed, maxAttempts)).length;
   } catch { /* leave null */ }
@@ -375,14 +387,14 @@ async function processBackfillHomepagesBatch(queueBody, context) {
         fresh.completed_at = fresh.last_updated;
         fresh.locked_by = null;
         fresh.lock_expires_at = null;
-        context.log(`[backfill-homepages] job=${jobId} completed processed=${fresh.processed} failed=${fresh.failed}`);
+        context.log(`[backfill-logos] job=${jobId} completed processed=${fresh.processed} failed=${fresh.failed}`);
       }
       await jobsContainer.items.upsert(fresh, { partitionKey: jobId });
       job = fresh;
     }
-  } catch (e) { context.log(`[backfill-homepages] final persist failed: ${e?.message || e}`); }
+  } catch (e) { context.log(`[backfill-logos] final persist failed: ${e?.message || e}`); }
 
-  context.log(`[backfill-homepages] invocation done processed=${processedThisInv} failed=${failuresThisInv} remaining=${job?.remaining ?? "?"} elapsed=${(invocationDurationMs / 1000).toFixed(1)}s exit=${exitReason}`);
+  context.log(`[backfill-logos] invocation done processed=${processedThisInv} failed=${failuresThisInv} remaining=${job?.remaining ?? "?"} elapsed=${(invocationDurationMs / 1000).toFixed(1)}s exit=${exitReason}`);
 
   return {
     ok: true,
@@ -397,11 +409,11 @@ async function processBackfillHomepagesBatch(queueBody, context) {
   };
 }
 
-app.http("adminBackfillHomepagesStart", {
-  route: "xadmin-api-backfill-homepages-start",
+app.http("adminBackfillLogosStart", {
+  route: "xadmin-api-backfill-logos-start",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler,
 });
 
-module.exports = { handler, processBackfillHomepagesBatch };
+module.exports = { handler, processBackfillLogosBatch };
