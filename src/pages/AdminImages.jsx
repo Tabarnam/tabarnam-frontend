@@ -77,7 +77,6 @@ function ImageCell({
   approved,
   onApproveChange,
   onUpload,
-  onMicrolinkFetch,
   uploading,
   fetching,
   saving,
@@ -105,13 +104,6 @@ function ImageCell({
       window.setTimeout(() => setRecentlyUploaded(false), 2500);
     }
     if (fileRef.current) fileRef.current.value = "";
-  };
-
-  const handleMicrolinkClick = (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (uploading || fetching || saving) return;
-    onMicrolinkFetch?.();
   };
 
   const handleMouseEnter = () => {
@@ -177,30 +169,14 @@ function ImageCell({
         disabled={uploading}
       />
 
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 select-none">
-          <Checkbox
-            checked={!!approved}
-            onCheckedChange={(v) => onApproveChange(Boolean(v))}
-            disabled={!src || saving}
-          />
-          Approve
-        </label>
-        {/* Per-row Microlink fetch — only useful when not yet approved.
-            Approved images already passed admin review; re-fetching would
-            just replace a known-good asset. Hidden in that case. */}
-        {!approved && onMicrolinkFetch ? (
-          <button
-            type="button"
-            onClick={handleMicrolinkClick}
-            disabled={uploading || fetching || saving}
-            title={src ? "Re-fetch from Microlink" : "Fetch from Microlink"}
-            className="opacity-60 hover:opacity-100 disabled:opacity-25 disabled:cursor-not-allowed transition-opacity text-teal-600 dark:text-teal-400"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-          </button>
-        ) : null}
-      </div>
+      <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 select-none">
+        <Checkbox
+          checked={!!approved}
+          onCheckedChange={(v) => onApproveChange(Boolean(v))}
+          disabled={!src || saving}
+        />
+        Approve
+      </label>
 
       <HoverPreviewPortal src={src} anchorRect={hoverRect} alt={alt} />
     </div>
@@ -412,6 +388,23 @@ export default function AdminImages() {
     }
   }, [updateLocal]);
 
+  // Row-level convenience: fetch whichever asset(s) on the row are unapproved
+  // (logo and/or homepage) in parallel. The per-asset state keeps the
+  // per-cell "Fetching…" overlay accurate so the admin sees which asset is
+  // in flight even though they triggered both with one click.
+  const handleRowMicrolinkFetch = useCallback(async (company) => {
+    const id = getCompanyId(company);
+    if (!id) {
+      toast.error("Missing company id");
+      return;
+    }
+    const targets = [];
+    if (!company?.logo_approved) targets.push("logo");
+    if (!company?.homepage_approved) targets.push("homepage");
+    if (targets.length === 0) return;
+    await Promise.all(targets.map((asset) => handleMicrolinkFetch(company, asset)));
+  }, [handleMicrolinkFetch]);
+
   const handleHomepageUpload = useCallback(async (company, file) => {
     const id = getCompanyId(company);
     if (!id) {
@@ -563,13 +556,38 @@ export default function AdminImages() {
         width: "110px",
         cell: (row) => {
           const id = getCompanyId(row);
+          const logoMissing = !row?.logo_approved;
+          const homepageMissing = !row?.homepage_approved;
+          const anyMissing = logoMissing || homepageMissing;
+          const fetching = fetchingLogoIds.has(id) || fetchingHomepageIds.has(id);
+          // Title spells out which asset(s) the click will fetch, so the
+          // admin doesn't have to remember which checkbox is which.
+          const fetchTitle = !anyMissing
+            ? "All approved — nothing to fetch"
+            : logoMissing && homepageMissing
+              ? "Fetch logo + homepage from Microlink"
+              : logoMissing
+                ? "Fetch logo from Microlink"
+                : "Fetch homepage from Microlink";
           return (
-            <Checkbox
-              checked={!!row?.images_approved}
-              onCheckedChange={(v) => persistMasterApproval(row, Boolean(v))}
-              disabled={savingIds.has(id)}
-              aria-label="Master approve"
-            />
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={!!row?.images_approved}
+                onCheckedChange={(v) => persistMasterApproval(row, Boolean(v))}
+                disabled={savingIds.has(id)}
+                aria-label="Master approve"
+              />
+              <button
+                type="button"
+                onClick={() => handleRowMicrolinkFetch(row)}
+                disabled={!anyMissing || fetching || savingIds.has(id)}
+                title={fetchTitle}
+                className="opacity-60 hover:opacity-100 disabled:opacity-20 disabled:cursor-not-allowed transition-opacity text-teal-600 dark:text-teal-400"
+                aria-label={fetchTitle}
+              >
+                <Sparkles className={`w-4 h-4 ${fetching ? "animate-pulse" : ""}`} />
+              </button>
+            </div>
           );
         },
       },
@@ -587,7 +605,6 @@ export default function AdminImages() {
               approved={!!row?.logo_approved}
               onApproveChange={(v) => persistApproval(row, "logo_approved", v)}
               onUpload={(file) => handleLogoUpload(row, file)}
-              onMicrolinkFetch={() => handleMicrolinkFetch(row, "logo")}
               uploading={uploadingLogoIds.has(id)}
               fetching={fetchingLogoIds.has(id)}
               saving={savingIds.has(id)}
@@ -612,7 +629,6 @@ export default function AdminImages() {
               approved={!!row?.homepage_approved}
               onApproveChange={(v) => persistApproval(row, "homepage_approved", v)}
               onUpload={(file) => handleHomepageUpload(row, file)}
-              onMicrolinkFetch={() => handleMicrolinkFetch(row, "homepage")}
               uploading={uploadingHomepageIds.has(id)}
               fetching={fetchingHomepageIds.has(id)}
               saving={savingIds.has(id)}
@@ -709,7 +725,7 @@ export default function AdminImages() {
     persistMasterApproval,
     handleLogoUpload,
     handleHomepageUpload,
-    handleMicrolinkFetch,
+    handleRowMicrolinkFetch,
     uploadingLogoIds,
     uploadingHomepageIds,
     fetchingLogoIds,
