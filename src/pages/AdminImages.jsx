@@ -3,13 +3,24 @@ import { createPortal } from "react-dom";
 import { Helmet } from "react-helmet-async";
 import { useTheme } from "next-themes";
 import DataTable from "react-data-table-component";
-import { Check, Copy, ImageOff, Pencil, Search, Sparkles, Upload, X } from "lucide-react";
+import { Check, Copy, ImageOff, Pencil, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import TallyCounter from "@/components/TallyCounter";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { apiFetch, readJsonOrText } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { apiFetch, getUserFacingConfigMessage, readJsonOrText } from "@/lib/api";
+import { getAdminUser } from "@/lib/azureAuth";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getCompanyHomepageUrl } from "@/lib/homepageUrl";
 import {
@@ -223,6 +234,12 @@ export default function AdminImages() {
   const [fetchingLogoIds, setFetchingLogoIds] = useState(() => new Set());
   const [fetchingHomepageIds, setFetchingHomepageIds] = useState(() => new Set());
 
+  // Delete confirmation state — same pattern as CompanyDashboard.jsx.
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false);
+  const [deleteConfirmError, setDeleteConfirmError] = useState(null);
+
   const fetchCompanies = useCallback(async (search, status, page, perPage, signal) => {
     setError(null);
     const params = new URLSearchParams();
@@ -434,6 +451,80 @@ export default function AdminImages() {
     if (targets.length === 0) return;
     await Promise.all(targets.map((asset) => handleMicrolinkFetch(company, asset)));
   }, [handleMicrolinkFetch]);
+
+  // Delete a single company — same flow as CompanyDashboard.jsx deleteCompany.
+  const deleteCompany = useCallback(async (companyId) => {
+    const safeId = asString(companyId).trim();
+    if (!safeId) {
+      toast.error("Missing company_id");
+      return { ok: false, id: safeId, message: "Missing company_id" };
+    }
+
+    try {
+      const user = getAdminUser();
+      const actorEmail = asString(user?.email).trim();
+      const requestId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+      const res = await apiFetch(`/xadmin-api-companies/${encodeURIComponent(safeId)}`, {
+        method: "DELETE",
+        body: {
+          actor_email: actorEmail || undefined,
+          actor_user_id: actorEmail || undefined,
+          source: "admin-ui",
+          request_id: requestId,
+        },
+      });
+
+      const body = await res.json().catch(() => ({}));
+      const ok = (res.ok && body?.ok === true) || (!res.ok && body?.ok === true);
+
+      if (!ok) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Delete failed (${res.status})`;
+        const detail = body?.detail || body?.error || res.statusText || "Unknown error";
+        return { ok: false, id: safeId, message: msg, detail, body, status: res.status };
+      }
+
+      // Remove the row from local state.
+      setCompanies((prev) => prev.filter((c) => getCompanyId(c) !== safeId));
+      return { ok: true, id: safeId };
+    } catch (e) {
+      const msg = e?.message || "Delete failed";
+      return { ok: false, id: safeId, message: msg, detail: msg, status: 0 };
+    }
+  }, []);
+
+  const openDeleteConfirm = useCallback((spec) => {
+    setDeleteConfirmError(null);
+    setDeleteConfirm(spec);
+    setDeleteConfirmOpen(true);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteConfirm) return;
+    setDeleteConfirmLoading(true);
+    setDeleteConfirmError(null);
+
+    try {
+      const res = await deleteCompany(deleteConfirm.company_id);
+      if (!res.ok) {
+        setDeleteConfirmError({
+          message: asString(res.message || "Delete failed"),
+          detail: asString(res.detail || ""),
+          body: res.body,
+        });
+        toast.error(asString(res.message || "Delete failed"));
+        return;
+      }
+
+      toast.success("Company deleted");
+      setDeleteConfirmOpen(false);
+    } finally {
+      setDeleteConfirmLoading(false);
+    }
+  }, [deleteCompany, deleteConfirm]);
 
   const handleHomepageUpload = useCallback(async (company, file) => {
     const id = getCompanyId(company);
@@ -744,6 +835,32 @@ export default function AdminImages() {
           );
         },
       },
+      {
+        id: "delete",
+        name: "Delete",
+        button: true,
+        width: "70px",
+        cell: (row) => {
+          const id = getCompanyId(row);
+          return (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
+              title="Delete company"
+              onClick={() =>
+                openDeleteConfirm({
+                  kind: "single",
+                  company_id: id,
+                  company_name: getCompanyName(row),
+                })
+              }
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          );
+        },
+      },
     ];
   }, [
     persistApproval,
@@ -751,6 +868,7 @@ export default function AdminImages() {
     handleLogoUpload,
     handleHomepageUpload,
     handleRowMicrolinkFetch,
+    openDeleteConfirm,
     uploadingLogoIds,
     uploadingHomepageIds,
     fetchingLogoIds,
@@ -946,6 +1064,53 @@ export default function AdminImages() {
           </section>
         </div>
       </div>
+
+      <AlertDialog
+        open={deleteConfirmOpen}
+        onOpenChange={(open) => !deleteConfirmLoading && setDeleteConfirmOpen(open)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm delete</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action is irreversible. The company will be removed from the admin list immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-2">
+            <div className="text-sm text-slate-700 dark:text-muted-foreground">
+              Delete <span className="font-semibold">{asString(deleteConfirm?.company_name) || "this company"}</span> (
+              <code className="text-xs">{asString(deleteConfirm?.company_id)}</code>)?
+            </div>
+
+            {deleteConfirmError ? (
+              <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">
+                <div className="font-medium">Delete failed</div>
+                <div>{asString(deleteConfirmError.message)}</div>
+                {deleteConfirmError.detail ? (
+                  <div className="mt-1 whitespace-pre-wrap break-words font-mono text-red-800">
+                    {asString(deleteConfirmError.detail)}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteConfirmLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-600/90"
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDelete();
+              }}
+              disabled={deleteConfirmLoading}
+            >
+              {deleteConfirmLoading ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
