@@ -3776,7 +3776,7 @@ export default function CompanyDashboard() {
 
           <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card overflow-x-auto">
             <DataTable
-              key={`${sortColumn?.id || "default"}-${sortDirection}-${filteredItems.length}`}
+              key={`${search.trim() ? "search" : (sortColumn?.id || "default")}-${sortDirection}-${filteredItems.length}`}
               columns={columns}
               data={filteredItems}
               conditionalRowStyles={[
@@ -3803,7 +3803,7 @@ export default function CompanyDashboard() {
                 setSortColumn(column);
                 setSortDirection(direction);
               }}
-              defaultSortFieldId={sortColumn?.id || "created"}
+              defaultSortFieldId={search.trim() ? undefined : (sortColumn?.id || "created")}
               defaultSortAsc={sortDirection === "asc"}
               customStyles={tableTheme}
               noDataComponent={noDataComponent}
