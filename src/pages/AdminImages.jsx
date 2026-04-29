@@ -640,29 +640,14 @@ export default function AdminImages() {
         name: "URL",
         selector: (row) => getCompanyUrl(row) || asString(row?.normalized_domain).trim(),
         sortable: true,
-        wrap: true,
-        grow: 2,
-        minWidth: "240px",
+        width: "135px",
         cell: (row) => {
           const fullUrl = getCompanyUrl(row);
           const display = fullUrl || asString(row?.normalized_domain).trim();
           if (!display) return null;
           return (
-            <div className="flex items-start gap-2 min-w-0">
-              {fullUrl ? (
-                <a
-                  href={fullUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-teal-600 dark:text-teal-400 hover:underline break-all"
-                  onClick={(e) => e.stopPropagation()}
-                  title={fullUrl}
-                >
-                  {display}
-                </a>
-              ) : (
-                <span className="break-all">{display}</span>
-              )}
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="truncate" title={display}>{display}</span>
               <button
                 type="button"
                 className="flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:hover:bg-muted"
