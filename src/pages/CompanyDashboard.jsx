@@ -3217,30 +3217,45 @@ export default function CompanyDashboard() {
         },
       },
       {
-        id: "domain",
-        name: "Domain",
-        selector: (row) => asString(row?.normalized_domain).trim(),
+        id: "url",
+        name: "URL",
+        selector: (row) => getCompanyUrl(row) || asString(row?.normalized_domain).trim(),
         sortable: true,
         wrap: true,
+        grow: 2,
+        minWidth: "240px",
         cell: (row) => {
-          const domain = asString(row?.normalized_domain).trim();
+          const fullUrl = getCompanyUrl(row);
+          const display = fullUrl || asString(row?.normalized_domain).trim();
+          if (!display) return null;
           return (
-            <div className="flex items-center gap-2 group/domain">
-              <span>{domain}</span>
-              {domain && (
-                <button
-                  type="button"
-                  className="opacity-40 hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:hover:bg-muted"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigator.clipboard.writeText(domain);
-                    toast.success("Domain copied to clipboard");
-                  }}
-                  title="Copy domain"
+            <div className="flex items-start gap-2 group/domain min-w-0">
+              {fullUrl ? (
+                <a
+                  href={fullUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-teal-600 dark:text-teal-400 hover:underline break-all"
+                  onClick={(e) => e.stopPropagation()}
+                  title={fullUrl}
                 >
-                  <Copy className="h-3 w-3" />
-                </button>
+                  {display}
+                </a>
+              ) : (
+                <span className="break-all">{display}</span>
               )}
+              <button
+                type="button"
+                className="flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:hover:bg-muted"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(display);
+                  toast.success("URL copied to clipboard");
+                }}
+                title="Copy URL"
+              >
+                <Copy className="h-3 w-3" />
+              </button>
             </div>
           );
         },
