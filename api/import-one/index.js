@@ -1,214 +1,23 @@
+// C:\dev\tabarnam-frontend\api\import-one\index.js
 let app;
 try {
-  ({ app } = require("../_app"));
+  ({ app } = require("@azure/functions"));
 } catch {
   app = { http() {} };
 }
 
-let CosmosClient;
-try {
-  ({ CosmosClient } = require("@azure/cosmos"));
-} catch {
-  CosmosClient = null;
-}
-
-const { getBuildInfo } = require("../_buildInfo");
-
-// Build stamp for deployment verification - helps identify which code version is running in production
-// Now uses shared getBuildInfo instead of hardcoded value
-function getBuildStamp() {
-  try {
-    const info = getBuildInfo();
-    return info.build_id || "unknown";
-  } catch {
-    return process.env.GIT_SHA || "unknown";
-  }
-}
-
 const { randomUUID } = require("crypto");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
-const { buildPrimaryJobId: buildImportPrimaryJobId, upsertJob: upsertImportPrimaryJob, getJob: getImportPrimaryJob } = require("../_importPrimaryJobStore");
+const {
+  buildPrimaryJobId: buildImportPrimaryJobId,
+  upsertJob: upsertImportPrimaryJob,
+} = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
-const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
 
-// Helper to extract normalized domain from URL
-function toNormalizedDomain(urlStr) {
-  const s = String(urlStr || "").trim();
-  if (!s) return "unknown";
-  try {
-    const u = s.includes("://") ? new URL(s) : new URL(`https://${s}`);
-    let host = String(u.hostname || "").toLowerCase().replace(/^www\./, "");
-    return host || "unknown";
-  } catch {
-    return "unknown";
-  }
-}
-
-// Seed a single company to Cosmos companies container
-async function seedCompanyToCosmos({ company, sessionId, container, fieldsToEnrich }) {
-  if (!container || !company) return { ok: false, error: "missing_args" };
-
-  const companyName = String(company.company_name || company.name || "").trim();
-  const websiteUrl = String(company.website_url || company.url || "").trim();
-
-  if (!companyName || !websiteUrl) {
-    return { ok: false, error: "missing_required_fields" };
-  }
-
-  const normalizedDomain = toNormalizedDomain(websiteUrl);
-  const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  const nowIso = new Date().toISOString();
-
-  const companyDoc = {
-    id: companyId,
-    company_id: companyId,
-    company_name: companyName,
-    name: companyName,
-    website_url: websiteUrl,
-    normalized_domain: normalizedDomain,
-    partition_key: normalizedDomain,
-
-    // Session tracking - this is how resume-worker finds companies to enrich
-    session_id: sessionId,
-    import_session_id: sessionId,
-
-    // Mark as needing enrichment
-    seed_ready: true,
-    source: "import-one",
-    source_stage: "seed",
-
-    // Fields that need enrichment — filtered by user selection if provided
-    import_missing_fields: (() => {
-      const allFields = ["industries", "product_keywords", "headquarters_location", "manufacturing_locations", "reviews", "logo_url", "tagline"];
-      return Array.isArray(fieldsToEnrich)
-        ? allFields.filter((f) => fieldsToEnrich.includes(f))
-        : allFields;
-    })(),
-
-    // Timestamps
-    created_at: nowIso,
-    updated_at: nowIso,
-    import_created_at: nowIso,
-
-    // Initialize empty fields that will be enriched
-    industries: [],
-    product_keywords: [],
-    headquarters_location: "",
-    headquarters_locations: [],
-    manufacturing_locations: [],
-    reviews: [],
-    logo_url: "",
-    tagline: "",
-  };
-
-  try {
-    await container.items.upsert(companyDoc, { partitionKey: normalizedDomain });
-    return { ok: true, company_id: companyId, normalized_domain: normalizedDomain };
-  } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
-  }
-}
-
-// Cosmos helper - cached client for companies container
-let cosmosCompaniesClient = null;
-
-function getCompaniesCosmosContainer() {
-  try {
-    const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-    const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-    const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
-    const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
-
-    if (!endpoint || !key) return null;
-    if (!CosmosClient) return null;
-
-    cosmosCompaniesClient ||= new CosmosClient({ endpoint, key });
-    return cosmosCompaniesClient.database(databaseId).container(containerId);
-  } catch {
-    return null;
-  }
-}
-
-// Check if a company with the given domain already exists in the database
-async function checkExistingCompanyByDomain({ domain, url, container }) {
-  if (!container) return { exists: false, error: "no_container" };
-  if (!domain || domain === "unknown") return { exists: false };
-
-  const notDeletedClause = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
-
-  try {
-    // Primary check: exact normalized_domain match
-    const domainQuery = {
-      query: `SELECT TOP 1 c.id, c.company_id, c.company_name, c.normalized_domain, c.website_url FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND ${notDeletedClause} AND c.normalized_domain = @domain`,
-      parameters: [{ name: "@domain", value: domain }],
-    };
-
-    const { resources } = await container.items
-      .query(domainQuery, { enableCrossPartitionQuery: true })
-      .fetchAll();
-
-    if (Array.isArray(resources) && resources[0]) {
-      return {
-        exists: true,
-        match_type: "normalized_domain",
-        existing_company: {
-          id: resources[0].id,
-          company_id: resources[0].company_id,
-          company_name: resources[0].company_name,
-          normalized_domain: resources[0].normalized_domain,
-          website_url: resources[0].website_url,
-        },
-      };
-    }
-
-    // Secondary check: URL match (covers edge cases)
-    if (url) {
-      const urlLower = String(url).trim().toLowerCase();
-      const urlWithoutTrailingSlash = urlLower.endsWith("/") ? urlLower.slice(0, -1) : urlLower;
-      const urlWithTrailingSlash = urlLower.endsWith("/") ? urlLower : `${urlLower}/`;
-
-      const urlQuery = {
-        query: `SELECT TOP 1 c.id, c.company_id, c.company_name, c.normalized_domain, c.website_url FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND ${notDeletedClause} AND (
-          (IS_DEFINED(c.website_url) AND (LOWER(c.website_url) = @urlLower OR LOWER(c.website_url) = @urlAlt))
-          OR (IS_DEFINED(c.url) AND (LOWER(c.url) = @urlLower OR LOWER(c.url) = @urlAlt))
-          OR (IS_DEFINED(c.canonical_url) AND (LOWER(c.canonical_url) = @urlLower OR LOWER(c.canonical_url) = @urlAlt))
-        )`,
-        parameters: [
-          { name: "@urlLower", value: urlWithoutTrailingSlash },
-          { name: "@urlAlt", value: urlWithTrailingSlash },
-        ],
-      };
-
-      const { resources: urlResources } = await container.items
-        .query(urlQuery, { enableCrossPartitionQuery: true })
-        .fetchAll();
-
-      if (Array.isArray(urlResources) && urlResources[0]) {
-        return {
-          exists: true,
-          match_type: "url",
-          existing_company: {
-            id: urlResources[0].id,
-            company_id: urlResources[0].company_id,
-            company_name: urlResources[0].company_name,
-            normalized_domain: urlResources[0].normalized_domain,
-            website_url: urlResources[0].website_url,
-          },
-        };
-      }
-    }
-
-    return { exists: false };
-  } catch (e) {
-    console.log("[import-one] check_existing_company_error", {
-      domain,
-      error: String(e?.message || e),
-    });
-    return { exists: false, error: String(e?.message || e) };
-  }
-}
+// Build stamp for deployment verification
+const BUILD_STAMP = process.env.GIT_SHA || "import_one_build_pr671";
 
 const DEADLINE_MS = 25000; // 25 second max for request
 
@@ -280,12 +89,6 @@ async function readJsonBody(req) {
 }
 
 async function handleImportOne(req, context) {
-  // ── Admin auth gate ──────────────────────────────────────────
-  const { adminGuard } = require("../_adminAuth");
-  const authError = adminGuard(req, context);
-  if (authError) return authError;
-  // ─────────────────────────────────────────────────────────────
-
   const startTime = Date.now();
   const sessionId = randomUUID();
   const cosmosEnabled = !process.env.TABARNAM_DISABLE_COSMOS;
@@ -293,192 +96,64 @@ async function handleImportOne(req, context) {
   try {
     // Read and validate request body
     const body = await readJsonBody(req);
-    const BUILD_STAMP = getBuildStamp();
-
     if (!body || typeof body !== "object") {
-      return json({ ok: false, error: { message: "Invalid request body", code: "invalid_body" }, build_id: BUILD_STAMP }, 400);
+      return json(
+        { ok: false, build_id: BUILD_STAMP, error: { message: "Invalid request body", code: "invalid_body" } },
+        400
+      );
     }
-
-    // Parse optional field selection — when provided, only these fields are enriched.
-    const rawFieldsToEnrich = Array.isArray(body.fields_to_enrich) ? body.fields_to_enrich : undefined;
-    const fieldsToEnrich = rawFieldsToEnrich
-      ? rawFieldsToEnrich.map((f) => String(f || "").trim()).filter(Boolean)
-      : undefined;
 
     const url = String(body.url || "").trim();
     if (!url || !looksLikeUrl(url)) {
-      return json({
-        ok: false,
-        error: { message: "Missing or invalid 'url' in request body", code: "invalid_url" },
-        build_id: BUILD_STAMP,
-      }, 400);
+      return json(
+        {
+          ok: false,
+          build_id: BUILD_STAMP,
+          error: { message: "Missing or invalid 'url' in request body", code: "invalid_url" },
+        },
+        400
+      );
     }
 
     const normalizedUrl = normalizeUrl(url);
     if (!normalizedUrl) {
-      return json({
-        ok: false,
-        error: { message: "Could not normalize URL", code: "normalize_error" },
-        build_id: BUILD_STAMP,
-      }, 400);
+      return json(
+        {
+          ok: false,
+          build_id: BUILD_STAMP,
+          error: { message: "Could not normalize URL", code: "normalize_error" },
+        },
+        400
+      );
     }
 
-    // Extract normalized domain for duplicate check
-    const normalizedDomainForCheck = toNormalizedDomain(normalizedUrl);
-
-    // Check if company with this domain already exists in the database
-    if (cosmosEnabled) {
-      try {
-        const container = getCompaniesCosmosContainer();
-        if (container) {
-          const existingCheck = await checkExistingCompanyByDomain({
-            domain: normalizedDomainForCheck,
-            url: normalizedUrl,
-            container,
-          });
-
-          if (existingCheck.exists) {
-            console.log("[import-one] duplicate_found", {
-              url: normalizedUrl,
-              normalized_domain: normalizedDomainForCheck,
-              match_type: existingCheck.match_type,
-              existing_company_id: existingCheck.existing_company?.company_id,
-              existing_company_name: existingCheck.existing_company?.company_name,
-            });
-
-            return json({
-              ok: false,
-              error: {
-                message: `A company with this domain already exists: "${existingCheck.existing_company?.company_name || normalizedDomainForCheck}"`,
-                code: "duplicate_company",
-                existing_company: existingCheck.existing_company,
-                match_type: existingCheck.match_type,
-              },
-              build_id: BUILD_STAMP,
-            }, 409); // 409 Conflict
-          }
-
-          console.log("[import-one] no_duplicate_found", {
-            url: normalizedUrl,
-            normalized_domain: normalizedDomainForCheck,
-          });
-        }
-      } catch (e) {
-        // Non-fatal: if duplicate check fails, log and continue with import
-        console.log("[import-one] duplicate_check_error_nonfatal", {
-          url: normalizedUrl,
-          error: String(e?.message || e),
-        });
-      }
-    }
-
-    // Log start with build stamp for deployment verification
+    // Log start
     try {
       console.log("[import-one] build", BUILD_STAMP);
       console.log("[import-one] started", { session_id: sessionId, url: normalizedUrl });
+      console.log("[import-one] about_to_upsert_session", { session_id: sessionId });
     } catch {}
 
-    // Create session (upsertImportSession is synchronous)
-    // Set single_company_mode=true and request_kind="import-one" so status can trust this flag
-    const sessionPayload = {
-      session_id: sessionId,
-      status: "running",
-      request_url: normalizedUrl,
-      created_at: new Date().toISOString(),
-      // Critical: these flags allow status endpoint to correctly identify single-company mode
-      single_company_mode: true,
-      request_kind: "import-one",
-      request: {
-        query: normalizedUrl,
-        limit: 1,
-      },
-    };
-
-    let sessionUpsertResult = null;
-    let sessionUpsertSuccess = false;
-
+    // Create session (upsertImportSession is synchronous; do not chain .catch)
     try {
-      console.log("[import-one] about_to_upsert_session", { session_id: sessionId });
-      sessionUpsertResult = upsertImportSession(sessionPayload);
-      sessionUpsertSuccess = true;
-
-      // Log the exact payload written and the result for debugging persistence issues
-      console.log("[import-one] session_upsert_complete", {
+      upsertImportSession({
         session_id: sessionId,
-        upsert_success: true,
-        payload_written: {
-          single_company_mode: sessionPayload.single_company_mode,
-          request_kind: sessionPayload.request_kind,
-          request_url: sessionPayload.request_url,
-          request_limit: sessionPayload.request?.limit,
-        },
-        result_keys: sessionUpsertResult ? Object.keys(sessionUpsertResult) : null,
-        result_single_company_mode: sessionUpsertResult?.single_company_mode,
-        result_request_kind: sessionUpsertResult?.request_kind,
+        status: "running",
+        request_url: normalizedUrl,
+        created_at: new Date().toISOString(),
       });
-
-      // GUARD: Detect if critical flags were silently lost after upsert
-      const flagsLost = sessionUpsertResult && (
-        sessionUpsertResult.single_company_mode !== true ||
-        sessionUpsertResult.request_kind !== "import-one"
-      );
-
-      if (flagsLost) {
-        console.warn("[import-one] FLAGS_LOST_WARNING", {
-          session_id: sessionId,
-          expected_single_company_mode: true,
-          actual_single_company_mode: sessionUpsertResult?.single_company_mode,
-          actual_single_company_mode_type: typeof sessionUpsertResult?.single_company_mode,
-          expected_request_kind: "import-one",
-          actual_request_kind: sessionUpsertResult?.request_kind,
-          actual_request_kind_type: typeof sessionUpsertResult?.request_kind,
-          result_keys: Object.keys(sessionUpsertResult || {}),
-        });
-      }
-    } catch (e) {
-      // Non-fatal: session persistence should never hard-fail the import flow
-      console.log("[import-one] session_upsert_threw", {
-        session_id: sessionId,
-        upsert_success: false,
-        error: String(e?.message || e),
-        stack: String(e?.stack || "").slice(0, 500),
-        payload_attempted: {
-          single_company_mode: sessionPayload.single_company_mode,
-          request_kind: sessionPayload.request_kind,
-        },
-      });
-    }
-
-    // Write session doc to Cosmos so import-status can read it
-    if (cosmosEnabled) {
       try {
-        const container = getCompaniesCosmosContainer();
-        if (container) {
-          const sessionDoc = {
-            id: `_import_session_${sessionId}`,
-            session_id: sessionId,
-            normalized_domain: "import",
-            partition_key: "import",
-            type: "import_control",
-            status: "running",
-            request_url: normalizedUrl,
-            created_at: new Date().toISOString(),
-            single_company_mode: true,
-            request_kind: "import-one",
-            request: {
-              query: normalizedUrl,
-              limit: 1,
-            },
-          };
-          await container.items.upsert(sessionDoc, { partitionKey: "import" });
-          console.log("[import-one] cosmos_session_upsert", { session_id: sessionId, ok: true });
-        }
-      } catch (e) {
-        console.log("[import-one] cosmos_session_upsert_failed", {
+        console.log("[import-one] session_upsert_ok", { session_id: sessionId });
+      } catch {}
+    } catch (err) {
+      try {
+        console.log("[import-one] session_upsert_threw", {
           session_id: sessionId,
-          error: String(e?.message || e),
+          error: String(err?.message || err),
+          stack: String(err?.stack || ""),
         });
-      }
+      } catch {}
+      // Non-fatal: continue
     }
 
     // Create primary job with single URL seed
@@ -498,15 +173,18 @@ async function handleImportOne(req, context) {
       updated_at: new Date().toISOString(),
     };
 
+    // Upsert primary job (non-fatal if it fails)
     try {
       await upsertImportPrimaryJob({ jobDoc, cosmosEnabled });
-    } catch (e) {
+    } catch (err) {
       try {
-        console.log("[import-one] primary_job_upsert_failed_nonfatal", {
+        console.log("[import-one] primary_job_upsert_failed", {
           session_id: sessionId,
-          error: String(e?.message || e),
+          error: String(err?.message || err),
+          stack: String(err?.stack || ""),
         });
       } catch {}
+      // Continue; worker may still run depending on backing store behavior
     }
 
     // Run work loop until completion or deadline
@@ -519,16 +197,18 @@ async function handleImportOne(req, context) {
       loopCount++;
       const elapsed = Date.now() - startTime;
       if (elapsed > DEADLINE_MS) {
-        // Deadline reached
         try {
-          console.log("[import-one] deadline_reached", { session_id: sessionId, elapsed_ms: elapsed, loops: loopCount });
+          console.log("[import-one] deadline_reached", {
+            session_id: sessionId,
+            elapsed_ms: elapsed,
+            loops: loopCount,
+          });
         } catch {}
         break;
       }
 
-      // Run primary job
       try {
-        const workerResult = await runPrimaryJob({
+        await runPrimaryJob({
           context,
           sessionId,
           cosmosEnabled,
@@ -540,268 +220,117 @@ async function handleImportOne(req, context) {
           lastSession = await getImportSession({ session_id: sessionId, cosmosEnabled });
         } catch {}
 
-        // Check completion indicators
         const savedVerifiedCount = Number(lastSession?.saved_verified_count || 0);
         const sessionStatus = String(lastSession?.status || "").toLowerCase();
 
         if (savedVerifiedCount > 0 || sessionStatus === "complete" || sessionStatus === "stopped") {
           completed = true;
           try {
-            console.log("[import-one] completed", { session_id: sessionId, saved_count: savedVerifiedCount, status: sessionStatus });
+            console.log("[import-one] completed", {
+              session_id: sessionId,
+              saved_count: savedVerifiedCount,
+              status: sessionStatus,
+            });
           } catch {}
           break;
         }
       } catch (err) {
         try {
-          console.log("[import-one] worker_error", { session_id: sessionId, error: String(err?.message || err) });
+          console.log("[import-one] worker_error", {
+            session_id: sessionId,
+            error: String(err?.message || err),
+            stack: String(err?.stack || ""),
+          });
         } catch {}
         break;
       }
 
-      // Small delay between loops to avoid tight spinning
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
-    // Fetch final session state and company data
+    // Fetch final session state
     try {
       lastSession = await getImportSession({ session_id: sessionId, cosmosEnabled });
     } catch {}
 
-    // ============================================================
-    // CRITICAL: Seed companies from primary job to Cosmos
-    // This is what allows resume-worker to find and enrich the company
-    // ============================================================
-    let seededCompanyIds = [];
-    if (cosmosEnabled) {
-      try {
-        // Read the primary job to get the companies array
-        const primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled });
-        const companiesFromJob = Array.isArray(primaryJob?.companies) ? primaryJob.companies : [];
-
-        if (companiesFromJob.length > 0) {
-          const container = getCompaniesCosmosContainer();
-          if (container) {
-            console.log("[import-one] seeding_companies", {
-              session_id: sessionId,
-              companies_count: companiesFromJob.length,
-            });
-
-            for (const company of companiesFromJob.slice(0, 5)) {
-              const seedResult = await seedCompanyToCosmos({ company, sessionId, container, fieldsToEnrich });
-              if (seedResult.ok) {
-                seededCompanyIds.push(seedResult.company_id);
-                console.log("[import-one] company_seeded", {
-                  session_id: sessionId,
-                  company_id: seedResult.company_id,
-                  company_name: company.company_name || company.name,
-                  normalized_domain: seedResult.normalized_domain,
-                });
-              } else {
-                console.log("[import-one] company_seed_failed", {
-                  session_id: sessionId,
-                  company_name: company.company_name || company.name,
-                  error: seedResult.error,
-                });
-              }
-            }
-
-            // Update session doc with saved company IDs so resume-worker can find them
-            if (seededCompanyIds.length > 0) {
-              const nowIso = new Date().toISOString();
-
-              // Create the missing_by_company array that resume-worker needs
-              // Respect user field selection if provided
-              // Resume-worker uses "logo" (not "logo_url"), so normalize the user selection
-              const allResumeFields = ["industries", "tagline", "product_keywords", "headquarters_location", "manufacturing_locations", "logo", "reviews"];
-              const normalizedFields = Array.isArray(fieldsToEnrich)
-                ? fieldsToEnrich.map((f) => f === "logo_url" ? "logo" : f)
-                : null;
-              const effectiveResumeFields = normalizedFields
-                ? allResumeFields.filter((f) => normalizedFields.includes(f))
-                : allResumeFields;
-              const missingByCompany = seededCompanyIds.map((company_id) => ({
-                company_id,
-                missing_fields: effectiveResumeFields,
-              }));
-
-              try {
-                const sessionDocId = `_import_session_${sessionId}`;
-                const sessionPatch = {
-                  id: sessionDocId,
-                  session_id: sessionId,
-                  normalized_domain: "import",
-                  partition_key: "import",
-                  type: "import_control",
-                  saved_company_ids: seededCompanyIds,
-                  saved_company_ids_verified: seededCompanyIds,
-                  saved_verified_count: seededCompanyIds.length,
-                  saved: seededCompanyIds.length,
-                  updated_at: nowIso,
-                };
-                await container.items.upsert(sessionPatch, { partitionKey: "import" });
-                console.log("[import-one] session_updated_with_saved_ids", {
-                  session_id: sessionId,
-                  saved_ids: seededCompanyIds,
-                });
-              } catch (e) {
-                console.log("[import-one] session_update_failed", {
-                  session_id: sessionId,
-                  error: String(e?.message || e),
-                });
-              }
-
-              // Create the resume doc with proper missing_by_company so resume-worker can enrich
-              try {
-                const resumeDocId = `_import_resume_${sessionId}`;
-                const resumeDoc = {
-                  id: resumeDocId,
-                  session_id: sessionId,
-                  normalized_domain: "import",
-                  partition_key: "import",
-                  type: "import_control",
-                  created_at: nowIso,
-                  updated_at: nowIso,
-                  status: "queued",
-                  doc_created: true,
-                  saved_company_ids: seededCompanyIds,
-                  missing_by_company: missingByCompany,
-                  fields_to_enrich: fieldsToEnrich,  // persisted so resume-worker respects user selection
-                  cycle_count: 0,
-                  attempt: 0,
-                };
-                await container.items.upsert(resumeDoc, { partitionKey: "import" });
-                console.log("[import-one] resume_doc_created", {
-                  session_id: sessionId,
-                  missing_by_company_count: missingByCompany.length,
-                });
-              } catch (e) {
-                console.log("[import-one] resume_doc_create_failed", {
-                  session_id: sessionId,
-                  error: String(e?.message || e),
-                });
-              }
-
-              // NON-BLOCKING: Enqueue resume-worker to process enrichment asynchronously
-              // This avoids the Azure SWA 4-minute gateway timeout that was causing HTTP 500 errors
-              // The frontend will poll for status updates as enrichment progresses
-              if (missingByCompany && missingByCompany.length > 0) {
-                try {
-                  await enqueueResumeRun({
-                    session_id: sessionId,
-                    company_ids: seededCompanyIds,
-                    reason: "import_one_enqueued",
-                    requested_by: "import_one",
-                  });
-                  console.log("[import-one] resume_enqueued", {
-                    session_id: sessionId,
-                    company_count: seededCompanyIds.length,
-                  });
-                } catch (qErr) {
-                  console.log("[import-one] resume_enqueue_failed", {
-                    session_id: sessionId,
-                    error: String(qErr?.message || qErr),
-                  });
-                }
-
-                // Return immediately with 202 Accepted - don't wait for enrichment
-                // This prevents the Azure SWA gateway timeout (4 min) from triggering HTTP 500
-                return json({
-                  ok: true,
-                  completed: false,
-                  session_id: sessionId,
-                  saved_count: seededCompanyIds.length,
-                  status: "in_progress",
-                  message: "Company seeded, enrichment in progress. Poll for status updates.",
-                  build_id: BUILD_STAMP,
-                }, 202);
-              }
-            }
-          }
-        } else {
-          console.log("[import-one] no_companies_to_seed", {
-            session_id: sessionId,
-            job_state: primaryJob?.job_state,
-            companies_candidates_found: primaryJob?.companies_candidates_found,
-          });
-        }
-      } catch (e) {
-        console.log("[import-one] seed_companies_error", {
-          session_id: sessionId,
-          error: String(e?.message || e),
-        });
-      }
-    }
-
     const finalStatus = String(lastSession?.status || "").toLowerCase();
-    const savedCount = seededCompanyIds.length > 0 ? seededCompanyIds.length : Number(lastSession?.saved_verified_count || 0);
+    const savedCount = Number(lastSession?.saved_verified_count || 0);
 
     if (savedCount > 0) {
-      // Import completed - return success with company data
-      return json({
-        ok: true,
-        completed: true,
-        session_id: sessionId,
-        saved_count: savedCount,
-        status: finalStatus,
-        build_id: BUILD_STAMP,
-      }, 200);
-    } else {
-      // Work still in progress or deadline reached - enqueue resume message for background processing
-      try {
-        const enqueueResult = await enqueueResumeRun({
+      return json(
+        {
+          ok: true,
+          build_id: BUILD_STAMP,
+          completed: true,
           session_id: sessionId,
-          reason: "import-one-deadline",
-          requested_by: "import-one-endpoint",
-          enqueue_at: new Date().toISOString(),
-          run_after_ms: 0,
-        });
+          saved_count: savedCount,
+          status: finalStatus,
+        },
+        200
+      );
+    }
 
-        if (enqueueResult.ok) {
-          try {
-            console.log("[import-one] enqueued_resume", {
-              session_id: sessionId,
-              message_id: enqueueResult.message_id,
-              queue_name: enqueueResult.queue?.name,
-            });
-          } catch {}
-        } else {
-          try {
-            console.log("[import-one] enqueue_failed", {
-              session_id: sessionId,
-              error: enqueueResult.error,
-            });
-          } catch {}
-        }
-      } catch (err) {
+    // Not completed: enqueue resume message for background processing
+    try {
+      const enqueueResult = await enqueueResumeRun({
+        session_id: sessionId,
+        reason: "import-one-deadline",
+        requested_by: "import-one-endpoint",
+        enqueue_at: new Date().toISOString(),
+        run_after_ms: 0,
+      });
+
+      if (enqueueResult?.ok) {
         try {
-          console.log("[import-one] enqueue_exception", {
+          console.log("[import-one] enqueued_resume", {
             session_id: sessionId,
-            error: String(err?.message || err),
+            message_id: enqueueResult.message_id,
+            queue_name: enqueueResult.queue?.name,
+          });
+        } catch {}
+      } else {
+        try {
+          console.log("[import-one] enqueue_failed", {
+            session_id: sessionId,
+            error: enqueueResult?.error,
           });
         } catch {}
       }
+    } catch (err) {
+      try {
+        console.log("[import-one] enqueue_exception", {
+          session_id: sessionId,
+          error: String(err?.message || err),
+          stack: String(err?.stack || ""),
+        });
+      } catch {}
+    }
 
-      // Return response indicating work is continuing in background
-      return json({
+    return json(
+      {
         ok: true,
+        build_id: BUILD_STAMP,
         completed: false,
         session_id: sessionId,
         status: finalStatus,
         note: "Import started but not completed; use /api/import/status to poll",
-        build_id: BUILD_STAMP,
-      }, 200);
-    }
+      },
+      200
+    );
   } catch (err) {
     const errorMessage = typeof err?.message === "string" ? err.message : String(err);
     try {
-      console.log("[import-one] handler_error", { session_id: sessionId, error: errorMessage });
+      console.log("[import-one] handler_error", { session_id: sessionId, error: errorMessage, build: BUILD_STAMP });
     } catch {}
 
-    return json({
-      ok: false,
-      error: { message: errorMessage, code: "handler_error" },
-      build_id: BUILD_STAMP,
-    }, 500);
+    return json(
+      {
+        ok: false,
+        build_id: BUILD_STAMP,
+        error: { message: errorMessage, code: "handler_error" },
+      },
+      500
+    );
   }
 }
 
@@ -811,7 +340,7 @@ app.http("import-one", {
   authLevel: "anonymous",
   handler: async (req, context) => {
     if (String(req.method || "").toUpperCase() === "OPTIONS") {
-      return json({}, 200);
+      return json({ ok: true, build_id: BUILD_STAMP }, 200);
     }
     return handleImportOne(req, context);
   },
