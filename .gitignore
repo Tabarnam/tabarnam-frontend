@@ -35,3 +35,6 @@ tabarnam-frontend/
 .python_packages
 __pycache__
 .venv
+
+# Claude Code local settings
+.claude/
