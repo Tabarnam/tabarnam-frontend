@@ -640,14 +640,15 @@ export default function AdminImages() {
         name: "URL",
         selector: (row) => getCompanyUrl(row) || asString(row?.normalized_domain).trim(),
         sortable: true,
+        wrap: true,
         width: "135px",
         cell: (row) => {
           const fullUrl = getCompanyUrl(row);
           const display = fullUrl || asString(row?.normalized_domain).trim();
           if (!display) return null;
           return (
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="truncate" title={display}>{display}</span>
+            <div className="flex items-start gap-2 min-w-0 py-1">
+              <span className="line-clamp-3 break-all" title={display}>{display}</span>
               <button
                 type="button"
                 className="flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:hover:bg-muted"
