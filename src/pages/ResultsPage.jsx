@@ -434,6 +434,12 @@ export default function ResultsPage() {
         if (searchLocation) {
           setUserLoc({ lat: searchLocation.lat, lng: searchLocation.lng });
           if (resolvedCC) { setUnit(milesCountries.has(resolvedCC) ? "mi" : "km"); setUserCountryCode(resolvedCC); }
+        } else {
+          // Clear stale userLoc — the user typed a location that didn't
+          // resolve, so we should NOT keep the previous search's center
+          // (e.g. an IP-derived 91750 point) and silently rank distances
+          // from there. Better to show no proximity than wrong proximity.
+          setUserLoc(null);
         }
       } else {
         // No geo filters — reset to user's IP-based or default location.
@@ -485,19 +491,19 @@ export default function ResultsPage() {
   // Track the current search generation so stale responses are ignored
   const searchGenRef = useRef(0);
 
-  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location = null, append = false }) {
+  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location, append = false }) {
     setLoading(true);
     if (!append) setStatus("");
     const gen = append ? searchGenRef.current : ++searchGenRef.current;
     try {
-      // No hardcoded geographic fallback — proximity must be accurate.
-      // If neither the URL-effect geocode nor the IP/device location resolved,
-      // we omit lat/lng entirely rather than fake the center with a default
-      // (e.g. San Dimas or a country centroid), which would mislead distances.
-      // doSearch READS userLoc but never writes it — the URL effect and
-      // handleInlineSearch are the sole owners, which prevents stale Edinburgh
-      // coords from leaking into a follow-up Texas search.
-      const effectiveLocation = location || userLoc || null;
+      // The caller (URL effect / handleInlineSearch) is the authority on this
+      // search's center. If they passed `location` explicitly — including
+      // null when geocoding failed — trust it. Falling back to `userLoc`
+      // would silently use the previous search's center (e.g. an IP-derived
+      // "near me" point) instead of saying "we couldn't resolve this query",
+      // which is exactly the bug the user reported with 91750-area distances
+      // showing up under a kilts+Edinburgh search.
+      const effectiveLocation = location !== undefined ? location : userLoc;
 
       // For "Nearest manufacturing" / "Nearest HQ" the user wants the entire
       // database sorted by distance from their location — closest first,
