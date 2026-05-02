@@ -116,8 +116,13 @@ export async function searchCompanies(opts: SearchOptions) {
     }
   }
 
+  // Cache-buster — defeat any CDN / Service Worker / browser response cache so
+  // every search hits the backend fresh. The backend ignores unknown params.
+  params.set("_t", String(Date.now()));
+
+  const requestUrl = `/search-companies?${params.toString()}`;
   try {
-    const r = await apiFetch(`/search-companies?${params.toString()}`, { headers: { accept: "application/json" } });
+    const r = await apiFetch(requestUrl, { headers: { accept: "application/json" } });
     if (!r.ok) {
       const msg = await readError(r);
       throw new Error(`search-companies failed (${r.status}): ${msg}`);
@@ -147,6 +152,16 @@ export async function searchCompanies(opts: SearchOptions) {
           reviews_count: typeof it.reviews_count === "number" ? it.reviews_count : reviewCount,
         } as Company;
       });
+
+    // Dev visibility: log every search request + a sample of what came back.
+    // Lets a maintainer confirm in DevTools whether each query actually hit
+    // the API and what the backend matched — answers "is this fresh?" / "did
+    // the backend really return these?" without guessing.
+    if (typeof window !== "undefined" && !opts.quick) {
+      const firstNames = items.slice(0, 3).map((it) => it?.company_name || it?.display_name || it?.name || it?.id).filter(Boolean);
+      // eslint-disable-next-line no-console
+      console.info(`[search] ${requestUrl} → ${items.length} items${firstNames.length ? `: ${firstNames.join(", ")}` : ""}`);
+    }
 
     return {
       items,
