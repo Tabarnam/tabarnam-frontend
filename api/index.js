@@ -341,6 +341,20 @@ try {
 }
 
 try {
+  console.log("[api] Registering: google/places");
+  require("./google/places/index.js");
+} catch (e) {
+  console.error("[api] Failed to load google/places:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: suggest-companies");
+  require("./suggest-companies/index.js");
+} catch (e) {
+  console.error("[api] Failed to load suggest-companies:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: test-echo");
   require("./test-echo/index.js");
   console.log("[api] ✓ test-echo registered");

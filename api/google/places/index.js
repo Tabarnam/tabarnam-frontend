@@ -36,8 +36,22 @@ function json(body, status, req) {
   };
 }
 
+// Match the env-var priority list used by api/_geocode.js so a single Azure
+// App Setting (e.g. GOOGLE_GEOCODING_API_KEY, the name actually set on
+// tabarnam-xai-dedicated) wires up both autocomplete and details.
+function getApiKey() {
+  return (
+    process.env.GOOGLE_PLACES_KEY ||
+    process.env.GOOGLE_MAPS_KEY ||
+    process.env.GOOGLE_GEOCODE_KEY ||
+    process.env.GOOGLE_GEOCODING_API_KEY ||
+    process.env.GOOGLE_MAPS_API_KEY ||
+    ""
+  ).trim();
+}
+
 async function googlePlacesAutocomplete({ input, country }) {
-  const key = (process.env.GOOGLE_MAPS_KEY || "").trim();
+  const key = getApiKey();
   if (!key) return null;
 
   const params = new URLSearchParams();
@@ -64,7 +78,7 @@ async function googlePlacesAutocomplete({ input, country }) {
 }
 
 async function googlePlacesDetails({ placeId }) {
-  const key = (process.env.GOOGLE_MAPS_KEY || "").trim();
+  const key = getApiKey();
   if (!key) return null;
 
   const params = new URLSearchParams();

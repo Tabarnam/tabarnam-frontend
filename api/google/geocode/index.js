@@ -65,7 +65,19 @@ async function lookupIpLocation() {
 }
 
 async function googleGeocode({ address, lat, lng }) {
-  const key = (process.env.GOOGLE_MAPS_KEY || process.env.GOOGLE_GEOCODE_KEY || "").trim();
+  // Match the env-var priority list used by api/_geocode.js so a single Azure
+  // App Setting (any of these names) wires up everything geocode-flavored.
+  // GOOGLE_GEOCODING_API_KEY is the name actually set on tabarnam-xai-dedicated
+  // and was being skipped here, which is why this endpoint silently fell
+  // through to the hardcoded San Dimas fallback below.
+  const key = (
+    process.env.GOOGLE_MAPS_KEY ||
+    process.env.GOOGLE_GEOCODE_KEY ||
+    process.env.GOOGLE_GEOCODING_API_KEY ||
+    process.env.GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_PLACES_KEY ||
+    ""
+  ).trim();
   if (!key) return null;
 
   const params = new URLSearchParams();
@@ -158,17 +170,13 @@ async function handle(req) {
   }
 
   if (!result) {
-    if (strict) {
-      return json({ error: "geocode_failed", source: "none", best: null }, 200, req);
-    }
-
-    result = {
-      best: {
-        location: { lat: 34.0983, lng: -117.8076 },
-        components: [{ types: ["country"], short_name: "US" }],
-      },
-      source: "fallback",
-    };
+    // No more silent San Dimas fallback. Whatever the user asked to geocode
+    // didn't resolve (Google failure, missing key, invalid address). Return
+    // a clean error so the frontend can degrade — it has its own "no center"
+    // path that omits proximity ranking when geocoding fails. Returning
+    // (34.0983, -117.8076) was the source of the long-standing bug where
+    // every unresolvable search silently centered on Glendora, CA.
+    return json({ error: "geocode_failed", source: "none", best: null }, 200, req);
   }
 
   return json(result, 200, req);
