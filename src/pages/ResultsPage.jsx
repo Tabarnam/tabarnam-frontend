@@ -493,7 +493,18 @@ export default function ResultsPage() {
 
   async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location, append = false }) {
     setLoading(true);
-    if (!append) setStatus("");
+    if (!append) {
+      // Clear the previous search's results immediately so a new search starts
+      // on a blank canvas. Without this, if the new search later throws (e.g.
+      // validation rejects "state=91750-only" because the postal stripped to
+      // empty location filters) the old items linger on screen next to the
+      // error banner — the user sees Waterford and Floyd under
+      // "Please enter a search term…" because nothing cleared the old rows.
+      setStatus("");
+      setResults([]);
+      setHasMore(false);
+      setTotalPages(null);
+    }
     const gen = append ? searchGenRef.current : ++searchGenRef.current;
     try {
       // The caller (URL effect / handleInlineSearch) is the authority on this
