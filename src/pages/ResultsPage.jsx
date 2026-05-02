@@ -470,9 +470,15 @@ export default function ResultsPage() {
       // "91750" against location strings like "Santa Ana, CA" which always fails.
       // The geocoded coordinates (set by the caller) already handle distance calculations.
       const looksLikePostal = city && /^\d{3,10}(-\d{1,4})?$|^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i.test(city.trim());
-      const cityFilter = looksLikePostal ? "" : city;
+      // In location-only mode (no keyword), city/state are proximity hints already
+      // baked into lat/lng — sending them as strict filters narrows to companies
+      // tagged with that exact city/state and excludes nearby ones, breaking the
+      // "closest then further" expectation. Country stays as a soft scope.
+      const isLocationOnlySearch = !q;
+      const cityFilter = (looksLikePostal || isLocationOnlySearch) ? "" : city;
+      const stateFilter = isLocationOnlySearch ? "" : state;
 
-      const commonOpts = { q, sort, country, state, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
+      const commonOpts = { q, sort, country, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
 
       // Fire quick (Pass 1 only) and full search in parallel
       const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;
