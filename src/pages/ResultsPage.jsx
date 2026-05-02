@@ -591,7 +591,22 @@ export default function ResultsPage() {
             return true;
           })
         : distanced;
-      const withDistances = filtered;
+
+      // Re-sort by (specificity desc, distance asc) for proximity-of-presence
+      // sorts. A company tagged "Keith, Scotland, UK" should outrank one
+      // tagged only "United Kingdom" when searching Edinburgh+GB — the city-
+      // level entry is a more accurate manufacturer match. Within the same
+      // specificity tier, closer wins.
+      const withDistances = (sort === "manu" || sort === "hq")
+        ? filtered.slice().sort((a, b) => {
+            const specA = sort === "manu" ? (a._manuSpecificity || 0) : (a._hqSpecificity || 0);
+            const specB = sort === "manu" ? (b._manuSpecificity || 0) : (b._hqSpecificity || 0);
+            if (specB !== specA) return specB - specA;
+            const distA = sort === "manu" ? (a._nearestManuDist ?? Infinity) : (a._hqDist ?? Infinity);
+            const distB = sort === "manu" ? (b._nearestManuDist ?? Infinity) : (b._hqDist ?? Infinity);
+            return distA - distB;
+          })
+        : filtered;
 
       // Append on infinite scroll, replace on a fresh search
       if (append) {
@@ -1138,8 +1153,35 @@ function deduplicateHqList(list) {
   });
 }
 
+/**
+ * Score a company's location array by the maximum specificity (parts count)
+ * of any entry's formatted address. "Keith, Scotland, UK" has 3 parts (city +
+ * region + country); "United Kingdom" has 1. Used as the primary sort key for
+ * "Nearest manufacturing/HQ" — a city-level entry should outrank a country-only
+ * entry, since the latter usually means we don't actually know where a company
+ * makes things and a generic country tag is a weaker signal.
+ */
+function computeLocationSpecificity(locations) {
+  if (!Array.isArray(locations) || locations.length === 0) return 0;
+  let max = 0;
+  for (const loc of locations) {
+    if (!loc) continue;
+    const formatted = typeof loc === "string" ? loc :
+      (loc.formatted || loc.full_address || loc.address || loc.location || "");
+    const parts = String(formatted).split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length > max) max = parts.length;
+  }
+  return max;
+}
+
 function attachDistances(c, userLoc, unit) {
-  const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [], _hqDists: [] };
+  const manuLocsForSpecificity = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
+  const hqLocsForSpecificity = Array.isArray(c.headquarters_locations) ? c.headquarters_locations
+    : Array.isArray(c.headquarters) ? c.headquarters : [];
+  const _manuSpecificity = computeLocationSpecificity(manuLocsForSpecificity);
+  const _hqSpecificity = computeLocationSpecificity(hqLocsForSpecificity);
+
+  const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [], _hqDists: [], _manuSpecificity, _hqSpecificity };
 
   const user = getLatLng(userLoc);
   if (!user) return out;
