@@ -544,16 +544,31 @@ export default function ResultsPage() {
       // Don't pass postal codes as city text filters — the backend tries to match
       // "91750" against location strings like "Santa Ana, CA" which always fails.
       // The geocoded coordinates (set by the caller) already handle distance calculations.
-      const looksLikePostal = city && /^\d{3,10}(-\d{1,4})?$|^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i.test(city.trim());
-      // In location-only mode (no keyword), city/state are proximity hints already
-      // baked into lat/lng — sending them as strict filters narrows to companies
-      // tagged with that exact city/state and excludes nearby ones, breaking the
-      // "closest then further" expectation. Country stays as a soft scope.
+      const POSTAL_RE = /^\d{3,10}(-\d{1,4})?$|^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i;
+      const cityIsPostal = !!(city && POSTAL_RE.test(city.trim()));
+      const stateIsPostal = !!(state && POSTAL_RE.test(state.trim()));
+      // In location-only mode (no keyword) AND when we have accurate lat/lng,
+      // treat city/state as proximity hints baked into the coords rather than
+      // strict filters — otherwise "closest then further" breaks. But if
+      // geocoding failed and we have no coords, keep city/state as filters so
+      // the API still has something to match (better than a validation throw).
       const isLocationOnlySearch = !q;
-      const cityFilter = (looksLikePostal || isLocationOnlySearch) ? "" : city;
-      const stateFilter = isLocationOnlySearch ? "" : state;
+      const haveCoords = !!(effectiveLocation && Number.isFinite(effectiveLocation.lat) && Number.isFinite(effectiveLocation.lng));
+      const cityFilter = (cityIsPostal || (isLocationOnlySearch && haveCoords)) ? "" : city;
+      const stateFilter = (stateIsPostal || (isLocationOnlySearch && haveCoords)) ? "" : state;
 
-      const commonOpts = { q, sort, country, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
+      // Narrow the country filter to manufacturing/HQ when the chosen sort
+      // implies that intent. Otherwise sort=manu with country=US returns
+      // companies whose HQ is in the US even if they manufacture elsewhere.
+      let countryFilter = country;
+      let hqCountryFilter = hqCountry;
+      let mfgCountryFilter = mfgCountry;
+      if (country) {
+        if (sort === 'manu' && !mfgCountryFilter) { mfgCountryFilter = country; countryFilter = ''; }
+        else if (sort === 'hq' && !hqCountryFilter) { hqCountryFilter = country; countryFilter = ''; }
+      }
+
+      const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry: hqCountryFilter, mfgCountry: mfgCountryFilter, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
 
       // Fire quick (Pass 1 only) and full search in parallel
       const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;

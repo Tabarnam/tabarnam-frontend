@@ -427,10 +427,14 @@ export default function SearchCard({
       let geoLat = '';
       let geoLng = '';
       let cityForParams = city;
+      let stateForParams = resolvedState;
       let resolvedCountryFromGeo = '';
       const cityTrimmed = (city || '').trim();
       const stateTrimmed = (resolvedState || '').trim();
-      const isPostal = !!cityTrimmed && POSTAL_REGEX.test(cityTrimmed);
+      // Postal can land in either field; treat both the same way.
+      const cityIsPostal = !!cityTrimmed && POSTAL_REGEX.test(cityTrimmed);
+      const stateIsPostal = !!stateTrimmed && POSTAL_REGEX.test(stateTrimmed);
+      const isPostal = cityIsPostal || stateIsPostal;
 
       const acceptCoords = (lat, lng) => {
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
@@ -445,7 +449,12 @@ export default function SearchCard({
       };
 
       if (cityTrimmed || stateTrimmed) {
-        const addr = [cityTrimmed, stateTrimmed, resolvedCountry].filter(Boolean).join(', ');
+        // For postal-only entry, geocode just the postal — adding a non-matching
+        // city/state to the address can confuse the geocoder.
+        const postalValue = cityIsPostal ? cityTrimmed : stateIsPostal ? stateTrimmed : '';
+        const addr = postalValue
+          ? [postalValue, resolvedCountry].filter(Boolean).join(', ')
+          : [cityTrimmed, stateTrimmed, resolvedCountry].filter(Boolean).join(', ');
 
         // 1) For named places, prefer Places API (country bias resolves
         //    ambiguous names like "Edinburgh" to the right country).
@@ -479,9 +488,10 @@ export default function SearchCard({
           }
         }
 
-        if (isPostal && geoLat) {
+        if (geoLat) {
           // Backend can't match raw postal against address strings; lat/lng drives proximity instead.
-          cityForParams = '';
+          if (cityIsPostal) cityForParams = '';
+          if (stateIsPostal) stateForParams = '';
         }
         if (resolvedCountryFromGeo && !resolvedCountry) {
           resolvedCountry = resolvedCountryFromGeo;
@@ -493,7 +503,7 @@ export default function SearchCard({
         q: extracted,
         sort: sortBy,
         country: resolvedCountry,
-        state: resolvedState,
+        state: stateForParams,
         city: cityForParams,
         amazon: amazonOnly ? '1' : '',
         hqCountry: hqInCountry ? userCountryCode : '',

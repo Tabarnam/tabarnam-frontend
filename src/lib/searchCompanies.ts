@@ -105,11 +105,15 @@ export async function searchCompanies(opts: SearchOptions) {
   if (opts.mfgCountry) params.set("mfgCountry", opts.mfgCountry);
   if (opts.quick) params.set("quick", "1");
 
-  const lat = Number(asStr(opts.lat));
-  const lng = Number(asStr(opts.lng));
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    params.set("lat", String(lat));
-    params.set("lng", String(lng));
+  const latStr = asStr(opts.lat);
+  const lngStr = asStr(opts.lng);
+  if (latStr !== "" && lngStr !== "") {
+    const lat = Number(latStr);
+    const lng = Number(lngStr);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0)) {
+      params.set("lat", String(lat));
+      params.set("lng", String(lng));
+    }
   }
 
   try {
@@ -367,11 +371,15 @@ export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "c
   if (opts.hqCountry) params.set("hqCountry", opts.hqCountry);
   if (opts.mfgCountry) params.set("mfgCountry", opts.mfgCountry);
 
-  const lat = Number(asStr(opts.lat));
-  const lng = Number(asStr(opts.lng));
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    params.set("lat", String(lat));
-    params.set("lng", String(lng));
+  const latStr = asStr(opts.lat);
+  const lngStr = asStr(opts.lng);
+  if (latStr !== "" && lngStr !== "") {
+    const lat = Number(latStr);
+    const lng = Number(lngStr);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0)) {
+      params.set("lat", String(lat));
+      params.set("lng", String(lng));
+    }
   }
 
   try {
