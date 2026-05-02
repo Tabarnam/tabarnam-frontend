@@ -68,8 +68,11 @@ export interface Company {
 
 export async function searchCompanies(opts: SearchOptions) {
   const q = asStr(opts.q).trim();
-  const hasLocation = !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim());
-  if (!q && !hasLocation) throw new Error("Please enter a search term or select a location.");
+  const latNum = Number(asStr(opts.lat));
+  const lngNum = Number(asStr(opts.lng));
+  const hasCoords = Number.isFinite(latNum) && Number.isFinite(lngNum) && (latNum !== 0 || lngNum !== 0);
+  const hasLocation = !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim()) || hasCoords;
+  if (!q && !hasLocation) throw new Error("Please enter a search term, choose a location, or enter a postal/ZIP code.");
 
   const sort = normalizeSort(opts.sort);
   const take = Math.max(1, Math.min(Number(opts.take ?? 25) || 25, 200));
@@ -210,8 +213,9 @@ export async function getSuggestions(qLike: unknown, _take?: number) {
 
 export interface RefinementSuggestion {
   value: string;
-  type: "Company" | "Keyword" | "Industry";
+  type: "Company" | "Keyword" | "Industry" | "State" | "City";
   id?: string;
+  code?: string;
   count?: number;
 }
 
@@ -317,6 +321,7 @@ export async function getStateSuggestions(q: unknown, country?: string): Promise
       ? data.suggestions.map((s: any) => ({
           value: String(s.value || ""),
           type: "State",
+          code: s.code ? String(s.code) : undefined,
           count: s.count,
         }))
       : [];
@@ -334,7 +339,10 @@ export async function getStateSuggestions(q: unknown, country?: string): Promise
  */
 export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon" | "hqCountry" | "mfgCountry"> & { take?: number }): Promise<{ totalCount: number; totalPages: number } | null> {
   const q = asStr(opts.q).trim();
-  const hasLocation = !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim());
+  const latNum = Number(asStr(opts.lat));
+  const lngNum = Number(asStr(opts.lng));
+  const hasCoords = Number.isFinite(latNum) && Number.isFinite(lngNum) && (latNum !== 0 || lngNum !== 0);
+  const hasLocation = !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim()) || hasCoords;
   if (!q && !hasLocation) return null;
 
   const sort = normalizeSort(opts.sort);

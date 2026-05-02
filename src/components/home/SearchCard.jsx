@@ -10,8 +10,11 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { getCountries, resolveCountryText } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
 import { extractSearchTermFromUrl } from '@/lib/queryNormalizer';
-import { placesAutocomplete, placeDetails } from '@/lib/google';
+import { placesAutocomplete, placeDetails, geocode } from '@/lib/google';
 import { cn } from '@/lib/utils';
+
+// Matches common postal/ZIP code shapes (US 5/9-digit, CA A1A 1A1, UK, generic 3-8 alnum, 4-digit)
+const POSTAL_REGEX = /^\d{5}(-\d{4})?$|^[A-Z]\d[A-Z] ?\d[A-Z]\d$|^[A-Z]{1,2}\d{1,2}[A-Z]? ?\d[A-Z]{2}$|^\d{4}$|^[A-Z0-9]{3,8}$/i;
 
 const SORTS = [
   { value: 'manu',  label: 'Nearest manufacturing' },
@@ -393,20 +396,76 @@ export default function SearchCard({
     setRecentSearches([]);
     setSuggestions([]);
 
-    // Resolve free-text country input to ISO code if not already resolved
-    let resolvedCountry = country;
-    if (!country && countrySearch.trim()) {
-      const match = await resolveCountryText(countrySearch.trim());
-      if (match) {
-        resolvedCountry = match.code;
-        setCountry(match.code);
-        setCountrySearch('');
+    setLoading(true);
+    try {
+      // Resolve free-text country input to ISO code if not already resolved
+      let resolvedCountry = country;
+      if (!country && countrySearch.trim()) {
+        const match = await resolveCountryText(countrySearch.trim());
+        if (match) {
+          resolvedCountry = match.code;
+          setCountry(match.code);
+          setCountrySearch('');
+        }
       }
-    }
 
-    const params = { q: extracted, sort: sortBy, country: resolvedCountry, state: stateCode, city, amazon: amazonOnly ? '1' : '', hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' };
-    if (onSubmitParams) onSubmitParams(params);
-    else nav(`/results?${toQs(params)}`);
+      // Resolve free-text state to a 2-letter code when possible (e.g. "California" -> "CA")
+      let resolvedState = stateCode;
+      if (stateCode && stateCode.trim().length > 2) {
+        try {
+          const matches = await getStateSuggestions(stateCode.trim(), resolvedCountry);
+          const exact = matches.find(s => s.value && s.value.toLowerCase() === stateCode.trim().toLowerCase());
+          if (exact?.code) resolvedState = exact.code;
+          else if (matches[0]?.code) resolvedState = matches[0].code;
+        } catch { /* fall through with raw text */ }
+      }
+
+      // If the city field looks like a postal/ZIP, geocode it so we can search by lat/lng
+      let geoLat = '';
+      let geoLng = '';
+      let cityForParams = city;
+      const cityTrimmed = (city || '').trim();
+      if (cityTrimmed && POSTAL_REGEX.test(cityTrimmed)) {
+        try {
+          const r = await geocode({ address: cityTrimmed });
+          const loc = r?.best?.location;
+          if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+            geoLat = String(loc.lat);
+            geoLng = String(loc.lng);
+            // Backend can't match raw postal against address strings; lat/lng drives proximity instead.
+            cityForParams = '';
+          }
+          if (!resolvedCountry) {
+            const components = r?.best?.address_components || [];
+            const countryComp = components.find(c => Array.isArray(c.types) && c.types.includes('country'));
+            const cc = countryComp?.short_name;
+            if (cc) {
+              resolvedCountry = cc;
+              setCountry(cc);
+            }
+          }
+        } catch (e) {
+          console.warn('Postal geocode failed:', e?.message);
+        }
+      }
+
+      const params = {
+        q: extracted,
+        sort: sortBy,
+        country: resolvedCountry,
+        state: resolvedState,
+        city: cityForParams,
+        amazon: amazonOnly ? '1' : '',
+        hqCountry: hqInCountry ? userCountryCode : '',
+        mfgCountry: mfgInCountry ? userCountryCode : '',
+        lat: geoLat,
+        lng: geoLng,
+      };
+      if (onSubmitParams) onSubmitParams(params);
+      else nav(`/results?${toQs(params)}`);
+    } finally {
+      setLoading(false);
+    }
   };
   handleSubmitRef.current = handleSubmit;
 

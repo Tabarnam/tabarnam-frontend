@@ -311,13 +311,17 @@ export default function ResultsPage() {
 
       setSortBy(null);
 
-      const hasLocationFilter = !!(cityParam || stateParam || countryParam);
+      const hasCoordParam = !!(latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam)));
+      const hasLocationFilter = !!(cityParam || stateParam || countryParam || hasCoordParam);
+      const isLocationOnly = !qParam && hasLocationFilter;
       if (!cancelled && (qParam || hasLocationFilter)) {
         // Seed search history on initial load / URL-driven navigation (skip on browser back/forward)
         if (!poppingStateRef.current) {
           pushSearchHistory({ q: qParam, sort: sortParam, country: countryParam, state: stateParam, city: cityParam });
         }
         poppingStateRef.current = false;
+        // Location-only: load 2 pages eagerly, then lazy-load on scroll
+        const initialTake = isLocationOnly && pageParam === 1 ? PAGE_SIZE * 2 : PAGE_SIZE;
         await doSearch({
           q: qParam,
           sort: sortParam,
@@ -327,13 +331,13 @@ export default function ResultsPage() {
           amazon: amazonParam,
           hqCountry: hqCountryParam,
           mfgCountry: mfgCountryParam,
-          take: PAGE_SIZE,
+          take: initialTake,
           skip: (pageParam - 1) * PAGE_SIZE,
           location: loc,
         });
       } else if (!cancelled) {
         setResults([]);
-        setStatus("");
+        setStatus("Please enter a search term, choose a location, or enter a postal/ZIP code.");
         setHasMore(false);
       }
     })();
@@ -351,6 +355,9 @@ export default function ResultsPage() {
     const amazon = params.amazon === "1" || params.amazon === true;
     const hqCountry = (params.hqCountry ?? "").toString();
     const mfgCountry = (params.mfgCountry ?? "").toString();
+    const latStr = (params.lat ?? "").toString();
+    const lngStr = (params.lng ?? "").toString();
+    const hasInlineCoords = latStr && lngStr && Number.isFinite(Number(latStr)) && Number.isFinite(Number(lngStr));
 
     // Update URL for shareability (don’t include empty keys to keep it tidy)
     const next = new URLSearchParams();
@@ -359,6 +366,7 @@ export default function ResultsPage() {
     if (country) next.set("country", country);
     if (state) next.set("state", state);
     if (city) next.set("city", city);
+    if (hasInlineCoords) { next.set("lat", latStr); next.set("lng", lngStr); }
     if (amazon) next.set("amazon", "1");
     if (hqCountry) next.set("hqCountry", hqCountry);
     if (mfgCountry) next.set("mfgCountry", mfgCountry);
@@ -369,8 +377,12 @@ export default function ResultsPage() {
 
     // Resolve typed location if present
     let searchLocation = null;
+    if (hasInlineCoords) {
+      searchLocation = { lat: Number(latStr), lng: Number(lngStr) };
+      setUserLoc(searchLocation);
+    }
     try {
-      if (city || state || country) {
+      if (!searchLocation && (city || state || country)) {
         const countryName = country ? await resolveCountryName(country) : "";
         const r = await geocode({ address: [city, state, countryName].filter(Boolean).join(", "), ipLookup: false });
         const loc = r?.best?.location;
@@ -428,7 +440,9 @@ export default function ResultsPage() {
     }
     navigatingHistoryRef.current = false;
 
-    await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, skip: 0, location: searchLocation });
+    const isLocationOnlyInline = !q && !!(city || state || country || hasInlineCoords);
+    const inlineTake = isLocationOnlyInline ? PAGE_SIZE * 2 : PAGE_SIZE;
+    await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: inlineTake, skip: 0, location: searchLocation });
   }
 
   // Lightweight auto-search: fetches results without updating URL (avoids input interruption)
@@ -440,10 +454,10 @@ export default function ResultsPage() {
   // Track the current search generation so stale responses are ignored
   const searchGenRef = useRef(0);
 
-  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location = null }) {
+  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location = null, append = false }) {
     setLoading(true);
-    setStatus("");
-    const gen = ++searchGenRef.current;
+    if (!append) setStatus("");
+    const gen = append ? searchGenRef.current : ++searchGenRef.current;
     try {
       const fallbackLocation = { lat: 34.0983, lng: -117.8076 };
       const effectiveLocation = location || userLoc || fallbackLocation;
@@ -516,8 +530,16 @@ export default function ResultsPage() {
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
       const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
 
-      // Replace with full results + load reviews for any new companies
-      setResults(withDistances);
+      // Append on infinite scroll, replace on a fresh search
+      if (append) {
+        setResults((prev) => {
+          const existingIds = new Set(prev.map((p) => p.company_id || p.id));
+          const fresh = withDistances.filter((c) => !existingIds.has(c.company_id || c.id));
+          return [...prev, ...fresh];
+        });
+      } else {
+        setResults(withDistances);
+      }
       loadReviewsDeferred(withDistances);
       setHasMore(apiHasMore === true);
 
@@ -555,6 +577,49 @@ export default function ResultsPage() {
       }
     }
   }
+
+  // Location-only mode: hide numbered pagination, lazy-load via scroll instead
+  const isLocationOnly = !qParam && !!(cityParam || stateParam || countryParam || (latParam && lngParam));
+
+  const loadMoreRef = useRef(null);
+  const loadingMoreRef = useRef(false);
+
+  async function loadMore() {
+    if (loadingMoreRef.current || !hasMore || loading) return;
+    loadingMoreRef.current = true;
+    try {
+      await doSearch({
+        q: qParam,
+        sort: sortParam,
+        country: countryParam,
+        state: stateParam,
+        city: cityParam,
+        amazon: amazonParam,
+        hqCountry: hqCountryParam,
+        mfgCountry: mfgCountryParam,
+        take: PAGE_SIZE,
+        skip: results.length,
+        location: userLoc,
+        append: true,
+      });
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }
+
+  useEffect(() => {
+    if (!isLocationOnly) return;
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+    const obs = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry?.isIntersecting && hasMore && !loading) {
+        loadMore();
+      }
+    }, { rootMargin: "200px" });
+    obs.observe(sentinel);
+    return () => obs.disconnect();
+  }, [isLocationOnly, hasMore, loading, results.length]);
 
   // Client-side sort: null = relevance (original API order), otherwise by chosen column
   const sorted = useMemo(() => {
@@ -864,14 +929,20 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {(hasMore || pageParam > 1 || (totalPages && totalPages > 1)) && (
-        <Pagination
-          currentPage={pageParam}
-          hasMore={hasMore}
-          totalPages={totalPages}
-          onPageChange={goToPage}
-          disabled={loading}
-        />
+      {isLocationOnly ? (
+        <div ref={loadMoreRef} className="py-6 text-center text-sm text-muted-foreground">
+          {hasMore ? (loading ? "Loading more…" : "Scroll for more") : (results.length > 0 ? "End of results" : null)}
+        </div>
+      ) : (
+        (hasMore || pageParam > 1 || (totalPages && totalPages > 1)) && (
+          <Pagination
+            currentPage={pageParam}
+            hasMore={hasMore}
+            totalPages={totalPages}
+            onPageChange={goToPage}
+            disabled={loading}
+          />
+        )
       )}
     </div>
   );
