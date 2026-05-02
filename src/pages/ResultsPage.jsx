@@ -499,33 +499,24 @@ export default function ResultsPage() {
       // coords from leaking into a follow-up Texas search.
       const effectiveLocation = location || userLoc || null;
 
-      // Don't pass postal codes as city text filters — the backend tries to match
-      // "91750" against location strings like "Santa Ana, CA" which always fails.
-      // The geocoded coordinates (set by the caller) already handle distance calculations.
+      // For "Nearest manufacturing" / "Nearest HQ" the user wants the entire
+      // database sorted by distance from their location — closest first,
+      // furthest last, every company reachable by scrolling. Country / state
+      // / city are only proximity hints (they fed the geocoder upstream); we
+      // don't restrict the result set by them WHEN we have a real center.
+      // If geocoding failed and we have no center, keep country as a soft
+      // fallback so the search still returns something instead of throwing
+      // a "please enter a location" validation error.
       const POSTAL_RE = /^\d{3,10}(-\d{1,4})?$|^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i;
       const cityIsPostal = !!(city && POSTAL_RE.test(city.trim()));
       const stateIsPostal = !!(state && POSTAL_RE.test(state.trim()));
-      // In location-only mode with a country in scope, drop city/state from
-      // the API request. The country filter alone gives a broad result set;
-      // the client-side post-filter then keeps only companies whose
-      // manufacturing/HQ array contains that country, and the specificity
-      // sort ranks city-level entries (e.g. "Keith, Scotland, UK") above
-      // country-only entries (e.g. "United Kingdom"). This produces "specific
-      // matches first, broader after" instead of dropping the broader rows.
-      // Whether or not lat/lng resolved doesn't matter here — proximity is a
-      // tiebreaker, not a precondition for the broaden behavior.
-      const isLocationOnlySearch = !q;
-      const cityFilter = (cityIsPostal || (isLocationOnlySearch && country)) ? "" : city;
-      const stateFilter = (stateIsPostal || (isLocationOnlySearch && country)) ? "" : state;
+      const isProxSort = sort === "manu" || sort === "hq";
+      const haveCoords = !!(effectiveLocation && Number.isFinite(effectiveLocation.lat) && Number.isFinite(effectiveLocation.lng));
+      const cityFilter = (cityIsPostal || (isProxSort && haveCoords)) ? "" : city;
+      const stateFilter = (stateIsPostal || (isProxSort && haveCoords)) ? "" : state;
+      const countryFilter = (isProxSort && haveCoords) ? "" : country;
 
-      // Send `country` as the broad HQ-or-mfg filter; backend rows are
-      // inconsistently tagged with `manufacturing_country`, so a strict
-      // mfgCountry swap erases legitimate matches (e.g. UK companies with
-      // GB HQ but no per-country mfg tag). For sort=manu / sort=hq we
-      // post-filter the results client-side against the actual location
-      // arrays — keeps the broad filter while excluding e.g. Loft (US HQ,
-      // no US manufacturing) from a US-mfg search.
-      const commonOpts = { q, sort, country, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
+      const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
 
       // Fire quick (Pass 1 only) and full search in parallel
       const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;
@@ -583,33 +574,18 @@ export default function ResultsPage() {
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
       const distanced = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
 
-      // Client-side post-filter when the sort implies a location-of-presence
-      // intent. The API filter is country (HQ or mfg, broad); this narrows to
-      // companies that actually have manufacturing/HQ in the requested country.
-      const wantedCountry = String(country || "").trim().toUpperCase();
-      const filtered = wantedCountry
-        ? distanced.filter((c) => {
-            if (sort === "manu") return companyHasLocationInCountry(c.manufacturing_locations, wantedCountry);
-            if (sort === "hq") return companyHasLocationInCountry(c.headquarters_locations || c.headquarters, wantedCountry);
-            return true;
-          })
-        : distanced;
-
-      // Re-sort by (specificity desc, distance asc) for proximity-of-presence
-      // sorts. A company tagged "Keith, Scotland, UK" should outrank one
-      // tagged only "United Kingdom" when searching Edinburgh+GB — the city-
-      // level entry is a more accurate manufacturer match. Within the same
-      // specificity tier, closer wins.
+      // Pure distance ranking for proximity sorts: closest first, furthest
+      // last, every company reachable by scrolling. No country/HQ post-
+      // filter — the user wants to see the whole database ordered by
+      // distance from their location, not a sliced subset. Other sorts
+      // (stars, recent, relevance) keep API order.
       const withDistances = (sort === "manu" || sort === "hq")
-        ? filtered.slice().sort((a, b) => {
-            const specA = sort === "manu" ? (a._manuSpecificity || 0) : (a._hqSpecificity || 0);
-            const specB = sort === "manu" ? (b._manuSpecificity || 0) : (b._hqSpecificity || 0);
-            if (specB !== specA) return specB - specA;
+        ? distanced.slice().sort((a, b) => {
             const distA = sort === "manu" ? (a._nearestManuDist ?? Infinity) : (a._hqDist ?? Infinity);
             const distB = sort === "manu" ? (b._nearestManuDist ?? Infinity) : (b._hqDist ?? Infinity);
             return distA - distB;
           })
-        : filtered;
+        : distanced;
 
       // Append on infinite scroll, replace on a fresh search
       if (append) {
@@ -1088,55 +1064,6 @@ function generateQueryAlternatives(query) {
   return [...new Set(alternatives)];
 }
 
-/**
- * Does a company's location array contain at least one entry in the given country?
- * Accepts the loose shape used across the codebase: array of strings or objects with
- * country/country_code/formatted/full_address fields. The match is case-insensitive
- * on either ISO code or country name appearing anywhere in the address text.
- */
-function companyHasLocationInCountry(locations, isoCountry) {
-  if (!Array.isArray(locations) || locations.length === 0) return false;
-  const iso = String(isoCountry || "").toUpperCase();
-  if (!iso) return true;
-  // Country names that frequently appear in address strings, keyed by ISO code.
-  // Prefer matching via the ISO code first (companies often store country_code)
-  // and fall back to a substring scan of the formatted address.
-  const NAMES = {
-    US: ["united states", "u.s.a", "u.s.", "usa"],
-    GB: ["united kingdom", "uk", "england", "scotland", "wales", "northern ireland", "great britain"],
-    CA: ["canada"],
-    AU: ["australia"],
-    NZ: ["new zealand"],
-    IE: ["ireland"],
-    DE: ["germany"],
-    FR: ["france"],
-    IT: ["italy"],
-    ES: ["spain"],
-    JP: ["japan"],
-    CN: ["china"],
-    IN: ["india"],
-    MX: ["mexico"],
-    BR: ["brazil"],
-  };
-  const aliases = NAMES[iso] || [];
-  return locations.some((loc) => {
-    if (!loc) return false;
-    if (typeof loc === "string") {
-      const s = loc.toLowerCase();
-      if (s.includes(iso.toLowerCase())) return true;
-      return aliases.some((n) => s.includes(n));
-    }
-    const cc = String(loc.country_code || loc.countryCode || "").toUpperCase();
-    if (cc === iso) return true;
-    const cname = String(loc.country || "").toLowerCase();
-    if (cname && (cname === iso.toLowerCase() || aliases.some((n) => cname.includes(n)))) return true;
-    const addr = String(loc.formatted || loc.full_address || loc.address || loc.location || "").toLowerCase();
-    if (!addr) return false;
-    if (addr.includes(`, ${iso.toLowerCase()}`)) return true;
-    return aliases.some((n) => addr.includes(n));
-  });
-}
-
 /** Deduplicate HQ location entries by city|region|country key or address string. */
 function deduplicateHqList(list) {
   if (!Array.isArray(list) || list.length <= 1) return list;
@@ -1156,35 +1083,8 @@ function deduplicateHqList(list) {
   });
 }
 
-/**
- * Score a company's location array by the maximum specificity (parts count)
- * of any entry's formatted address. "Keith, Scotland, UK" has 3 parts (city +
- * region + country); "United Kingdom" has 1. Used as the primary sort key for
- * "Nearest manufacturing/HQ" — a city-level entry should outrank a country-only
- * entry, since the latter usually means we don't actually know where a company
- * makes things and a generic country tag is a weaker signal.
- */
-function computeLocationSpecificity(locations) {
-  if (!Array.isArray(locations) || locations.length === 0) return 0;
-  let max = 0;
-  for (const loc of locations) {
-    if (!loc) continue;
-    const formatted = typeof loc === "string" ? loc :
-      (loc.formatted || loc.full_address || loc.address || loc.location || "");
-    const parts = String(formatted).split(",").map((s) => s.trim()).filter(Boolean);
-    if (parts.length > max) max = parts.length;
-  }
-  return max;
-}
-
 function attachDistances(c, userLoc, unit) {
-  const manuLocsForSpecificity = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
-  const hqLocsForSpecificity = Array.isArray(c.headquarters_locations) ? c.headquarters_locations
-    : Array.isArray(c.headquarters) ? c.headquarters : [];
-  const _manuSpecificity = computeLocationSpecificity(manuLocsForSpecificity);
-  const _hqSpecificity = computeLocationSpecificity(hqLocsForSpecificity);
-
-  const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [], _hqDists: [], _manuSpecificity, _hqSpecificity };
+  const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [], _hqDists: [] };
 
   const user = getLatLng(userLoc);
   if (!user) return out;
