@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
-import { geocode } from "@/lib/google";
+import { geocode, placesAutocomplete, placeDetails } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
@@ -278,26 +278,54 @@ export default function ResultsPage() {
         } else if (cityParam || stateParam || countryParam) {
           const countryName = countryParam ? await resolveCountryName(countryParam) : "";
           const addr = [cityParam, stateParam, countryName].filter(Boolean).join(", ");
-          const r = await geocode({ address: addr, ipLookup: false });
-          const geoLoc = r?.best?.location || null;
-          const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+          let resolvedCC = "";
 
-          // Detect San Dimas fallback (API failure)
-          const isFallback = countryParam && cc === "US" && countryParam !== "US" &&
-            geoLoc && Math.abs(geoLoc.lat - 34.0983) < 0.01 && Math.abs(geoLoc.lng - (-117.8076)) < 0.01;
+          const isUSFallback = (lat, lng) => countryParam && countryParam !== "US" &&
+            Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01;
 
-          if (geoLoc && !isFallback) {
-            loc = geoLoc;
-            if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
-          } else if (countryParam) {
-            // Use static centroid as fallback
+          // 1) Prefer Places API for named places (country bias resolves "Edinburgh" → GB).
+          if (cityParam || stateParam) {
+            try {
+              const preds = await placesAutocomplete({ input: addr, country: countryParam || "" });
+              if (preds && preds.length > 0) {
+                const det = await placeDetails({ placeId: preds[0].placeId });
+                const placeLoc = det?.geometry?.location;
+                if (placeLoc && Number.isFinite(Number(placeLoc.lat)) && Number.isFinite(Number(placeLoc.lng))) {
+                  const lat = Number(placeLoc.lat), lng = Number(placeLoc.lng);
+                  if (!isUSFallback(lat, lng)) {
+                    loc = { lat, lng };
+                    resolvedCC = det?.countryCode || "";
+                  }
+                }
+              }
+            } catch { /* fall through */ }
+          }
+
+          // 2) Fall back to direct geocoding.
+          if (!loc) {
+            const r = await geocode({ address: addr, ipLookup: false });
+            const geoLoc = r?.best?.location || null;
+            const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+            if (geoLoc && Number.isFinite(geoLoc.lat) && Number.isFinite(geoLoc.lng) &&
+                !isUSFallback(geoLoc.lat, geoLoc.lng)) {
+              loc = geoLoc;
+              resolvedCC = cc || resolvedCC;
+            }
+          }
+
+          // 3) Last resort: country-only searches (no city/state) use the country centroid.
+          //    If the user entered a specific city/state and we couldn't resolve it, leave
+          //    loc null — proximity ranking depends on accurate coords, faking the center
+          //    with a country centroid would produce misleading distances.
+          if (!loc && countryParam && !cityParam && !stateParam) {
             const centroid = getCountryCentroid(countryParam);
             if (centroid) {
               loc = centroid;
-              setUnit(milesCountries.has(countryParam) ? "mi" : "km");
-              setUserCountryCode(countryParam);
+              resolvedCC = countryParam;
             }
           }
+
+          if (resolvedCC) { setUnit(milesCountries.has(resolvedCC) ? "mi" : "km"); setUserCountryCode(resolvedCC); }
         } else {
           const r = await geocode({ ipLookup: true });
           loc = r?.best?.location || { lat: 34.0983, lng: -117.8076 };
@@ -384,26 +412,52 @@ export default function ResultsPage() {
     try {
       if (!searchLocation && (city || state || country)) {
         const countryName = country ? await resolveCountryName(country) : "";
-        const r = await geocode({ address: [city, state, countryName].filter(Boolean).join(", "), ipLookup: false });
-        const loc = r?.best?.location;
-        const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+        const addr = [city, state, countryName].filter(Boolean).join(", ");
+        const isUSFallback = (lat, lng) => country && country !== "US" &&
+          Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01;
 
-        // Detect if geocode silently fell back to San Dimas (API failure).
-        const isFallback = country && cc === "US" && country !== "US" &&
-          loc && Math.abs(loc.lat - 34.0983) < 0.01 && Math.abs(loc.lng - (-117.8076)) < 0.01;
+        // 1) Places API (preferred for named places — country bias)
+        let resolvedCC = "";
+        if (city || state) {
+          try {
+            const preds = await placesAutocomplete({ input: addr, country: country || "" });
+            if (preds && preds.length > 0) {
+              const det = await placeDetails({ placeId: preds[0].placeId });
+              const placeLoc = det?.geometry?.location;
+              if (placeLoc && Number.isFinite(Number(placeLoc.lat)) && Number.isFinite(Number(placeLoc.lng))) {
+                const lat = Number(placeLoc.lat), lng = Number(placeLoc.lng);
+                if (!isUSFallback(lat, lng)) {
+                  searchLocation = { lat, lng };
+                  resolvedCC = det?.countryCode || "";
+                }
+              }
+            }
+          } catch { /* fall through */ }
+        }
 
-        if (loc && !isFallback) {
-          searchLocation = loc;
-          setUserLoc({ lat: loc.lat, lng: loc.lng });
-          if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
-        } else if (country) {
+        // 2) Direct geocode fallback
+        if (!searchLocation) {
+          const r = await geocode({ address: addr, ipLookup: false });
+          const loc = r?.best?.location;
+          const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+          if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) && !isUSFallback(loc.lat, loc.lng)) {
+            searchLocation = loc;
+            resolvedCC = cc || resolvedCC;
+          }
+        }
+
+        // 3) Country-only fallback: centroid is acceptable when user didn't specify city/state
+        if (!searchLocation && country && !city && !state) {
           const centroid = getCountryCentroid(country);
           if (centroid) {
             searchLocation = centroid;
-            setUserLoc({ lat: centroid.lat, lng: centroid.lng });
-            setUnit(milesCountries.has(country) ? "mi" : "km");
-            setUserCountryCode(country);
+            resolvedCC = country;
           }
+        }
+
+        if (searchLocation) {
+          setUserLoc({ lat: searchLocation.lat, lng: searchLocation.lng });
+          if (resolvedCC) { setUnit(milesCountries.has(resolvedCC) ? "mi" : "km"); setUserCountryCode(resolvedCC); }
         }
       } else {
         // No geo filters — reset to user's IP-based or default location.
@@ -421,7 +475,8 @@ export default function ResultsPage() {
         } catch { /* will use fallback in doSearch */ }
       }
     } catch {
-      if (country) {
+      // Last-resort centroid only when user didn't specify city/state.
+      if (country && !city && !state) {
         const centroid = getCountryCentroid(country);
         if (centroid) {
           searchLocation = centroid;
@@ -459,8 +514,11 @@ export default function ResultsPage() {
     if (!append) setStatus("");
     const gen = append ? searchGenRef.current : ++searchGenRef.current;
     try {
-      const fallbackLocation = { lat: 34.0983, lng: -117.8076 };
-      const effectiveLocation = location || userLoc || fallbackLocation;
+      // No hardcoded geographic fallback — proximity must be accurate.
+      // If neither the URL-effect geocode nor the IP/device location resolved,
+      // we omit lat/lng entirely rather than fake the center with a default
+      // (e.g. San Dimas or a country centroid), which would mislead distances.
+      const effectiveLocation = location || userLoc || null;
 
       if (!userLoc && effectiveLocation) {
         setUserLoc({ lat: effectiveLocation.lat, lng: effectiveLocation.lng });

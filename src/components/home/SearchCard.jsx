@@ -420,32 +420,70 @@ export default function SearchCard({
         } catch { /* fall through with raw text */ }
       }
 
-      // If the city field looks like a postal/ZIP, geocode it so we can search by lat/lng
+      // Resolve the location to accurate lat/lng so proximity ranking is
+      // correct. For named places ("Edinburgh"), Places autocomplete + details
+      // is more reliable than direct geocoding because it accepts a country
+      // bias. For postal codes, the geocode endpoint handles them well.
       let geoLat = '';
       let geoLng = '';
       let cityForParams = city;
+      let resolvedCountryFromGeo = '';
       const cityTrimmed = (city || '').trim();
-      if (cityTrimmed && POSTAL_REGEX.test(cityTrimmed)) {
-        try {
-          const r = await geocode({ address: cityTrimmed });
-          const loc = r?.best?.location;
-          if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
-            geoLat = String(loc.lat);
-            geoLng = String(loc.lng);
-            // Backend can't match raw postal against address strings; lat/lng drives proximity instead.
-            cityForParams = '';
-          }
-          if (!resolvedCountry) {
-            const components = r?.best?.address_components || [];
-            const countryComp = components.find(c => Array.isArray(c.types) && c.types.includes('country'));
-            const cc = countryComp?.short_name;
-            if (cc) {
-              resolvedCountry = cc;
-              setCountry(cc);
+      const stateTrimmed = (resolvedState || '').trim();
+      const isPostal = !!cityTrimmed && POSTAL_REGEX.test(cityTrimmed);
+
+      const acceptCoords = (lat, lng) => {
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+        // Reject the dev-mode San Dimas fallback for non-US searches
+        if (resolvedCountry && resolvedCountry !== 'US' &&
+            Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01) return false;
+        geoLat = String(lat);
+        geoLng = String(lng);
+        return true;
+      };
+
+      if (cityTrimmed || stateTrimmed) {
+        const addr = [cityTrimmed, stateTrimmed, resolvedCountry].filter(Boolean).join(', ');
+
+        // 1) For named places, prefer Places API (country bias resolves
+        //    ambiguous names like "Edinburgh" to the right country).
+        if (!isPostal) {
+          try {
+            const preds = await placesAutocomplete({ input: addr, country: resolvedCountry || '' });
+            if (preds && preds.length > 0) {
+              const det = await placeDetails({ placeId: preds[0].placeId });
+              const loc = det?.geometry?.location;
+              if (loc) acceptCoords(Number(loc.lat), Number(loc.lng));
+              if (det?.countryCode && !resolvedCountry) resolvedCountryFromGeo = det.countryCode;
             }
+          } catch (e) {
+            console.warn('Places lookup failed:', e?.message);
           }
-        } catch (e) {
-          console.warn('Postal geocode failed:', e?.message);
+        }
+
+        // 2) Fall back to direct geocoding (also the primary path for postals).
+        if (!geoLat) {
+          try {
+            const r = await geocode({ address: addr });
+            const loc = r?.best?.location;
+            if (loc) acceptCoords(Number(loc.lat), Number(loc.lng));
+            if (!resolvedCountry && !resolvedCountryFromGeo) {
+              const components = r?.best?.address_components || [];
+              const cc = components.find(c => Array.isArray(c.types) && c.types.includes('country'))?.short_name;
+              if (cc) resolvedCountryFromGeo = cc;
+            }
+          } catch (e) {
+            console.warn('Geocode lookup failed:', e?.message);
+          }
+        }
+
+        if (isPostal && geoLat) {
+          // Backend can't match raw postal against address strings; lat/lng drives proximity instead.
+          cityForParams = '';
+        }
+        if (resolvedCountryFromGeo && !resolvedCountry) {
+          resolvedCountry = resolvedCountryFromGeo;
+          setCountry(resolvedCountryFromGeo);
         }
       }
 
