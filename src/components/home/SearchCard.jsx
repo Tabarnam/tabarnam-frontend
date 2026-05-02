@@ -101,6 +101,8 @@ export default function SearchCard({
   const cityInputRef = useRef(null);
   const stateInputRef = useRef(null);
   const handleSubmitRef = useRef(null);
+  const debounceSearchRef = useRef(null);
+  const debounceUrlRef = useRef(null);
   const lastSearchedQRef = useRef('');
 
   useEffect(() => {
@@ -199,16 +201,68 @@ export default function SearchCard({
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
 
-  // Note: we deliberately do NOT auto-search or auto-update the URL while the
-  // user is typing in the search box. The previous version fired a search
-  // 400ms after the last keystroke and committed the URL after 3 seconds of
-  // typing inactivity — which meant pausing mid-word (e.g. between "wa" and
-  // "ter" while looking at the suggestions dropdown) silently submitted the
-  // partial query and rewrote the URL to ?q=sparkling+wa. Searches now fire
-  // only on a deliberate user action: Enter, Search-button click, or
-  // selecting a suggestion. Filter checkboxes (Amazon / HQ-in-country /
-  // Mfg-in-country) and chip selections still auto-submit because those are
-  // discrete actions, not typing.
+  // Search-as-you-type with two debounce tiers:
+  //   1000 ms after last keystroke → silent auto-search of partial text
+  //                                  (re-fetch results, do NOT touch URL)
+  //   3000 ms after last keystroke → commit the input value to the URL
+  //                                  (search becomes shareable / persisted)
+  // The wider 1 s search debounce lets users finish a word before any fetch
+  // fires — earlier 400 ms version was committing partial queries like
+  // "sparkling wa" to the URL when the user paused mid-word to look at the
+  // suggestions dropdown. A deliberate submit (Enter / Search-click / pick)
+  // cancels both pending timers via the cleanup block in handleSubmit.
+  useEffect(() => {
+    if (debounceSearchRef.current) {
+      clearTimeout(debounceSearchRef.current);
+      debounceSearchRef.current = null;
+    }
+    if (debounceUrlRef.current) {
+      clearTimeout(debounceUrlRef.current);
+      debounceUrlRef.current = null;
+    }
+
+    const trimmed = q.trim();
+    const hasLocationFilter = !!(country || stateCode || city);
+    if (trimmed.length < 2 && !hasLocationFilter) return;
+
+    // Skip if this query was already searched (initial hydration / after submit)
+    if (trimmed === lastSearchedQRef.current) return;
+
+    debounceSearchRef.current = setTimeout(() => {
+      lastSearchedQRef.current = trimmed;
+      // Lightweight auto-search if the parent provides one (skips URL update);
+      // otherwise fall back to a full submit (which DOES update the URL — but
+      // this branch only matters on the home page where there is no URL state
+      // to muddle with anyway).
+      if (onAutoSearch) {
+        onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly, hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' });
+      } else {
+        handleSubmitRef.current();
+      }
+    }, 1000);
+
+    // Delayed URL commit: sync the URL 3 s after last keystroke so the
+    // search becomes shareable / bookmarkable without firing on every brief
+    // typing pause. Only the inline (results-page) path needs this; the
+    // home-page path already updated URL via the auto-search above.
+    if (onAutoSearch && onSubmitParams) {
+      debounceUrlRef.current = setTimeout(() => {
+        lastSearchedQRef.current = trimmed;
+        handleSubmitRef.current();
+      }, 3000);
+    }
+
+    return () => {
+      if (debounceSearchRef.current) {
+        clearTimeout(debounceSearchRef.current);
+        debounceSearchRef.current = null;
+      }
+      if (debounceUrlRef.current) {
+        clearTimeout(debounceUrlRef.current);
+        debounceUrlRef.current = null;
+      }
+    };
+  }, [q]);
 
   // Re-search when any filter checkbox toggles (immediate submit, no debounce)
   const filterInitRef = useRef(true);
@@ -325,6 +379,17 @@ export default function SearchCard({
   };
 
   const handleSubmit = async (overrideQ) => {
+    // Cancel any pending auto-search and URL-update debounces — a deliberate
+    // submit (Enter / Search button / suggestion pick) supersedes them.
+    if (debounceSearchRef.current) {
+      clearTimeout(debounceSearchRef.current);
+      debounceSearchRef.current = null;
+    }
+    if (debounceUrlRef.current) {
+      clearTimeout(debounceUrlRef.current);
+      debounceUrlRef.current = null;
+    }
+
 
     // Read from the DOM ref to handle paste + immediate Enter (React state may be stale)
     const rawQ = (overrideQ !== undefined ? String(overrideQ) : (inputRef.current?.value ?? q)).trim();
