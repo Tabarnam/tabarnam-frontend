@@ -505,15 +505,18 @@ export default function ResultsPage() {
       const POSTAL_RE = /^\d{3,10}(-\d{1,4})?$|^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i;
       const cityIsPostal = !!(city && POSTAL_RE.test(city.trim()));
       const stateIsPostal = !!(state && POSTAL_RE.test(state.trim()));
-      // In location-only mode (no keyword) AND when we have accurate lat/lng,
-      // treat city/state as proximity hints baked into the coords rather than
-      // strict filters — otherwise "closest then further" breaks. But if
-      // geocoding failed and we have no coords, keep city/state as filters so
-      // the API still has something to match (better than a validation throw).
+      // In location-only mode with a country in scope, drop city/state from
+      // the API request. The country filter alone gives a broad result set;
+      // the client-side post-filter then keeps only companies whose
+      // manufacturing/HQ array contains that country, and the specificity
+      // sort ranks city-level entries (e.g. "Keith, Scotland, UK") above
+      // country-only entries (e.g. "United Kingdom"). This produces "specific
+      // matches first, broader after" instead of dropping the broader rows.
+      // Whether or not lat/lng resolved doesn't matter here — proximity is a
+      // tiebreaker, not a precondition for the broaden behavior.
       const isLocationOnlySearch = !q;
-      const haveCoords = !!(effectiveLocation && Number.isFinite(effectiveLocation.lat) && Number.isFinite(effectiveLocation.lng));
-      const cityFilter = (cityIsPostal || (isLocationOnlySearch && haveCoords)) ? "" : city;
-      const stateFilter = (stateIsPostal || (isLocationOnlySearch && haveCoords)) ? "" : state;
+      const cityFilter = (cityIsPostal || (isLocationOnlySearch && country)) ? "" : city;
+      const stateFilter = (stateIsPostal || (isLocationOnlySearch && country)) ? "" : state;
 
       // Send `country` as the broad HQ-or-mfg filter; backend rows are
       // inconsistently tagged with `manufacturing_country`, so a strict
