@@ -359,6 +359,26 @@ export async function resolveLocation({ city = "", state = "", country = "" } = 
     ? [postalValue, countryT].filter(Boolean).join(", ")
     : [cityT, stateForAddr, countryT].filter(Boolean).join(", ");
 
+  // The geocode endpoint sometimes returns the San Dimas sentinel for
+  // unresolved addresses. Trust those coords ONLY when the response's
+  // structured components confirm the input was actually about that place
+  // (e.g. searching "91773" or "san dimas" should accept; searching
+  // "edinburgh" and getting back San Dimas should reject).
+  const inputConfirmsCoords = (cc, sc, cn, pc) => {
+    const cityLow = cityT.toLowerCase();
+    const stateLow = stateForAddr.toLowerCase();
+    if (postalValue && pc && postalValue.toUpperCase() === pc.toUpperCase()) return true;
+    if (cityLow && cn && cityLow === cn.toLowerCase()) return true;
+    if (cityLow && cn && cn.toLowerCase().includes(cityLow)) return true;
+    if (stateLow && sc && stateLow === sc.toLowerCase()) return true;
+    return false;
+  };
+  const acceptCoords = (lat, lng, cc, sc, cn, pc) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    if (isSanDimasSentinel(lat, lng) && !inputConfirmsCoords(cc, sc, cn, pc)) return false;
+    return true;
+  };
+
   // 1) Places API first for named places (country bias resolves ambiguous names).
   if (!isPostal) {
     try {
@@ -368,7 +388,7 @@ export async function resolveLocation({ city = "", state = "", country = "" } = 
         const loc = det?.geometry?.location;
         const lat = Number(loc?.lat);
         const lng = Number(loc?.lng);
-        if (Number.isFinite(lat) && Number.isFinite(lng) && !isSanDimasSentinel(lat, lng)) {
+        if (acceptCoords(lat, lng, det?.countryCode, det?.stateCode, det?.city, det?.postalCode)) {
           return {
             lat, lng,
             countryCode: det?.countryCode || "",
@@ -393,7 +413,7 @@ export async function resolveLocation({ city = "", state = "", country = "" } = 
     const sc = find("administrative_area_level_1")?.short_name || "";
     const cn = find("locality")?.long_name || find("postal_town")?.long_name || "";
     const pc = find("postal_code")?.short_name || "";
-    if (Number.isFinite(lat) && Number.isFinite(lng) && !isSanDimasSentinel(lat, lng)) {
+    if (acceptCoords(lat, lng, cc, sc, cn, pc)) {
       return { lat, lng, countryCode: cc, stateCode: sc, city: cn, postalCode: pc };
     }
   } catch { /* fall through */ }
