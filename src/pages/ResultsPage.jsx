@@ -330,7 +330,12 @@ export default function ResultsPage() {
       } catch {
         // ignore geocode errors
       }
-      if (!cancelled && loc) setUserLoc({ lat: loc.lat, lng: loc.lng });
+      // Always reset userLoc to whatever this search resolved to (or null).
+      // Without this, a failed resolution in a follow-up search would inherit
+      // the previous search's center — e.g. typing "tx" after an Edinburgh
+      // search would silently rank companies by distance from Edinburgh,
+      // putting Vermont (3060 mi from EDI) at the top of a Texas search.
+      if (!cancelled) setUserLoc(loc ? { lat: loc.lat, lng: loc.lng } : null);
 
       setSortBy(null);
 
@@ -489,11 +494,10 @@ export default function ResultsPage() {
       // If neither the URL-effect geocode nor the IP/device location resolved,
       // we omit lat/lng entirely rather than fake the center with a default
       // (e.g. San Dimas or a country centroid), which would mislead distances.
+      // doSearch READS userLoc but never writes it — the URL effect and
+      // handleInlineSearch are the sole owners, which prevents stale Edinburgh
+      // coords from leaking into a follow-up Texas search.
       const effectiveLocation = location || userLoc || null;
-
-      if (!userLoc && effectiveLocation) {
-        setUserLoc({ lat: effectiveLocation.lat, lng: effectiveLocation.lng });
-      }
 
       // Don't pass postal codes as city text filters — the backend tries to match
       // "91750" against location strings like "Santa Ana, CA" which always fails.
@@ -511,18 +515,14 @@ export default function ResultsPage() {
       const cityFilter = (cityIsPostal || (isLocationOnlySearch && haveCoords)) ? "" : city;
       const stateFilter = (stateIsPostal || (isLocationOnlySearch && haveCoords)) ? "" : state;
 
-      // Narrow the country filter to manufacturing/HQ when the chosen sort
-      // implies that intent. Otherwise sort=manu with country=US returns
-      // companies whose HQ is in the US even if they manufacture elsewhere.
-      let countryFilter = country;
-      let hqCountryFilter = hqCountry;
-      let mfgCountryFilter = mfgCountry;
-      if (country) {
-        if (sort === 'manu' && !mfgCountryFilter) { mfgCountryFilter = country; countryFilter = ''; }
-        else if (sort === 'hq' && !hqCountryFilter) { hqCountryFilter = country; countryFilter = ''; }
-      }
-
-      const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry: hqCountryFilter, mfgCountry: mfgCountryFilter, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
+      // Send `country` as the broad HQ-or-mfg filter; backend rows are
+      // inconsistently tagged with `manufacturing_country`, so a strict
+      // mfgCountry swap erases legitimate matches (e.g. UK companies with
+      // GB HQ but no per-country mfg tag). For sort=manu / sort=hq we
+      // post-filter the results client-side against the actual location
+      // arrays — keeps the broad filter while excluding e.g. Loft (US HQ,
+      // no US manufacturing) from a US-mfg search.
+      const commonOpts = { q, sort, country, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
 
       // Fire quick (Pass 1 only) and full search in parallel
       const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;
@@ -578,7 +578,20 @@ export default function ResultsPage() {
       if (gen !== searchGenRef.current) return;
 
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
-      const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
+      const distanced = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
+
+      // Client-side post-filter when the sort implies a location-of-presence
+      // intent. The API filter is country (HQ or mfg, broad); this narrows to
+      // companies that actually have manufacturing/HQ in the requested country.
+      const wantedCountry = String(country || "").trim().toUpperCase();
+      const filtered = wantedCountry
+        ? distanced.filter((c) => {
+            if (sort === "manu") return companyHasLocationInCountry(c.manufacturing_locations, wantedCountry);
+            if (sort === "hq") return companyHasLocationInCountry(c.headquarters_locations || c.headquarters, wantedCountry);
+            return true;
+          })
+        : distanced;
+      const withDistances = filtered;
 
       // Append on infinite scroll, replace on a fresh search
       if (append) {
@@ -1055,6 +1068,55 @@ function generateQueryAlternatives(query) {
 
   // Return unique alternatives only
   return [...new Set(alternatives)];
+}
+
+/**
+ * Does a company's location array contain at least one entry in the given country?
+ * Accepts the loose shape used across the codebase: array of strings or objects with
+ * country/country_code/formatted/full_address fields. The match is case-insensitive
+ * on either ISO code or country name appearing anywhere in the address text.
+ */
+function companyHasLocationInCountry(locations, isoCountry) {
+  if (!Array.isArray(locations) || locations.length === 0) return false;
+  const iso = String(isoCountry || "").toUpperCase();
+  if (!iso) return true;
+  // Country names that frequently appear in address strings, keyed by ISO code.
+  // Prefer matching via the ISO code first (companies often store country_code)
+  // and fall back to a substring scan of the formatted address.
+  const NAMES = {
+    US: ["united states", "u.s.a", "u.s.", "usa"],
+    GB: ["united kingdom", "uk", "england", "scotland", "wales", "northern ireland", "great britain"],
+    CA: ["canada"],
+    AU: ["australia"],
+    NZ: ["new zealand"],
+    IE: ["ireland"],
+    DE: ["germany"],
+    FR: ["france"],
+    IT: ["italy"],
+    ES: ["spain"],
+    JP: ["japan"],
+    CN: ["china"],
+    IN: ["india"],
+    MX: ["mexico"],
+    BR: ["brazil"],
+  };
+  const aliases = NAMES[iso] || [];
+  return locations.some((loc) => {
+    if (!loc) return false;
+    if (typeof loc === "string") {
+      const s = loc.toLowerCase();
+      if (s.includes(iso.toLowerCase())) return true;
+      return aliases.some((n) => s.includes(n));
+    }
+    const cc = String(loc.country_code || loc.countryCode || "").toUpperCase();
+    if (cc === iso) return true;
+    const cname = String(loc.country || "").toLowerCase();
+    if (cname && (cname === iso.toLowerCase() || aliases.some((n) => cname.includes(n)))) return true;
+    const addr = String(loc.formatted || loc.full_address || loc.address || loc.location || "").toLowerCase();
+    if (!addr) return false;
+    if (addr.includes(`, ${iso.toLowerCase()}`)) return true;
+    return aliases.some((n) => addr.includes(n));
+  });
 }
 
 /** Deduplicate HQ location entries by city|region|country key or address string. */

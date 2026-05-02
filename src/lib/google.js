@@ -277,6 +277,52 @@ const isSanDimasSentinel = (lat, lng) =>
   Number.isFinite(lat) && Number.isFinite(lng) &&
   Math.abs(lat - SAN_DIMAS_LAT) < 0.01 && Math.abs(lng - SAN_DIMAS_LNG) < 0.01;
 
+// Expand 2-letter state/province codes to full names so geocoders disambiguate
+// "tx" → "Texas", "on" → "Ontario", etc. Without this, Places autocomplete
+// often fails to resolve a bare 2-letter code, and the search ends up with
+// no proximity center (or worse, a stale one from the previous query).
+// Tables are per-country to avoid collisions like NT (Northwest Territories
+// vs Northern Territory) and WA (Washington vs Western Australia).
+const STATE_CODE_TABLES = {
+  US: {
+    AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+    CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+    HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+    KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+    MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
+    MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
+    NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
+    OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+    SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
+    VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
+    DC: "District of Columbia",
+  },
+  CA: {
+    ON: "Ontario", QC: "Quebec", BC: "British Columbia", AB: "Alberta", MB: "Manitoba",
+    SK: "Saskatchewan", NS: "Nova Scotia", NB: "New Brunswick", NL: "Newfoundland and Labrador",
+    PE: "Prince Edward Island", YT: "Yukon", NT: "Northwest Territories", NU: "Nunavut",
+  },
+  AU: {
+    NSW: "New South Wales", VIC: "Victoria", QLD: "Queensland", SA: "South Australia",
+    WA: "Western Australia", TAS: "Tasmania", ACT: "Australian Capital Territory", NT: "Northern Territory",
+  },
+};
+function expandStateCode(state, country) {
+  const s = String(state || "").trim();
+  if (!s) return s;
+  const upper = s.toUpperCase();
+  // Full names pass through untouched.
+  if (upper.length > 3 || !/^[A-Z]{2,3}$/.test(upper)) return s;
+  const cc = String(country || "").toUpperCase();
+  // Try the country-specific table first; fall back to US (largest user base)
+  // for ambiguous-but-uncontextualized inputs.
+  if (cc && STATE_CODE_TABLES[cc] && STATE_CODE_TABLES[cc][upper]) return STATE_CODE_TABLES[cc][upper];
+  if (STATE_CODE_TABLES.US[upper]) return STATE_CODE_TABLES.US[upper];
+  if (STATE_CODE_TABLES.CA[upper]) return STATE_CODE_TABLES.CA[upper];
+  if (STATE_CODE_TABLES.AU[upper]) return STATE_CODE_TABLES.AU[upper];
+  return s;
+}
+
 /**
  * Resolve a free-form location (city/state/country, postal codes, etc.) into a
  * single structured triple: { lat, lng, countryCode, stateCode, city, postalCode }.
@@ -294,20 +340,24 @@ const isSanDimasSentinel = (lat, lng) =>
  */
 export async function resolveLocation({ city = "", state = "", country = "" } = {}) {
   const cityT = String(city || "").trim();
-  const stateT = String(state || "").trim();
+  const stateRaw = String(state || "").trim();
   const countryT = String(country || "").trim();
   const empty = { lat: undefined, lng: undefined, countryCode: "", stateCode: "", city: "", postalCode: "" };
 
-  if (!cityT && !stateT) return empty;
+  if (!cityT && !stateRaw) return empty;
 
   const cityIsPostal = !!cityT && POSTAL_REGEX.test(cityT);
-  const stateIsPostal = !!stateT && POSTAL_REGEX.test(stateT);
-  const postalValue = cityIsPostal ? cityT : stateIsPostal ? stateT : "";
+  const stateIsPostal = !!stateRaw && POSTAL_REGEX.test(stateRaw);
+  const postalValue = cityIsPostal ? cityT : stateIsPostal ? stateRaw : "";
   const isPostal = !!postalValue;
+
+  // Expand 2-letter state/province codes ("tx" → "Texas") so the geocoder
+  // can disambiguate. Postal-shaped state inputs aren't expanded.
+  const stateForAddr = stateIsPostal ? stateRaw : expandStateCode(stateRaw, countryT);
 
   const addr = postalValue
     ? [postalValue, countryT].filter(Boolean).join(", ")
-    : [cityT, stateT, countryT].filter(Boolean).join(", ");
+    : [cityT, stateForAddr, countryT].filter(Boolean).join(", ");
 
   // 1) Places API first for named places (country bias resolves ambiguous names).
   if (!isPostal) {
