@@ -434,9 +434,11 @@ export default function SearchCard({
 
       const acceptCoords = (lat, lng) => {
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-        // Reject the dev-mode San Dimas fallback for non-US searches
-        if (resolvedCountry && resolvedCountry !== 'US' &&
-            Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01) return false;
+        // Reject the well-known San Dimas sentinel that the geocode endpoint
+        // returns when an address can't be resolved. Real searches never
+        // resolve to these exact coordinates, so treating them as a hit would
+        // produce wildly wrong proximity ranking.
+        if (Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01) return false;
         geoLat = String(lat);
         geoLng = String(lng);
         return true;

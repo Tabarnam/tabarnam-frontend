@@ -274,13 +274,21 @@ export default function ResultsPage() {
       let loc = null;
       try {
         if (latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam))) {
-          loc = { lat: Number(latParam), lng: Number(lngParam) };
-        } else if (cityParam || stateParam || countryParam) {
+          const latN = Number(latParam), lngN = Number(lngParam);
+          // Ignore the San Dimas sentinel even when carried in the URL — a
+          // shared/bookmarked link from before the geocode fix would otherwise
+          // bypass our re-geocoding and silently use the bad center.
+          const isSentinel = Math.abs(latN - 34.0983) < 0.01 && Math.abs(lngN - (-117.8076)) < 0.01;
+          if (!isSentinel) loc = { lat: latN, lng: lngN };
+        }
+        if (!loc && (cityParam || stateParam || countryParam)) {
           const countryName = countryParam ? await resolveCountryName(countryParam) : "";
           const addr = [cityParam, stateParam, countryName].filter(Boolean).join(", ");
           let resolvedCC = "";
 
-          const isUSFallback = (lat, lng) => countryParam && countryParam !== "US" &&
+          // Reject the well-known San Dimas sentinel the geocode endpoint
+          // returns for unresolved addresses (would produce wildly wrong distances).
+          const isUSFallback = (lat, lng) =>
             Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01;
 
           // 1) Prefer Places API for named places (country bias resolves "Edinburgh" → GB).
@@ -326,11 +334,18 @@ export default function ResultsPage() {
           }
 
           if (resolvedCC) { setUnit(milesCountries.has(resolvedCC) ? "mi" : "km"); setUserCountryCode(resolvedCC); }
-        } else {
+        }
+        // No location filters at all → use device IP location (best guess for "near me")
+        if (!loc && !cityParam && !stateParam && !countryParam) {
           const r = await geocode({ ipLookup: true });
-          loc = r?.best?.location || { lat: 34.0983, lng: -117.8076 };
-          const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
-          if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
+          const ipLoc = r?.best?.location;
+          const ipLat = Number(ipLoc?.lat), ipLng = Number(ipLoc?.lng);
+          if (Number.isFinite(ipLat) && Number.isFinite(ipLng) &&
+              !(Math.abs(ipLat - 34.0983) < 0.01 && Math.abs(ipLng - (-117.8076)) < 0.01)) {
+            loc = { lat: ipLat, lng: ipLng };
+            const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+            if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
+          }
         }
       } catch {
         // ignore geocode errors
@@ -413,7 +428,9 @@ export default function ResultsPage() {
       if (!searchLocation && (city || state || country)) {
         const countryName = country ? await resolveCountryName(country) : "";
         const addr = [city, state, countryName].filter(Boolean).join(", ");
-        const isUSFallback = (lat, lng) => country && country !== "US" &&
+        // Reject the well-known San Dimas sentinel the geocode endpoint
+        // returns for unresolved addresses.
+        const isUSFallback = (lat, lng) =>
           Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01;
 
         // 1) Places API (preferred for named places — country bias)
