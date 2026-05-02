@@ -516,21 +516,22 @@ export default function ResultsPage() {
       // showing up under a kilts+Edinburgh search.
       const effectiveLocation = location !== undefined ? location : userLoc;
 
-      // For "Nearest manufacturing" / "Nearest HQ" the user wants the entire
-      // database sorted by distance from their location — closest first,
-      // furthest last, every company reachable by scrolling. Country / state
-      // / city are only proximity hints (they fed the geocoder upstream); we
-      // don't restrict the result set by them WHEN we have a real center.
-      // If geocoding failed and we have no center, keep country as a soft
-      // fallback so the search still returns something instead of throwing
-      // a "please enter a location" validation error.
-      const POSTAL_RE = /^\d{3,10}(-\d{1,4})?$|^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i;
-      const cityIsPostal = !!(city && POSTAL_RE.test(city.trim()));
-      const stateIsPostal = !!(state && POSTAL_RE.test(state.trim()));
+      // Every search is proximity-based: city and state are ALWAYS proximity
+      // hints, never strict filters. They feed the geocoder upstream to
+      // derive lat/lng (and the country code when not already set), and the
+      // result set is shaped by country (still strict by default) and
+      // proximity (lat/lng). Sending state="NY" as a literal text filter
+      // was excluding nicotine companies that exist in IL/KY etc. even
+      // though the user wanted to see "US nicotine companies near NY", not
+      // "only NY-tagged nicotine companies".
+      //
+      // For "Nearest manufacturing" / "Nearest HQ" with a resolved center,
+      // country also drops out so ranking goes global — every company in the
+      // database reachable by scrolling, closest first.
       const isProxSort = sort === "manu" || sort === "hq";
       const haveCoords = !!(effectiveLocation && Number.isFinite(effectiveLocation.lat) && Number.isFinite(effectiveLocation.lng));
-      const cityFilter = (cityIsPostal || (isProxSort && haveCoords)) ? "" : city;
-      const stateFilter = (stateIsPostal || (isProxSort && haveCoords)) ? "" : state;
+      const cityFilter = "";
+      const stateFilter = "";
       const countryFilter = (isProxSort && haveCoords) ? "" : country;
 
       const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
