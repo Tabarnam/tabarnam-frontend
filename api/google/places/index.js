@@ -1,6 +1,11 @@
+// Two levels up (api/google/places/ → api/_app.js); the previous "../_app"
+// resolved to api/google/_app.js which doesn't exist, so the require silently
+// failed, the fallback no-op app was used, and app.http() never registered
+// the route — explaining why /api/google/places returned 404 in production
+// even after api/index.js started require()-ing this file.
 let app;
 try {
-  ({ app } = require("../_app"));
+  ({ app } = require("../../_app"));
 } catch {
   app = { http() {} };
 }
