@@ -128,18 +128,21 @@ export default function SearchCard({
     getCountries().then(setCountries);
   }, []);
 
-  // Hydrate from URL
+  // Hydrate from URL — the form must mirror the URL exactly. Always write
+  // every field (defaulting to empty when the param is absent) so that
+  // navigating from /results?q=water&city=91750 to /results?q=water clears
+  // the now-stale city. Previous version used `if (p.has(field)) setField(...)`
+  // which left out-of-URL fields holding their old value, producing the
+  // bug where city=91750 persisted in the form after the URL had dropped it.
   useEffect(() => {
     const p = new URLSearchParams(search);
-    if (p.has('q')) {
-      const urlQ = p.get('q') || '';
-      setQ(urlQ);
-      lastSearchedQRef.current = urlQ.trim();
-    }
-    if (p.has('country')) setCountry(p.get('country') || '');
-    if (p.has('state')) setStateCode(p.get('state') || '');
-    if (p.has('city')) setCity(p.get('city') || '');
-    if (p.has('sort')) setSortBy(p.get('sort') || 'stars');
+    const urlQ = p.get('q') || '';
+    setQ(urlQ);
+    lastSearchedQRef.current = urlQ.trim();
+    setCountry(p.get('country') || '');
+    setStateCode(p.get('state') || '');
+    setCity(p.get('city') || '');
+    setSortBy(p.get('sort') || 'stars');
     setAmazonOnly(p.get('amazon') === '1');
     setHqInCountry(p.has('hqCountry'));
     setMfgInCountry(p.has('mfgCountry'));
