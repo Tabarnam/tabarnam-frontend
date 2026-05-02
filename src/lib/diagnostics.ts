@@ -182,6 +182,12 @@ export function logWiringDiagnostics(): void {
   console.info('Same Origin?', diag.is_same_origin ? 'Yes' : 'No');
   console.info('Expected Behavior:', diag.expected_behavior);
 
+  // Fetch the frontend build ID from /__build_id.txt (written at build time
+  // by scripts/write-build-id.mjs). Logged alongside the backend's build ID
+  // below so the two are easy to tell apart — previously only the backend's
+  // hash was shown, ambiguously labeled "Build ID".
+  logFrontendBuildId();
+
   console.group('Environment Variables');
   console.info('VITE_XAI_FUNCTIONS_BASE:', diag.vite_xai_functions_base ?? '(not set)');
   console.info('VITE_API_BASE:', diag.vite_api_base ?? '(not set)');
@@ -213,6 +219,28 @@ export function logWiringDiagnostics(): void {
 }
 
 /**
+ * Fetches the frontend build ID from /__build_id.txt — a file written into
+ * the SWA bundle at build time by scripts/write-build-id.mjs (it picks up
+ * GITHUB_SHA / WEBSITE_COMMIT_HASH / git HEAD in that priority). Logged so
+ * it sits next to the backend's build ID and the two are obviously
+ * different deploys; the previous diagnostics line "Build ID: …" was the
+ * backend's hash and got mistaken for the frontend's stale build.
+ */
+async function logFrontendBuildId(): Promise<void> {
+  try {
+    const r = await fetch('/__build_id.txt', { cache: 'no-store' });
+    if (!r.ok) {
+      console.info('Frontend Build ID:', '(unavailable)');
+      return;
+    }
+    const text = (await r.text()).trim();
+    console.info('Frontend Build ID:', text || '(empty)');
+  } catch {
+    console.info('Frontend Build ID:', '(unavailable)');
+  }
+}
+
+/**
  * Two-step identity probe to identify which backend is actually serving /api.
  * Step A (primary): Try GET /api/ping
  * Step B (fallback): Try GET /api/health only if /api/ping fails
@@ -236,7 +264,11 @@ async function pingBackend(): Promise<void> {
         console.info('Backend Name:', data.runtime?.website_site_name || 'unknown');
         console.info('Hostname:', data.runtime?.website_hostname || 'unknown');
         console.info('Timestamp:', data.ts || new Date().toISOString());
-        console.info('Build ID:', data.build_id || 'unknown');
+        // Renamed from "Build ID" → "Backend Build ID" to disambiguate
+        // from the frontend build ID logged by logFrontendBuildId(). The
+        // backend hash here reflects the last deploy of the
+        // tabarnam-xai-dedicated Function App, not the SWA frontend.
+        console.info('Backend Build ID:', data.build_id || 'unknown');
         console.groupEnd();
         return;
       }
