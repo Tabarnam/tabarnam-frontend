@@ -266,3 +266,88 @@ export async function placeDetails({ placeId } = {}) {
     return null;
   }
 }
+
+// Common postal regex used by resolveLocation (US 5/9-digit, CA A1A 1A1, UK,
+// generic 3-8 alphanumeric, 4-digit). Kept here so callers don't reinvent it.
+const POSTAL_REGEX = /^\d{5}(-\d{4})?$|^[A-Z]\d[A-Z] ?\d[A-Z]\d$|^[A-Z]{1,2}\d{1,2}[A-Z]? ?\d[A-Z]{2}$|^\d{4}$|^[A-Z0-9]{3,8}$/i;
+
+const SAN_DIMAS_LAT = 34.0983;
+const SAN_DIMAS_LNG = -117.8076;
+const isSanDimasSentinel = (lat, lng) =>
+  Number.isFinite(lat) && Number.isFinite(lng) &&
+  Math.abs(lat - SAN_DIMAS_LAT) < 0.01 && Math.abs(lng - SAN_DIMAS_LNG) < 0.01;
+
+/**
+ * Resolve a free-form location (city/state/country, postal codes, etc.) into a
+ * single structured triple: { lat, lng, countryCode, stateCode, city, postalCode }.
+ *
+ * One source of truth — replaces the scatter of placesAutocomplete + placeDetails
+ * + geocode + getStateSuggestions calls that used to live in SearchCard,
+ * ResultsPage URL effect, and handleInlineSearch. Whatever the user typed
+ * ("texas", "edinburgh", "91750") becomes structured codes that the backend
+ * understands ("TX", "GB", lat/lng for proximity).
+ *
+ * Returns an object with possibly-empty fields. The caller should treat any
+ * field as optional; if geocoding fails entirely, all fields are empty strings
+ * and lat/lng are undefined (no fake fallback to country centroid — the user
+ * said proximity must be accurate, so we omit it rather than fake it).
+ */
+export async function resolveLocation({ city = "", state = "", country = "" } = {}) {
+  const cityT = String(city || "").trim();
+  const stateT = String(state || "").trim();
+  const countryT = String(country || "").trim();
+  const empty = { lat: undefined, lng: undefined, countryCode: "", stateCode: "", city: "", postalCode: "" };
+
+  if (!cityT && !stateT) return empty;
+
+  const cityIsPostal = !!cityT && POSTAL_REGEX.test(cityT);
+  const stateIsPostal = !!stateT && POSTAL_REGEX.test(stateT);
+  const postalValue = cityIsPostal ? cityT : stateIsPostal ? stateT : "";
+  const isPostal = !!postalValue;
+
+  const addr = postalValue
+    ? [postalValue, countryT].filter(Boolean).join(", ")
+    : [cityT, stateT, countryT].filter(Boolean).join(", ");
+
+  // 1) Places API first for named places (country bias resolves ambiguous names).
+  if (!isPostal) {
+    try {
+      const preds = await placesAutocomplete({ input: addr, country: countryT });
+      if (preds && preds.length > 0) {
+        const det = await placeDetails({ placeId: preds[0].placeId });
+        const loc = det?.geometry?.location;
+        const lat = Number(loc?.lat);
+        const lng = Number(loc?.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng) && !isSanDimasSentinel(lat, lng)) {
+          return {
+            lat, lng,
+            countryCode: det?.countryCode || "",
+            stateCode: det?.stateCode || "",
+            city: det?.city || "",
+            postalCode: det?.postalCode || "",
+          };
+        }
+      }
+    } catch { /* fall through */ }
+  }
+
+  // 2) Direct geocode (also primary path for postals).
+  try {
+    const r = await geocode({ address: addr });
+    const loc = r?.best?.location;
+    const lat = Number(loc?.lat);
+    const lng = Number(loc?.lng);
+    const components = r?.best?.address_components || r?.best?.components || [];
+    const find = (t) => components.find(c => Array.isArray(c.types) && c.types.includes(t));
+    const cc = find("country")?.short_name || "";
+    const sc = find("administrative_area_level_1")?.short_name || "";
+    const cn = find("locality")?.long_name || find("postal_town")?.long_name || "";
+    const pc = find("postal_code")?.short_name || "";
+    if (Number.isFinite(lat) && Number.isFinite(lng) && !isSanDimasSentinel(lat, lng)) {
+      return { lat, lng, countryCode: cc, stateCode: sc, city: cn, postalCode: pc };
+    }
+  } catch { /* fall through */ }
+
+  // 3) Geocoding failed — return whatever metadata we have without a faked center.
+  return { ...empty, countryCode: countryT };
+}

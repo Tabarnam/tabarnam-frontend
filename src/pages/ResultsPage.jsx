@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
-import { geocode, placesAutocomplete, placeDetails } from "@/lib/google";
+import { geocode, resolveLocation } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
@@ -272,6 +272,9 @@ export default function ResultsPage() {
 
     (async () => {
       let loc = null;
+      // Captures structured codes from geocoding so we can pass "TX" to the
+      // API even though the URL still says state=texas.
+      const resolvedFromGeo = { country: "", state: "", city: "" };
       try {
         if (latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam))) {
           const latN = Number(latParam), lngN = Number(lngParam);
@@ -282,49 +285,26 @@ export default function ResultsPage() {
           if (!isSentinel) loc = { lat: latN, lng: lngN };
         }
         if (!loc && (cityParam || stateParam || countryParam)) {
-          const countryName = countryParam ? await resolveCountryName(countryParam) : "";
-          const addr = [cityParam, stateParam, countryName].filter(Boolean).join(", ");
           let resolvedCC = "";
 
-          // Reject the well-known San Dimas sentinel the geocode endpoint
-          // returns for unresolved addresses (would produce wildly wrong distances).
-          const isUSFallback = (lat, lng) =>
-            Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01;
-
-          // 1) Prefer Places API for named places (country bias resolves "Edinburgh" → GB).
+          // Use the shared resolver: Places + geocode → structured codes.
           if (cityParam || stateParam) {
-            try {
-              const preds = await placesAutocomplete({ input: addr, country: countryParam || "" });
-              if (preds && preds.length > 0) {
-                const det = await placeDetails({ placeId: preds[0].placeId });
-                const placeLoc = det?.geometry?.location;
-                if (placeLoc && Number.isFinite(Number(placeLoc.lat)) && Number.isFinite(Number(placeLoc.lng))) {
-                  const lat = Number(placeLoc.lat), lng = Number(placeLoc.lng);
-                  if (!isUSFallback(lat, lng)) {
-                    loc = { lat, lng };
-                    resolvedCC = det?.countryCode || "";
-                  }
-                }
-              }
-            } catch { /* fall through */ }
-          }
-
-          // 2) Fall back to direct geocoding.
-          if (!loc) {
-            const r = await geocode({ address: addr, ipLookup: false });
-            const geoLoc = r?.best?.location || null;
-            const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
-            if (geoLoc && Number.isFinite(geoLoc.lat) && Number.isFinite(geoLoc.lng) &&
-                !isUSFallback(geoLoc.lat, geoLoc.lng)) {
-              loc = geoLoc;
-              resolvedCC = cc || resolvedCC;
+            const r = await resolveLocation({ city: cityParam, state: stateParam, country: countryParam });
+            if (r.lat && r.lng) {
+              loc = { lat: r.lat, lng: r.lng };
+              resolvedCC = r.countryCode || "";
             }
+            // Promote whatever structured codes the geocoder gave us so the API
+            // gets "TX" not "texas". Falls back to the raw URL params if
+            // nothing was resolved.
+            if (r.countryCode) resolvedFromGeo.country = r.countryCode;
+            if (r.stateCode) resolvedFromGeo.state = r.stateCode;
+            if (r.city) resolvedFromGeo.city = r.city;
           }
 
-          // 3) Last resort: country-only searches (no city/state) use the country centroid.
-          //    If the user entered a specific city/state and we couldn't resolve it, leave
-          //    loc null — proximity ranking depends on accurate coords, faking the center
-          //    with a country centroid would produce misleading distances.
+          // Country-only searches (no city/state): use country centroid as the
+          // user's specified region. Faking proximity for unresolved city/state
+          // would produce misleading distances, so we don't centroid those.
           if (!loc && countryParam && !cityParam && !stateParam) {
             const centroid = getCountryCentroid(countryParam);
             if (centroid) {
@@ -368,9 +348,9 @@ export default function ResultsPage() {
         await doSearch({
           q: qParam,
           sort: sortParam,
-          country: countryParam,
-          state: stateParam,
-          city: cityParam,
+          country: resolvedFromGeo.country || countryParam,
+          state: resolvedFromGeo.state || stateParam,
+          city: resolvedFromGeo.city || cityParam,
           amazon: amazonParam,
           hqCountry: hqCountryParam,
           mfgCountry: mfgCountryParam,
@@ -426,44 +406,18 @@ export default function ResultsPage() {
     }
     try {
       if (!searchLocation && (city || state || country)) {
-        const countryName = country ? await resolveCountryName(country) : "";
-        const addr = [city, state, countryName].filter(Boolean).join(", ");
-        // Reject the well-known San Dimas sentinel the geocode endpoint
-        // returns for unresolved addresses.
-        const isUSFallback = (lat, lng) =>
-          Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01;
-
-        // 1) Places API (preferred for named places — country bias)
         let resolvedCC = "";
-        if (city || state) {
-          try {
-            const preds = await placesAutocomplete({ input: addr, country: country || "" });
-            if (preds && preds.length > 0) {
-              const det = await placeDetails({ placeId: preds[0].placeId });
-              const placeLoc = det?.geometry?.location;
-              if (placeLoc && Number.isFinite(Number(placeLoc.lat)) && Number.isFinite(Number(placeLoc.lng))) {
-                const lat = Number(placeLoc.lat), lng = Number(placeLoc.lng);
-                if (!isUSFallback(lat, lng)) {
-                  searchLocation = { lat, lng };
-                  resolvedCC = det?.countryCode || "";
-                }
-              }
-            }
-          } catch { /* fall through */ }
-        }
 
-        // 2) Direct geocode fallback
-        if (!searchLocation) {
-          const r = await geocode({ address: addr, ipLookup: false });
-          const loc = r?.best?.location;
-          const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
-          if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) && !isUSFallback(loc.lat, loc.lng)) {
-            searchLocation = loc;
-            resolvedCC = cc || resolvedCC;
+        // Shared resolver: Places + geocode → structured (lat, lng, codes).
+        if (city || state) {
+          const r = await resolveLocation({ city, state, country });
+          if (r.lat && r.lng) {
+            searchLocation = { lat: r.lat, lng: r.lng };
+            resolvedCC = r.countryCode || "";
           }
         }
 
-        // 3) Country-only fallback: centroid is acceptable when user didn't specify city/state
+        // Country-only fallback: centroid is acceptable when user didn't specify city/state
         if (!searchLocation && country && !city && !state) {
           const centroid = getCountryCentroid(country);
           if (centroid) {

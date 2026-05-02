@@ -10,11 +10,8 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { getCountries, resolveCountryText } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
 import { extractSearchTermFromUrl } from '@/lib/queryNormalizer';
-import { placesAutocomplete, placeDetails, geocode } from '@/lib/google';
+import { placesAutocomplete, placeDetails, resolveLocation } from '@/lib/google';
 import { cn } from '@/lib/utils';
-
-// Matches common postal/ZIP code shapes (US 5/9-digit, CA A1A 1A1, UK, generic 3-8 alnum, 4-digit)
-const POSTAL_REGEX = /^\d{5}(-\d{4})?$|^[A-Z]\d[A-Z] ?\d[A-Z]\d$|^[A-Z]{1,2}\d{1,2}[A-Z]? ?\d[A-Z]{2}$|^\d{4}$|^[A-Z0-9]{3,8}$/i;
 
 const SORTS = [
   { value: 'manu',  label: 'Nearest manufacturing' },
@@ -409,107 +406,33 @@ export default function SearchCard({
         }
       }
 
-      // Resolve free-text state to a 2-letter code when possible (e.g. "California" -> "CA")
-      let resolvedState = stateCode;
-      if (stateCode && stateCode.trim().length > 2) {
-        try {
-          const matches = await getStateSuggestions(stateCode.trim(), resolvedCountry);
-          const exact = matches.find(s => s.value && s.value.toLowerCase() === stateCode.trim().toLowerCase());
-          if (exact?.code) resolvedState = exact.code;
-          else if (matches[0]?.code) resolvedState = matches[0].code;
-        } catch { /* fall through with raw text */ }
-      }
-
-      // Resolve the location to accurate lat/lng so proximity ranking is
-      // correct. For named places ("Edinburgh"), Places autocomplete + details
-      // is more reliable than direct geocoding because it accepts a country
-      // bias. For postal codes, the geocode endpoint handles them well.
-      let geoLat = '';
-      let geoLng = '';
-      let cityForParams = city;
-      let stateForParams = resolvedState;
-      let resolvedCountryFromGeo = '';
-      const cityTrimmed = (city || '').trim();
-      const stateTrimmed = (resolvedState || '').trim();
-      // Postal can land in either field; treat both the same way.
-      const cityIsPostal = !!cityTrimmed && POSTAL_REGEX.test(cityTrimmed);
-      const stateIsPostal = !!stateTrimmed && POSTAL_REGEX.test(stateTrimmed);
-      const isPostal = cityIsPostal || stateIsPostal;
-
-      const acceptCoords = (lat, lng) => {
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-        // Reject the well-known San Dimas sentinel that the geocode endpoint
-        // returns when an address can't be resolved. Real searches never
-        // resolve to these exact coordinates, so treating them as a hit would
-        // produce wildly wrong proximity ranking.
-        if (Math.abs(lat - 34.0983) < 0.01 && Math.abs(lng - (-117.8076)) < 0.01) return false;
-        geoLat = String(lat);
-        geoLng = String(lng);
-        return true;
-      };
-
-      if (cityTrimmed || stateTrimmed) {
-        // For postal-only entry, geocode just the postal — adding a non-matching
-        // city/state to the address can confuse the geocoder.
-        const postalValue = cityIsPostal ? cityTrimmed : stateIsPostal ? stateTrimmed : '';
-        const addr = postalValue
-          ? [postalValue, resolvedCountry].filter(Boolean).join(', ')
-          : [cityTrimmed, stateTrimmed, resolvedCountry].filter(Boolean).join(', ');
-
-        // 1) For named places, prefer Places API (country bias resolves
-        //    ambiguous names like "Edinburgh" to the right country).
-        if (!isPostal) {
-          try {
-            const preds = await placesAutocomplete({ input: addr, country: resolvedCountry || '' });
-            if (preds && preds.length > 0) {
-              const det = await placeDetails({ placeId: preds[0].placeId });
-              const loc = det?.geometry?.location;
-              if (loc) acceptCoords(Number(loc.lat), Number(loc.lng));
-              if (det?.countryCode && !resolvedCountry) resolvedCountryFromGeo = det.countryCode;
-            }
-          } catch (e) {
-            console.warn('Places lookup failed:', e?.message);
-          }
-        }
-
-        // 2) Fall back to direct geocoding (also the primary path for postals).
-        if (!geoLat) {
-          try {
-            const r = await geocode({ address: addr });
-            const loc = r?.best?.location;
-            if (loc) acceptCoords(Number(loc.lat), Number(loc.lng));
-            if (!resolvedCountry && !resolvedCountryFromGeo) {
-              const components = r?.best?.address_components || [];
-              const cc = components.find(c => Array.isArray(c.types) && c.types.includes('country'))?.short_name;
-              if (cc) resolvedCountryFromGeo = cc;
-            }
-          } catch (e) {
-            console.warn('Geocode lookup failed:', e?.message);
-          }
-        }
-
-        if (geoLat) {
-          // Backend can't match raw postal against address strings; lat/lng drives proximity instead.
-          if (cityIsPostal) cityForParams = '';
-          if (stateIsPostal) stateForParams = '';
-        }
-        if (resolvedCountryFromGeo && !resolvedCountry) {
-          resolvedCountry = resolvedCountryFromGeo;
-          setCountry(resolvedCountryFromGeo);
-        }
+      // Resolve the location into structured codes via geocoding. Whatever
+      // the user typed (postal, "edinburgh", "texas", "california") becomes
+      // a single (lat, lng) + countryCode + stateCode + city triple. We use
+      // the structured codes for the URL params, replacing the raw text.
+      // This gives us a single source of truth — no separate getStateSuggestions
+      // path, no raw-text-to-the-backend mismatch like state="texas" → no match.
+      const resolved = await resolveLocation({
+        city: (city || '').trim(),
+        state: (stateCode || '').trim(),
+        country: resolvedCountry,
+      });
+      if (resolved.countryCode && !resolvedCountry) {
+        resolvedCountry = resolved.countryCode;
+        setCountry(resolved.countryCode);
       }
 
       const params = {
         q: extracted,
         sort: sortBy,
-        country: resolvedCountry,
-        state: stateForParams,
-        city: cityForParams,
+        country: resolved.countryCode || resolvedCountry,
+        state: resolved.stateCode || stateCode,
+        city: resolved.city || (resolved.lat ? '' : city),
         amazon: amazonOnly ? '1' : '',
         hqCountry: hqInCountry ? userCountryCode : '',
         mfgCountry: mfgInCountry ? userCountryCode : '',
-        lat: geoLat,
-        lng: geoLng,
+        lat: resolved.lat ? String(resolved.lat) : '',
+        lng: resolved.lng ? String(resolved.lng) : '',
       };
       if (onSubmitParams) onSubmitParams(params);
       else nav(`/results?${toQs(params)}`);
