@@ -516,23 +516,21 @@ export default function ResultsPage() {
       // showing up under a kilts+Edinburgh search.
       const effectiveLocation = location !== undefined ? location : userLoc;
 
-      // Every search is proximity-based: city and state are ALWAYS proximity
-      // hints, never strict filters. They feed the geocoder upstream to
-      // derive lat/lng (and the country code when not already set), and the
-      // result set is shaped by country (still strict by default) and
-      // proximity (lat/lng). Sending state="NY" as a literal text filter
-      // was excluding nicotine companies that exist in IL/KY etc. even
-      // though the user wanted to see "US nicotine companies near NY", not
-      // "only NY-tagged nicotine companies".
-      //
-      // For "Nearest manufacturing" / "Nearest HQ" with a resolved center,
-      // country also drops out so ranking goes global — every company in the
-      // database reachable by scrolling, closest first.
-      const isProxSort = sort === "manu" || sort === "hq";
-      const haveCoords = !!(effectiveLocation && Number.isFinite(effectiveLocation.lat) && Number.isFinite(effectiveLocation.lng));
+      // Every search is proximity-based. ALL location inputs (city, state,
+      // country) are hints that feed the geocoder upstream to derive lat/lng
+      // — they never act as strict filters that exclude rows. The result
+      // set is shaped only by the search term, the sort, and proximity.
+      // Country was the last strict filter and the user pointed out it
+      // limits results in smaller nations with less production: searching
+      // country=Slovenia would empty the result set instead of surfacing
+      // nearby companies. Same fix applies to country=US in a US-narrow
+      // database — the user wants ranking to inform the user, not silent
+      // exclusion. If geocoding failed entirely AND the user typed no
+      // search term, validation in searchCompanies will surface a helpful
+      // error rather than returning misleading data.
       const cityFilter = "";
       const stateFilter = "";
-      const countryFilter = (isProxSort && haveCoords) ? "" : country;
+      const countryFilter = "";
 
       const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
 
