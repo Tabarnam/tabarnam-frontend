@@ -570,6 +570,32 @@ export default function SearchCard({
   };
   handleSubmitRef.current = handleSubmit;
 
+  // Reset every form field and route home so the user starts from a clean
+  // slate. Necessary because the URL is the source of truth for the form
+  // (URL hydration effect at the top), so simply clearing the inputs in
+  // place doesn't help when the URL still carries `?country=US&sort=manu`
+  // — those would re-hydrate on the next render. Routing to "/" wipes the
+  // URL params, the hydration effect then writes empty values into every
+  // field, and we explicitly reset the React-only state (sort default,
+  // checkboxes, country search text, etc.) here too in case we're already
+  // on "/".
+  const handleClear = () => {
+    setQ('');
+    setCity('');
+    setStateCode('');
+    setCountry('');
+    setCountrySearch('');
+    setSortBy('stars');
+    setAmazonOnly(false);
+    setHqInCountry(false);
+    setMfgInCountry(false);
+    setSuggestions([]);
+    setShowRecent(false);
+    cityClearedByUserRef.current = false;
+    lastSearchedQRef.current = '';
+    nav('/');
+  };
+
   // Show recent searches when input focused and empty (Feature E)
   const handleInputFocus = () => {
     if (q.trim().length < 2) {
@@ -595,7 +621,7 @@ export default function SearchCard({
       )}
     >
       {/* Row 1: Search field and button spanning full width */}
-      <div className={cn("grid grid-cols-1 gap-3 mb-3", searchHistory.length > 0 ? "md:grid-cols-[auto_1fr_auto]" : "md:grid-cols-[1fr_auto]")}>
+      <div className={cn("grid grid-cols-1 gap-3 mb-3", searchHistory.length > 0 ? "md:grid-cols-[auto_1fr_auto_auto]" : "md:grid-cols-[1fr_auto_auto]")}>
         {/* Back / dropdown / forward nav */}
         {searchHistory.length > 0 && (
           <div className="hidden md:flex items-center gap-0.5 relative" ref={historyDropdownRef}>
@@ -766,6 +792,15 @@ export default function SearchCard({
         >
           {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
           <span className="ml-2">Search</span>
+        </Button>
+
+        <Button
+          onClick={handleClear}
+          variant="ghost"
+          className="h-11 px-3 text-sm text-muted-foreground hover:text-foreground hover:bg-accent"
+          aria-label="Clear search and filters"
+        >
+          Clear
         </Button>
       </div>
 
