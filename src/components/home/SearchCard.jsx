@@ -10,8 +10,65 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { getCountries, resolveCountryText } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
 import { extractSearchTermFromUrl } from '@/lib/queryNormalizer';
-import { placesAutocomplete, placeDetails, resolveLocation, topCityForState } from '@/lib/google';
+import { placesAutocomplete, placeDetails, resolveLocation, topCityForState, geocode } from '@/lib/google';
 import { cn } from '@/lib/utils';
+
+// When the user submits with all three location fields empty we auto-detect
+// their location so distances aren't "unavailable" everywhere. We populate
+// the visible form inputs with what we picked so the user can see exactly
+// what proximity center is being used and change it if they wanted somewhere
+// else — same UX principle behind the state→top-city autopopulate
+// (commit 1c12f1ef): defaults must be visible, not silent.
+async function reverseGeocode(lat, lng) {
+  try {
+    const r = await geocode({ lat, lng });
+    const components = r?.best?.address_components || r?.best?.components || [];
+    const find = (t) => components.find((c) => Array.isArray(c.types) && c.types.includes(t));
+    return {
+      countryCode: find("country")?.short_name || "",
+      stateCode: find("administrative_area_level_1")?.short_name || "",
+      city: find("locality")?.long_name || find("postal_town")?.long_name || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function detectUserLocation() {
+  // 1) Browser geolocation (most accurate; requires user permission).
+  try {
+    const dev = await new Promise((resolve, reject) => {
+      if (!navigator.geolocation) return reject(new Error("no geolocation"));
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (err) => reject(err),
+        { enableHighAccuracy: false, timeout: 6000 }
+      );
+    });
+    const rev = await reverseGeocode(dev.lat, dev.lng);
+    if (rev && (rev.countryCode || rev.stateCode || rev.city)) return rev;
+  } catch { /* fall through to IP */ }
+
+  // 2) IP-based lookup via the backend geocode endpoint.
+  try {
+    const r = await geocode({ ipLookup: true });
+    const loc = r?.best?.location;
+    if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+      const rev = await reverseGeocode(loc.lat, loc.lng);
+      if (rev && (rev.countryCode || rev.stateCode || rev.city)) return rev;
+      // Some IP-only responses have components on best directly.
+      const comps = r?.best?.components || [];
+      const find = (t) => comps.find((c) => Array.isArray(c.types) && c.types.includes(t));
+      return {
+        countryCode: find("country")?.short_name || "",
+        stateCode: find("administrative_area_level_1")?.short_name || "",
+        city: find("locality")?.long_name || find("locality")?.short_name || "",
+      };
+    }
+  } catch { /* fall through */ }
+
+  return null;
+}
 
 const SORTS = [
   { value: 'manu',  label: 'Nearest manufacturing' },
@@ -443,6 +500,34 @@ export default function SearchCard({
         }
       }
 
+      // No location at all → auto-detect from device/IP and populate the
+      // visible form so the user sees what proximity center is being used.
+      // Without this, no-location searches have no center and every result
+      // shows "Distance unavailable". The detection only runs when ALL three
+      // fields are empty so it never hijacks an intentional search.
+      let effectiveCountry = resolvedCountry;
+      let effectiveStateCode = stateCode;
+      let effectiveCity = city;
+      const noLocationProvided =
+        !effectiveCity.trim() && !effectiveStateCode.trim() && !effectiveCountry.trim();
+      if (noLocationProvided) {
+        const detected = await detectUserLocation();
+        if (detected) {
+          if (detected.countryCode) {
+            effectiveCountry = detected.countryCode;
+            setCountry(detected.countryCode);
+          }
+          if (detected.stateCode) {
+            effectiveStateCode = detected.stateCode;
+            setStateCode(detected.stateCode);
+          }
+          if (detected.city) {
+            effectiveCity = detected.city;
+            setCity(detected.city);
+          }
+        }
+      }
+
       // State-only inputs (e.g. "maine" with no city) get a default city
       // picked from the largest metro in that state. Without this, the
       // proximity center falls back to the geographic centroid of the
@@ -451,9 +536,8 @@ export default function SearchCard({
       // than Maine companies on the populated coast. We populate the
       // visible city input so the user sees what we chose and can change
       // it if they wanted a different anchor city.
-      let effectiveCity = city;
-      if (!city.trim() && stateCode.trim()) {
-        const topCity = topCityForState(stateCode.trim(), resolvedCountry);
+      if (!effectiveCity.trim() && effectiveStateCode.trim()) {
+        const topCity = topCityForState(effectiveStateCode.trim(), effectiveCountry);
         if (topCity) {
           effectiveCity = topCity;
           setCity(topCity);
@@ -463,8 +547,8 @@ export default function SearchCard({
       const params = {
         q: extracted,
         sort: sortBy,
-        country: resolvedCountry,
-        state: stateCode,
+        country: effectiveCountry,
+        state: effectiveStateCode,
         city: effectiveCity,
         amazon: amazonOnly ? '1' : '',
         hqCountry: hqInCountry ? userCountryCode : '',
