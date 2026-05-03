@@ -1116,7 +1116,15 @@ function locationInputTokens(value, field) {
 function locationMatchesCountry(locString, tokens) {
   if (!locString || !tokens.length) return false;
   const lower = locString.toString().toLowerCase();
-  return tokens.some((t) => lower.includes(t));
+  // Word-boundary match required. Plain substring matching produces false
+  // positives like "Milwaukee, WI, USA" matching the "uk" token (because
+  // milwa-UK-ee contains the substring), which let US-based companies pass
+  // the GB hqCountry filter. \b treats commas / spaces / start / end as
+  // word boundaries, so "uk" only matches as a standalone country code.
+  return tokens.some((t) => {
+    const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "i").test(lower);
+  });
 }
 
 function locationMatchesInput(locString, input, field) {
