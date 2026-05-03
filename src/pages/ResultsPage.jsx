@@ -586,36 +586,12 @@ export default function ResultsPage() {
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
       const distanced = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
 
-      // Proximity sorts use a two-key ranking:
-      //   primary   = location specificity (city-level > state-level > country-only)
-      //   secondary = actual distance (closer first within the same tier)
-      // The user reported ranking "Nature's Flavors" (manufacturing tagged
-      // generically as "USA" → 1251 mi to USA centroid) above "EarthNutri"
-      // (manufacturing in "Gardena, CA, USA" → 37.5 mi from 91750) felt
-      // wrong: a city-level address is a more reliable proximity signal
-      // than a country-only tag, regardless of which centroid happens to
-      // be closer. Specificity-first puts known-specific manufacturers
-      // ahead of "we don't really know where they make it" entries.
-      const specificityOf = (locations) => {
-        if (!Array.isArray(locations) || locations.length === 0) return 0;
-        let max = 0;
-        for (const loc of locations) {
-          if (!loc) continue;
-          const formatted = typeof loc === "string"
-            ? loc
-            : (loc.formatted || loc.full_address || loc.address || loc.location || "");
-          const parts = String(formatted).split(",").map((s) => s.trim()).filter(Boolean);
-          if (parts.length > max) max = parts.length;
-        }
-        return max;
-      };
+      // Pure raw distance for proximity sorts. sort=manu ranks by nearest
+      // manufacturing distance; sort=hq ranks by nearest HQ distance. Same
+      // comparator, just a different distance field. Stars / recent /
+      // relevance sorts keep API order.
       const withDistances = (sort === "manu" || sort === "hq")
         ? distanced.slice().sort((a, b) => {
-            const aLocs = sort === "manu" ? a.manufacturing_locations : (a.headquarters_locations || a.headquarters);
-            const bLocs = sort === "manu" ? b.manufacturing_locations : (b.headquarters_locations || b.headquarters);
-            const aSpec = specificityOf(aLocs);
-            const bSpec = specificityOf(bLocs);
-            if (aSpec !== bSpec) return bSpec - aSpec;
             const distA = sort === "manu" ? (a._nearestManuDist ?? Infinity) : (a._hqDist ?? Infinity);
             const distB = sort === "manu" ? (b._nearestManuDist ?? Infinity) : (b._hqDist ?? Infinity);
             return distA - distB;
