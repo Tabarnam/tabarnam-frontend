@@ -25,6 +25,7 @@ import HomePage from "@pages/HomePage";
 import Login from "@pages/Login";
 import PrivacyPage from "@pages/PrivacyPage";
 import AboutPage from "@pages/AboutPage";
+import HelpPage from "@pages/HelpPage";
 
 import SiteHeader from "@/components/SiteHeader";
 import ContactFormDialog from "@/components/ContactFormDialog";
@@ -117,6 +118,7 @@ export default function App() {
               <Route path="/results" element={<ResultsPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/about" element={<AboutPage />} />
+              <Route path="/help" element={<HelpPage />} />
 
               {/* auth */}
               <Route path="/login" element={<Login />} />
