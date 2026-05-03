@@ -68,15 +68,15 @@ export async function geocode({ address, lat, lng, ipLookup = false } = {}) {
     _set(key, data);
     return data;
   } catch (e) {
-    console.warn("Geocoding failed (using fallback):", e?.message);
-    const fallback = {
-      best: {
-        location: { lat: 34.0983, lng: -117.8076 },
-        components: [{ types: ["country"], short_name: "US" }]
-      }
-    };
-    _set(key, fallback);
-    return fallback;
+    // No silent San Dimas fallback. If geocoding fails, surface a clean
+    // "no result" so callers can degrade — without this, every failure
+    // anchored proximity ranking on Glendora, CA. Match the backend's
+    // shape (api/google/geocode/index.js returns `{ best: null }` on
+    // failure) so callers don't need a separate code path.
+    console.warn("Geocoding failed:", e?.message);
+    const empty = { best: null, source: "none", error: "geocode_failed" };
+    _set(key, empty);
+    return empty;
   }
 }
 
@@ -271,12 +271,6 @@ export async function placeDetails({ placeId } = {}) {
 // generic 3-8 alphanumeric, 4-digit). Kept here so callers don't reinvent it.
 const POSTAL_REGEX = /^\d{5}(-\d{4})?$|^[A-Z]\d[A-Z] ?\d[A-Z]\d$|^[A-Z]{1,2}\d{1,2}[A-Z]? ?\d[A-Z]{2}$|^\d{4}$|^[A-Z0-9]{3,8}$/i;
 
-const SAN_DIMAS_LAT = 34.0983;
-const SAN_DIMAS_LNG = -117.8076;
-const isSanDimasSentinel = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  Math.abs(lat - SAN_DIMAS_LAT) < 0.01 && Math.abs(lng - SAN_DIMAS_LNG) < 0.01;
-
 // Expand 2-letter state/province codes to full names so geocoders disambiguate
 // "tx" → "Texas", "on" → "Ontario", etc. Without this, Places autocomplete
 // often fails to resolve a bare 2-letter code, and the search ends up with
@@ -434,26 +428,6 @@ export async function resolveLocation({ city = "", state = "", country = "" } = 
     ? [postalValue, countryT].filter(Boolean).join(", ")
     : [cityT, stateForAddr, countryT].filter(Boolean).join(", ");
 
-  // The geocode endpoint sometimes returns the San Dimas sentinel for
-  // unresolved addresses. Trust those coords ONLY when the response's
-  // structured components confirm the input was actually about that place
-  // (e.g. searching "91773" or "san dimas" should accept; searching
-  // "edinburgh" and getting back San Dimas should reject).
-  const inputConfirmsCoords = (cc, sc, cn, pc) => {
-    const cityLow = cityT.toLowerCase();
-    const stateLow = stateForAddr.toLowerCase();
-    if (postalValue && pc && postalValue.toUpperCase() === pc.toUpperCase()) return true;
-    if (cityLow && cn && cityLow === cn.toLowerCase()) return true;
-    if (cityLow && cn && cn.toLowerCase().includes(cityLow)) return true;
-    if (stateLow && sc && stateLow === sc.toLowerCase()) return true;
-    return false;
-  };
-  const acceptCoords = (lat, lng, cc, sc, cn, pc) => {
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-    if (isSanDimasSentinel(lat, lng) && !inputConfirmsCoords(cc, sc, cn, pc)) return false;
-    return true;
-  };
-
   // 1) Places API first for named places (country bias resolves ambiguous names).
   if (!isPostal) {
     try {
@@ -463,7 +437,7 @@ export async function resolveLocation({ city = "", state = "", country = "" } = 
         const loc = det?.geometry?.location;
         const lat = Number(loc?.lat);
         const lng = Number(loc?.lng);
-        if (acceptCoords(lat, lng, det?.countryCode, det?.stateCode, det?.city, det?.postalCode)) {
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
           return {
             lat, lng,
             countryCode: det?.countryCode || "",
@@ -482,13 +456,13 @@ export async function resolveLocation({ city = "", state = "", country = "" } = 
     const loc = r?.best?.location;
     const lat = Number(loc?.lat);
     const lng = Number(loc?.lng);
-    const components = r?.best?.address_components || r?.best?.components || [];
-    const find = (t) => components.find(c => Array.isArray(c.types) && c.types.includes(t));
-    const cc = find("country")?.short_name || "";
-    const sc = find("administrative_area_level_1")?.short_name || "";
-    const cn = find("locality")?.long_name || find("postal_town")?.long_name || "";
-    const pc = find("postal_code")?.short_name || "";
-    if (acceptCoords(lat, lng, cc, sc, cn, pc)) {
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      const components = r?.best?.address_components || r?.best?.components || [];
+      const find = (t) => components.find(c => Array.isArray(c.types) && c.types.includes(t));
+      const cc = find("country")?.short_name || "";
+      const sc = find("administrative_area_level_1")?.short_name || "";
+      const cn = find("locality")?.long_name || find("postal_town")?.long_name || "";
+      const pc = find("postal_code")?.short_name || "";
       return { lat, lng, countryCode: cc, stateCode: sc, city: cn, postalCode: pc };
     }
   } catch { /* fall through */ }
