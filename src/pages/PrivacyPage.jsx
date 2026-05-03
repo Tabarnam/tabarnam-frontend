@@ -3,7 +3,7 @@ import { ShieldCheck } from 'lucide-react';
 
 export default function PrivacyPage() {
   const updatedAt = 'April 15, 2026';
-  const contactEmail = 'ben@tabarnam.com';
+  const contactEmail = 'duh@tabarnam.com';
 
   return (
     <>

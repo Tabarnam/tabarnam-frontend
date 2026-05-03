@@ -4,7 +4,7 @@ import { Compass } from 'lucide-react';
 
 export default function HelpPage() {
   const updatedAt = 'May 3, 2026';
-  const contactEmail = 'ben@tabarnam.com';
+  const contactEmail = 'duh@tabarnam.com';
 
   return (
     <>
@@ -58,8 +58,8 @@ export default function HelpPage() {
               manufacturing locations on display. There are three ways to start a search:
             </p>
             <ul className="list-disc pl-6 space-y-1.5">
-              <li>Type a <strong className="text-foreground">company name</strong> (for example, <em>Patagonia</em>).</li>
-              <li>Type a <strong className="text-foreground">product or industry</strong> (for example, <em>ceramic mugs</em> or <em>organic soap</em>).</li>
+              <li>Type a <strong className="text-foreground">company name</strong> (for example, <em>SANS Meal Bars</em>).</li>
+              <li>Type a <strong className="text-foreground">product or industry</strong> (for example, <em>honey</em>, <em>candles</em> or <em>organic bar soap</em>).</li>
               <li>Leave the search empty and just <strong className="text-foreground">enter a location</strong> to browse what is nearby.</li>
             </ul>
           </section>
@@ -89,7 +89,7 @@ export default function HelpPage() {
               results around that place:
             </p>
             <ul className="list-disc pl-6 space-y-1.5 mb-3">
-              <li><strong className="text-foreground">City or postal code</strong> — autocompletes as you type. A postal code by itself is enough to detect the country.</li>
+              <li><strong className="text-foreground">City or postal code</strong> — A postal code by itself is enough to detect the country.</li>
               <li><strong className="text-foreground">State or province</strong> — autocompletes against the selected country.</li>
               <li><strong className="text-foreground">Country</strong> — accepts the country name or code.</li>
             </ul>
@@ -108,15 +108,14 @@ export default function HelpPage() {
               <li><strong className="text-foreground">Nearest manufacturing</strong> — closest manufacturing site to your location.</li>
               <li><strong className="text-foreground">Nearest headquarters</strong> — closest HQ to your location.</li>
               <li><strong className="text-foreground">Highest rated</strong> — sorted by QQ score.</li>
-              <li><strong className="text-foreground">In country manufacturing</strong> — only companies that manufacture in your country.</li>
-              <li><strong className="text-foreground">In country headquarters</strong> — only companies headquartered in your country.</li>
-              <li><strong className="text-foreground">Amazon link</strong> — only companies with an Amazon listing.</li>
+              <li><strong className="text-foreground">In country manufacturing</strong> — only companies that manufacture in country.</li>
+              <li><strong className="text-foreground">In country headquarters</strong> — only companies headquartered in country.</li>
+              <li><strong className="text-foreground">Amazon link</strong> — only companies with some products available on Amazon.</li>
             </ul>
             <p>
               <strong className="text-foreground">Sort by clicking a column header.</strong> Click the <em>HQ</em> or
-              <em> Manufacturing</em> header on the results table to re-sort by proximity to your specified location.
-              If no location is set, results are sorted by proximity to your browser's location. Click the <em>QQ</em>
-              header to sort by score.
+              <em> Manufacturing</em> header on the results table to re-sort existing results by proximity to your specified location.
+              If no location is set, results are sorted by proximity to your browser's location. Click the <em>QQ</em> header to sort by score.
             </p>
           </section>
 
