@@ -62,7 +62,10 @@ async function googlePlacesAutocomplete({ input, country }) {
   const params = new URLSearchParams();
   params.set("input", input);
   params.set("key", key);
-  params.set("components", "country:" + (country || ""));
+  // Only add the country bias when a country was actually provided. Sending
+  // "components=country:" (empty value) makes Google return INVALID_REQUEST,
+  // which is what /api/google/places?input=edinburgh (no country) was hitting.
+  if (country) params.set("components", `country:${country.toLowerCase()}`);
 
   const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params.toString()}`;
   const res = await fetch(url);
