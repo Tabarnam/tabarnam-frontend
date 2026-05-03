@@ -265,16 +265,22 @@ export default function SearchCard({
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
 
-  // Search-as-you-type with two debounce tiers:
+  // Search-as-you-type with two debounce tiers (RESULTS PAGE ONLY):
   //   1000 ms after last keystroke → silent auto-search of partial text
   //                                  (re-fetch results, do NOT touch URL)
   //   3000 ms after last keystroke → commit the input value to the URL
   //                                  (search becomes shareable / persisted)
   // The wider 1 s search debounce lets users finish a word before any fetch
-  // fires — earlier 400 ms version was committing partial queries like
-  // "sparkling wa" to the URL when the user paused mid-word to look at the
-  // suggestions dropdown. A deliberate submit (Enter / Search-click / pick)
-  // cancels both pending timers via the cleanup block in handleSubmit.
+  // fires. A deliberate submit (Enter / Search-click / pick) cancels both
+  // pending timers via the cleanup block in handleSubmit.
+  //
+  // Both tiers are gated on `onAutoSearch` being passed by the parent — i.e.
+  // we're inside the results page. On the HOME page there is no
+  // onAutoSearch, so typing does NOT trigger any submit. The user needs to
+  // click Search (or hit Enter) to launch a search. Without this gate,
+  // typing on the home page would hit the 1 s timer, fall into
+  // handleSubmit, run IP detection, and navigate to /results before the
+  // user had a chance to fill in their own city / state / country.
   useEffect(() => {
     if (debounceSearchRef.current) {
       clearTimeout(debounceSearchRef.current);
@@ -285,6 +291,8 @@ export default function SearchCard({
       debounceUrlRef.current = null;
     }
 
+    if (!onAutoSearch) return;
+
     const trimmed = q.trim();
     const hasLocationFilter = !!(country || stateCode || city);
     if (trimmed.length < 2 && !hasLocationFilter) return;
@@ -294,15 +302,7 @@ export default function SearchCard({
 
     debounceSearchRef.current = setTimeout(() => {
       lastSearchedQRef.current = trimmed;
-      // Lightweight auto-search if the parent provides one (skips URL update);
-      // otherwise fall back to a full submit (which DOES update the URL — but
-      // this branch only matters on the home page where there is no URL state
-      // to muddle with anyway).
-      if (onAutoSearch) {
-        onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly, hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' });
-      } else {
-        handleSubmitRef.current();
-      }
+      onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly, hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' });
     }, 1000);
 
     // Delayed URL commit: sync the URL 3 s after last keystroke so the
@@ -328,10 +328,14 @@ export default function SearchCard({
     };
   }, [q]);
 
-  // Re-search when any filter checkbox toggles (immediate submit, no debounce)
+  // Re-search when any filter checkbox toggles (immediate submit, no debounce).
+  // Same gating as the typing debounce: results page only. On the home page
+  // toggling a filter must NOT silently launch a search before the user has
+  // entered a query / location and clicked Search.
   const filterInitRef = useRef(true);
   useEffect(() => {
     if (filterInitRef.current) { filterInitRef.current = false; return; }
+    if (!onAutoSearch) return;
     const trimmed = q.trim();
     if (trimmed.length < 2 && !country && !stateCode && !city) return;
     handleSubmitRef.current();
