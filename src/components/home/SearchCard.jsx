@@ -19,43 +19,19 @@ import { cn } from '@/lib/utils';
 // what proximity center is being used and change it if they wanted somewhere
 // else — same UX principle behind the state→top-city autopopulate
 // (commit 1c12f1ef): defaults must be visible, not silent.
-async function reverseGeocode(lat, lng) {
-  try {
-    const r = await geocode({ lat, lng });
-    const components = r?.best?.address_components || r?.best?.components || [];
-    const find = (t) => components.find((c) => Array.isArray(c.types) && c.types.includes(t));
-    return {
-      countryCode: find("country")?.short_name || "",
-      stateCode: find("administrative_area_level_1")?.short_name || "",
-      city: find("locality")?.long_name || find("postal_town")?.long_name || "",
-    };
-  } catch {
-    return null;
-  }
-}
+//
+// Chain (deliberately simple — no browser geolocation prompt):
+//   1) IP address via ipapi.co (called from the browser so it sees the user's
+//      actual IP, not the Azure datacenter's). Returns city/state/country.
+//   2) San Dimas, CA, US — final fallback so the form is never left empty
+//      and distances always compute. The user can edit any field to override.
+const SAN_DIMAS_FALLBACK = {
+  countryCode: "US",
+  stateCode: "CA",
+  city: "San Dimas",
+};
 
 async function detectUserLocation() {
-  // 1) Browser geolocation (most accurate; requires user permission).
-  try {
-    const dev = await new Promise((resolve, reject) => {
-      if (!navigator.geolocation) return reject(new Error("no geolocation"));
-      navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => reject(err),
-        { enableHighAccuracy: false, timeout: 6000 }
-      );
-    });
-    const rev = await reverseGeocode(dev.lat, dev.lng);
-    if (rev && (rev.countryCode || rev.stateCode || rev.city)) return rev;
-  } catch { /* fall through to IP */ }
-
-  // 2) IP-based lookup directly from the browser. We call ipapi.co from the
-  // user's browser so it sees the user's IP — calling the backend ipLookup
-  // endpoint instead would give us the Azure datacenter's IP (and ipapi.co
-  // also rate-limits cloud IPs heavily, so the backend path was returning
-  // geocode_failed in production). ipapi.co supports CORS and returns
-  // city / region_code / country_code directly, so no round-trip through
-  // Google's reverse geocoder is needed.
   try {
     const r = await fetch("https://ipapi.co/json/");
     if (r.ok) {
@@ -69,7 +45,7 @@ async function detectUserLocation() {
     }
   } catch { /* fall through */ }
 
-  return null;
+  return SAN_DIMAS_FALLBACK;
 }
 
 const SORTS = [
