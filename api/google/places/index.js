@@ -115,14 +115,32 @@ async function googlePlacesDetails({ placeId }) {
   };
 }
 
+// v4 Functions runtime exposes req.query as URLSearchParams, not a plain
+// object. The previous req.query?.input gave undefined (URLSearchParams uses
+// .get(name)) so every request returned 400 "Missing input or place_id"
+// even when the param was clearly present in the URL. Try both shapes plus
+// parsing the URL directly so this works across runtime versions.
+function getQueryParam(req, key) {
+  try {
+    const url = new URL(req.url || "", "http://placeholder");
+    const v = url.searchParams.get(key);
+    if (v != null) return v;
+  } catch {}
+  if (req?.query) {
+    if (typeof req.query.get === "function") return req.query.get(key) || "";
+    if (typeof req.query === "object") return req.query[key] || "";
+  }
+  return "";
+}
+
 async function handle(req) {
   if (req.method === "OPTIONS") {
     return { status: 200, headers: cors(req) };
   }
 
-  const input = (req.query?.input || "").trim();
-  const country = (req.query?.country || "").trim();
-  const placeId = (req.query?.place_id || "").trim();
+  const input = getQueryParam(req, "input").trim();
+  const country = getQueryParam(req, "country").trim();
+  const placeId = getQueryParam(req, "place_id").trim();
 
   if (!input && !placeId) {
     return json({ error: "Missing input or place_id parameter" }, 400, req);
