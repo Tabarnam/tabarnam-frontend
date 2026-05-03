@@ -421,33 +421,37 @@ export default function SearchCard({
         }
       }
 
-      // Resolve the location into structured codes via geocoding. Whatever
-      // the user typed (postal, "edinburgh", "texas", "california") becomes
-      // a single (lat, lng) + countryCode + stateCode + city triple. We use
-      // the structured codes for the URL params, replacing the raw text.
-      // This gives us a single source of truth — no separate getStateSuggestions
-      // path, no raw-text-to-the-backend mismatch like state="texas" → no match.
-      const resolved = await resolveLocation({
-        city: (city || '').trim(),
-        state: (stateCode || '').trim(),
-        country: resolvedCountry,
-      });
-      if (resolved.countryCode && !resolvedCountry) {
-        resolvedCountry = resolved.countryCode;
-        setCountry(resolved.countryCode);
+      // Resolve the location to derive a country code if the user didn't
+      // provide one (e.g. they typed only "edinburgh" — Places will tell us
+      // it's in GB). Beyond that we deliberately do NOT write resolved
+      // values back into the URL: keeping URL = exactly what the user typed
+      // produces clean, shareable links and avoids the second-pass-resolution
+      // bug where the URL effect would re-resolve "Edinburgh, Scotland, GB"
+      // and Google would rank "Scotland" higher than the city, snapping the
+      // proximity center to Scotland's centroid (57.74, -4.69) instead of
+      // Edinburgh (55.95, -3.18). The URL effect / handleInlineSearch will
+      // re-derive coords from city/country at search time.
+      if (!resolvedCountry && (city || stateCode)) {
+        const resolved = await resolveLocation({
+          city: (city || '').trim(),
+          state: (stateCode || '').trim(),
+          country: resolvedCountry,
+        });
+        if (resolved.countryCode) {
+          resolvedCountry = resolved.countryCode;
+          setCountry(resolved.countryCode);
+        }
       }
 
       const params = {
         q: extracted,
         sort: sortBy,
-        country: resolved.countryCode || resolvedCountry,
-        state: resolved.stateCode || stateCode,
-        city: resolved.city || (resolved.lat ? '' : city),
+        country: resolvedCountry,
+        state: stateCode,
+        city,
         amazon: amazonOnly ? '1' : '',
         hqCountry: hqInCountry ? userCountryCode : '',
         mfgCountry: mfgInCountry ? userCountryCode : '',
-        lat: resolved.lat ? String(resolved.lat) : '',
-        lng: resolved.lng ? String(resolved.lng) : '',
       };
       if (onSubmitParams) onSubmitParams(params);
       else nav(`/results?${toQs(params)}`);

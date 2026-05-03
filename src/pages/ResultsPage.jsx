@@ -383,9 +383,10 @@ export default function ResultsPage() {
     const amazon = params.amazon === "1" || params.amazon === true;
     const hqCountry = (params.hqCountry ?? "").toString();
     const mfgCountry = (params.mfgCountry ?? "").toString();
-    const latStr = (params.lat ?? "").toString();
-    const lngStr = (params.lng ?? "").toString();
-    const hasInlineCoords = latStr && lngStr && Number.isFinite(Number(latStr)) && Number.isFinite(Number(lngStr));
+    // SearchCard no longer passes lat/lng (we don't expose raw coords in
+    // URLs anymore, and re-resolving on this side guarantees the URL
+    // mirrors only what the user typed). Resolution from city/country
+    // happens below via resolveLocation.
 
     // Update URL for shareability (don’t include empty keys to keep it tidy)
     const next = new URLSearchParams();
@@ -394,7 +395,6 @@ export default function ResultsPage() {
     if (country) next.set("country", country);
     if (state) next.set("state", state);
     if (city) next.set("city", city);
-    if (hasInlineCoords) { next.set("lat", latStr); next.set("lng", lngStr); }
     if (amazon) next.set("amazon", "1");
     if (hqCountry) next.set("hqCountry", hqCountry);
     if (mfgCountry) next.set("mfgCountry", mfgCountry);
@@ -405,10 +405,6 @@ export default function ResultsPage() {
 
     // Resolve typed location if present
     let searchLocation = null;
-    if (hasInlineCoords) {
-      searchLocation = { lat: Number(latStr), lng: Number(lngStr) };
-      setUserLoc(searchLocation);
-    }
     try {
       if (!searchLocation && (city || state || country)) {
         let resolvedCC = "";
@@ -477,7 +473,7 @@ export default function ResultsPage() {
     }
     navigatingHistoryRef.current = false;
 
-    const isLocationOnlyInline = !q && !!(city || state || country || hasInlineCoords);
+    const isLocationOnlyInline = !q && !!(city || state || country);
     const inlineTake = isLocationOnlyInline ? PAGE_SIZE * 2 : PAGE_SIZE;
     await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: inlineTake, skip: 0, location: searchLocation });
   }
