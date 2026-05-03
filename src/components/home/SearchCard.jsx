@@ -49,21 +49,23 @@ async function detectUserLocation() {
     if (rev && (rev.countryCode || rev.stateCode || rev.city)) return rev;
   } catch { /* fall through to IP */ }
 
-  // 2) IP-based lookup via the backend geocode endpoint.
+  // 2) IP-based lookup directly from the browser. We call ipapi.co from the
+  // user's browser so it sees the user's IP — calling the backend ipLookup
+  // endpoint instead would give us the Azure datacenter's IP (and ipapi.co
+  // also rate-limits cloud IPs heavily, so the backend path was returning
+  // geocode_failed in production). ipapi.co supports CORS and returns
+  // city / region_code / country_code directly, so no round-trip through
+  // Google's reverse geocoder is needed.
   try {
-    const r = await geocode({ ipLookup: true });
-    const loc = r?.best?.location;
-    if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
-      const rev = await reverseGeocode(loc.lat, loc.lng);
-      if (rev && (rev.countryCode || rev.stateCode || rev.city)) return rev;
-      // Some IP-only responses have components on best directly.
-      const comps = r?.best?.components || [];
-      const find = (t) => comps.find((c) => Array.isArray(c.types) && c.types.includes(t));
-      return {
-        countryCode: find("country")?.short_name || "",
-        stateCode: find("administrative_area_level_1")?.short_name || "",
-        city: find("locality")?.long_name || find("locality")?.short_name || "",
+    const r = await fetch("https://ipapi.co/json/");
+    if (r.ok) {
+      const data = await r.json();
+      const direct = {
+        countryCode: data?.country_code || data?.country || "",
+        stateCode: data?.region_code || "",
+        city: data?.city || "",
       };
+      if (direct.countryCode || direct.stateCode || direct.city) return direct;
     }
   } catch { /* fall through */ }
 
