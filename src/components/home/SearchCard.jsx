@@ -20,11 +20,49 @@ import { cn } from '@/lib/utils';
 // else — same UX principle behind the state→top-city autopopulate
 // (commit 1c12f1ef): defaults must be visible, not silent.
 //
-// Chain (deliberately simple — no browser geolocation prompt):
-//   1) IP address via ipapi.co (called from the browser so it sees the user's
-//      actual IP, not the Azure datacenter's). Returns city/state/country.
-//   2) San Dimas, CA, US — final fallback so the form is never left empty
-//      and distances always compute. The user can edit any field to override.
+// Full location chain (no browser geolocation prompt at any step):
+//   1) Whatever the user typed in city / state / country. Detection below
+//      ONLY runs when all three fields are empty (the `noLocationProvided`
+//      check in handleSubmit), so any user-entered value is honored as-is.
+//   2) IP address via ipapi.co (called from the browser so it sees the
+//      user's actual IP, not the Azure datacenter's).
+//   3) geolocation-db.com as a backup — different DB from ipapi, runs only
+//      when ipapi failed or returned no usable fields. We tried ipwho.is
+//      first but it 403s "CORS is not supported on the Free plan" from the
+//      browser. geolocation-db is CORS-enabled and free.
+//   4) San Dimas, CA, US — final fallback so the form is never empty and
+//      distances always compute. The user can edit any field to override.
+async function fetchIpapi() {
+  try {
+    const r = await fetch("https://ipapi.co/json/");
+    if (!r.ok) return null;
+    const data = await r.json();
+    const out = {
+      countryCode: data?.country_code || data?.country || "",
+      stateCode: data?.region_code || "",
+      city: data?.city || "",
+    };
+    return (out.countryCode || out.stateCode || out.city) ? out : null;
+  } catch { return null; }
+}
+
+async function fetchGeolocationDb() {
+  try {
+    const r = await fetch("https://geolocation-db.com/json/");
+    if (!r.ok) return null;
+    const data = await r.json();
+    // geolocation-db returns "Not found" strings for unknown fields — filter
+    // those out so we don't end up with city: "Not found" in the form.
+    const clean = (v) => (typeof v === "string" && v.trim() && v !== "Not found") ? v.trim() : "";
+    const out = {
+      countryCode: clean(data?.country_code),
+      stateCode: clean(data?.state),
+      city: clean(data?.city),
+    };
+    return (out.countryCode || out.stateCode || out.city) ? out : null;
+  } catch { return null; }
+}
+
 const SAN_DIMAS_FALLBACK = {
   countryCode: "US",
   stateCode: "CA",
@@ -32,20 +70,7 @@ const SAN_DIMAS_FALLBACK = {
 };
 
 async function detectUserLocation() {
-  try {
-    const r = await fetch("https://ipapi.co/json/");
-    if (r.ok) {
-      const data = await r.json();
-      const direct = {
-        countryCode: data?.country_code || data?.country || "",
-        stateCode: data?.region_code || "",
-        city: data?.city || "",
-      };
-      if (direct.countryCode || direct.stateCode || direct.city) return direct;
-    }
-  } catch { /* fall through */ }
-
-  return SAN_DIMAS_FALLBACK;
+  return (await fetchIpapi()) || (await fetchGeolocationDb()) || SAN_DIMAS_FALLBACK;
 }
 
 const SORTS = [
@@ -139,6 +164,10 @@ export default function SearchCard({
   const debounceSearchRef = useRef(null);
   const debounceUrlRef = useRef(null);
   const lastSearchedQRef = useRef('');
+  // One-shot guard: when true, skip the topCityForState autofill on the next
+  // submit so an explicit X-clear of the city field isn't immediately undone
+  // by the state→top-city helper. Reset after the submit and on city onChange.
+  const cityClearedByUserRef = useRef(false);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -514,13 +543,14 @@ export default function SearchCard({
       // than Maine companies on the populated coast. We populate the
       // visible city input so the user sees what we chose and can change
       // it if they wanted a different anchor city.
-      if (!effectiveCity.trim() && effectiveStateCode.trim()) {
+      if (!cityClearedByUserRef.current && !effectiveCity.trim() && effectiveStateCode.trim()) {
         const topCity = topCityForState(effectiveStateCode.trim(), effectiveCountry);
         if (topCity) {
           effectiveCity = topCity;
           setCity(topCity);
         }
       }
+      cityClearedByUserRef.current = false;
 
       const params = {
         q: extracted,
@@ -826,6 +856,7 @@ export default function SearchCard({
                 ref={cityInputRef}
                 value={city}
                 onChange={(e)=>{
+                  if (e.target.value) cityClearedByUserRef.current = false;
                   setCity(e.target.value);
                   if (e.target.value.trim().length > 0) {
                     setOpenCitySuggest(true);
@@ -844,7 +875,7 @@ export default function SearchCard({
               {city && (
                 <button
                   type="button"
-                  onClick={()=>{ setCity(''); cityInputRef.current?.focus(); if (q.trim().length >= 2 || country || stateCode) setTimeout(() => handleSubmitRef.current(), 0); }}
+                  onClick={()=>{ cityClearedByUserRef.current = true; setCity(''); cityInputRef.current?.focus(); if (q.trim().length >= 2 || country || stateCode) setTimeout(() => handleSubmitRef.current(), 0); }}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
                   aria-label="Clear city"
                 >
