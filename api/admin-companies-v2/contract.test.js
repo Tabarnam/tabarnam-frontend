@@ -66,7 +66,7 @@ function makeMemoryContainer() {
       return [doc];
     }
 
-    if (sql.includes("SELECT TOP @take * FROM c")) {
+    if (sql.includes("SELECT TOP @take * FROM c") || (sql.includes("SELECT * FROM c") && sql.includes("OFFSET @skip LIMIT @take"))) {
       const qRaw = getParam(spec, "@q");
       const q = qRaw == null ? "" : String(qRaw).toLowerCase();
       const includeDeleted = !sql.includes("NOT IS_DEFINED(c.is_deleted)") && !sql.includes("c.is_deleted != true");
