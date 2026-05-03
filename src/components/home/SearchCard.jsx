@@ -10,7 +10,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { getCountries, resolveCountryText } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
 import { extractSearchTermFromUrl } from '@/lib/queryNormalizer';
-import { placesAutocomplete, placeDetails, resolveLocation } from '@/lib/google';
+import { placesAutocomplete, placeDetails, resolveLocation, topCityForState } from '@/lib/google';
 import { cn } from '@/lib/utils';
 
 const SORTS = [
@@ -443,12 +443,29 @@ export default function SearchCard({
         }
       }
 
+      // State-only inputs (e.g. "maine" with no city) get a default city
+      // picked from the largest metro in that state. Without this, the
+      // proximity center falls back to the geographic centroid of the
+      // state's polygon — which for Maine sits in northern Piscataquis
+      // County, putting border-adjacent NH companies *closer* to "Maine"
+      // than Maine companies on the populated coast. We populate the
+      // visible city input so the user sees what we chose and can change
+      // it if they wanted a different anchor city.
+      let effectiveCity = city;
+      if (!city.trim() && stateCode.trim()) {
+        const topCity = topCityForState(stateCode.trim(), resolvedCountry);
+        if (topCity) {
+          effectiveCity = topCity;
+          setCity(topCity);
+        }
+      }
+
       const params = {
         q: extracted,
         sort: sortBy,
         country: resolvedCountry,
         state: stateCode,
-        city,
+        city: effectiveCity,
         amazon: amazonOnly ? '1' : '',
         hqCountry: hqInCountry ? userCountryCode : '',
         mfgCountry: mfgInCountry ? userCountryCode : '',

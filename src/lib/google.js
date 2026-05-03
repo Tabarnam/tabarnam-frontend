@@ -323,6 +323,81 @@ function expandStateCode(state, country) {
   return s;
 }
 
+// Most-populous metro per US state / CA province / AU state — used as a more
+// useful proximity center when the user provides a state but no city. The
+// raw geographic centroid of a state often sits in wilderness or sparsely
+// populated middle ("Maine, US" → northern Piscataquis County), which makes
+// distance comparisons feel wrong: an out-of-state company sitting near the
+// state border ranks closer to the centroid than an in-state company on the
+// populated coast. Picking the largest metro instead matches user intent —
+// "near where Maine actually lives and works" rather than "the geometric
+// middle of Maine's polygon."
+const STATE_TOP_CITY_TABLES = {
+  US: {
+    AL: "Birmingham", AK: "Anchorage", AZ: "Phoenix", AR: "Little Rock", CA: "Los Angeles",
+    CO: "Denver", CT: "Bridgeport", DE: "Wilmington", FL: "Jacksonville", GA: "Atlanta",
+    HI: "Honolulu", ID: "Boise", IL: "Chicago", IN: "Indianapolis", IA: "Des Moines",
+    KS: "Wichita", KY: "Louisville", LA: "New Orleans", ME: "Portland", MD: "Baltimore",
+    MA: "Boston", MI: "Detroit", MN: "Minneapolis", MS: "Jackson", MO: "Kansas City",
+    MT: "Billings", NE: "Omaha", NV: "Las Vegas", NH: "Manchester", NJ: "Newark",
+    NM: "Albuquerque", NY: "New York", NC: "Charlotte", ND: "Fargo", OH: "Columbus",
+    OK: "Oklahoma City", OR: "Portland", PA: "Philadelphia", RI: "Providence", SC: "Charleston",
+    SD: "Sioux Falls", TN: "Nashville", TX: "Houston", UT: "Salt Lake City", VT: "Burlington",
+    VA: "Virginia Beach", WA: "Seattle", WV: "Charleston", WI: "Milwaukee", WY: "Cheyenne",
+    DC: "Washington",
+  },
+  CA: {
+    ON: "Toronto", QC: "Montreal", BC: "Vancouver", AB: "Calgary", MB: "Winnipeg",
+    SK: "Saskatoon", NS: "Halifax", NB: "Saint John", NL: "St. John's",
+    PE: "Charlottetown", YT: "Whitehorse", NT: "Yellowknife", NU: "Iqaluit",
+  },
+  AU: {
+    NSW: "Sydney", VIC: "Melbourne", QLD: "Brisbane", SA: "Adelaide",
+    WA: "Perth", TAS: "Hobart", ACT: "Canberra", NT: "Darwin",
+  },
+};
+
+/**
+ * Look up the most populous city in the given state/province. Accepts state
+ * either as a code ("ME", "TX", "ON") or as a full name ("Maine", "Texas",
+ * "Ontario"). country is the ISO code of the parent country ("US", "CA",
+ * "AU") and biases the lookup so e.g. "WA" → "Seattle" by default but
+ * "WA" + AU → "Perth". Returns "" if no match.
+ */
+export function topCityForState(state, country) {
+  const s = String(state || "").trim();
+  if (!s) return "";
+  const cc = String(country || "").toUpperCase();
+  const upper = s.toUpperCase();
+
+  // Resolve full state names ("maine") to a code ("ME") via the existing
+  // expansion tables. Iterate the country-scoped table first, falling back
+  // to all tables.
+  let code = upper;
+  const isLikelyName = upper.length > 3 || !/^[A-Z]{2,3}$/.test(upper);
+  if (isLikelyName) {
+    const candidates = cc && STATE_CODE_TABLES[cc] ? [STATE_CODE_TABLES[cc]] : Object.values(STATE_CODE_TABLES);
+    for (const tbl of candidates) {
+      for (const [c, n] of Object.entries(tbl)) {
+        if (n.toLowerCase() === s.toLowerCase()) { code = c; break; }
+      }
+      if (code !== upper) break;
+    }
+  }
+
+  // Look up the city in the country-scoped top-city table.
+  if (cc && STATE_TOP_CITY_TABLES[cc] && STATE_TOP_CITY_TABLES[cc][code]) {
+    return STATE_TOP_CITY_TABLES[cc][code];
+  }
+  // No country provided: try US first (most common), then others.
+  if (!cc) {
+    if (STATE_TOP_CITY_TABLES.US[code]) return STATE_TOP_CITY_TABLES.US[code];
+    if (STATE_TOP_CITY_TABLES.CA[code]) return STATE_TOP_CITY_TABLES.CA[code];
+    if (STATE_TOP_CITY_TABLES.AU[code]) return STATE_TOP_CITY_TABLES.AU[code];
+  }
+  return "";
+}
+
 /**
  * Resolve a free-form location (city/state/country, postal codes, etc.) into a
  * single structured triple: { lat, lng, countryCode, stateCode, city, postalCode }.
