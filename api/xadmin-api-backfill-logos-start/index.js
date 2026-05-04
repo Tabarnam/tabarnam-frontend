@@ -50,25 +50,19 @@ function getBackfillJobsContainer() {
   return c.database(E("COSMOS_DB_DATABASE", "tabarnam-db")).container(E("COSMOS_DB_BACKFILL_JOBS_CONTAINER", "backfill_jobs"));
 }
 
-// Skip companies whose existing logo is already a verified blob from the
-// import pipeline (logo_stage_status of "ok" or "imported"). The blob path
-// or stage_status alone would each be insufficient — paired they uniquely
-// identify "we own this and someone has reviewed it".
-function isStageVerified(c) {
-  return c?.logo_stage_status === "ok" || c?.logo_stage_status === "imported";
-}
-
 function isPending(c, includeFailed, maxAttempts) {
   if (!c) return false;
   const hasUrl = typeof c.website_url === "string" && c.website_url.trim().length > 0;
   if (!hasUrl) return false;
 
+  // Conservative scope: only fetch for companies MISSING a logo entirely.
+  // Any existing logo blocks re-fetch — admin reviews/approves separately
+  // via /admin/images. Re-fetching would clobber blobs that may have been
+  // hand-uploaded or imported successfully via the inline import pipeline.
+  // (Older companies often lack logo_stage_status, so a stage-status guard
+  // alone wasn't sufficient protection.)
   const hasLogo = typeof c.logo_url === "string" && c.logo_url.trim().length > 0;
-  const isApproved = c.logo_approved === true;
-  // "missing or unapproved" scope — anything not yet approved is fair game,
-  // unless the merge guard says hands off.
-  if (hasLogo && isApproved) return false;
-  if (isStageVerified(c)) return false;
+  if (hasLogo) return false;
 
   if (!includeFailed && c.logo_status === "failed") return false;
   // Even when retrying failures, give up on companies that have already failed

@@ -70,18 +70,15 @@ async function fireBatchWorker({ origin, jobId, context }) {
   } finally { clearTimeout(timer); }
 }
 
-function isStageVerified(c) {
-  return c?.logo_stage_status === "ok" || c?.logo_stage_status === "imported";
-}
-
+// Mirror of the conservative isPending in xadmin-api-backfill-logos-start.
+// Only count companies MISSING a logo entirely as "pending" — existing logos
+// (approved or not) are protected from re-fetch.
 function isPending(c) {
   if (!c) return false;
   const hasUrl = typeof c.website_url === "string" && c.website_url.trim().length > 0;
   if (!hasUrl) return false;
   const hasLogo = typeof c.logo_url === "string" && c.logo_url.trim().length > 0;
-  const isApproved = c.logo_approved === true;
-  if (hasLogo && isApproved) return false;
-  if (isStageVerified(c)) return false;
+  if (hasLogo) return false;
   return true;
 }
 
