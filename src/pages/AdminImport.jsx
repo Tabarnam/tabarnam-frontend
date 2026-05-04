@@ -2820,16 +2820,29 @@ export default function AdminImport() {
           toast.success(`Import finished (${companiesForNextStage.length} companies)`);
         }
 
-        // Surface the auto-triggered homepage backfill job so admin can monitor it.
+        // Surface the auto-triggered homepage + logo backfill jobs so admin
+        // can monitor them. Each backfill writes to its own admin page.
         const homepageBackfillJobId = asString(
           lastStageBody?.homepage_backfill_job_id ||
           lastStageBody?.result?.homepage_backfill_job_id
+        ).trim();
+        const logoBackfillJobId = asString(
+          lastStageBody?.logo_backfill_job_id ||
+          lastStageBody?.result?.logo_backfill_job_id
         ).trim();
         if (homepageBackfillJobId) {
           toast.success("Homepage capture started — view progress in Backfill Homepages", {
             action: {
               label: "View",
               onClick: () => window.open("/admin/backfill-homepages", "_blank"),
+            },
+          });
+        }
+        if (logoBackfillJobId) {
+          toast.success("Logo backfill started — view progress in Backfill Logos", {
+            action: {
+              label: "View",
+              onClick: () => window.open("/admin/backfill-logos", "_blank"),
             },
           });
         }
