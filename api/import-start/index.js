@@ -215,6 +215,10 @@ const {
   fetchLogo,
 } = require("./_importStartSaveCompanies");
 
+// Auto-trigger homepage backfill after a successful import.
+// Fire-and-forget — failures are swallowed so they never block the import.
+const { createHomepageBackfillJob } = require("../xadmin-api-backfill-homepages-start");
+
 // ── Extracted module: enrichment orchestration + editorial reviews ─────────────
 const {
   MANDATORY_ENRICH_FIELDS,
@@ -5311,6 +5315,30 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               `[import-start] session=${sessionId} saveCompaniesToCosmos done saved_verified=${verifiedCount} saved_write=${Number(saveResult.saved_write_count || 0) || 0} skipped=${saveResult.skipped} failed=${saveResult.failed}`
             );
 
+            // Auto-trigger homepage backfill for the newly saved companies.
+            // Fire-and-forget: the job runs in a separate worker so this Cosmos
+            // upsert (~100ms) doesn't extend the import response time.
+            // Errors are swallowed — admin can still trigger backfill manually.
+            let homepageBackfillJobId = null;
+            if (verifiedCount > 0) {
+              try {
+                const bfRes = await createHomepageBackfillJob({
+                  source: "import_auto",
+                  logger: console,
+                });
+                if (bfRes?.ok && bfRes?.job_id) {
+                  homepageBackfillJobId = bfRes.job_id;
+                  console.log(`[import-start] session=${sessionId} auto-triggered homepage backfill job=${homepageBackfillJobId} pending=${bfRes.total_to_process}`);
+                } else if (bfRes?.ok) {
+                  console.log(`[import-start] session=${sessionId} auto-trigger homepage backfill: nothing pending`);
+                } else {
+                  console.warn(`[import-start] session=${sessionId} auto-trigger homepage backfill failed: ${bfRes?.error || "unknown"}`);
+                }
+              } catch (bfErr) {
+                console.warn(`[import-start] session=${sessionId} auto-trigger homepage backfill threw: ${bfErr?.message || bfErr}`);
+              }
+            }
+
             if (Number(saveResult.saved_write_count || 0) > 0 && verifiedCount === 0) {
               addWarning("cosmos_read_after_write_failed", {
                 stage: "save",
@@ -5539,6 +5567,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       website_url: c.website_url,
                       normalized_domain: c.normalized_domain,
                     })),
+                    ...(homepageBackfillJobId ? { homepage_backfill_job_id: homepageBackfillJobId } : {}),
                     meta: {
                       enrichment_mode: "async",
                       enrichment_budget_ms: 360000,
@@ -6619,6 +6648,7 @@ Return ONLY the JSON array, no other text.`,
                 skipped: saveResult.skipped,
                 failed: saveResult.failed,
                 save_report: buildSaveReport(saveResult),
+                ...(homepageBackfillJobId ? { homepage_backfill_job_id: homepageBackfillJobId } : {}),
               },
               200
             );

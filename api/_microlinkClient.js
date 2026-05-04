@@ -15,6 +15,48 @@ const TARGET_WIDTH = 1280;
 const TARGET_HEIGHT = 800;
 const WEBP_QUALITY = 82;
 
+// CSS injected into the headless browser before screenshot capture to hide
+// common cookie/consent banners, newsletter popups, exit-intent overlays,
+// and intro-offer modals. Selectors are intentionally specific to popup
+// patterns so legitimate page content stays visible. Missing selectors are
+// no-ops, so this is safe to apply universally.
+const POPUP_HIDE_CSS = `
+[class*="cookie"][class*="banner"],
+[class*="cookie"][class*="consent"],
+[id*="cookie"]:not(html):not(body),
+[class*="newsletter"][class*="popup"],
+[class*="newsletter"][class*="modal"],
+[class*="modal-backdrop"],
+[class*="overlay"][class*="popup"],
+[class*="exit-intent"],
+[aria-label*="cookie" i],
+[aria-modal="true"][role="dialog"],
+.ot-sdk-container, .truste_box_overlay,
+#onetrust-banner-sdk, #onetrust-consent-sdk, #cookieyes,
+[class*="klaviyo-form"], [data-popup],
+[id*="popup" i], [class*="popup" i]:not([class*="hover"]) {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+html, body {
+  overflow: auto !important;
+  position: static !important;
+}
+`.trim();
+
+// Common consent-accept selectors. Microlink's `click` is failure-tolerant —
+// missing selectors don't error. This is a backup for popups that resist
+// CSS hiding (e.g., shadow DOM or aggressive inline styles).
+const CONSENT_CLICK_SELECTORS = [
+  "#onetrust-accept-btn-handler",
+  "[aria-label='Accept all' i]",
+  "[aria-label='Accept cookies' i]",
+  "button[id*='accept-cookies' i]",
+  "button[class*='accept-all' i]",
+  ".cookie-accept",
+];
+
 function getMicrolinkKey() {
   return (process.env.MICROLINK_API_KEY || "").trim();
 }
@@ -37,6 +79,16 @@ function getMicrolinkUrl(websiteUrl) {
   // 400s every request. Microlink Pro auto-routes through its own proxy pool
   // on blocked sites without us having to ask, so omitting the param is
   // correct. See: https://microlink.io/docs/api/parameters/proxy
+
+  // Hide common popups (cookie banners, newsletter overlays, intro-offer
+  // modals) before capture. `adblock=true` only blocks third-party tracker
+  // domains; first-party popups (which most modern banners are) need CSS.
+  u.searchParams.set("styles", POPUP_HIDE_CSS);
+  // Backup: click common consent-accept buttons. Tolerant of missing
+  // selectors — Microlink does not error on no-match.
+  for (const selector of CONSENT_CLICK_SELECTORS) {
+    u.searchParams.append("click", selector);
+  }
   return u.toString();
 }
 
