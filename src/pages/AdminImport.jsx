@@ -2819,6 +2819,20 @@ export default function AdminImport() {
         } else {
           toast.success(`Import finished (${companiesForNextStage.length} companies)`);
         }
+
+        // Surface the auto-triggered homepage backfill job so admin can monitor it.
+        const homepageBackfillJobId = asString(
+          lastStageBody?.homepage_backfill_job_id ||
+          lastStageBody?.result?.homepage_backfill_job_id
+        ).trim();
+        if (homepageBackfillJobId) {
+          toast.success("Homepage capture started — view progress in Backfill Homepages", {
+            action: {
+              label: "View",
+              onClick: () => window.open("/admin/backfill-homepages", "_blank"),
+            },
+          });
+        }
       } else {
         // Keep the run in a non-terminal state until /import/status confirms completion.
         const savedVerifiedLabel = (snapshotSavedVerifiedCount ?? snapshotVerifiedIds.length) || 0;

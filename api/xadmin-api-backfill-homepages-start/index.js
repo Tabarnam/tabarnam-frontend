@@ -66,25 +66,36 @@ function uuid() {
   return uuidv4();
 }
 
-// HTTP entrypoint
-async function handler(req, context) {
-  const method = String(req.method || "").toUpperCase();
-  if (method === "OPTIONS") return { status: 200, headers: getCorsHeaders() };
-
+/**
+ * Create a homepage backfill job in Cosmos `backfill_jobs`. Used by both the
+ * HTTP endpoint (manual admin-triggered backfill) and the import flow
+ * (auto-triggered after companies are saved). Returns:
+ *   { ok: true, job_id, total_to_process, ...job opts }   on success
+ *   { ok: true, total_to_process: 0 }                     when nothing pending
+ *   { ok: false, error }                                  on configuration / query failure
+ *
+ * Options:
+ *   batchSize, concurrency, maxCompanies, includeFailed, maxAttempts
+ *   source: free-form tag stored on the job doc (e.g. "admin_ui", "import_auto")
+ *   logger: optional { log(msg) } (defaults to console)
+ */
+async function createHomepageBackfillJob(options = {}) {
+  const logger = options.logger || console;
   const companiesContainer = getCompaniesContainer();
   const jobsContainer = getBackfillJobsContainer();
-  if (!companiesContainer || !jobsContainer) return json({ error: "Cosmos DB not configured" }, 500);
+  if (!companiesContainer || !jobsContainer) {
+    return { ok: false, error: "Cosmos DB not configured" };
+  }
+  if (!E("MICROLINK_API_KEY")) {
+    return { ok: false, error: "MICROLINK_API_KEY not configured on Function App" };
+  }
 
-  if (!E("MICROLINK_API_KEY")) return json({ error: "MICROLINK_API_KEY not configured on Function App" }, 500);
-
-  let body;
-  try { body = await req.json(); } catch { body = {}; }
-
-  const batchSize = Math.max(1, Math.min(500, Number(body?.batch_size) || 50));
-  const concurrency = Math.max(1, Math.min(20, Number(body?.concurrency) || 5));
-  const maxCompanies = body?.max_companies != null ? Math.max(1, Number(body.max_companies)) : null;
-  const includeFailed = Boolean(body?.include_failed);
-  const maxAttempts = Math.max(1, Math.min(20, Number(body?.max_attempts) || 3));
+  const batchSize = Math.max(1, Math.min(500, Number(options.batchSize) || 50));
+  const concurrency = Math.max(1, Math.min(20, Number(options.concurrency) || 5));
+  const maxCompanies = options.maxCompanies != null ? Math.max(1, Number(options.maxCompanies)) : null;
+  const includeFailed = Boolean(options.includeFailed);
+  const maxAttempts = Math.max(1, Math.min(20, Number(options.maxAttempts) || 3));
+  const source = typeof options.source === "string" ? options.source.trim() : "";
 
   // Count pending companies
   let totalPending = 0;
@@ -93,11 +104,11 @@ async function handler(req, context) {
     const { resources } = await companiesContainer.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
     totalPending = (resources || []).filter((c) => isPending(c, includeFailed, maxAttempts)).length;
   } catch (e) {
-    return json({ error: `pending count failed: ${e?.message || e}` }, 500);
+    return { ok: false, error: `pending count failed: ${e?.message || e}` };
   }
 
   if (totalPending === 0) {
-    return json({ ok: true, message: "No companies need homepage backfill", total_to_process: 0 });
+    return { ok: true, total_to_process: 0, message: "No companies need homepage backfill" };
   }
 
   const jobId = uuid();
@@ -125,12 +136,13 @@ async function handler(req, context) {
     current_companies: [],
     last_batch_results: [],
     cycle_count: 0,
+    ...(source ? { source } : {}),
   };
 
   await jobsContainer.items.upsert(jobDoc, { partitionKey: jobId });
-  context.log(`[backfill-homepages-start] job=${jobId} total=${totalPending} batch=${batchSize} concurrency=${concurrency} include_failed=${includeFailed} max_attempts=${maxAttempts}`);
+  logger.log?.(`[backfill-homepages-start] job=${jobId} total=${totalPending} batch=${batchSize} concurrency=${concurrency} include_failed=${includeFailed} max_attempts=${maxAttempts} source=${source || "n/a"}`);
 
-  return json({
+  return {
     ok: true,
     job_id: jobId,
     status: "running",
@@ -142,7 +154,34 @@ async function handler(req, context) {
     max_companies: maxCompanies,
     include_failed: includeFailed,
     max_attempts: maxAttempts,
+  };
+}
+
+// HTTP entrypoint
+async function handler(req, context) {
+  const method = String(req.method || "").toUpperCase();
+  if (method === "OPTIONS") return { status: 200, headers: getCorsHeaders() };
+
+  let body;
+  try { body = await req.json(); } catch { body = {}; }
+
+  const result = await createHomepageBackfillJob({
+    batchSize: body?.batch_size,
+    concurrency: body?.concurrency,
+    maxCompanies: body?.max_companies,
+    includeFailed: body?.include_failed,
+    maxAttempts: body?.max_attempts,
+    source: typeof body?.source === "string" ? body.source : "admin_ui",
+    logger: context,
   });
+
+  if (!result.ok) {
+    return json({ error: result.error }, 500);
+  }
+  if (result.total_to_process === 0) {
+    return json({ ok: true, message: result.message, total_to_process: 0 });
+  }
+  return json(result);
 }
 
 // ── Batch processor (runs inside the worker invocation) ────────────────
@@ -404,4 +443,4 @@ app.http("adminBackfillHomepagesStart", {
   handler,
 });
 
-module.exports = { handler, processBackfillHomepagesBatch };
+module.exports = { handler, processBackfillHomepagesBatch, createHomepageBackfillJob };
