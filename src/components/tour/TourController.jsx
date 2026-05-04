@@ -32,7 +32,8 @@ function buildHomeSteps(tour, onHandoff) {
       id: 'search',
       title: 'Search anything',
       text: 'Type a company name, product, or industry. Try <strong>SANS Meal Bars</strong> or <strong>organic bar soap</strong>.',
-      attachTo: { element: '[data-tour-step="search-input"]', on: 'bottom' },
+      attachTo: { element: '[data-tour-step="search-input"]', on: 'bottom-start' },
+      scrollTo: { behavior: 'smooth', block: 'nearest' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         learnMore('#searching'),
@@ -43,7 +44,8 @@ function buildHomeSteps(tour, onHandoff) {
       id: 'location',
       title: 'Add a location',
       text: 'Optional. Type a city, postal code, or country to orient results around that place.',
-      attachTo: { element: '[data-tour-step="location-input"]', on: 'bottom' },
+      attachTo: { element: '[data-tour-step="location-input"]', on: 'bottom-end' },
+      scrollTo: { behavior: 'smooth', block: 'nearest' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         { text: 'Back', action: () => tour.back(), secondary: true },
@@ -56,6 +58,7 @@ function buildHomeSteps(tour, onHandoff) {
       title: 'Sort and filter',
       text: 'Open this menu to sort by nearest, highest rated, or filter to in-country only.',
       attachTo: { element: '[data-tour-step="filter-trigger"]', on: 'bottom-start' },
+      scrollTo: { behavior: 'smooth', block: 'nearest' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         { text: 'Back', action: () => tour.back(), secondary: true },
@@ -73,6 +76,7 @@ function buildResultsSteps(tour) {
       title: 'Click a column to re-sort',
       text: 'Click the <strong>QQ</strong> header to sort by score. Click <strong>HQ</strong> or <strong>Manufacturing</strong> to re-sort by proximity.',
       attachTo: { element: '[data-tour-step="sort-header-qq"]', on: 'bottom' },
+      scrollTo: { behavior: 'smooth', block: 'start' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         learnMore('#qq'),
@@ -83,7 +87,8 @@ function buildResultsSteps(tour) {
       id: 'row',
       title: 'Open a result',
       text: 'Click any row to expand it into the full company profile, including all locations, reviews, and links.',
-      attachTo: { element: '[data-tour-step="expandable-row"]', on: 'top' },
+      attachTo: { element: '[data-tour-step="expandable-row"]', on: 'right' },
+      scrollTo: { behavior: 'smooth', block: 'center' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         { text: 'Back', action: () => tour.back(), secondary: true },
@@ -99,9 +104,9 @@ function makeTour() {
     useModalOverlay: true,
     defaultStepOptions: {
       cancelIcon: { enabled: true },
-      scrollTo: { behavior: 'smooth', block: 'center' },
-      modalOverlayOpeningPadding: 6,
-      modalOverlayOpeningRadius: 8,
+      scrollTo: { behavior: 'smooth', block: 'nearest' },
+      modalOverlayOpeningPadding: 4,
+      modalOverlayOpeningRadius: 6,
     },
   });
 }
