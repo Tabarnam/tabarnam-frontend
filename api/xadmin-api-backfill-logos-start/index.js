@@ -468,6 +468,21 @@ async function processBackfillLogosBatch(queueBody, context) {
 
   context.log(`[backfill-logos] invocation done processed=${processedThisInv} failed=${failuresThisInv} remaining=${job?.remaining ?? "?"} elapsed=${(invocationDurationMs / 1000).toFixed(1)}s exit=${exitReason}`);
 
+  // Self-re-fire: if the job is still running and there's work remaining,
+  // fire another worker invocation so processing continues without
+  // requiring admin polling. The status endpoint no longer self-drives,
+  // so this handoff is what keeps long jobs progressing to completion.
+  // Only re-fire on budget-exhausted or batch-size-reached exits — the
+  // "no_pending_remaining" / status-changed exits mean we should stop.
+  const shouldHandoff =
+    job?.status === "running" &&
+    (job?.remaining ?? 0) > 0 &&
+    (exitReason === "budget_exhausted" || exitReason === "batch_size_reached");
+  if (shouldHandoff) {
+    context.log(`[backfill-logos] handoff: re-firing worker for job=${jobId} remaining=${job.remaining}`);
+    await fireBatchWorker(jobId, context);
+  }
+
   return {
     ok: true,
     job_id: jobId,
@@ -478,6 +493,7 @@ async function processBackfillLogosBatch(queueBody, context) {
     duration_ms: invocationDurationMs,
     exit_reason: exitReason,
     status: job?.status ?? "running",
+    ...(shouldHandoff ? { handoff_fired: true } : {}),
   };
 }
 

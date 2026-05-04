@@ -150,23 +150,11 @@ async function handler(req, context) {
       }
     } catch (e) { context.log(`[backfill-logos-status] jobs query error: ${e?.message || e}`); }
 
-    let driveInfo = null;
-    if (latestJob && latestJob.status === "running") {
-      const now = Date.now();
-      const lockExpiresAt = Date.parse(latestJob.lock_expires_at || "") || 0;
-      const lastHeartbeatAt = Date.parse(latestJob.last_heartbeat_at || "") || 0;
-      const lockFree = !latestJob.locked_by || lockExpiresAt <= now;
-      const heartbeatStale = lastHeartbeatAt && (now - lastHeartbeatAt) > HEARTBEAT_STALE_MS;
-      if (lockFree) {
-        const origin = getSelfOrigin(req);
-        try {
-          const fired = await fireBatchWorker({ origin, jobId: latestJob.job_id, context });
-          driveInfo = { fired: true, lock_free: true, heartbeat_stale: heartbeatStale, response: fired?.status ?? null };
-        } catch (e) { driveInfo = { fired: false, error: e?.message || String(e) }; }
-      } else {
-        driveInfo = { fired: false, reason: "worker_active", lock_expires_in_s: Math.round((lockExpiresAt - now) / 1000), heartbeat_stale: heartbeatStale };
-      }
-    }
+    // NOTE: This endpoint is purely informational. It does NOT auto-start
+    // the worker on a poll — backfill must be explicitly triggered by an
+    // admin clicking Start (or by the import auto-trigger). The worker
+    // re-fires itself between batches via processBackfillLogosBatch's exit
+    // handoff, so jobs run to completion without page polling.
 
     return json({
       ok: true,
@@ -175,7 +163,6 @@ async function handler(req, context) {
       companies_missing_logo: missingLogo,
       companies_failed: failedLogo,
       job: latestJob || null,
-      ...(driveInfo ? { drive: driveInfo } : {}),
       ...(queryError ? { query_error: queryError } : {}),
     });
   } catch (e) {
