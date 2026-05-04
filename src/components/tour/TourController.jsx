@@ -63,7 +63,7 @@ function buildHomeSteps(tour, onHandoff) {
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         { text: 'Back', action: () => tour.back(), secondary: true },
         learnMore('#sorting'),
-        { text: 'See it live', action: onHandoff },
+        { text: 'See it', action: onHandoff },
       ],
     },
   ];

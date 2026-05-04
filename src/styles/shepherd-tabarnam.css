@@ -7,7 +7,7 @@
   border-radius: var(--radius);
   box-shadow: 0 12px 32px -8px hsl(0 0% 0% / 0.35);
   color: hsl(var(--popover-foreground));
-  max-width: 380px;
+  max-width: 460px;
   /* Must sit above .shepherd-modal-overlay-container (base z-index 9997). */
   z-index: 10000;
   /* Override base transition that fails to complete with HTMLDialogElement in v15. */
@@ -111,8 +111,9 @@
   font-size: 0.875rem;
   font-weight: 500;
   margin-right: 0;
-  padding: 0.45rem 0.9rem;
+  padding: 0.4rem 0.75rem;
   transition: filter 0.15s ease;
+  white-space: nowrap;
 }
 
 .shepherd-button:not(:disabled):hover {
