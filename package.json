@@ -65,6 +65,7 @@
     "react-table": "^7.8.0",
     "resend": "^2.0.0",
     "sharp": "^0.34.5",
+    "shepherd.js": "^15.2.2",
     "sonner": "^2.0.6",
     "styled-components": "^6.1.1",
     "tailwind-merge": "^1.14.0",

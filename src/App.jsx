@@ -36,6 +36,7 @@ import AuthKeepAlive from "@/components/AuthKeepAlive";
 import ThemeProvider from "@/components/ThemeProvider";
 import ThemeToggle from "@/components/ThemeToggle";
 import PrivacyBadge from "@/components/PrivacyBadge";
+import TourController from "@/components/tour/TourController";
 
 // Main application component with routing, layout management, and error handling
 // Simple error boundary
@@ -111,6 +112,7 @@ export default function App() {
       <ErrorBoundary>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthKeepAlive />
+          <TourController />
           <Layout>
             <Routes>
               {/* public */}

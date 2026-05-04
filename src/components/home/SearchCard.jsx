@@ -707,6 +707,7 @@ export default function SearchCard({
             placeholder={q ? "" : PLACEHOLDERS[placeholderIdx]}
             className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
             autoComplete="off"
+            data-tour-step="search-input"
           />
           {/* Amazon-style flat suggestion dropdown */}
           {suggestions.length > 0 && (
@@ -820,6 +821,7 @@ export default function SearchCard({
             <button
               type="button"
               className="flex items-center h-11 px-3 rounded-md border border-input bg-background text-foreground text-sm hover:bg-accent transition-colors"
+              data-tour-step="filter-trigger"
             >
               <ListFilter className="text-muted-foreground mr-2 shrink-0" size={18} />
               <span>{SORTS.find(s => s.value === sortBy)?.label || 'Sort Results'}</span>
@@ -910,6 +912,7 @@ export default function SearchCard({
                 placeholder="City / Postal Code"
                 className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
                 autoComplete="off"
+                data-tour-step="location-input"
               />
               {city && (
                 <button
