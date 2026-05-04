@@ -940,6 +940,7 @@ export default function ResultsPage() {
                     ? "bg-tabarnam-blue text-gray-800 dark:text-gray-900 border-tabarnam-blue"
                     : "bg-transparent text-tabarnam-blue-bold border-tabarnam-blue-bold"
                 )}
+                data-tour-step={colKey === "stars" ? "sort-header-qq" : undefined}
               >
                 {colLabel}
               </button>

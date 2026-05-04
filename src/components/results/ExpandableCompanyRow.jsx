@@ -886,6 +886,7 @@ export default function ExpandableCompanyRow({
     <div
       onClick={handleRowClick}
       className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
+      data-tour-step="expandable-row"
     >
       <div className="col-span-4 lg:col-span-1">
         <h2 className="font-bold text-foreground flex items-center gap-0.5">
