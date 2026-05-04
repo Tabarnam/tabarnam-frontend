@@ -66,6 +66,40 @@ function uuid() {
   return uuidv4();
 }
 
+// Fire-and-forget HTTP POST to the worker endpoint to kick off processing.
+// Mirrors the pattern in xadmin-api-backfill-homepages-status. Used to start
+// the worker the moment a new job is created so admins (and the import flow)
+// don't have to wait for the status endpoint to be polled. Lock semantics in
+// the worker make double-fire safe — a second invocation just sees the lock
+// and skips.
+async function fireBatchWorker(jobId, logger) {
+  const host = (process.env.WEBSITE_HOSTNAME || "").trim();
+  if (!host) {
+    logger?.log?.(`[backfill-homepages-start] worker fire skipped: WEBSITE_HOSTNAME not set`);
+    return;
+  }
+  const url = `https://${host}/api/xadmin-api-backfill-homepages-worker`;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 5000);
+  try {
+    // Race a fire-and-forget timeout — we only care that the request was
+    // dispatched, not that the worker finished. The worker has its own
+    // 4-min budget and will run independently of this caller.
+    await Promise.race([
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId }),
+        signal: ctl.signal,
+        keepalive: true,
+      }).catch(() => null),
+      new Promise((res) => setTimeout(res, 800)),
+    ]);
+  } catch (e) {
+    logger?.log?.(`[backfill-homepages-start] worker fire soft-error: ${e?.message || e}`);
+  } finally { clearTimeout(timer); }
+}
+
 /**
  * Create a homepage backfill job in Cosmos `backfill_jobs`. Used by both the
  * HTTP endpoint (manual admin-triggered backfill) and the import flow
@@ -141,6 +175,11 @@ async function createHomepageBackfillJob(options = {}) {
 
   await jobsContainer.items.upsert(jobDoc, { partitionKey: jobId });
   logger.log?.(`[backfill-homepages-start] job=${jobId} total=${totalPending} batch=${batchSize} concurrency=${concurrency} include_failed=${includeFailed} max_attempts=${maxAttempts} source=${source || "n/a"}`);
+
+  // Kick off the worker so the job actually starts processing — without this,
+  // the job sits idle until /admin/backfill-homepages is polled. Fire-and-forget;
+  // the worker has its own 4-min budget independent of this caller.
+  await fireBatchWorker(jobId, logger);
 
   return {
     ok: true,

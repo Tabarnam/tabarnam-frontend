@@ -82,6 +82,35 @@ function uuid() {
   return uuidv4();
 }
 
+// Fire-and-forget HTTP POST to the worker endpoint to kick off processing.
+// Mirrors the pattern in xadmin-api-backfill-homepages-start. Used to start
+// the worker the moment a new job is created so admins (and the import flow)
+// don't have to wait for the status endpoint to be polled.
+async function fireBatchWorker(jobId, logger) {
+  const host = (process.env.WEBSITE_HOSTNAME || "").trim();
+  if (!host) {
+    logger?.log?.(`[backfill-logos-start] worker fire skipped: WEBSITE_HOSTNAME not set`);
+    return;
+  }
+  const url = `https://${host}/api/xadmin-api-backfill-logos-worker`;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 5000);
+  try {
+    await Promise.race([
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId }),
+        signal: ctl.signal,
+        keepalive: true,
+      }).catch(() => null),
+      new Promise((res) => setTimeout(res, 800)),
+    ]);
+  } catch (e) {
+    logger?.log?.(`[backfill-logos-start] worker fire soft-error: ${e?.message || e}`);
+  } finally { clearTimeout(timer); }
+}
+
 /**
  * Create a logo backfill job in Cosmos `backfill_jobs`. Used by both the
  * HTTP endpoint (manual admin-triggered backfill) and the import flow
@@ -162,6 +191,11 @@ async function createLogoBackfillJob(options = {}) {
 
   await jobsContainer.items.upsert(jobDoc, { partitionKey: jobId });
   logger.log?.(`[backfill-logos-start] job=${jobId} total=${totalPending} batch=${batchSize} concurrency=${concurrency} include_failed=${includeFailed} max_attempts=${maxAttempts} source=${source || "n/a"}`);
+
+  // Kick off the worker so the job actually starts processing — without this,
+  // the job sits idle until /admin/backfill-logos is polled. Fire-and-forget;
+  // the worker has its own 4-min budget independent of this caller.
+  await fireBatchWorker(jobId, logger);
 
   return {
     ok: true,
