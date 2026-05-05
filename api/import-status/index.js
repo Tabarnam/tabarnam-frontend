@@ -684,6 +684,26 @@ async function handler(req, context) {
 
     let resume_needed = forceResume ? true : retryableMissingCount > 0;
 
+    // Force resume_needed=true for orphaned stub companies that were saved with no
+    // enrichment data. These can occur when inline enrichment fails (e.g., bad URL
+    // from xAI primary search caused 200s Phase 1 timeout, no v5.0 budget left).
+    // The unambiguous "completely unenriched stub" signature: empty industries +
+    // empty keywords + hq_unknown + mfg_unknown.
+    if (!resume_needed && Array.isArray(savedDocsForHealth) && savedDocsForHealth.length > 0) {
+      const hasOrphanedStub = savedDocsForHealth.some((doc) => {
+        if (!doc || typeof doc !== "object") return false;
+        const industriesEmpty = !Array.isArray(doc.industries) || doc.industries.length === 0;
+        const keywordsEmpty = !Array.isArray(doc.keywords) || doc.keywords.length === 0;
+        const hqUnknown = doc.hq_unknown === true || !doc.headquarters_location;
+        const mfgUnknown = doc.mfg_unknown === true || (!Array.isArray(doc.manufacturing_locations) || doc.manufacturing_locations.length === 0);
+        return industriesEmpty && keywordsEmpty && hqUnknown && mfgUnknown;
+      });
+      if (hasOrphanedStub) {
+        console.log(`[import-status] session=${sessionId} forcing resume_needed=true: orphaned stub detected (empty industries+keywords+hq+mfg)`);
+        resume_needed = true;
+      }
+    }
+
     // Reflect terminal completion in the report payload as well.
     if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && report?.session) {
       report.session.resume_needed = false;

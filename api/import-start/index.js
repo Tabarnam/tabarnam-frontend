@@ -3925,6 +3925,33 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             console.log(`[import-start] session=${sessionId} primary_search_result: ${JSON.stringify(preview).slice(0, 2000)}`);
           }
 
+          // Sanitize URLs from xAI primary search. xAI sometimes returns malformed URLs
+          // (e.g., "https://rustichella d'abruzzo/" with spaces/apostrophes) which cause
+          // Phase 1 enrichment to hang for 200+ seconds. Strip bad URLs so downstream
+          // enrichment uses company name only.
+          const isValidWebUrl = (url) => {
+            try {
+              if (!url || typeof url !== "string") return false;
+              // Reject if contains spaces, control chars, or unescaped quotes
+              if (/[\s'"<>`]/.test(url)) return false;
+              const u = url.includes("://") ? new URL(url) : new URL(`https://${url}`);
+              const host = u.hostname || "";
+              // Hostname must be valid: alphanumeric, dots, hyphens only; at least one dot
+              return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(host);
+            } catch {
+              return false;
+            }
+          };
+          for (const c of companies) {
+            for (const field of ["url", "website_url", "company_url", "canonical_url"]) {
+              const val = c?.[field];
+              if (val && !isValidWebUrl(String(val))) {
+                console.warn(`[import-start] session=${sessionId} stripping invalid URL from "${c.company_name || c.name || "?"}": ${field}="${String(val).slice(0, 120)}"`);
+                c[field] = "";
+              }
+            }
+          }
+
           setStage("enrichCompany");
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
