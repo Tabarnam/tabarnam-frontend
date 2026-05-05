@@ -556,8 +556,9 @@ export function formatContractMissingField(field) {
     case "manufacturing":
     case "manufacturing_locations":
       return "MFG";
+    case "keywords":
     case "product_keywords":
-      return "keywords";
+      return "Products";
     case "amazon_url":
       return "Amz";
     case "homepage":
