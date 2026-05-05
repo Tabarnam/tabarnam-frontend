@@ -2945,7 +2945,7 @@ export default function CompanyDashboard() {
 
     try {
       const url = await uploadHomepageBlobFile(file, companyId);
-      setEditorDraft((d) => ({ ...(d || {}), homepage_image_url: url, homepage_approved: false }));
+      setEditorDraft((d) => ({ ...(d || {}), homepage_image_url: url, homepage_approved: true }));
       updateCompanyInState(companyId, { homepage_image_url: url });
       setHomepageFile(null);
       toast.success("Homepage image uploaded");
