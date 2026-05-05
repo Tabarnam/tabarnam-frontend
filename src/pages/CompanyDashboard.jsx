@@ -2506,6 +2506,7 @@ export default function CompanyDashboard() {
         logo_approved: Boolean(draftForSave.logo_approved),
         homepage_image_url: asString(draftForSave.homepage_image_url).trim(),
         homepage_approved: Boolean(draftForSave.homepage_approved),
+        homepage_issue_cleared: Boolean(draftForSave.homepage_issue_cleared),
         amazon_url: asString(draftForSave.amazon_url).trim(),
         amazon_store_url: asString(draftForSave.amazon_store_url).trim(),
         affiliate_link_urls,
@@ -5020,7 +5021,7 @@ export default function CompanyDashboard() {
                                   onCheckedChange={(v) => setEditorDraft((d) => ({ ...d, homepage_approved: Boolean(v) }))}
                                   disabled={!asString(editorDraft?.homepage_image_url).trim()}
                                 />
-                                Approve Homepage
+                                Homepage
                               </label>
 
                               <Button
@@ -5030,6 +5031,14 @@ export default function CompanyDashboard() {
                               >
                                 Clear
                               </Button>
+
+                              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
+                                <Checkbox
+                                  checked={!!editorDraft?.homepage_issue_cleared}
+                                  onCheckedChange={(v) => setEditorDraft((d) => ({ ...d, homepage_issue_cleared: Boolean(v) }))}
+                                />
+                                Clear Issue
+                              </label>
                             </div>
 
                             {homepageFile ? (

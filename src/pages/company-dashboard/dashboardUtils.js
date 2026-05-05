@@ -508,6 +508,13 @@ export function getContractMissingFields(company) {
     }
   }
 
+  // Check for missing homepage image (unless admin cleared the issue)
+  const hasHomepage = Boolean(asString(company?.homepage_image_url).trim());
+  const homepageCleared = Boolean(company?.homepage_issue_cleared);
+  if (!hasHomepage && !homepageCleared) {
+    fields.push("homepage");
+  }
+
   // Check for incomplete keywords (unless acknowledged by admin)
   const kwIncomplete =
     asString(company?.keywords_completeness).trim().toLowerCase() === "incomplete";
@@ -553,6 +560,10 @@ export function formatContractMissingField(field) {
       return "keywords";
     case "amazon_url":
       return "Amz";
+    case "homepage":
+    case "homepage_image":
+    case "homepage_image_url":
+      return "home pg";
     default:
       return f.replace(/_/g, " ");
   }
