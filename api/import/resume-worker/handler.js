@@ -3084,6 +3084,40 @@ async function resumeWorkerHandler(req, context) {
       console.log(`[resume-worker] resumeDoc upsert failed: ${err?.message || err}`);
     });
 
+    // Auto-trigger homepage + logo backfill now that xAI enrichment for this
+    // session is complete. Triggering during import-start caused the backfill
+    // workers to compete with us for outbound network/CPU during xAI calls,
+    // blocking us past the heartbeat-stale threshold. Doing it here — after
+    // we've signed off — leaves enrichment unimpeded.
+    let homepageBackfillJobId = null;
+    let logoBackfillJobId = null;
+    if (!finalResumeNeeded) {
+      try {
+        const { createHomepageBackfillJob } = require("../../xadmin-api-backfill-homepages-start");
+        const { createLogoBackfillJob } = require("../../xadmin-api-backfill-logos-start");
+        const [bfRes, lbRes] = await Promise.all([
+          createHomepageBackfillJob({ source: "import_auto", logger: console }).catch((e) => {
+            console.warn(`[resume-worker] homepage backfill auto-trigger failed: ${e?.message || e}`);
+            return null;
+          }),
+          createLogoBackfillJob({ source: "import_auto", logger: console }).catch((e) => {
+            console.warn(`[resume-worker] logo backfill auto-trigger failed: ${e?.message || e}`);
+            return null;
+          }),
+        ]);
+        if (bfRes?.ok && bfRes?.job_id) {
+          homepageBackfillJobId = bfRes.job_id;
+          console.log(`[resume-worker] session=${sessionId} auto-triggered homepage backfill job=${homepageBackfillJobId} pending=${bfRes.total_to_process}`);
+        }
+        if (lbRes?.ok && lbRes?.job_id) {
+          logoBackfillJobId = lbRes.job_id;
+          console.log(`[resume-worker] session=${sessionId} auto-triggered logo backfill job=${logoBackfillJobId} pending=${lbRes.total_to_process}`);
+        }
+      } catch (e) {
+        console.warn(`[resume-worker] backfill auto-trigger setup failed: ${e?.message || e}`);
+      }
+    }
+
     const sessionPatch = {
       resume_needed: finalResumeNeeded,
       // Signal completion on the session doc so import-status detects it
@@ -3091,6 +3125,8 @@ async function resumeWorkerHandler(req, context) {
         status: "complete",
         stage_beacon: finalStatus === "complete" ? "complete" : "terminal_only",
         completed_at: updatedAt,
+        ...(homepageBackfillJobId ? { homepage_backfill_job_id: homepageBackfillJobId } : {}),
+        ...(logoBackfillJobId ? { logo_backfill_job_id: logoBackfillJobId } : {}),
       } : {}),
       resume_updated_at: updatedAt,
       resume_worker_last_finished_at: updatedAt,
@@ -4773,6 +4809,38 @@ async function resumeWorkerHandler(req, context) {
     updated_at: updatedAt,
   }).catch(() => null);
 
+  // Auto-trigger backfills if this is the post-enrichment completion path.
+  // (Mirror of the main-loop hook above.) Only fires when resumeNeeded=false
+  // so xAI is genuinely done.
+  let postEnrichmentHomepageBackfillJobId = null;
+  let postEnrichmentLogoBackfillJobId = null;
+  if (!resumeNeeded) {
+    try {
+      const { createHomepageBackfillJob } = require("../../xadmin-api-backfill-homepages-start");
+      const { createLogoBackfillJob } = require("../../xadmin-api-backfill-logos-start");
+      const [bfRes, lbRes] = await Promise.all([
+        createHomepageBackfillJob({ source: "import_auto", logger: console }).catch((e) => {
+          console.warn(`[resume-worker post-enrichment] homepage backfill auto-trigger failed: ${e?.message || e}`);
+          return null;
+        }),
+        createLogoBackfillJob({ source: "import_auto", logger: console }).catch((e) => {
+          console.warn(`[resume-worker post-enrichment] logo backfill auto-trigger failed: ${e?.message || e}`);
+          return null;
+        }),
+      ]);
+      if (bfRes?.ok && bfRes?.job_id) {
+        postEnrichmentHomepageBackfillJobId = bfRes.job_id;
+        console.log(`[resume-worker post-enrichment] session=${sessionId} auto-triggered homepage backfill job=${postEnrichmentHomepageBackfillJobId} pending=${bfRes.total_to_process}`);
+      }
+      if (lbRes?.ok && lbRes?.job_id) {
+        postEnrichmentLogoBackfillJobId = lbRes.job_id;
+        console.log(`[resume-worker post-enrichment] session=${sessionId} auto-triggered logo backfill job=${postEnrichmentLogoBackfillJobId} pending=${lbRes.total_to_process}`);
+      }
+    } catch (e) {
+      console.warn(`[resume-worker post-enrichment] backfill auto-trigger setup failed: ${e?.message || e}`);
+    }
+  }
+
   await bestEffortPatchSessionDoc({
     container,
     sessionId,
@@ -4795,6 +4863,8 @@ async function resumeWorkerHandler(req, context) {
             stage_beacon: completion_beacon,
             ...(exhausted ? { resume_exhausted: true } : {}),
             completed_at: updatedAt,
+            ...(postEnrichmentHomepageBackfillJobId ? { homepage_backfill_job_id: postEnrichmentHomepageBackfillJobId } : {}),
+            ...(postEnrichmentLogoBackfillJobId ? { logo_backfill_job_id: postEnrichmentLogoBackfillJobId } : {}),
           }),
       updated_at: updatedAt,
     },

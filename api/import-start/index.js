@@ -215,13 +215,11 @@ const {
   fetchLogo,
 } = require("./_importStartSaveCompanies");
 
-// Auto-trigger homepage + logo backfill after a successful import.
-// Fire-and-forget — failures are swallowed so they never block the import.
-// Logo backfill skips companies whose logos already imported successfully
-// (logo_stage_status === "ok" | "imported") via its merge guard, so it only
-// fills in the gaps where the inline import-time logo fetch fell short.
-const { createHomepageBackfillJob } = require("../xadmin-api-backfill-homepages-start");
-const { createLogoBackfillJob } = require("../xadmin-api-backfill-logos-start");
+// NOTE: Backfill auto-trigger lives in api/import/resume-worker/handler.js,
+// fired AFTER xAI enrichment completes. Triggering during import-start
+// caused the backfill workers to compete with resume-worker for outbound
+// network and CPU on the same Function App instance, blocking xAI Phase 1
+// past the 215s heartbeat-stale threshold and triggering kill+restart loops.
 
 // ── Extracted module: enrichment orchestration + editorial reviews ─────────────
 const {
@@ -5319,50 +5317,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               `[import-start] session=${sessionId} saveCompaniesToCosmos done saved_verified=${verifiedCount} saved_write=${Number(saveResult.saved_write_count || 0) || 0} skipped=${saveResult.skipped} failed=${saveResult.failed}`
             );
 
-            // Auto-trigger homepage + logo backfill for the newly saved companies.
-            // Fire-and-forget: the jobs run in separate workers so these two Cosmos
-            // upserts (~100ms each) don't extend the import response time.
-            // Errors are swallowed — admin can still trigger backfill manually.
-            // The logo backfill's merge guard skips companies whose logos already
-            // imported successfully, so this only fills gaps where the inline
-            // import-time logo fetch fell short.
-            let homepageBackfillJobId = null;
-            let logoBackfillJobId = null;
-            if (verifiedCount > 0) {
-              try {
-                const bfRes = await createHomepageBackfillJob({
-                  source: "import_auto",
-                  logger: console,
-                });
-                if (bfRes?.ok && bfRes?.job_id) {
-                  homepageBackfillJobId = bfRes.job_id;
-                  console.log(`[import-start] session=${sessionId} auto-triggered homepage backfill job=${homepageBackfillJobId} pending=${bfRes.total_to_process}`);
-                } else if (bfRes?.ok) {
-                  console.log(`[import-start] session=${sessionId} auto-trigger homepage backfill: nothing pending`);
-                } else {
-                  console.warn(`[import-start] session=${sessionId} auto-trigger homepage backfill failed: ${bfRes?.error || "unknown"}`);
-                }
-              } catch (bfErr) {
-                console.warn(`[import-start] session=${sessionId} auto-trigger homepage backfill threw: ${bfErr?.message || bfErr}`);
-              }
-
-              try {
-                const lbRes = await createLogoBackfillJob({
-                  source: "import_auto",
-                  logger: console,
-                });
-                if (lbRes?.ok && lbRes?.job_id) {
-                  logoBackfillJobId = lbRes.job_id;
-                  console.log(`[import-start] session=${sessionId} auto-triggered logo backfill job=${logoBackfillJobId} pending=${lbRes.total_to_process}`);
-                } else if (lbRes?.ok) {
-                  console.log(`[import-start] session=${sessionId} auto-trigger logo backfill: nothing pending`);
-                } else {
-                  console.warn(`[import-start] session=${sessionId} auto-trigger logo backfill failed: ${lbRes?.error || "unknown"}`);
-                }
-              } catch (lbErr) {
-                console.warn(`[import-start] session=${sessionId} auto-trigger logo backfill threw: ${lbErr?.message || lbErr}`);
-              }
-            }
+            // (Backfill auto-trigger moved to resume-worker after xAI completion;
+            // see api/import/resume-worker/handler.js)
 
             if (Number(saveResult.saved_write_count || 0) > 0 && verifiedCount === 0) {
               addWarning("cosmos_read_after_write_failed", {
@@ -5592,8 +5548,6 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       website_url: c.website_url,
                       normalized_domain: c.normalized_domain,
                     })),
-                    ...(homepageBackfillJobId ? { homepage_backfill_job_id: homepageBackfillJobId } : {}),
-                    ...(logoBackfillJobId ? { logo_backfill_job_id: logoBackfillJobId } : {}),
                     meta: {
                       enrichment_mode: "async",
                       enrichment_budget_ms: 360000,
@@ -6674,8 +6628,6 @@ Return ONLY the JSON array, no other text.`,
                 skipped: saveResult.skipped,
                 failed: saveResult.failed,
                 save_report: buildSaveReport(saveResult),
-                ...(homepageBackfillJobId ? { homepage_backfill_job_id: homepageBackfillJobId } : {}),
-                ...(logoBackfillJobId ? { logo_backfill_job_id: logoBackfillJobId } : {}),
               },
               200
             );
