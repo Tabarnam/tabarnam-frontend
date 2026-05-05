@@ -82,7 +82,7 @@ const SORTS = [
 function toQs(o){ return new URLSearchParams(Object.entries(o).filter(([,v]) => v !== undefined && v !== '' && v !== null)).toString(); }
 
 const PLACEHOLDERS = [
-  "Search by product, keyword, company\u2026",
+  "Search by product, company\u2026",
   'Try "organic soap"',
   'Try "ceramic mugs"',
   'Try "robes"',

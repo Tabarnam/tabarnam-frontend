@@ -29,7 +29,7 @@ function parseBulkLocations(text) {
 // ── field-label regex ────────────────────────────────────────────────
 
 const FIELD_LABEL_RE =
-  /^\s*(Tagline|Website|URL|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Industries|Keywords|Reviews)\s*:\s*(.*)$/i;
+  /^\s*(Tagline|Website|URL|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Industries|Products|Keywords|Reviews)\s*:\s*(.*)$/i;
 
 function normalizeFieldLabel(raw) {
   const l = raw.trim().toLowerCase().replace(/\s+/g, " ");
@@ -37,7 +37,7 @@ function normalizeFieldLabel(raw) {
   if (l === "hq" || l.startsWith("headquarters")) return "headquarters_locations";
   if (l.startsWith("manufacturing")) return "manufacturing_locations";
   if (l === "industries") return "industries";
-  if (l === "keywords") return "keywords";
+  if (l === "keywords" || l === "products") return "keywords";
   if (l === "website" || l === "url") return "website_url";
   if (l === "reviews") return null; // section label only — consumed but ignored
   return null;

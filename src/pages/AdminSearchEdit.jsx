@@ -5,8 +5,8 @@ import AdminHeader from "@/components/AdminHeader";
 
 const SEARCHABLE_FIELDS = [
   { key: "industries", label: "Industries", isArray: true },
-  { key: "keywords", label: "Keywords", isArray: true },
-  { key: "product_keywords", label: "Product Keywords", isArray: false },
+  { key: "keywords", label: "Products (array)", isArray: true },
+  { key: "product_keywords", label: "Products", isArray: false },
   { key: "tagline", label: "Tagline", isArray: false },
   { key: "headquarters_location", label: "HQ", isArray: false },
   { key: "manufacturing_locations", label: "Manufacturing", isArray: true },

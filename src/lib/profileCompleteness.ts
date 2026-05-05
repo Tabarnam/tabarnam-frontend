@@ -103,7 +103,7 @@ export function getProfileGaps(company: any): ProfileGap[] {
   const kw = keywords.length;
   if (kw < 15) {
     const earned = kw >= 8 ? 15 : kw >= 3 ? 8 : 0;
-    gaps.push({ label: kw === 0 ? "No keywords" : `Only ${kw} keyword${kw === 1 ? "" : "s"} (15 for full score)`, points: 20 - earned });
+    gaps.push({ label: kw === 0 ? "No products" : `Only ${kw} product${kw === 1 ? "" : "s"} (15 for full score)`, points: 20 - earned });
   }
 
   if (!hasHeadquarters(company)) {

@@ -812,7 +812,7 @@ export default function ExpandableCompanyRow({
         )}
 
         <div className="mt-2 px-2 sm:px-4 keywordsRow">
-          <div className="text-sm font-semibold text-foreground">Keywords</div>
+          <div className="text-sm font-semibold text-foreground">Products</div>
           <div className="mt-2 text-sm text-muted-foreground">
             {sortedKeywords.length > 0 ? (
               <ul className="keywordsCols">
@@ -1068,7 +1068,7 @@ export default function ExpandableCompanyRow({
         const hiddenCount = allKw.length - visible.length;
         return (
           <div className="col-span-6 lg:col-span-5 mt-2 border-t pt-2">
-            <div className="text-xs font-semibold text-muted-foreground mb-1">Keywords</div>
+            <div className="text-xs font-semibold text-muted-foreground mb-1">Products</div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5">
               {visible.map((kw, idx) => (
                 <button
