@@ -536,11 +536,11 @@ export default function AdminImages() {
     setUploadingHomepageIds((prev) => new Set(prev).add(id));
     try {
       const url = await uploadHomepageBlobFile(file, id);
-      updateLocal(id, { homepage_image_url: url, homepage_approved: true });
+      updateLocal(id, { homepage_image_url: url, homepage_approved: false });
       await apiFetch(`/xadmin-api-companies/${encodeURIComponent(id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ homepage_approved: true }),
+        body: JSON.stringify({ homepage_approved: false }),
       });
       toast.success("Homepage uploaded");
     } catch (e) {

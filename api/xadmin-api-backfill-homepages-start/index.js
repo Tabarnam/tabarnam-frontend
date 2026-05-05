@@ -240,7 +240,7 @@ async function uploadOneCompanyWithHardTimeout(company, { perCallHardTimeoutMs, 
   const hard = new Promise((res) => { timer = setTimeout(() => res({ ok: false, reason: `hard_timeout_${hardMs}ms`, started_at: new Date().toISOString(), duration_ms: hardMs }), hardMs); });
   try {
     return await Promise.race([
-      fetchAndPersistHomepageForCompany(company, ctx, { autoApprove: true }),
+      fetchAndPersistHomepageForCompany(company, ctx, { autoApprove: false }),
       hard,
     ]);
   } finally { if (timer) clearTimeout(timer); }
