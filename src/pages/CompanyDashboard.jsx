@@ -612,6 +612,7 @@ export default function CompanyDashboard() {
   const [proposedDraftText, setProposedDraftText] = useState({});
   const [refreshSelection, setRefreshSelection] = useState({});
   const [refreshApplied, setRefreshApplied] = useState(false);
+  const [pendingSaveAfterApply, setPendingSaveAfterApply] = useState(false);
   const [refreshFieldsOpen, setRefreshFieldsOpen] = useState(false);
   const [refreshFieldChecks, setRefreshFieldChecks] = useState({
     logo_url: true,
@@ -1479,6 +1480,7 @@ export default function CompanyDashboard() {
     });
 
     setRefreshApplied(true);
+    setPendingSaveAfterApply(true);
     toast.success(`Applied ${selectedDiffCount} change${selectedDiffCount === 1 ? "" : "s"}`);
   }, [diffRows, proposedDraft, refreshSelection, selectedDiffCount]);
 
@@ -1503,6 +1505,7 @@ export default function CompanyDashboard() {
     });
 
     setRefreshApplied(true);
+    setPendingSaveAfterApply(true);
     toast.success("Applied proposed values to draft");
   }, [proposedDraft, refreshDiffFields]);
 
@@ -2627,6 +2630,16 @@ export default function CompanyDashboard() {
     }
     saveEditor();
   }, [diffRows, editorOriginalId, refreshSelection, saveEditor]);
+
+  // Auto-save after applying bulk paste / refresh proposed changes.
+  // The applySelectedDiffs and applyAllProposedToDraft handlers set
+  // pendingSaveAfterApply=true; we wait one render so editorDraft is
+  // updated, then trigger the save.
+  useEffect(() => {
+    if (!pendingSaveAfterApply) return;
+    setPendingSaveAfterApply(false);
+    saveEditor({ closeAfter: false });
+  }, [pendingSaveAfterApply, saveEditor]);
 
   // Ctrl/Cmd+S keyboard shortcut to save
   useEffect(() => {
