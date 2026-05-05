@@ -1718,8 +1718,8 @@ export default function AdminImport() {
 
     return {
       pipeline: REVIEWS_ENABLED
-        ? "primary → keywords → reviews → location → save → expand"
-        : "primary → keywords → location → save → expand",
+        ? "primary → products → reviews → location → save → expand"
+        : "primary → products → location → save → expand",
       overridesLabel: "None",
       maxStage,
       skipStages,
@@ -3087,7 +3087,7 @@ export default function AdminImport() {
     const industries = batchIndustries.trim().split(",").map((s) => s.trim()).filter(Boolean);
     const keywords = batchKeywords.trim().split(",").map((s) => s.trim()).filter(Boolean);
     if (industries.length === 0 && keywords.length === 0) {
-      toast.error("Enter industries or keywords to apply.");
+      toast.error("Enter industries or products to apply.");
       return;
     }
     const rows = successionRows.filter(
@@ -4443,7 +4443,7 @@ export default function AdminImport() {
               <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Query types</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {[
-                  { key: "product_keyword", label: "Keyword" },
+                  { key: "product_keyword", label: "Product" },
                   { key: "company_name", label: "Company name" },
                   { key: "company_url", label: "Company URL/domain" },
                   { key: "industry", label: "Industry" },
@@ -4760,7 +4760,7 @@ export default function AdminImport() {
                 <div className="text-xs text-slate-500 dark:text-muted-foreground">Applied to all companies in this batch (comma-separated)</div>
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch keywords</label>
+                <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch products</label>
                 <input
                   type="text"
                   placeholder="e.g. chili powder, cumin, paprika"
@@ -4831,7 +4831,7 @@ export default function AdminImport() {
                 ) : (
                   <>
                     <Tags className="h-4 w-4 mr-2" />
-                    Apply Industries/Keywords
+                    Apply Industries/Products
                   </>
                 )}
               </Button>

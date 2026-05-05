@@ -134,7 +134,7 @@ export default function ImportResultsPanels({
               // Truthfulness: do not flag missing keywords based on seed/pre-save items.
               // Only evaluate keywords once we're rendering saved (persisted) company docs.
               const shouldEvaluateKeywords = showSavedResults && !keywordsStageSkipped;
-              if (shouldEvaluateKeywords && keywordsList.length === 0) issues.push("missing keywords");
+              if (shouldEvaluateKeywords && keywordsList.length === 0) issues.push("missing products");
 
               return (
                 <div key={asString(c?.id || c?.company_id)} className="rounded border border-slate-200 dark:border-border p-3">

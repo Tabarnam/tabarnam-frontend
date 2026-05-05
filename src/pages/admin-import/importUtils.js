@@ -346,7 +346,7 @@ export const ENRICH_FIELD_TO_DISPLAY = Object.freeze({
   headquarters_location: "Finding headquarters",
   manufacturing_locations: "Finding manufacturing locations",
   industries: "Analyzing industries",
-  product_keywords: "Extracting keywords",
+  product_keywords: "Extracting products",
   logo: "Finding logo",
   reviews: "Searching for reviews",
 });
@@ -359,7 +359,7 @@ export const ENRICH_FIELDS_OPTIONS = Object.freeze([
   { key: "headquarters_location",   label: "Headquarters",            cost: "high"    },
   { key: "manufacturing_locations", label: "Manufacturing locations", cost: "high"    },
   { key: "industries",              label: "Industries",              cost: "low"     },
-  { key: "product_keywords",        label: "Product keywords",        cost: "high"    },
+  { key: "product_keywords",        label: "Products",                cost: "high"    },
   { key: "reviews",                 label: "Reviews",                 cost: "highest" },
   { key: "logo_url",                label: "Logo",                    cost: "medium"  },
 ]);

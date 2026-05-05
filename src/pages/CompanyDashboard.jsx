@@ -527,7 +527,7 @@ const REFRESHABLE_FIELDS = [
   { key: "headquarters_location", label: "HQ location", missingKey: "HQ location" },
   { key: "manufacturing_locations", label: "Manufacturing", missingKey: "manufacturing" },
   { key: "industries", label: "Industries", missingKey: "industries" },
-  { key: "product_keywords", label: "Keywords", missingKey: "keywords" },
+  { key: "product_keywords", label: "Products", missingKey: "keywords" },
   { key: "reviews", label: "Reviews", missingKey: "reviews" },
 ];
 
@@ -537,7 +537,7 @@ const REFRESH_FIELD_STATUS = {
   headquarters_location: "Looking up HQ location\u2026",
   manufacturing_locations: "Researching manufacturing locations\u2026",
   industries: "Identifying industries\u2026",
-  product_keywords: "Cataloging products & keywords\u2026",
+  product_keywords: "Cataloging products\u2026",
   reviews: "Finding & verifying reviews\u2026",
 };
 
@@ -1080,7 +1080,7 @@ export default function CompanyDashboard() {
       { key: "headquarters_locations", label: "HQ locations" },
       { key: "manufacturing_locations", label: "Manufacturing locations" },
       { key: "industries", label: "Industries" },
-      { key: "keywords", label: "Keywords" },
+      { key: "keywords", label: "Products" },
       { key: "curated_reviews", label: "Reviews" },
       { key: "red_flag", label: "Red flag" },
       { key: "red_flag_reason", label: "Red flag reason" },
@@ -3146,7 +3146,7 @@ export default function CompanyDashboard() {
         cell: (row) => {
           const name = getCompanyName(row);
           const url = asString(row?.website_url || row?.url).trim();
-          const text = `For the Company:   ${name}  /  ${url || asString(row?.normalized_domain).trim()}\nFields to populate: tagline, industries, HQ, manufacturing, keywords, reviews`;
+          const text = `For the Company:   ${name}  /  ${url || asString(row?.normalized_domain).trim()}\nFields to populate: tagline, industries, HQ, manufacturing, products, reviews`;
           return (
             <button
               type="button"
@@ -4730,10 +4730,10 @@ export default function CompanyDashboard() {
                           />
 
                           <StringListEditor
-                            label="Keywords"
+                            label="Products"
                             value={editorDraft.keywords}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), keywords: next }))}
-                            placeholder="Add a keyword…"
+                            placeholder="Add a product…"
                           />
 
                           {editorDraft.keywords_completeness === "incomplete" && (
@@ -4747,7 +4747,7 @@ export default function CompanyDashboard() {
                                   }))
                                 }
                               />
-                              <span>Keywords Complete</span>
+                              <span>Products Complete</span>
                             </label>
                           )}
                           </div>
@@ -5517,7 +5517,7 @@ export default function CompanyDashboard() {
                     handleBulkPaste();
                   }
                 }}
-                placeholder={"Company Name\nWebsite: https://example.com\nTagline: Your tagline here\nHQ: City, ST, Country\nManufacturing: City, ST, Country; City2, ST2, Country2\nIndustries: industry1, industry2, industry3\nKeywords: keyword1, keyword2, keyword3\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
+                placeholder={"Company Name\nWebsite: https://example.com\nTagline: Your tagline here\nHQ: City, ST, Country\nManufacturing: City, ST, Country; City2, ST2, Country2\nIndustries: industry1, industry2, industry3\nProducts: product1, product2, product3\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
                 className="min-h-[300px] font-mono text-xs leading-relaxed"
                 autoFocus
               />

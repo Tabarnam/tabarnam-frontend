@@ -438,7 +438,7 @@ export function toLegacyIssueTags(company) {
   if (mfgList.length === 0) issues.push("missing MFG");
 
   const keywords = normalizeStringList(company?.keywords || company?.product_keywords);
-  if (keywords.length === 0) issues.push("missing keywords");
+  if (keywords.length === 0) issues.push("missing products");
 
   if (getComputedReviewCount(company) === 0 && !company?.no_reviews) issues.push("reviews");
 
@@ -520,7 +520,7 @@ export function getContractMissingFields(company) {
     asString(company?.keywords_completeness).trim().toLowerCase() === "incomplete";
   const kwAcknowledged = Boolean(company?.keywords_complete_acknowledged);
   if (kwIncomplete && !kwAcknowledged) {
-    fields.push("+keywords");
+    fields.push("+products");
   }
 
   // Check for missing Amazon URL (unless marked as "no_amazon_store")

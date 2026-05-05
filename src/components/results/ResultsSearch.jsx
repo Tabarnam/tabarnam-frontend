@@ -37,7 +37,7 @@ const ResultsSearch = ({ onSearch, initialParams = {}, isLoading }) => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <Input
             ref={inputRef}
-            placeholder="Search by product, keyword, company..."
+            placeholder="Search by product, company..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900 text-base"
