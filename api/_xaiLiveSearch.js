@@ -157,10 +157,13 @@ function extractTextFromXaiResponse(resp) {
   const data = r.data && typeof r.data === "object" ? r.data : null;
   const obj = data || r;
 
-  // 1. Top-level output_text or text convenience field (xAI /v1/responses)
+  // 1. Top-level output_text convenience field (xAI /v1/responses)
   if (typeof obj.output_text === "string" && obj.output_text.trim()) {
     return obj.output_text;
   }
+
+  // 1b. Top-level text — only if it's a STRING. New xAI Responses API has
+  //     `text: { format: {...} }` as a config object — must skip those.
   if (typeof obj.text === "string" && obj.text.trim()) {
     return obj.text;
   }
@@ -180,11 +183,27 @@ function extractTextFromXaiResponse(resp) {
         return item.text;
       }
 
-      // Message wrapper with content array
+      // Message wrapper with content array (most common in /v1/responses)
       if (Array.isArray(item.content)) {
-        const textItem = item.content.find(c => c?.type === "output_text");
-        if (textItem?.text && typeof textItem.text === "string" && textItem.text.trim()) {
-          return textItem.text;
+        // Find any text-bearing content item — handle multiple type variants
+        for (const c of item.content) {
+          if (!c) continue;
+          // output_text type with .text field
+          if (c.type === "output_text" && typeof c.text === "string" && c.text.trim()) {
+            return c.text;
+          }
+          // text type with .text field (some variants)
+          if (c.type === "text" && typeof c.text === "string" && c.text.trim()) {
+            return c.text;
+          }
+          // Plain .text field on content item (defensive)
+          if (typeof c.text === "string" && c.text.trim()) {
+            return c.text;
+          }
+          // Direct string content
+          if (typeof c === "string" && c.trim()) {
+            return c;
+          }
         }
       }
 
@@ -199,6 +218,16 @@ function extractTextFromXaiResponse(resp) {
       if (typeof item.content === "string" && item.content.trim()) {
         return item.content;
       }
+
+      // NEW: message-type item with .text directly (some Responses API variants)
+      if (item.type === "message" && typeof item.text === "string" && item.text.trim()) {
+        return item.text;
+      }
+
+      // NEW: any item with a .text string (last resort before moving on)
+      if (typeof item.text === "string" && item.text.trim()) {
+        return item.text;
+      }
     }
   }
 
@@ -212,8 +241,17 @@ function extractTextFromXaiResponse(resp) {
   // 5. String passthrough
   if (typeof r === "string") return r;
 
-  // Warn when all extraction paths failed — helps diagnose unexpected xAI response formats
-  try { console.warn(`[extractTextFromXaiResponse] all paths failed, keys=${Object.keys(obj).join(",")}`); } catch {}
+  // Warn when all extraction paths failed — log enough detail to diagnose new formats
+  try {
+    const outputSummary = Array.isArray(obj.output)
+      ? obj.output.map((o) => ({ type: o?.type, keys: o && typeof o === "object" ? Object.keys(o).slice(0, 8) : null })).slice(0, 5)
+      : null;
+    console.warn(
+      `[extractTextFromXaiResponse] all paths failed, keys=${Object.keys(obj).join(",")}, ` +
+      `status=${obj.status || "?"}, incomplete=${JSON.stringify(obj.incomplete_details || null)}, ` +
+      `output_summary=${JSON.stringify(outputSummary)}`
+    );
+  } catch {}
 
   try {
     return JSON.stringify(r);
