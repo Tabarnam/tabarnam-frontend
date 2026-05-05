@@ -80,7 +80,7 @@ export default function HelpPage() {
           <section id="searching">
             <h2 className="text-xl font-semibold text-foreground mb-3">Searching</h2>
             <p className="mb-3">
-              As you type, suggestions appear below the search bar. Keyword and industry completions are
+              As you type, suggestions appear below the search bar. Product and industry completions are
               listed first, followed by matching company names (marked with a small <em>company</em> tag).
               Click a suggestion to run that search.
             </p>
@@ -151,9 +151,9 @@ export default function HelpPage() {
               Each row gives you the essentials at a glance. A few interactions worth knowing:
             </p>
             <ul className="list-disc pl-6 space-y-1.5">
-              <li><strong className="text-foreground">Hover the company logo</strong> to see a still preview of the company's homepage.</li>
+              <li><strong className="text-foreground">Hover the company logo</strong> to see an image of the company's homepage.</li>
               <li><strong className="text-foreground">Click the logo or company name</strong> to open the company's website in a new tab.</li>
-              <li><strong className="text-foreground">Click any keyword or industry tag</strong> to start a fresh search for that term.</li>
+              <li><strong className="text-foreground">Click any product or industry tag</strong> to start a fresh search for that term.</li>
               <li>Distances are shown in miles or kilometers based on your country.</li>
             </ul>
           </section>
@@ -165,8 +165,8 @@ export default function HelpPage() {
             </p>
             <ul className="list-disc pl-6 space-y-1.5">
               <li>Every headquarters location and every manufacturing location.</li>
-              <li>The reputation and quality scores that make up QQ.</li>
-              <li>All industries and keywords associated with the company (each one is clickable to start a new search).</li>
+              <li>The reputation and quality considerations that make up QQ.</li>
+              <li>Industries and products associated with the company (each one is clickable to start a new search).</li>
               <li>Reviews from external sources, with links back to the original review.</li>
               <li>Social media links and an Amazon link when available.</li>
             </ul>
@@ -175,10 +175,15 @@ export default function HelpPage() {
           <section id="share">
             <h2 className="text-xl font-semibold text-foreground mb-3">Sharing</h2>
             <p className="mb-3">
-              Use the share button to send a link to either a search results page or a single company profile.
-              The share dialog offers <em>Copy link</em>, <em>X</em>, and <em>Facebook</em>. On a phone, your
-              device's native share sheet is used.
+              Use the share button to send a link to a search results page or a single company profile. The share
+              dialog includes:
             </p>
+            <ul className="list-disc pl-6 space-y-1.5 mb-3">
+              <li><strong className="text-foreground">Copy link</strong> — copy the URL to your clipboard.</li>
+              <li><strong className="text-foreground">QR code</strong> — show a scannable QR for handing off to a phone.</li>
+              <li><strong className="text-foreground">Recent contacts</strong> — quick-send via your address book.</li>
+              <li><strong className="text-foreground">Apps</strong> — Outlook, Gmail, Microsoft Teams, X, WhatsApp, Facebook, LinkedIn, iCloud, Microsoft 365 Copilot, and other apps installed on your device.</li>
+            </ul>
             <p>
               Search links preserve your query, location, sort, and filters, so the recipient sees the same results
               you saw.
