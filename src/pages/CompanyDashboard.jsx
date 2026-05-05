@@ -4846,7 +4846,7 @@ export default function CompanyDashboard() {
                                   onCheckedChange={(v) => setEditorDraft((d) => ({ ...d, logo_approved: Boolean(v) }))}
                                   disabled={!asString(editorDraft?.logo_url).trim()}
                                 />
-                                Approve Logo
+                                Approve
                               </label>
 
                               <Button
@@ -5021,7 +5021,7 @@ export default function CompanyDashboard() {
                                   onCheckedChange={(v) => setEditorDraft((d) => ({ ...d, homepage_approved: Boolean(v) }))}
                                   disabled={!asString(editorDraft?.homepage_image_url).trim()}
                                 />
-                                Homepage
+                                Approve
                               </label>
 
                               <Button
