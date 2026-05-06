@@ -10,7 +10,7 @@ const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
 const { parseQuery, foldDiacritics } = require("../_queryNormalizer");
 const { expandQueryTermsForFTS, expandProductSynonyms } = require("../_searchSynonyms");
-const { isFuzzyNameMatch, fuzzyScore } = require("../_fuzzyMatch");
+const { isFuzzyNameMatch, damerauLevenshtein } = require("../_fuzzyMatch");
 const { simpleStem, stemWords } = require("../_stemmer");
 const {
   loadIndustryAffinityIndex,
@@ -2021,15 +2021,53 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       if (q_norm) {
         for (const company of deduped) {
           if (company._fuzzyMatch) {
-            // Fuzzy matches get a reduced score based on edit distance
-            const names = [company.company_name, company.display_name, company.name, company.normalized_domain].filter(Boolean);
-            let bestFuzzy = 0;
+            // The user typo'd the company name. Score this company AS IF they
+            // had typed the corrected name (the closest candidate name) so
+            // that a high-confidence typo on a real brand outranks a tangential
+            // keyword match in some other catalog. Then deduct a small per-edit
+            // penalty so a genuine direct match still wins on a tie.
+            //
+            // Before this rule, fuzzy scores were capped at 50 (fuzzyScore
+            // formula = 50 − dist×15), lower than even modest keyword scores —
+            // so e.g. "Cliff Bar" returned Floyd at #1 (had "cliff" and "bar"
+            // among its 1877 keywords) while the actual Clif Bar dropped to #2.
+            const names = [
+              company.company_name,
+              company.display_name,
+              company.name,
+              company.normalized_domain,
+            ].filter(Boolean);
+
+            let bestName = "";
+            let bestDist = Infinity;
             for (const n of names) {
-              bestFuzzy = Math.max(bestFuzzy, fuzzyScore(n, q_norm));
+              const candidateLower = String(n).toLowerCase().trim();
+              const d = damerauLevenshtein(candidateLower, q_norm);
+              if (d < bestDist) {
+                bestDist = d;
+                bestName = candidateLower;
+              }
             }
-            company._nameMatchScore = 0;
-            company._keywordMatchScore = 0;
-            company._relevanceScore = bestFuzzy;
+
+            // Re-normalise the corrected name into raw/norm/compact forms and
+            // score the company as if the user had typed it correctly.
+            const correctedNorm = bestName
+              .replace(/[^a-z0-9\s]/g, "")
+              .replace(/\s+/g, " ")
+              .trim();
+            const correctedCompact = correctedNorm.replace(/\s+/g, "");
+            const scores = computeRelevanceScore(
+              company,
+              bestName,
+              correctedNorm,
+              correctedCompact,
+              affinityIndustries
+            );
+
+            const fuzzyPenalty = (Number.isFinite(bestDist) ? bestDist : 0) * 5;
+            company._nameMatchScore = scores._nameMatchScore;
+            company._keywordMatchScore = scores._keywordMatchScore;
+            company._relevanceScore = Math.max(0, scores._relevanceScore - fuzzyPenalty);
             company._matchType = "fuzzy";
             delete company._fuzzyMatch;
           } else {

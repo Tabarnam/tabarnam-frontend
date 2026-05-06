@@ -944,6 +944,24 @@ test("fuzzy fallback fires for typo when Pass 2 returns substring decoys ('Cliff
   assert.ok(ids.includes("clif-bar"), `expected Clif Bar in results, got: ${ids.join(", ")}`);
   const clif = body.items.find((i) => i.id === "clif-bar");
   assert.equal(clif._matchType, "fuzzy", "Clif Bar should be tagged as a fuzzy match");
+
+  // Clif Bar should rank ABOVE the decoy. Before the fuzzy-rescoring fix,
+  // fuzzy matches were capped at 50 (50 − dist×15 = 35 for distance 1) which
+  // lost to the decoy's substring keyword score. Now fuzzy matches are scored
+  // as if the user had typed the corrected name, giving Clif Bar an exact-name
+  // match score (~100) minus a small per-edit penalty.
+  const clifIdx = ids.indexOf("clif-bar");
+  const decoyIdx = ids.indexOf("cliffside-bakery");
+  assert.ok(
+    clifIdx >= 0 && (decoyIdx < 0 || clifIdx < decoyIdx),
+    `Clif Bar (idx ${clifIdx}) should rank above Cliffside Bakery decoy (idx ${decoyIdx})`
+  );
+  // And the relevance score should be in the strong-match range, not the
+  // capped-at-50 fuzzy range it used to be.
+  assert.ok(
+    clif._relevanceScore >= 80,
+    `Clif Bar relevance should be in the exact-name-match range, got ${clif._relevanceScore}`
+  );
 });
 
 test("fuzzy fallback does NOT fire when a strong name match already exists", async () => {
