@@ -7,6 +7,14 @@ try {
 
 const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
 
+// Lazy require to avoid circular dependency with _grokEnrichment.js
+function _recordXaiResultLazy(result) {
+  try {
+    const cb = require("./_grokEnrichment");
+    if (cb && typeof cb.recordXaiResult === "function") cb.recordXaiResult(result);
+  } catch { /* ignore */ }
+}
+
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
@@ -594,6 +602,31 @@ async function xaiLiveSearchStreaming({
     return null;
   }
 
+  // ── Honor global 503 circuit breaker — fail fast if xAI is broadly degraded ──
+  // Lazy require to avoid circular dep with _grokEnrichment.js
+  let _circuitBreaker = null;
+  try {
+    _circuitBreaker = require("./_grokEnrichment");
+  } catch { /* module not yet loaded */ }
+  if (_circuitBreaker && typeof _circuitBreaker.getUpstream503CooldownRemaining === "function") {
+    const cb503Remaining = _circuitBreaker.getUpstream503CooldownRemaining();
+    if (cb503Remaining > 0) {
+      console.log(
+        `[xaiLiveSearchStreaming] 503 circuit breaker OPEN — failing fast (${cb503Remaining}ms remaining)`
+      );
+      return {
+        ok: false,
+        error: "upstream_503_cooldown",
+        error_code: "upstream_503_cooldown",
+        diagnostics: {
+          cooldown_remaining_ms: cb503Remaining,
+          circuit_breaker_open: true,
+          streaming: true,
+        },
+      };
+    }
+  }
+
   const startedAt = Date.now();
   const controller = new AbortController();
   let abortTimerFired = false;
@@ -641,7 +674,7 @@ async function xaiLiveSearchStreaming({
     });
 
     if (!res.ok) {
-      return {
+      const failResult = {
         ok: false,
         error: `upstream_http_${res.status}`,
         diagnostics: {
@@ -650,6 +683,8 @@ async function xaiLiveSearchStreaming({
           streaming: true,
         },
       };
+      _recordXaiResultLazy(failResult);
+      return failResult;
     }
 
     // Parse SSE stream
@@ -743,7 +778,7 @@ async function xaiLiveSearchStreaming({
 
     // If we got a completed response, use it directly (model stayed within budget)
     if (completedResponse) {
-      return {
+      const okResult = {
         ok: true,
         resp: completedResponse,
         diagnostics: {
@@ -754,6 +789,8 @@ async function xaiLiveSearchStreaming({
           abort_timer_fired: abortTimerFired,
         },
       };
+      _recordXaiResultLazy(okResult);
+      return okResult;
     }
 
     // If aborted by tool cap, build partial response from accumulated data

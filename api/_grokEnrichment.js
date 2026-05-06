@@ -330,6 +330,86 @@ function getRateLimitCooldownRemaining() {
   return remaining > 0 ? remaining : 0;
 }
 
+// ── Global 503 upstream-degradation circuit breaker ─────────────────────────
+// When xAI is broadly degraded (503s on most calls), keep retrying every field
+// for every company wastes 2-8 minutes per company on doomed calls. Track a
+// rolling window of 503 timestamps; if 3 occur within 60s, open the circuit
+// for 90s. While open, all xAI calls return immediately with a cooldown error,
+// letting the caller save a stub fast. The resume-worker (wired in f86ce538)
+// will pick up these stubs once xAI recovers.
+let _upstream503CooldownUntil = 0;
+let _last503Times = []; // rolling window of recent 503 timestamps
+let _consecutive503CooldownCount = 0; // for additive backoff
+
+const UPSTREAM_503_WINDOW_MS = 60_000;
+const UPSTREAM_503_THRESHOLD = 3;
+const UPSTREAM_503_BASE_COOLDOWN_MS = 90_000;
+const UPSTREAM_503_MAX_COOLDOWN_MS = 300_000;
+
+function is503UpstreamError(result) {
+  if (!result || typeof result !== "object") return false;
+  const http = Number(result?.diagnostics?.upstream_http_status || 0) || 0;
+  if (http === 503) return true;
+  const err = String(result.error || "").toLowerCase();
+  return err === "upstream_http_503";
+}
+
+function getUpstream503CooldownRemaining() {
+  const remaining = _upstream503CooldownUntil - Date.now();
+  return remaining > 0 ? remaining : 0;
+}
+
+function setUpstream503Cooldown() {
+  _consecutive503CooldownCount += 1;
+  // Additive backoff: 90s, 150s, 210s, 270s, 300s (capped)
+  const dur = Math.min(
+    UPSTREAM_503_BASE_COOLDOWN_MS + (_consecutive503CooldownCount - 1) * 60_000,
+    UPSTREAM_503_MAX_COOLDOWN_MS
+  );
+  _upstream503CooldownUntil = Date.now() + dur;
+  console.warn(
+    `[xai-circuit-breaker] 503 circuit OPEN — cooldown ${Math.round(dur / 1000)}s ` +
+    `(${_consecutive503CooldownCount} consecutive opens)`
+  );
+}
+
+function recordXaiResult(result) {
+  if (!result || typeof result !== "object") return;
+  // Successful result resets all 503 tracking
+  if (result.ok === true) {
+    if (_consecutive503CooldownCount > 0 || _last503Times.length > 0) {
+      console.log(`[xai-circuit-breaker] 503 circuit CLOSED — successful response received`);
+    }
+    _last503Times = [];
+    _consecutive503CooldownCount = 0;
+    _upstream503CooldownUntil = 0;
+    return;
+  }
+  if (is503UpstreamError(result)) {
+    const now = Date.now();
+    _last503Times.push(now);
+    // Prune entries older than the window
+    _last503Times = _last503Times.filter((t) => now - t <= UPSTREAM_503_WINDOW_MS);
+    if (_last503Times.length >= UPSTREAM_503_THRESHOLD && getUpstream503CooldownRemaining() === 0) {
+      setUpstream503Cooldown();
+    }
+  }
+}
+
+function makeUpstream503CooldownResult() {
+  const remaining = getUpstream503CooldownRemaining();
+  return {
+    ok: false,
+    error: "upstream_503_cooldown",
+    error_code: "upstream_503_cooldown",
+    diagnostics: {
+      cooldown_remaining_ms: remaining,
+      circuit_breaker_open: true,
+      streaming: false,
+    },
+  };
+}
+
 /**
  * xAI live search with retry logic.
  *
@@ -362,6 +442,15 @@ async function xaiLiveSearchWithRetry({
   let last = null;
   let rlRetriesUsed = 0;
 
+  // ── Honor global 503 circuit breaker — fail fast if xAI is broadly degraded ──
+  const cb503Remaining = getUpstream503CooldownRemaining();
+  if (cb503Remaining > 0) {
+    console.log(
+      `[xaiLiveSearchWithRetry] 503 circuit breaker OPEN — failing fast (${cb503Remaining}ms remaining)`
+    );
+    return makeUpstream503CooldownResult();
+  }
+
   // ── Honor global cooldown from previous 429 exhaustion ──
   const cooldownRemaining = getRateLimitCooldownRemaining();
   if (cooldownRemaining > 0) {
@@ -373,7 +462,13 @@ async function xaiLiveSearchWithRetry({
 
   for (let i = 0; i < attempts; i += 1) {
     last = await xaiLiveSearch({ ...args, attempt: i });
+    recordXaiResult(last);
     if (last && last.ok) return last;
+    // After recording, re-check circuit — if a previous attempt opened it, abort retries
+    if (getUpstream503CooldownRemaining() > 0) {
+      console.log(`[xaiLiveSearchWithRetry] 503 circuit opened mid-call — aborting retries`);
+      return last;
+    }
 
     // ── 429 rate-limit: automatically retry with exponential backoff ──
     // Unlike timeouts (which burn 2-4 min each), 429s are instant rejections.
@@ -388,6 +483,7 @@ async function xaiLiveSearchWithRetry({
       );
       await sleepMs(backoff);
       last = await xaiLiveSearch({ ...args, attempt: i });
+      recordXaiResult(last);
       if (last && last.ok) {
         // Rate limit cleared — reset global cooldown
         _rateLimitCooldownUntil = 0;
@@ -4246,6 +4342,26 @@ async function fetchAllFieldsSinglePrompt({
 
   console.log(`[fetchAllFieldsSinglePrompt] Starting for "${companyName}" (${domain}), budget=${budgetMs}ms, skipLogo=${skipLogo}`);
 
+  // ── Honor 503 circuit breaker — fail fast if xAI is broadly degraded ──
+  // Saves the stub immediately; resume-worker will retry once xAI recovers.
+  const cb503Remaining = getUpstream503CooldownRemaining();
+  if (cb503Remaining > 0) {
+    console.warn(
+      `[fetchAllFieldsSinglePrompt] 503 circuit breaker OPEN — skipping enrichment for "${companyName}" ` +
+      `(${cb503Remaining}ms cooldown remaining). Stub will be saved; resume-worker will retry.`
+    );
+    return {
+      ok: false,
+      method: "single_prompt",
+      error: "upstream_503_cooldown",
+      error_code: "upstream_503_cooldown",
+      parsed_fields: {},
+      field_statuses: {},
+      elapsed_ms: Date.now() - started,
+      diagnostics: { circuit_breaker_open: true, cooldown_remaining_ms: cb503Remaining },
+    };
+  }
+
   // 1. Pre-fetch about/contact pages for HQ/MFG extraction (parallel, best-effort)
   let prefetchedAboutHtml = "";
   try {
@@ -5370,4 +5486,8 @@ module.exports = {
   // Admin refresh bypass flag
   setAdminRefreshBypass,
   isAdminRefreshBypass,
+  // 503 circuit breaker
+  recordXaiResult,
+  getUpstream503CooldownRemaining,
+  is503UpstreamError,
 };
