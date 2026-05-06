@@ -2652,6 +2652,10 @@ export default function CompanyDashboard() {
           setRescorePrompt({ savedId, normalizedDomain, savedCompany });
         } else {
           closeEditor();
+          // Refresh the list from the server so the issues column and
+          // other derived fields reflect the latest backend state.
+          // Avoids stale tags after Save & Close.
+          loadCompanies({ search, take });
         }
       } else {
         // Inline save (green sticky button) — stay open, show branded toast
@@ -2668,7 +2672,7 @@ export default function CompanyDashboard() {
     } finally {
       setEditorSaving(false);
     }
-  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, items, proposedDraft, refreshDiffFields, refreshSelection, refreshTaglineMeta, updateCompanyInState]);
+  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, items, loadCompanies, proposedDraft, refreshDiffFields, refreshSelection, refreshTaglineMeta, search, take, updateCompanyInState]);
 
   const handleSaveClick = useCallback(() => {
     // Only gate when editing an existing company (not creating)
