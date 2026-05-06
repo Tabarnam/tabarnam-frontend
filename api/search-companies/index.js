@@ -1875,11 +1875,22 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       }
 
-      // Fuzzy fallback: when primary search yields 0 results and query is long enough,
-      // fall back to prefix-based search with Levenshtein post-filter.
-      // Tries a 4-char prefix first, then falls back to 3-char prefix if no candidates
-      // are found (handles typos in the 4th character, e.g., "lilipad" → "lillipad").
-      if (items.length === 0 && q_norm && q_norm.length >= 4 && !quickMode) {
+      // Fuzzy fallback: fall back to prefix-based search with Damerau-Levenshtein
+      // post-filter when primary search produces no real name match for the query.
+      // Tries a 4-char prefix first, then a 3-char prefix.
+      //
+      // The gate used to be `items.length === 0`, but Pass 2's per-word substring
+      // AND can return incidental matches that block real typo corrections — e.g.
+      // "Cliff Bar" → "Clif Bar" never surfaced because some other company had
+      // "cliff" + "bar" as substrings somewhere, leaving items.length > 0. Now we
+      // also fire fuzzy when none of the retrieved companies has a name match
+      // score >= 60 (word-boundary or better) for the query. The decoy substring
+      // hits stay in results but rank below the fuzzy correction.
+      const hasStrongNameMatch =
+        items.length > 0 &&
+        items.some((c) => computeNameMatchScore(c, q_raw, q_norm, q_compact) >= 60);
+
+      if (!hasStrongNameMatch && q_norm && q_norm.length >= 4 && !quickMode) {
         try {
           const prefixLengths = [4, 3]; // try longer prefix first for precision, then shorter
           const existingIds = new Set(items.map((i) => i.id));

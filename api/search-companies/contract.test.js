@@ -891,3 +891,113 @@ test("isSynonymOnlyMatch: single-word query with no data match returns true (unc
   // "something unrelated" — still synonym-only.
   assert.equal(_test.isSynonymOnlyMatch(company, "hoodie", "hoodie"), true);
 });
+
+// ── fuzzy fallback gating: typo correction even when Pass 2 returns decoys ──
+
+test("fuzzy fallback fires for typo when Pass 2 returns substring decoys ('Cliff Bar' → Clif Bar)", async () => {
+  // Realistic decoy: a Cliffside Bakery whose search_text_norm contains BOTH
+  // "cliff" AND "bar" as substrings, satisfying Pass 2's per-word AND. Without
+  // the gate change, Pass 2 returns this and items.length === 1 prevents fuzzy
+  // fallback — Clif Bar never surfaces.
+  const clifBar = {
+    id: "clif-bar",
+    company_name: "Clif Bar",
+    normalized_domain: "clifbar.com",
+    search_text_norm: " clif bar energy bars organic ingredients ",
+    keywords: ["energy bars", "organic"],
+    industries: ["Food"],
+    _ts: 1700000000,
+  };
+  const decoy = {
+    id: "cliffside-bakery",
+    company_name: "Cliffside Bakery",
+    normalized_domain: "cliffsidebakery.com",
+    search_text_norm: " cliffside bakery granola bar pastries ",
+    keywords: ["granola bar", "pastries"],
+    industries: ["Food"],
+    _ts: 1700000001,
+  };
+
+  const companiesContainer = makeContainer(async (spec) => {
+    const isFuzzyQuery = spec?.parameters?.some((p) => p.name === "@fuzzyTake");
+    if (isFuzzyQuery) {
+      // Fuzzy SQL: STARTSWITH(name|domain, "clif"). Both Clif Bar and the decoy
+      // could match "clif" prefix (Cliffside also starts with "clif"), but the
+      // post-filter isFuzzyNameMatch only accepts edit-distance <= 2.
+      return [clifBar, decoy];
+    }
+    // Primary search returns the decoy (Pass 2 substring AND on cliff+bar).
+    return [decoy];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq(
+      "https://example.test/api/search-companies?raw=Cliff+Bar&norm=cliff+bar&compact=cliffbar&sort=stars&take=10"
+    ),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  const ids = body.items.map((i) => i.id);
+  assert.ok(ids.includes("clif-bar"), `expected Clif Bar in results, got: ${ids.join(", ")}`);
+  const clif = body.items.find((i) => i.id === "clif-bar");
+  assert.equal(clif._matchType, "fuzzy", "Clif Bar should be tagged as a fuzzy match");
+});
+
+test("fuzzy fallback does NOT fire when a strong name match already exists", async () => {
+  // Red Bull is in the catalog and matches "red bull" exactly by name —
+  // computeNameMatchScore returns 100, so the gate (hasStrongNameMatch) is true
+  // and the fuzzy SQL must not be issued. We assert by counting that no query
+  // with @fuzzyTake parameter ran.
+  const redBull = {
+    id: "red-bull",
+    company_name: "Red Bull",
+    normalized_domain: "redbull.com",
+    search_text_norm: " red bull energy drink ",
+    keywords: ["energy drink"],
+    industries: ["Beverages"],
+    _ts: 1700000000,
+  };
+
+  let fuzzyQueriesIssued = 0;
+  const companiesContainer = makeContainer(async (spec) => {
+    if (spec?.parameters?.some((p) => p.name === "@fuzzyTake")) {
+      fuzzyQueriesIssued++;
+      return [];
+    }
+    return [redBull];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq(
+      "https://example.test/api/search-companies?raw=Red+Bull&norm=red+bull&compact=redbull&sort=stars&take=10"
+    ),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  assert.equal(fuzzyQueriesIssued, 0, "fuzzy fallback must not fire when a strong name match already exists");
+});
+
+test("fuzzy fallback does NOT fire for queries shorter than 4 chars", async () => {
+  let fuzzyQueriesIssued = 0;
+  const companiesContainer = makeContainer(async (spec) => {
+    if (spec?.parameters?.some((p) => p.name === "@fuzzyTake")) {
+      fuzzyQueriesIssued++;
+      return [];
+    }
+    return []; // primary returns nothing — the gate must still block fuzzy on short queries
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=abc&norm=abc&compact=abc&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  assert.equal(fuzzyQueriesIssued, 0, "fuzzy fallback must not fire for queries < 4 chars even with zero results");
+});
