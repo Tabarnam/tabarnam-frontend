@@ -630,8 +630,24 @@ async function xaiLiveSearchStreaming({
   const startedAt = Date.now();
   const controller = new AbortController();
   let abortTimerFired = false;
+  let circuitAbortFired = false;
   const timeoutUsedMs = Math.max(1000, Math.trunc(Number(timeoutMs) || 210000));
   const timer = setTimeout(() => { abortTimerFired = true; controller.abort(); }, timeoutUsedMs);
+
+  // Mid-flight circuit breaker check — abort if 503 circuit opens during this call.
+  // Fixes the gap where in-flight calls keep running after peers trigger the breaker.
+  const circuitChecker = setInterval(() => {
+    try {
+      const cb = require("./_grokEnrichment");
+      if (cb && typeof cb.getUpstream503CooldownRemaining === "function") {
+        if (cb.getUpstream503CooldownRemaining() > 0) {
+          circuitAbortFired = true;
+          controller.abort();
+          clearInterval(circuitChecker);
+        }
+      }
+    } catch { /* ignore */ }
+  }, 5_000);
 
   // Link external abort signal
   if (signal) {
@@ -846,6 +862,24 @@ async function xaiLiveSearchStreaming({
   } catch (err) {
     const message = asString(err?.message || err) || "streaming_failed";
     const elapsedMs = Date.now() - startedAt;
+    // If our mid-flight circuit check aborted, surface it as a circuit cooldown
+    // so the caller treats it consistently and doesn't waste budget on retries.
+    if (circuitAbortFired) {
+      console.log(`[xaiLiveSearchStreaming] mid-flight aborted by 503 circuit breaker after ${elapsedMs}ms`);
+      return {
+        ok: false,
+        error: "upstream_503_cooldown",
+        error_code: "upstream_503_cooldown",
+        diagnostics: {
+          elapsed_ms: elapsedMs,
+          tool_calls_counted: 0,
+          streaming: true,
+          aborted_by_us: true,
+          circuit_breaker_open: true,
+          mid_flight_circuit_abort: true,
+        },
+      };
+    }
     return {
       ok: false,
       error: message,
@@ -863,6 +897,7 @@ async function xaiLiveSearchStreaming({
     };
   } finally {
     clearTimeout(timer);
+    clearInterval(circuitChecker);
   }
 }
 

@@ -342,7 +342,7 @@ let _last503Times = []; // rolling window of recent 503 timestamps
 let _consecutive503CooldownCount = 0; // for additive backoff
 
 const UPSTREAM_503_WINDOW_MS = 60_000;
-const UPSTREAM_503_THRESHOLD = 3;
+const UPSTREAM_503_THRESHOLD = 2; // 2 503s in 60s = open circuit (was 3 — too slow)
 const UPSTREAM_503_BASE_COOLDOWN_MS = 90_000;
 const UPSTREAM_503_MAX_COOLDOWN_MS = 300_000;
 
