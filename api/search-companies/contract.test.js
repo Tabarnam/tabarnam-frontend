@@ -1019,3 +1019,176 @@ test("fuzzy fallback does NOT fire for queries shorter than 4 chars", async () =
   assert.equal(res.status, 200);
   assert.equal(fuzzyQueriesIssued, 0, "fuzzy fallback must not fire for queries < 4 chars even with zero results");
 });
+
+// ── Pass 3: broadening — multi-word OR retrieval surfaces related companies ──
+
+test("broadening pass: 'Hobbs Pickles' surfaces other pickle companies below the brand match", async () => {
+  // Brand: matches both "hobbs" AND "pickles" → returned by Pass 1/2.
+  const hobbsPickles = {
+    id: "hobbs-pickles",
+    company_name: "Hobbs Pickles",
+    normalized_domain: "hobbspickles.com",
+    search_text_norm: " hobbs pickles new york style deli pickles ",
+    search_text_stemmed: " hobb pickle new york style deli pickle ",
+    keywords: ["dill pickles", "kosher dill pickles"],
+    industries: ["Pickles", "Food"],
+    _ts: 1700000000,
+  };
+  // Three other pickle companies — only "pickles" matches, "hobbs" doesn't.
+  // Pass 1 AND pass 2 won't return them; only the broadening pass will.
+  const pete = {
+    id: "pickle-pete",
+    company_name: "Pickle Pete's",
+    normalized_domain: "picklepete.com",
+    search_text_norm: " pickle petes artisan pickles ",
+    search_text_stemmed: " pickle pete artisan pickle ",
+    keywords: ["artisan pickles"],
+    industries: ["Pickles", "Food"],
+    _ts: 1700000001,
+  };
+  const sour = {
+    id: "sour-stuff",
+    company_name: "Sour Stuff",
+    normalized_domain: "sourstuff.com",
+    search_text_norm: " sour stuff fermented pickles ",
+    search_text_stemmed: " sour stuff ferment pickle ",
+    keywords: ["fermented pickles"],
+    industries: ["Pickles", "Food"],
+    _ts: 1700000002,
+  };
+  const brine = {
+    id: "brine-co",
+    company_name: "Brine Co.",
+    normalized_domain: "brineco.com",
+    search_text_norm: " brine co craft pickles ",
+    search_text_stemmed: " brine co craft pickle ",
+    keywords: ["craft pickles"],
+    industries: ["Pickles", "Food"],
+    _ts: 1700000003,
+  };
+  // Floyd has neither word — should not appear.
+  const floyd = {
+    id: "floyd",
+    company_name: "Floyd Furniture",
+    normalized_domain: "floyd.com",
+    search_text_norm: " floyd furniture modular sofa table ",
+    search_text_stemmed: " floyd furniture modular sofa table ",
+    keywords: ["modular sofa", "table"],
+    industries: ["Furniture"],
+    _ts: 1700000004,
+  };
+
+  const companiesContainer = makeContainer(async (spec) => {
+    const isFuzzy = spec?.parameters?.some((p) => p.name === "@fuzzyTake");
+    if (isFuzzy) return [];
+    const isBroaden = spec?.parameters?.some((p) => p.name === "@broadenTake");
+    if (isBroaden) {
+      // Returns every company whose search_text_norm contains " hobbs " or
+      // " pickles " (or stemmed equivalents).
+      return [hobbsPickles, pete, sour, brine];
+    }
+    // Pass 1 + Pass 2 (strict AND) — only Hobbs matches both words.
+    return [hobbsPickles];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq(
+      "https://example.test/api/search-companies?raw=Hobbs+Pickles&norm=hobbs+pickles&compact=hobbspickles&sort=stars&take=10"
+    ),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  const ids = body.items.map((i) => i.id);
+  assert.ok(ids.includes("hobbs-pickles"), "Hobbs Pickles must be in results");
+  assert.equal(ids[0], "hobbs-pickles", `Hobbs Pickles must rank #1, got: ${ids.join(", ")}`);
+  assert.ok(ids.includes("pickle-pete"), "Pickle Pete's must surface via broadening");
+  assert.ok(ids.includes("sour-stuff"), "Sour Stuff must surface via broadening");
+  assert.ok(ids.includes("brine-co"), "Brine Co. must surface via broadening");
+  assert.ok(!ids.includes("floyd"), "Floyd Furniture must NOT appear (no query-word match)");
+});
+
+test("broadening pass is skipped for single-word queries", async () => {
+  let broadenIssued = 0;
+  const lone = {
+    id: "lone",
+    company_name: "Pickle Co",
+    search_text_norm: " pickle co pickles ",
+    search_text_stemmed: " pickle co pickle ",
+    industries: ["Pickles"],
+    _ts: 1700000000,
+  };
+
+  const companiesContainer = makeContainer(async (spec) => {
+    if (spec?.parameters?.some((p) => p.name === "@broadenTake")) {
+      broadenIssued++;
+      return [];
+    }
+    return [lone];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=pickles&norm=pickles&compact=pickles&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  assert.equal(broadenIssued, 0, "broadening pass must not fire for single-word queries");
+});
+
+test("broadening: 'bone broth' doesn't elevate single-word incidental matches", async () => {
+  // Bone Broth Co matches both words → tier 0.
+  const broth = {
+    id: "bone-broth-co",
+    company_name: "Bone Broth Co",
+    normalized_domain: "bonebrothco.com",
+    search_text_norm: " bone broth co organic bone broth ",
+    search_text_stemmed: " bone broth co organic bone broth ",
+    keywords: ["bone broth", "organic broth"],
+    industries: ["Food"],
+    _ts: 1700000000,
+  };
+  // Dog Toys Inc matches only "bone" — broadening pulls it in, but the
+  // partial-coverage ×0.6 penalty in computeKeywordMatchScore should keep it
+  // far below the real bone-broth match.
+  const dogToys = {
+    id: "dog-toys",
+    company_name: "Dog Toys Inc",
+    normalized_domain: "dogtoys.com",
+    search_text_norm: " dog toys inc rawhide bone chew toys ",
+    search_text_stemmed: " dog toy inc rawhide bone chew toy ",
+    keywords: ["bone chew toys", "rawhide"],
+    industries: ["Pets"],
+    _ts: 1700000001,
+  };
+
+  const companiesContainer = makeContainer(async (spec) => {
+    if (spec?.parameters?.some((p) => p.name === "@fuzzyTake")) return [];
+    if (spec?.parameters?.some((p) => p.name === "@broadenTake")) {
+      return [broth, dogToys]; // both match (broth has both words; dog has "bone" only)
+    }
+    // Pass 1+2 strict AND finds only the broth co.
+    return [broth];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq(
+      "https://example.test/api/search-companies?raw=bone+broth&norm=bone+broth&compact=bonebroth&sort=stars&take=10"
+    ),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  const ids = body.items.map((i) => i.id);
+  assert.equal(ids[0], "bone-broth-co", `Bone Broth Co must rank #1, got: ${ids.join(", ")}`);
+  if (ids.includes("dog-toys")) {
+    const brothIdx = ids.indexOf("bone-broth-co");
+    const dogIdx = ids.indexOf("dog-toys");
+    assert.ok(brothIdx < dogIdx, "Dog Toys Inc must rank below Bone Broth Co");
+  }
+});

@@ -1875,6 +1875,58 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       }
 
+      // ── Pass 3: broadening — per-word word-boundary OR ──
+      // For multi-word queries, also retrieve companies that match ANY query
+      // word at a word boundary. This is what surfaces pickle companies for
+      // "Hobbs Pickles" beneath the brand match. Strict-AND retrieval (Pass
+      // 1/2) keeps precision for the primary hit; this pass adds related
+      // candidates that the existing relevance scoring + industry affinity
+      // index then rank correctly. Skipped in quickMode and for single-word
+      // queries (Pass 1 already covers the equivalent set). Skipped for
+      // sort=manu where the user explicitly chose a strict view.
+      if (!quickMode && q_norm && sort !== "manu") {
+        const broadenWords = q_norm.split(/\s+/).filter((w) => w.length >= 3);
+        if (broadenWords.length >= 2) {
+          const broadenParams = [{ name: "@broadenTake", value: 500 }];
+          const broadenClauses = [];
+          broadenWords.forEach((word, i) => {
+            const wParam = `@bw${i}`;
+            broadenParams.push({ name: wParam, value: ` ${word} ` });
+            broadenClauses.push(`CONTAINS(c.search_text_norm, ${wParam})`);
+            const stemmed = simpleStem(word);
+            if (stemmed && stemmed !== word) {
+              const sParam = `@bws${i}`;
+              broadenParams.push({ name: sParam, value: ` ${stemmed} ` });
+              broadenClauses.push(`CONTAINS(c.search_text_stemmed, ${sParam})`);
+            }
+          });
+
+          const broadenSql = `
+            SELECT TOP @broadenTake ${SELECT_FIELDS}
+            FROM c
+            WHERE (${broadenClauses.join(" OR ")}) AND ${softDeleteFilter}
+            ORDER BY c._ts DESC
+          `;
+
+          try {
+            const broadenRes = await container.items
+              .query({ query: broadenSql, parameters: broadenParams }, { enableCrossPartitionQuery: true })
+              .fetchAll();
+            const broadenItems = broadenRes.resources || [];
+            const existingIds = new Set(items.map((i) => i.id));
+            for (const item of broadenItems) {
+              if (existingIds.has(item.id)) continue;
+              item._broadenedMatch = true;
+              items.push(item);
+              existingIds.add(item.id);
+            }
+          } catch (broadenErr) {
+            // Best-effort. If this fails, the user still gets Pass 1+2 results.
+            context.log("[search-companies] broadening pass error:", broadenErr?.message);
+          }
+        }
+      }
+
       // Fuzzy fallback: fall back to prefix-based search with Damerau-Levenshtein
       // post-filter when primary search produces no real name match for the query.
       // Tries a 4-char prefix first, then a 3-char prefix.
