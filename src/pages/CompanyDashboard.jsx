@@ -613,6 +613,10 @@ export default function CompanyDashboard() {
   const [refreshSelection, setRefreshSelection] = useState({});
   const [refreshApplied, setRefreshApplied] = useState(false);
   const [pendingSaveAfterApply, setPendingSaveAfterApply] = useState(false);
+  // Set when curated_reviews were among the diffs just applied; the post-apply
+  // useEffect chains a silent save + xAI rescore so Reputation/Quality update
+  // immediately rather than going through the manual "Refresh" button.
+  const [pendingAutoRescoreAfterApply, setPendingAutoRescoreAfterApply] = useState(false);
   const [refreshFieldsOpen, setRefreshFieldsOpen] = useState(false);
   const [refreshFieldChecks, setRefreshFieldChecks] = useState({
     logo_url: true,
@@ -1465,6 +1469,8 @@ export default function CompanyDashboard() {
     const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
     if (!baseProposed) return;
 
+    let reviewsApplied = false;
+
     setEditorDraft((prev) => {
       const base = prev && typeof prev === "object" ? prev : {};
       let next = base;
@@ -1474,21 +1480,30 @@ export default function CompanyDashboard() {
         if (!Object.prototype.hasOwnProperty.call(baseProposed, row.key)) continue;
         if (next === base) next = { ...base };
         next[row.key] = baseProposed[row.key];
+        if (row.key === "curated_reviews") reviewsApplied = true;
       }
 
       return next;
     });
 
     setRefreshApplied(true);
-    setPendingSaveAfterApply(true);
+    if (reviewsApplied && editorOriginalId) {
+      // Existing company + reviews accepted → auto-rescore Reputation/Quality
+      // immediately. Skips the regular auto-save path (silentSaveAndAutoRescore
+      // performs its own save).
+      setPendingAutoRescoreAfterApply(true);
+    } else {
+      setPendingSaveAfterApply(true);
+    }
     toast.success(`Applied ${selectedDiffCount} change${selectedDiffCount === 1 ? "" : "s"}`);
-  }, [diffRows, proposedDraft, refreshSelection, selectedDiffCount]);
+  }, [diffRows, editorOriginalId, proposedDraft, refreshSelection, selectedDiffCount]);
 
   const applyAllProposedToDraft = useCallback(() => {
     const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
     if (!baseProposed) return;
 
     const protectedKeys = new Set(["logo_url", "notes", "notes_entries", "rating"]);
+    let reviewsApplied = false;
 
     setEditorDraft((prev) => {
       const base = prev && typeof prev === "object" ? prev : {};
@@ -1499,15 +1514,20 @@ export default function CompanyDashboard() {
         if (!Object.prototype.hasOwnProperty.call(baseProposed, f.key)) continue;
         if (next === base) next = { ...base };
         next[f.key] = baseProposed[f.key];
+        if (f.key === "curated_reviews") reviewsApplied = true;
       }
 
       return next;
     });
 
     setRefreshApplied(true);
-    setPendingSaveAfterApply(true);
+    if (reviewsApplied && editorOriginalId) {
+      setPendingAutoRescoreAfterApply(true);
+    } else {
+      setPendingSaveAfterApply(true);
+    }
     toast.success("Applied proposed values to draft");
-  }, [proposedDraft, refreshDiffFields]);
+  }, [editorOriginalId, proposedDraft, refreshDiffFields]);
 
   const copyAllProposedAsJson = useCallback(async () => {
     const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
@@ -2305,6 +2325,11 @@ export default function CompanyDashboard() {
     }
   }, [applyRefreshProposed, editorDraft, editorOriginalId, normalizeForDiff, playNotification, pollRefreshStatus, proposedValueToInputText, refreshDiffFields]);
 
+  // Ref to silentSaveAndAutoRescore — wired below after that fn is defined.
+  // This breaks the temporal-dead-zone cycle since applySelectedProposedReviews
+  // is declared earlier in the component body than silentSaveAndAutoRescore.
+  const silentSaveAndAutoRescoreRef = useRef(null);
+
   const applySelectedProposedReviews = useCallback(
     (selectedReviews) => {
       const base = editorDraft && typeof editorDraft === "object" ? editorDraft : {};
@@ -2312,9 +2337,19 @@ export default function CompanyDashboard() {
       const { merged, addedCount, skippedDuplicates } = mergeCuratedReviews(existing, selectedReviews);
 
       setEditorDraft((prev) => ({ ...(prev || {}), curated_reviews: merged }));
+
+      // When admin accepts reviews into an existing company, immediately
+      // persist + rescore Reputation/Quality so scores reflect the new
+      // input without requiring a separate "Refresh" click.
+      // Skipped for brand-new companies (nothing to score against yet).
+      if (addedCount > 0 && editorOriginalId) {
+        // Fire-and-forget — helper manages its own toasts and state patches.
+        silentSaveAndAutoRescoreRef.current?.();
+      }
+
       return { addedCount, skippedDuplicates };
     },
-    [editorDraft]
+    [editorDraft, editorOriginalId]
   );
 
   const deleteCuratedReviewFromDraft = useCallback((reviewId, index) => {
@@ -2383,8 +2418,8 @@ export default function CompanyDashboard() {
     );
   }, []);
 
-  const saveEditor = useCallback(async ({ closeAfter = true } = {}) => {
-    if (!editorDraft) return;
+  const saveEditor = useCallback(async ({ closeAfter = true, autoRescore = false } = {}) => {
+    if (!editorDraft) return null;
 
     // Snapshot the pre-save state of scoring-relevant fields so we can detect
     // whether curated_reviews or star4/star5 admin notes changed on this save
@@ -2440,7 +2475,7 @@ export default function CompanyDashboard() {
     const validationError = validateCompanyDraft(draftForSave);
     if (validationError) {
       toast.error(validationError);
-      return;
+      return null;
     }
 
     const isNew = !editorOriginalId;
@@ -2567,7 +2602,7 @@ export default function CompanyDashboard() {
       if (!res.ok || body?.ok !== true) {
         const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Save failed (${res.status})`;
         toast.error(msg);
-        return;
+        return null;
       }
 
       const savedCompany = body?.company || payload;
@@ -2596,10 +2631,22 @@ export default function CompanyDashboard() {
           }`
         : "";
 
-      toast.branded(reviewDetail ? `${label} — ${reviewDetail}` : label);
+      // Suppress the "Company saved" toast for auto-rescore-driven saves —
+      // the auto-rescore path emits its own combined toast on completion.
+      if (!autoRescore) {
+        toast.branded(reviewDetail ? `${label} — ${reviewDetail}` : label);
+      }
 
-      if (closeAfter) {
-        const normalizedDomain = asString(savedCompany?.normalized_domain || draftForSave?.normalized_domain).trim();
+      const normalizedDomain = asString(savedCompany?.normalized_domain || draftForSave?.normalized_domain).trim();
+
+      if (autoRescore) {
+        // Caller (silentSaveAndAutoRescore) will chain a force-rescore.
+        // Refresh the inline editor draft so any other patches the API
+        // applied (sanitization, derived fields) are reflected. Don't close.
+        const merged = buildCompanyDraft(savedCompany);
+        editorHistory.resetHistory(merged);
+        setEditorOriginalId(savedId);
+      } else if (closeAfter) {
         if (scoringInputChanged && savedId && normalizedDomain) {
           // Don't close yet — prompt admin to refresh or skip
           setRescorePrompt({ savedId, normalizedDomain, savedCompany });
@@ -2613,8 +2660,11 @@ export default function CompanyDashboard() {
         editorHistory.resetHistory(merged);
         setEditorOriginalId(savedId);
       }
+
+      return { ok: true, savedId, normalizedDomain, savedCompany };
     } catch (e) {
       toast.error(e?.message || "Save failed");
+      return null;
     } finally {
       setEditorSaving(false);
     }
@@ -2631,6 +2681,70 @@ export default function CompanyDashboard() {
     saveEditor();
   }, [diffRows, editorOriginalId, refreshSelection, saveEditor]);
 
+  // Silent save + xAI rescore + auto-apply.
+  // Triggered when reviews are accepted into an existing company so admin
+  // sees the updated Reputation/Quality scores instantly without prompts.
+  // Persists the FULL current draft (review-accept moment is an implicit save commit).
+  const silentSaveAndAutoRescore = useCallback(async () => {
+    if (!editorOriginalId) return; // new companies have nothing to score yet
+
+    const toastId = toast.info("Saving and rescoring Reputation & Quality…", { duration: 60000 });
+    try {
+      const saveResult = await saveEditor({ closeAfter: false, autoRescore: true });
+      if (!saveResult || !saveResult.ok) {
+        // saveEditor already showed an error toast for its own failure case
+        toast.dismiss(toastId);
+        return;
+      }
+
+      const { savedId, normalizedDomain, savedCompany } = saveResult;
+      if (!savedId || !normalizedDomain) {
+        toast.dismiss(toastId);
+        toast.branded("Saved (rescore skipped — missing domain)");
+        return;
+      }
+
+      const res = await apiFetch("/xadmin-api-score-company", {
+        method: "POST",
+        body: {
+          company_id: savedId,
+          normalized_domain: normalizedDomain,
+          force: true,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      toast.dismiss(toastId);
+
+      if (data?.ok === true) {
+        const s4 = typeof data.star4 === "number" ? data.star4 : null;
+        const s5 = typeof data.star5 === "number" ? data.star5 : null;
+        const s4Txt = s4 != null ? s4.toFixed(2) : "—";
+        const s5Txt = s5 != null ? s5.toFixed(2) : "—";
+
+        const updatedCompany = data.company && typeof data.company === "object" ? data.company : savedCompany;
+        updateCompanyInState(savedId, updatedCompany);
+        // Patch the editor draft so star4/star5 + reasoning render immediately
+        setEditorDraft((prev) => {
+          if (!prev || getCompanyId(prev) !== savedId) return prev;
+          const merged = buildCompanyDraft(updatedCompany);
+          editorHistory.resetHistory(merged);
+          return merged;
+        });
+
+        toast.branded(`Auto-rescored: Reputation ${s4Txt} · Quality ${s5Txt}`);
+      } else {
+        toast.error(`Auto-rescore failed: ${data?.reason || data?.error || "unknown"} (reviews were saved)`);
+      }
+    } catch (e) {
+      toast.dismiss(toastId);
+      toast.error(`Auto-rescore failed: ${e?.message || e}`);
+    }
+  }, [editorOriginalId, saveEditor, updateCompanyInState]);
+
+  // Wire the ref so applySelectedProposedReviews can call this fn even though
+  // it's declared earlier in the component body.
+  silentSaveAndAutoRescoreRef.current = silentSaveAndAutoRescore;
+
   // Auto-save after applying bulk paste / refresh proposed changes.
   // The applySelectedDiffs and applyAllProposedToDraft handlers set
   // pendingSaveAfterApply=true; we wait one render so editorDraft is
@@ -2640,6 +2754,15 @@ export default function CompanyDashboard() {
     setPendingSaveAfterApply(false);
     saveEditor({ closeAfter: false });
   }, [pendingSaveAfterApply, saveEditor]);
+
+  // Same pattern, but for the case where curated_reviews was among the
+  // applied diffs — chain a silent save + xAI rescore so Reputation &
+  // Quality update immediately based on the new reviews.
+  useEffect(() => {
+    if (!pendingAutoRescoreAfterApply) return;
+    setPendingAutoRescoreAfterApply(false);
+    silentSaveAndAutoRescoreRef.current?.();
+  }, [pendingAutoRescoreAfterApply]);
 
   // Ctrl/Cmd+S keyboard shortcut to save
   useEffect(() => {
