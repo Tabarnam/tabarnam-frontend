@@ -110,7 +110,7 @@ export default function SearchCard({
 }) {
   const nav = useNavigate();
   const { search } = useLocation();
-  const { getCachedSearches, addSearchToCache } = useSearchCache();
+  const { getCachedSearches, addSearchToCache, removeSearchFromCache, clearSearchCache } = useSearchCache();
 
   const [q, setQ] = useState('');
   const [country, setCountry] = useState('');
@@ -612,10 +612,46 @@ export default function SearchCard({
   };
 
   const clearRecentSearches = () => {
-    try { localStorage.removeItem('tabarnam_recent_searches'); } catch { /* ignore */ }
+    clearSearchCache();
     setRecentSearches([]);
     setShowRecent(false);
   };
+
+  const removeRecentSearch = (term) => {
+    removeSearchFromCache(term);
+    const next = getCachedSearches();
+    setRecentSearches(next);
+    if (next.length === 0) setShowRecent(false);
+  };
+
+  // Bucket recent searches into date sections so the dropdown reads as a
+  // history (Today / Yesterday / Last week / Older) rather than a flat list.
+  // Entries without a timestamp (legacy data from before the cache migration)
+  // fall into "Older" without disrupting their existing order.
+  const groupedRecentSearches = (() => {
+    const now = Date.now();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const todayMs = startOfToday.getTime();
+    const yesterdayMs = todayMs - 24 * 60 * 60 * 1000;
+    const weekAgoMs = todayMs - 7 * 24 * 60 * 60 * 1000;
+
+    const groups = { today: [], yesterday: [], week: [], older: [] };
+    for (const rs of recentSearches) {
+      const ts = Number.isFinite(rs?.ts) ? rs.ts : null;
+      if (ts == null) groups.older.push(rs);
+      else if (ts >= todayMs) groups.today.push(rs);
+      else if (ts >= yesterdayMs) groups.yesterday.push(rs);
+      else if (ts >= weekAgoMs) groups.week.push(rs);
+      else groups.older.push(rs);
+    }
+    return [
+      { label: "Today", items: groups.today },
+      { label: "Yesterday", items: groups.yesterday },
+      { label: "Last week", items: groups.week },
+      { label: "Older", items: groups.older },
+    ].filter((g) => g.items.length > 0);
+  })();
 
   return (
     <div
@@ -761,24 +797,54 @@ export default function SearchCard({
               })()}
             </div>
           )}
-          {/* Recent searches dropdown (Feature E) */}
+          {/* Recent searches dropdown (Feature E):
+              - Stored history is now capped at 200 entries (was 5).
+              - The list scrolls inside the dropdown (max-h-80) once it exceeds
+                the visible area.
+              - Entries are grouped by Today / Yesterday / Last week / Older.
+              - Each row has an "✕" affordance to delete that single entry
+                without nuking the whole list (the bottom button still does
+                that for users who want a clean slate). */}
           {showRecent && recentSearches.length > 0 && suggestions.length === 0 && q.trim().length < 2 && (
             <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border border-border bg-popover shadow-md">
               <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 border-b border-border flex items-center gap-1.5">
                 <Clock size={12} />
                 Recent Searches
               </div>
-              {recentSearches.map((rs, i) => (
-                <button
-                  key={`recent-${rs.term}-${i}`}
-                  className="w-full text-left px-4 py-2 text-sm text-popover-foreground hover:bg-accent flex items-center gap-2"
-                  onMouseDown={(e)=>e.preventDefault()}
-                  onClick={()=>{ setQ(rs.term); handleSubmit(rs.term); }}
-                >
-                  <Clock size={14} className="text-muted-foreground flex-shrink-0" />
-                  <span>{rs.term}</span>
-                </button>
-              ))}
+              <div className="max-h-80 overflow-y-auto">
+                {groupedRecentSearches.map((group) => (
+                  <div key={group.label}>
+                    <div className="px-4 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 border-b border-border/60">
+                      {group.label}
+                    </div>
+                    {group.items.map((rs, i) => (
+                      <div
+                        key={`recent-${group.label}-${rs.term}-${i}`}
+                        className="group/recent flex items-center text-sm text-popover-foreground hover:bg-accent"
+                      >
+                        <button
+                          type="button"
+                          className="flex-1 text-left px-4 py-2 flex items-center gap-2 min-w-0"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => { setQ(rs.term); handleSubmit(rs.term); }}
+                        >
+                          <Clock size={14} className="text-muted-foreground flex-shrink-0" />
+                          <span className="truncate">{rs.term}</span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Remove "${rs.term}" from recent searches`}
+                          className="px-3 py-2 text-muted-foreground hover:text-destructive opacity-0 group-hover/recent:opacity-100 focus:opacity-100 transition-opacity"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={(e) => { e.stopPropagation(); removeRecentSearch(rs.term); }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
               <button
                 className="w-full text-center px-4 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent border-t border-border transition-colors"
                 onMouseDown={(e)=>e.preventDefault()}
