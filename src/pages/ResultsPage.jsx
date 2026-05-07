@@ -59,25 +59,38 @@ function SkeletonRow() {
 
 /** Numbered page bar: < Previous  [1]  2  3  …  Next > */
 function Pagination({ currentPage, hasMore, totalPages, onPageChange, disabled }) {
-  if (currentPage <= 1 && !hasMore && !totalPages) return null;
+  // Treat totalPages as known only when it's a positive number AND the current
+  // page actually fits inside it. A `totalPages=1` left over from an earlier
+  // page-1 search while the user has navigated to page 2 is *stale*, not
+  // authoritative — fall back to the unknown-total render in that case so we
+  // don't show a contradictory "Page 2 of 1".
+  const knownTotal = Number.isFinite(totalPages) && totalPages > 0 && currentPage <= totalPages;
 
-  // If we know the total, use it; otherwise fall back to hasMore-based guessing
-  const lastPage = totalPages || (hasMore ? currentPage + 1 : currentPage);
-  const pages = [];
-  const add = (n) => { if (n >= 1 && n <= lastPage && !pages.includes(n)) pages.push(n); };
-  add(1);
-  add(currentPage - 1);
-  add(currentPage);
-  add(currentPage + 1);
-  if (lastPage > 1) add(lastPage);
-  pages.sort((a, b) => a - b);
+  // Hide the control entirely only when we're certain there's just one page.
+  if (currentPage <= 1 && !hasMore && knownTotal && totalPages === 1) return null;
+  if (currentPage <= 1 && !hasMore && totalPages == null && !knownTotal) return null;
 
-  // Insert ellipsis markers (represented as null)
+  // Build the page-number window. With a known total, surface 1, current±1,
+  // and totalPages with ellipses. With an unknown total, only show the active
+  // page — no fabricated "1, 2" buttons that don't reflect reality. Next is
+  // gated on hasMore in that case so the user can still walk forward.
+  let pages;
+  if (knownTotal) {
+    const set = new Set([1, currentPage - 1, currentPage, currentPage + 1, totalPages]);
+    pages = [...set].filter((n) => n >= 1 && n <= totalPages).sort((a, b) => a - b);
+  } else {
+    pages = [currentPage];
+  }
+
   const items = [];
   for (let i = 0; i < pages.length; i++) {
     if (i > 0 && pages[i] - pages[i - 1] > 1) items.push(null);
     items.push(pages[i]);
   }
+
+  const nextDisabled =
+    disabled ||
+    (knownTotal ? currentPage >= totalPages : !hasMore);
 
   const btn = "inline-flex items-center justify-center min-w-[36px] h-9 px-3 text-sm rounded transition-colors select-none";
 
@@ -119,7 +132,7 @@ function Pagination({ currentPage, hasMore, totalPages, onPageChange, disabled }
         <li>
           <button
             type="button"
-            disabled={disabled || (!hasMore && (!totalPages || currentPage >= totalPages))}
+            disabled={nextDisabled}
             onClick={() => onPageChange(currentPage + 1)}
             className={cn(btn, "gap-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none")}
           >
@@ -173,6 +186,12 @@ export default function ResultsPage() {
   const [status, setStatus] = useState("");
   const [hasMore, setHasMore] = useState(false);
   const [totalPages, setTotalPages] = useState(null);
+
+  // Tracks the search-key (query + filters, page-independent) we last fetched
+  // a count for. Page navigation within the same key reuses the existing
+  // totalPages instead of resetting it to null and re-fetching — that flicker
+  // was the source of "Page 2 of 1" / "Page 3 for golf" (no total) bugs.
+  const lastCountedKeyRef = useRef(null);
 
   // Search history for back/forward navigation
   const [searchHistory, setSearchHistory] = useState(() => {
@@ -489,6 +508,22 @@ export default function ResultsPage() {
 
   async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location, append = false }) {
     setLoading(true);
+
+    // The "search key" identifies a query + filter combination independently
+    // of which page is being viewed. Used so page navigation within the same
+    // query reuses the totalPages already computed for that query.
+    const searchKey = JSON.stringify({
+      q: q || "",
+      sort: sort || "",
+      country: country || "",
+      state: state || "",
+      city: city || "",
+      amazon: !!amazon,
+      hqCountry: hqCountry || "",
+      mfgCountry: mfgCountry || "",
+    });
+    const isNewSearchKey = searchKey !== lastCountedKeyRef.current;
+
     if (!append) {
       // Clear the previous search's results immediately so a new search starts
       // on a blank canvas. Without this, if the new search later throws (e.g.
@@ -499,7 +534,10 @@ export default function ResultsPage() {
       setStatus("");
       setResults([]);
       setHasMore(false);
-      setTotalPages(null);
+      // Only invalidate totalPages when the QUERY/FILTERS change — not on
+      // page navigation. Walking pages 1 → 2 → 3 within the same query keeps
+      // the previously-computed total visible the whole time.
+      if (isNewSearchKey) setTotalPages(null);
     }
     const gen = append ? searchGenRef.current : ++searchGenRef.current;
     try {
@@ -533,6 +571,23 @@ export default function ResultsPage() {
       // Fire quick (Pass 1 only) and full search in parallel
       const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;
       const fullPromise = searchCompanies(commonOpts);
+
+      // Count request runs in parallel with the page fetch, not after it, so
+      // first paint of the page indicator can include "Page 1 of N" instead
+      // of flashing "Page 1" then updating to "Page 1 of N" once the count
+      // lands. Only re-fire when the search key actually changes — page
+      // navigation within the same query reuses the cached totalPages.
+      if (!append && isNewSearchKey && q) {
+        lastCountedKeyRef.current = searchKey;
+        getSearchCount({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng })
+          .then((r) => {
+            // Stale check — if the user has navigated to a new query, ignore
+            // a count from the old one.
+            if (gen !== searchGenRef.current) return;
+            if (r && Number.isFinite(r.totalPages)) setTotalPages(r.totalPages);
+          })
+          .catch(() => {});
+      }
 
       // Show quick results as soon as they arrive
       if (quickPromise) {
@@ -611,15 +666,12 @@ export default function ResultsPage() {
       loadReviewsDeferred(withDistances);
       setHasMore(apiHasMore === true);
 
-      // If everything fit on one page (no hasMore), we know the total already
+      // Cheap totalPages shortcut — when this page came back with no further
+      // results AND we're on the first page, we know the total without an
+      // extra count request. Skip the parallel count entirely in that case.
       if (!apiHasMore && skip === 0) {
         setTotalPages(1);
-      } else {
-        // Fire background count request (doesn't block UI)
-        setTotalPages(null);
-        getSearchCount({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng })
-          .then((r) => { if (r) setTotalPages(r.totalPages); })
-          .catch(() => {});
+        lastCountedKeyRef.current = searchKey;
       }
 
       if (meta?.usingStubData) {
@@ -905,7 +957,11 @@ export default function ResultsPage() {
             {qParam && (
               <>
                 <span>
-                  {totalPages != null
+                  {/* Only show "of N" when the total is known AND the current
+                      page fits inside it. A stale totalPages from an earlier
+                      page-1 fetch must not appear next to a higher pageParam,
+                      otherwise we render contradictions like "Page 2 of 1". */}
+                  {Number.isFinite(totalPages) && totalPages > 0 && pageParam <= totalPages
                     ? <>Page {pageParam} of {totalPages} for </>
                     : hasMore || pageParam > 1
                       ? <>Page {pageParam} for </>
