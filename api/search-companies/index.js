@@ -1585,16 +1585,30 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     ? conceptsParam.split("|").map((s) => foldDiacritics(s.toLowerCase()).trim()).filter(Boolean)
     : [];
 
-  // For countOnly, fetch up to 500 to get accurate total; otherwise fetch just enough for the page.
-  // Location-only queries (no text search) need more rows because post-query location filtering
-  // will discard most results — fetch up to 500 (same cap as countOnly).
+  // Retrieval candidate limit. The earlier "fetch just enough for the page"
+  // strategy (skip + take + 1) was hiding companies for single-word queries
+  // like "golf": Pass 1 word-boundary matches alone could fill the 51-row
+  // budget, leaving no room for Pass 2 substring fallback to surface
+  // "golfing"/"golfer"/etc. matches. countOnly meanwhile retrieves 500 and
+  // returns a higher totalCount, producing the "Page 1 of N" indicator
+  // without the corresponding companies actually appearing on the page.
+  //
+  // Use the same broad 500-row pool for any text-search query so paginated
+  // and count requests draw from the same candidate set. Page-internal
+  // ordering still uses skip/take after scoring, so users land on
+  // deterministic pages — they just have a richer set to land on.
   const hasLocationFilter = !!(country || state || city || hqCountry || mfgCountry);
   const isLocationOnly = hasLocationFilter && !q_norm;
-  // For manufacturing proximity sort with user coordinates, fetch extra candidates
-  // so distance-based sorting can find the truly nearest companies (not just the
-  // most recently updated ones from Cosmos ORDER BY _ts DESC).
   const needsManuProximity = sort === "manu" && user_location;
-  const limit = countOnly ? 500 : isLocationOnly ? 500 : needsManuProximity ? Math.max(clamp(skip + take + 1, 1, 501), 200) : clamp(skip + take + 1, 1, 501);
+  const limit = countOnly
+    ? 500
+    : isLocationOnly
+    ? 500
+    : q_norm
+    ? 500 // text-search: broad retrieval matches countOnly so totals and pages align
+    : needsManuProximity
+    ? Math.max(clamp(skip + take + 1, 1, 501), 200)
+    : clamp(skip + take + 1, 1, 501);
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
 
