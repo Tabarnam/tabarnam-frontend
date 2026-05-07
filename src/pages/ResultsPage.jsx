@@ -577,9 +577,32 @@ export default function ResultsPage() {
       // of flashing "Page 1" then updating to "Page 1 of N" once the count
       // lands. Only re-fire when the search key actually changes — page
       // navigation within the same query reuses the cached totalPages.
+      //
+      // IMPORTANT: country/state/city are intentionally passed as empty
+      // strings so the count operates over the same filter scope as the
+      // paginated request (see commonOpts above, where cityFilter /
+      // stateFilter / countryFilter are all ""). Location is a ranking
+      // signal only — it shapes results via lat/lng, never excludes rows.
+      // Sending the URL's strict location filters to the count would shrink
+      // totalCount to "companies whose stored city matches the URL city",
+      // producing contradictions like "Page 1 of 1" while the paginated
+      // request reports hasMore=true. hqCountry / mfgCountry are exempt
+      // because the user explicitly opted into them as strict filters.
       if (!append && isNewSearchKey && q) {
         lastCountedKeyRef.current = searchKey;
-        getSearchCount({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng })
+        getSearchCount({
+          q,
+          sort,
+          country: "",
+          state: "",
+          city: "",
+          amazon,
+          hqCountry,
+          mfgCountry,
+          take: PAGE_SIZE,
+          lat: effectiveLocation?.lat,
+          lng: effectiveLocation?.lng,
+        })
           .then((r) => {
             // Stale check — if the user has navigated to a new query, ignore
             // a count from the old one.
