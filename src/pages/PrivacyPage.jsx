@@ -1,9 +1,27 @@
+import { useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
+import { useLocation } from 'react-router-dom';
 import { ShieldCheck } from 'lucide-react';
 
 export default function PrivacyPage() {
   const updatedAt = 'April 15, 2026';
   const contactEmail = 'duh@tabarnam.com';
+  const { hash } = useLocation();
+
+  useEffect(() => {
+    if (!hash) {
+      // Plain /privacy arrival — start at top. React Router doesn't reset scroll on SPA nav.
+      try { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch { window.scrollTo(0, 0); }
+      return;
+    }
+    const id = hash.slice(1);
+    const t = setTimeout(() => {
+      try {
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch {}
+    }, 50);
+    return () => clearTimeout(t);
+  }, [hash]);
 
   return (
     <>
