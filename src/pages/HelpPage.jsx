@@ -76,7 +76,7 @@ export default function HelpPage() {
               manufacturing locations on display. There are three ways to start a search:
             </p>
             <ul className="list-disc pl-6 space-y-1.5">
-              <li>Type a <strong className="text-foreground">company name</strong> (for example, <em>SANS Meal Bars</em>).</li>
+              <li>Type a <strong className="text-foreground">company name</strong> (for example, <em>Jelly Belly</em>).</li>
               <li>Type a <strong className="text-foreground">product or industry</strong> (for example, <em>honey</em>, <em>candles</em> or <em>organic bar soap</em>).</li>
               <li>Leave the search empty and just <strong className="text-foreground">enter a location</strong> to browse what is nearby.</li>
             </ul>

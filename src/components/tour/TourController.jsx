@@ -31,7 +31,7 @@ function buildHomeSteps(tour, onHandoff) {
     {
       id: 'search',
       title: 'Search anything',
-      text: 'Type a company name, product, or industry. Try <strong>SANS Meal Bars</strong> or <strong>organic bar soap</strong>.',
+      text: 'Type a company name, product, or industry. Try <strong>Jelly Belly</strong> or <strong>organic bar soap</strong>.',
       attachTo: { element: '[data-tour-step="search-input"]', on: 'bottom-start' },
       scrollTo: { behavior: 'smooth', block: 'nearest' },
       buttons: [
