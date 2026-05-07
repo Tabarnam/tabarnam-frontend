@@ -9,7 +9,12 @@ export default function HelpPage() {
   const { hash } = useLocation();
 
   useEffect(() => {
-    if (!hash) return;
+    if (!hash) {
+      // Plain /help arrival (e.g. via footer "How it works" link) — start at top.
+      // React Router doesn't reset scroll on route change by default.
+      try { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch { window.scrollTo(0, 0); }
+      return;
+    }
     const id = hash.slice(1);
     const t = setTimeout(() => {
       try {
