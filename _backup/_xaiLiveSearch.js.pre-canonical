@@ -281,7 +281,6 @@ async function xaiLiveSearch({
   enableImageUnderstanding = false,
   signal, // Optional: external AbortSignal — cancels fetch when worker is orphaned
   conversationId, // Optional: xAI conversation_id for prefix caching (reuses cached system prompt across calls)
-  response_format, // Optional: { type: "json_schema", json_schema: { name, schema, strict } } for guaranteed shape
 } = {}) {
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
@@ -399,7 +398,6 @@ async function xaiLiveSearch({
           input: [{ role: "user", content: asString(prompt) }],
           ...(shouldEnableTools ? { tools: buildToolsArray(search_parameters, { enableImageUnderstanding }) } : {}),
           ...(resolvedConversationId ? { conversation_id: resolvedConversationId } : {}),
-          ...(response_format && typeof response_format === "object" ? { response_format } : {}),
         }
       : {
           // /v1/chat/completions format
@@ -412,7 +410,6 @@ async function xaiLiveSearch({
             ...(search_parameters && typeof search_parameters === "object" ? search_parameters : {}),
             mode: "on",
           },
-          ...(response_format && typeof response_format === "object" ? { response_format } : {}),
           // conversation_id not supported on /chat/completions — omit
         };
 
@@ -586,7 +583,6 @@ async function xaiLiveSearchStreaming({
   signal,
   maxToolCalls = 5,
   conversationId, // Optional: xAI conversation_id for prefix caching
-  response_format, // Optional: { type: "json_schema", json_schema: { name, schema, strict } } for guaranteed shape
 } = {}) {
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
@@ -684,7 +680,6 @@ async function xaiLiveSearchStreaming({
       ...(toolsEnabled ? { tools: buildToolsArray(search_parameters, { enableImageUnderstanding }) } : {}),
       stream: true,
       ...(resolvedConversationId ? { conversation_id: resolvedConversationId } : {}),
-      ...(response_format && typeof response_format === "object" ? { response_format } : {}),
     };
 
     const res = await fetch(url, {
