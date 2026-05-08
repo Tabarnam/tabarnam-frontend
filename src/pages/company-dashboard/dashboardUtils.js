@@ -469,6 +469,61 @@ export function getContractMissingFields(company) {
     }
   }
 
+  // Data-wins-over-flag: drop "tagline" from missing_fields when the company
+  // actually has a tagline. Backend's enrichment_health can lag behind admin
+  // edits, leaving stale "missing" entries even after Save & Close.
+  if (asString(company?.tagline).trim()) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] === "tagline") fields.splice(i, 1);
+    }
+  }
+
+  // Data-wins-over-flag: drop "industries" / "industry" when populated.
+  const hasIndustries =
+    (Array.isArray(company?.industries) && company.industries.length > 0) ||
+    (Array.isArray(company?.industry) && company.industry.length > 0) ||
+    Boolean(asString(company?.industry).trim());
+  if (hasIndustries) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] === "industries" || fields[i] === "industry") fields.splice(i, 1);
+    }
+  }
+
+  // Data-wins-over-flag: drop "keywords" / "product_keywords" when populated.
+  const hasKeywords =
+    (Array.isArray(company?.keywords) && company.keywords.length > 0) ||
+    (Array.isArray(company?.product_keywords) && company.product_keywords.length > 0) ||
+    Boolean(asString(company?.product_keywords).trim()) ||
+    Boolean(asString(company?.keywords).trim());
+  if (hasKeywords) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] === "keywords" || fields[i] === "product_keywords") fields.splice(i, 1);
+    }
+  }
+
+  // Data-wins-over-flag: drop "headquarters" variants when location data exists.
+  if (
+    (Array.isArray(company?.headquarters_locations) && company.headquarters_locations.length > 0) ||
+    (Array.isArray(company?.headquarters) && company.headquarters.length > 0) ||
+    asString(company?.headquarters_location).trim()
+  ) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] === "headquarters" || fields[i] === "headquarters_location" || fields[i] === "headquarters_locations") {
+        fields.splice(i, 1);
+      }
+    }
+  }
+
+  // Data-wins-over-flag: drop "manufacturing" variants when location data exists.
+  if (
+    (Array.isArray(company?.manufacturing_locations) && company.manufacturing_locations.length > 0) ||
+    (Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0)
+  ) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] === "manufacturing" || fields[i] === "manufacturing_locations") fields.splice(i, 1);
+    }
+  }
+
   // Drop "manufacturing" if admin marked the company as limited or unknown manufacturing
   if (company?.limited_manufacturing || company?.unknown_manufacturing) {
     for (let i = fields.length - 1; i >= 0; i--) {
