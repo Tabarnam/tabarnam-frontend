@@ -21,7 +21,7 @@ test("PROMPT_GUIDANCE_VERSION reflects single-call canonical cut", () => {
   assert.match(PROMPT_GUIDANCE_VERSION, /^7\./);
 });
 
-test("buildCanonicalImportPrompt explicitly forbids fabrication / requires empty over hallucination", () => {
+test("buildCanonicalImportPrompt explicitly forbids fabrication and requires per-field empty types (Phase 2.3)", () => {
   const prompt = buildCanonicalImportPrompt({
     companyName: "Acme",
     websiteUrl: "https://acme.example.com",
@@ -29,17 +29,24 @@ test("buildCanonicalImportPrompt explicitly forbids fabrication / requires empty
   // Grok-validated guard: lock down the "empty when unverified, never
   // fabricate" contract so missing fields are trustworthy ("not available
   // online") rather than guesses dressed up as facts.
+  // Phase 2.3: phrasing changed to "Do not fabricate or hallucinate" + per-field types.
   assert.ok(
-    prompt.includes("do not fabricate"),
-    "must instruct the model to never fabricate missing fields"
+    /do not fabricate or hallucinate/i.test(prompt),
+    "must instruct the model to never fabricate missing fields (case-insensitive)"
+  );
+  // Phase 2.3 — per-field empty types replace the generic "empty value" sentence.
+  assert.ok(
+    /tagline.*headquarters_location.*product_keywords.*→.*""/.test(prompt) ||
+    /tagline,\s*headquarters_location,\s*product_keywords\s*→\s*""/.test(prompt),
+    "string fields must be told to use empty string \"\" when unverified"
   );
   assert.ok(
-    prompt.includes("appropriate empty value"),
-    "must instruct the model to use empty values for unverified fields"
+    /manufacturing_locations,\s*industries,\s*reviews\s*→\s*\[\]/.test(prompt),
+    "array fields must be told to use empty array [] when unverified"
   );
   assert.ok(
-    /\bexhaustive search\b/i.test(prompt),
-    "the empty-over-hallucination guard should fire only AFTER exhaustive search"
+    /Never use ""\s*for an array field/.test(prompt),
+    "must explicitly forbid empty string for array fields (the Beek failure mode)"
   );
 });
 
@@ -113,13 +120,38 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   assert.ok(prompt.includes("manufacturing_locations"), "must enumerate canonical manufacturing_locations key");
   assert.ok(prompt.includes("product_keywords"), "must enumerate canonical product_keywords key");
 
-  // Phase 2.2 — explicit "stop searching after 5 tool calls" instruction
-  // counters the failure mode where Grok-4 + tools + strict-json_schema
-  // entered an aggressive tool-use loop. The prose-level guard backs up
-  // the streaming-handler tool cap.
+  // Phase 2.3 — explicit "stop searching after 8 tool calls" instruction.
+  // Bumped from 5 in Phase 2.3 because 5 was insufficient: the model used
+  // them all on tagline + HQ + homepage, leaving 4 fields unverified.
+  // The prose-level guard backs up the streaming-handler tool cap.
   assert.ok(
-    /After 5 web_search or browse_page tool calls/i.test(prompt),
-    "prompt must instruct the model to stop tool-calling after 5 calls"
+    /After 8 web_search or browse_page tool calls/i.test(prompt),
+    "prompt must instruct the model to stop tool-calling after 8 calls (Phase 2.3 bump)"
+  );
+
+  // Phase 2.3 — explicit "no label leakage" instruction. Without this, the
+  // model bled "HQ:" into the headquarters_location JSON value (Beek import).
+  assert.ok(
+    /Do NOT include any field labels/i.test(prompt),
+    "prompt must explicitly forbid label leakage into JSON values"
+  );
+
+  // Phase 2.3 — Reviews rule must specify JSON array of objects. The
+  // previous wording described plaintext blank-line format which conflicted
+  // with the JSON contract — every review attempt failed because the model
+  // emitted plaintext but the parser expected an array.
+  assert.ok(
+    /Output reviews as a JSON array of objects/i.test(prompt),
+    "Reviews rule must specify JSON array of objects (Phase 2.3 fix)"
+  );
+  // The plaintext blank-line block must be GONE.
+  assert.ok(
+    !/Source:\s*\[Name of publication/i.test(prompt),
+    "obsolete plaintext-format Reviews block must be removed"
+  );
+  assert.ok(
+    !/Separate each review with one blank line/i.test(prompt),
+    "blank-line separator language must be removed (was for plaintext output)"
   );
 
   // No markdown formatting

@@ -15,6 +15,7 @@ const {
   shapeEnrichedFromParsed,
   classifyFields,
   buildResponseFormat,
+  stripLabel,
 } = require("./_canonicalImport");
 
 test("shapeEnrichedFromParsed returns canonical defaults for null/undefined input", () => {
@@ -543,6 +544,75 @@ test("Phase 2.1: runCanonicalImportCall result diagnostics include mode + tool_c
       assert.ok(typeof result.diagnostics.text_chars === "number");
       assert.equal(result.diagnostics.canonical_call, true);
     }
+  );
+});
+
+// ── Phase 2.3 — stripLabel helper + downstream behavior ─────────────────────
+
+test("Phase 2.3: stripLabel removes HQ: prefix from headquarters_location", () => {
+  // Replicates the exact Beek failure: model emitted "HQ: Newport Beach, CA, USA"
+  assert.equal(stripLabel("HQ: Newport Beach, CA, USA"), "Newport Beach, CA, USA");
+});
+
+test("Phase 2.3: stripLabel removes other canonical labels from string values", () => {
+  assert.equal(stripLabel("Tagline: We make things"), "We make things");
+  assert.equal(stripLabel("Manufacturing: Austin, TX"), "Austin, TX");
+  assert.equal(stripLabel("Industries: Foo, Bar"), "Foo, Bar");
+  assert.equal(stripLabel("Products: jerky, dried meats"), "jerky, dried meats");
+  assert.equal(stripLabel("Reviews: 5 reviews"), "5 reviews");
+});
+
+test("Phase 2.3: stripLabel is case-insensitive on the label", () => {
+  assert.equal(stripLabel("hq: Newport Beach"), "Newport Beach");
+  assert.equal(stripLabel("HQ:Newport Beach"), "Newport Beach");
+  assert.equal(stripLabel("TAGLINE: x"), "x");
+});
+
+test("Phase 2.3: stripLabel does NOT strip mid-string label-like text", () => {
+  // Defensive: only strips at start of string. "Manufacturing in TX" should NOT
+  // be confused with the prompt label "Manufacturing:".
+  assert.equal(stripLabel("Manufacturing in TX"), "Manufacturing in TX");
+  assert.equal(stripLabel("Headquartered at HQ in Austin"), "Headquartered at HQ in Austin");
+  assert.equal(stripLabel("Their tagline is great"), "Their tagline is great");
+});
+
+test("Phase 2.3: stripLabel passes through clean strings + non-strings unchanged", () => {
+  assert.equal(stripLabel("Newport Beach, CA, USA"), "Newport Beach, CA, USA");
+  assert.equal(stripLabel(""), "");
+  assert.equal(stripLabel(null), null);
+  assert.equal(stripLabel(undefined), undefined);
+  assert.deepEqual(stripLabel(["array"]), ["array"]);
+  assert.equal(stripLabel(42), 42);
+});
+
+test("Phase 2.3: shapeEnrichedFromParsed strips leaked labels from string fields (replicates Beek)", () => {
+  // Exact data from the Beek production import (session 35991f27-...):
+  // model emitted headquarters_location with the "HQ: " prefix bled in.
+  const parsed = {
+    tagline: "beauty *can* be comfortable",
+    headquarters_location: "HQ: Newport Beach, CA, USA",
+    manufacturing_locations: [],
+    industries: [],
+    product_keywords: "",
+    reviews: [],
+    location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
+    red_flag: false,
+  };
+  const out = shapeEnrichedFromParsed(parsed);
+  assert.equal(out.headquarters_location, "Newport Beach, CA, USA", "HQ prefix must be stripped");
+  assert.equal(out.tagline, "beauty *can* be comfortable", "clean tagline must pass through unchanged");
+});
+
+test("Phase 2.3: DEFAULT_MAX_TOOL_CALLS is 8 (bumped from 5)", () => {
+  // Source-level guard so a future rebase can't accidentally drop the bump.
+  // 5 was insufficient (Beek import: model used all 5 on easy fields,
+  // emitted empties for the other 4). 8 gives ~3 extra calls without
+  // risking the 22-call runaway we saw with strict json_schema.
+  const fs = require("node:fs");
+  const src = fs.readFileSync(path.join(__dirname, "_canonicalImport.js"), "utf8");
+  assert.ok(
+    /const DEFAULT_MAX_TOOL_CALLS\s*=\s*8\b/.test(src),
+    "DEFAULT_MAX_TOOL_CALLS must be 8 (Phase 2.3 bump)"
   );
 });
 

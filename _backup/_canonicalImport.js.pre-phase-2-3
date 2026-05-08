@@ -27,13 +27,7 @@ const { xaiLiveSearch, xaiLiveSearchStreaming, extractTextFromXaiResponse } = re
 const { buildSearchParameters } = require("./_buildSearchParameters");
 
 const DEFAULT_TIMEOUT_MS = 150_000;
-// Phase 2.3: bumped 5 → 8. Empirically, 5 was insufficient — model used
-// all 5 on tagline + HQ + homepage and emitted empties for industries,
-// products, manufacturing, and reviews. Without strict json_schema (Phase
-// 2.2), Grok-4 reliably honors the cap and emits text afterwards, so 8
-// is safe — gives ~3 extra calls for the harder fields without risking
-// the 22-call runaway we saw with strict schema.
-const DEFAULT_MAX_TOOL_CALLS = 8;
+const DEFAULT_MAX_TOOL_CALLS = 5;
 const MIN_TIMEOUT_MS = 30_000;
 
 function asString(v) {
@@ -72,34 +66,20 @@ function buildResponseFormat() {
   };
 }
 
-// Phase 2.3 — strip leaked prompt labels from string field values.
-// Empirical (Beek import, 2026-05-08): model emitted
-// `headquarters_location: "HQ: Newport Beach, CA, USA"` — the prompt's
-// label `HQ:` bled into the JSON value. Tagline came back clean, but
-// belt-and-suspenders we strip any of the canonical short labels from
-// any string field. Only matches an exact known prefix at start of
-// string, so we won't mangle real content like "Manufacturing in TX".
-const KNOWN_PROMPT_LABEL_PREFIX = /^(HQ|Tagline|Manufacturing|Industries|Products|Reviews):\s*/i;
-function stripLabel(value) {
-  if (typeof value !== "string") return value;
-  return value.replace(KNOWN_PROMPT_LABEL_PREFIX, "").trim();
-}
-
 /**
  * Map a parsed canonical JSON object (already conforming to
  * CANONICAL_IMPORT_JSON_SCHEMA) into the enriched-result shape that
  * applyEnrichmentToCompany expects. Defensive — the schema guarantees
  * structural validity, but the parser can return null on transport
- * failures, AND (Phase 2.3) the model occasionally leaks prompt labels
- * (e.g. "HQ: ") into string field values.
+ * failures.
  */
 function shapeEnrichedFromParsed(parsed) {
   return {
-    tagline: stripLabel(asString(parsed?.tagline)),
-    headquarters_location: stripLabel(asString(parsed?.headquarters_location)),
+    tagline: asString(parsed?.tagline),
+    headquarters_location: asString(parsed?.headquarters_location),
     manufacturing_locations: Array.isArray(parsed?.manufacturing_locations) ? parsed.manufacturing_locations : [],
     industries: Array.isArray(parsed?.industries) ? parsed.industries : [],
-    product_keywords: stripLabel(asString(parsed?.product_keywords)),
+    product_keywords: asString(parsed?.product_keywords),
     reviews: Array.isArray(parsed?.reviews) ? parsed.reviews : [],
     location_source_urls:
       parsed?.location_source_urls && typeof parsed.location_source_urls === "object"
@@ -446,5 +426,4 @@ module.exports = {
   shapeEnrichedFromParsed,
   classifyFields,
   buildResponseFormat,
-  stripLabel,
 };

@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.0.3-empty-types-and-reviews-json";
+const PROMPT_GUIDANCE_VERSION = "7.0.2-no-strict-schema";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -394,21 +394,17 @@ Industries: Use web_search "[Company Name] [Website URL] industry" or "[Company 
 
 Products: Exhaustive, complete list of all products the company produces, separated by commas. Format: Products: product1, product2, product3
 
-Reviews: Find 5 unique, legitimate third-party reviews with working URLs. Use 1-2 YouTube reviews focused solely on the current company or its products; do not include unrelated reviews or reviews from or about previously discussed companies. The remaining reviews should be from X (Twitter), a magazine or blog, strictly related to the current company and its products, excluding any overlap with prior companies. Confirm all URLs are functional. Do not hallucinate or embellish. Do not include the same author or URL more than once. Accuracy is paramount. For a YouTube video, YouTube is the source. Output reviews as a JSON array of objects. Each object MUST have exactly these keys: source (publication or channel name), author (name), url (direct URL to the article/video, not the site root), title (exact title as published), date (any format), text (1-3 sentence excerpt or summary). If you cannot find 5 verifiable reviews, return as many as you found — do not pad with fabricated entries. If you found zero, return [].
+Reviews: Find 5 unique, legitimate third-party reviews with working URLs. Use 1-2 YouTube reviews focused solely on the current company or its products; do not include unrelated reviews or reviews from or about previously discussed companies. The remaining reviews should be from X (Twitter), a magazine or blog, strictly related to the current company and its products, excluding any overlap with prior companies. Confirm all URLs are functional. Do not hallucinate or embellish. Do not include the same author or URL more than once. Accuracy is paramount. For a YouTube video, YouTube is the source. Separate each review with one blank line. Output each review in this exact plain-text format:
+Source: [Name of publication, channel, or website]
+Author: [Author or channel name]
+URL: [Direct URL to the review/article/video, not the site root]
+Title: [Exact title as published]
+Date: [Publication date, any format]
+Text: [1-3 sentence excerpt or summary of the review]
 
 ${sourceUrlsLine}
 
-If you cannot verify a field after using your full tool budget, return the type-correct empty value:
-- tagline, headquarters_location, product_keywords → ""
-- manufacturing_locations, industries, reviews → []
-- location_source_urls → {"hq_source_urls": [], "mfg_source_urls": []}
-- red_flag → false
-
-Never use "" for an array field. Never omit any required field. Do not fabricate or hallucinate.
-
-Do NOT include any field labels (e.g. "HQ:", "Tagline:", "Manufacturing:", "Industries:", "Products:", "Reviews:") inside the JSON values. The labels in the rules above are for your internal reasoning; emit only the clean value content. For example, headquarters_location should be "Newport Beach, CA, USA" — not "HQ: Newport Beach, CA, USA".
-
-After 8 web_search or browse_page tool calls you MUST stop searching and emit the JSON object using empty values for any field still unverified.
+If you cannot verify a field after exhaustive search and your full tool budget, return it as the appropriate empty value ("" for strings, [] for arrays, false for booleans) — do not fabricate, omit, or hallucinate any required field. After 5 web_search or browse_page tool calls you MUST stop searching and emit the JSON object with empty values for any field still unverified.
 
 Return ONLY a single JSON object with these exact property names: tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews, location_source_urls (with hq_source_urls and mfg_source_urls), red_flag, social. No prose, no markdown, no extra text whatsoever. For the fields that have specific formatting rules above (tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews), follow those formatting rules precisely when populating the corresponding JSON values.`;
 }
