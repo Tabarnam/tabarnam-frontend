@@ -100,11 +100,27 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   assert.ok(prompt.includes("Return ONLY a single JSON object"), "missing JSON-object output instruction");
   assert.ok(!/array wrapper/i.test(prompt) || prompt.includes("no extra"), "should disallow array wrapper");
 
-  // Field-name bridging sentence — translates short labels to schema keys
-  assert.ok(prompt.includes("Use the exact property names from the schema"), "missing schema-key bridging sentence");
-  assert.ok(prompt.includes("headquarters_location"), "bridge must mention canonical headquarters_location key");
-  assert.ok(prompt.includes("manufacturing_locations"), "bridge must mention canonical manufacturing_locations key");
-  assert.ok(prompt.includes("product_keywords"), "bridge must mention canonical product_keywords key");
+  // Field-name bridging — the prompt now lists property names inline
+  // (Phase 2.2 dropped strict json_schema enforcement, so the trailing
+  // sentence enumerates exact JSON keys instead of referencing "the schema
+  // below"). The point is still that short labels (HQ:, Manufacturing:)
+  // are translated to canonical schema keys.
+  assert.ok(
+    prompt.includes("with these exact property names"),
+    "missing inline property-names enumeration"
+  );
+  assert.ok(prompt.includes("headquarters_location"), "must enumerate canonical headquarters_location key");
+  assert.ok(prompt.includes("manufacturing_locations"), "must enumerate canonical manufacturing_locations key");
+  assert.ok(prompt.includes("product_keywords"), "must enumerate canonical product_keywords key");
+
+  // Phase 2.2 — explicit "stop searching after 5 tool calls" instruction
+  // counters the failure mode where Grok-4 + tools + strict-json_schema
+  // entered an aggressive tool-use loop. The prose-level guard backs up
+  // the streaming-handler tool cap.
+  assert.ok(
+    /After 5 web_search or browse_page tool calls/i.test(prompt),
+    "prompt must instruct the model to stop tool-calling after 5 calls"
+  );
 
   // No markdown formatting
   assert.ok(!/^# /m.test(prompt), "should not contain Markdown headers");

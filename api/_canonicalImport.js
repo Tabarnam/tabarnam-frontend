@@ -193,7 +193,27 @@ async function runCanonicalImportCall({
   const promptBody = `${prompt}${sp.prompt_exclusion_text || ""}`;
 
   const model = asString(modelOverride).trim() || asString(process.env.XAI_MODEL).trim() || "grok-4-latest";
-  const response_format = buildResponseFormat();
+
+  // Phase 2.2 — DO NOT send response_format by default.
+  //
+  // Empirically (2026-05-08, Archies + Bedrock): Grok-4 on /v1/responses
+  // with tools:[{type:"web_search"}] + response_format:{json_schema strict:true}
+  // + 8 required fields enters an aggressive tool-use loop trying to
+  // "perfectly" satisfy the schema and never reaches the text-output phase.
+  // Production ran 22+ web_search calls in 134s, emitted 0 chars of text,
+  // and the partial-flush handler aborted with no salvageable JSON.
+  //
+  // The canonical prompt's prose rules + "empty over hallucination"
+  // sentence + parseCanonicalJson's defensive parsing already enforce
+  // the same shape contract that the json_schema was meant to.
+  //
+  // We keep buildResponseFormat() exported and gate its use behind an
+  // opt-in env flag so we can A/B test bringing it back if Grok-4
+  // behavior changes (e.g. on a future model version where strict mode
+  // and tools play nicer together).
+  const useResponseFormat =
+    String(process.env.XAI_USE_RESPONSE_FORMAT || "").trim().toLowerCase() === "on";
+  const response_format = useResponseFormat ? buildResponseFormat() : undefined;
 
   // Phase 2.1 — log entry diagnostics so we can correlate the call with
   // its inputs (prompt size, model, tool/timeout config, schema presence).
