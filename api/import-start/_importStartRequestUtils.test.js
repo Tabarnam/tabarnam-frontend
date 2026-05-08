@@ -84,6 +84,107 @@ test("convertToResponsesPayload includes search when search_parameters present",
   assert.deepEqual(result.search, { mode: "on" });
 });
 
+// Phase 0 — tools array migration. On /v1/responses, search.mode is silently
+// ignored; the canonical way to enable Live Search is the tools array. Without
+// it, requests answer from training data only, which is the most likely root
+// cause of hallucinated/empty fields across the multi-stage pipeline today.
+
+test("convertToResponsesPayload declares tools:[{type:web_search}] when search_parameters present", () => {
+  const result = convertToResponsesPayload({
+    messages: [{ role: "user", content: "search" }],
+    search_parameters: { mode: "on" },
+  });
+  assert.ok(Array.isArray(result.tools), "tools must be an array");
+  assert.equal(result.tools.length, 1);
+  assert.equal(result.tools[0].type, "web_search");
+});
+
+test("convertToResponsesPayload omits tools when no search_parameters", () => {
+  const result = convertToResponsesPayload({
+    messages: [{ role: "user", content: "no search" }],
+  });
+  assert.equal(result.tools, undefined, "tools should not be set without search_parameters");
+  assert.equal(result.search, undefined, "search should not be set without search_parameters");
+});
+
+test("convertToResponsesPayload lifts excluded_websites from sources[] into tools[0].filters.excluded_domains", () => {
+  const result = convertToResponsesPayload({
+    messages: [{ role: "user", content: "x" }],
+    search_parameters: {
+      mode: "on",
+      sources: [
+        { type: "web", excluded_websites: ["amazon.com", "amzn.to"] },
+        { type: "news", excluded_websites: ["google.com", "g.co"] },
+        { type: "x" },
+      ],
+    },
+  });
+  assert.deepEqual(result.tools[0].filters.excluded_domains, ["amazon.com", "amzn.to", "google.com", "g.co"]);
+});
+
+test("convertToResponsesPayload caps excluded_domains at 5 (xAI tool filter limit)", () => {
+  const result = convertToResponsesPayload({
+    messages: [{ role: "user", content: "x" }],
+    search_parameters: {
+      mode: "on",
+      sources: [
+        { type: "web", excluded_websites: ["a.com", "b.com", "c.com", "d.com", "e.com", "f.com", "g.com"] },
+      ],
+    },
+  });
+  assert.equal(result.tools[0].filters.excluded_domains.length, 5);
+  assert.deepEqual(result.tools[0].filters.excluded_domains, ["a.com", "b.com", "c.com", "d.com", "e.com"]);
+});
+
+test("convertToResponsesPayload accepts top-level excluded_domains as fallback source", () => {
+  const result = convertToResponsesPayload({
+    messages: [{ role: "user", content: "x" }],
+    search_parameters: {
+      mode: "on",
+      excluded_domains: ["amazon.com", "google.com"],
+    },
+  });
+  assert.deepEqual(result.tools[0].filters.excluded_domains, ["amazon.com", "google.com"]);
+});
+
+test("convertToResponsesPayload deduplicates excluded_domains across sources and top-level", () => {
+  const result = convertToResponsesPayload({
+    messages: [{ role: "user", content: "x" }],
+    search_parameters: {
+      mode: "on",
+      sources: [{ type: "web", excluded_websites: ["amazon.com", "google.com"] }],
+      excluded_domains: ["amazon.com", "yelp.com"],
+    },
+  });
+  assert.deepEqual(result.tools[0].filters.excluded_domains, ["amazon.com", "google.com", "yelp.com"]);
+});
+
+test("convertToResponsesPayload omits filters when no excluded hosts found", () => {
+  const result = convertToResponsesPayload({
+    messages: [{ role: "user", content: "x" }],
+    search_parameters: { mode: "on" },
+  });
+  assert.equal(result.tools[0].filters, undefined, "filters should be omitted when there are no excluded domains");
+});
+
+test("convertToResponsesPayload passes through response_format for JSON-schema enforcement", () => {
+  const schema = { type: "object", properties: { foo: { type: "string" } } };
+  const rf = { type: "json_schema", json_schema: { name: "test", schema, strict: true } };
+  const result = convertToResponsesPayload({
+    messages: [{ role: "user", content: "x" }],
+    response_format: rf,
+  });
+  assert.deepEqual(result.response_format, rf);
+});
+
+test("convertToResponsesPayload passes through conversation_id for prefix caching", () => {
+  const result = convertToResponsesPayload({
+    messages: [{ role: "user", content: "x" }],
+    conversation_id: "session-123",
+  });
+  assert.equal(result.conversation_id, "session-123");
+});
+
 // ── extractXaiResponseText ──────────────────────────────────────────────────
 
 test("extractXaiResponseText extracts from responses format", () => {

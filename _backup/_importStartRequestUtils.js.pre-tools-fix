@@ -17,13 +17,6 @@ function isResponsesEndpoint(rawUrl) {
 }
 
 // Helper: Convert chat/completions payload to /responses format
-//
-// Live Search note: on /v1/responses, the canonical way to enable web_search
-// is the top-level `tools` array. The legacy `search.mode` field that worked
-// on /v1/chat/completions is silently ignored here. Without an explicit
-// tools declaration, requests answer from training data only — which means
-// the multi-stage import pipeline was effectively running tool-less, the
-// most likely cause of hallucinated/empty fields across all stages.
 function convertToResponsesPayload(chatPayload) {
   if (!chatPayload || typeof chatPayload !== "object") return chatPayload;
 
@@ -42,48 +35,9 @@ function convertToResponsesPayload(chatPayload) {
     })),
   };
 
-  // Pass through response_format (json_schema enforcement) when callers set it.
-  if (chatPayload.response_format && typeof chatPayload.response_format === "object") {
-    responsesPayload.response_format = chatPayload.response_format;
-  }
-
-  // Pass through conversation_id for prefix caching when callers set it.
-  if (chatPayload.conversation_id) {
-    responsesPayload.conversation_id = chatPayload.conversation_id;
-  }
-
-  // Add tools array (canonical Live Search) and preserve legacy `search` field
-  // when search_parameters was present. xAI tool filter accepts up to 5
-  // excluded_domains; lift them out of search_parameters.sources[] (where
-  // buildSearchParameters writes them) and out of any top-level
-  // excluded_domains a caller passed directly.
+  // Add search if search_parameters was present
   if (chatPayload.search_parameters) {
-    const sp = chatPayload.search_parameters;
-    const tool = { type: "web_search" };
-
-    const excluded = [];
-    const pushUnique = (host) => {
-      const h = typeof host === "string" ? host.trim() : "";
-      if (!h || excluded.includes(h)) return;
-      if (excluded.length >= 5) return;
-      excluded.push(h);
-    };
-
-    if (Array.isArray(sp.sources)) {
-      for (const src of sp.sources) {
-        const list = Array.isArray(src?.excluded_websites) ? src.excluded_websites : [];
-        for (const host of list) pushUnique(host);
-      }
-    }
-    if (Array.isArray(sp.excluded_domains)) {
-      for (const host of sp.excluded_domains) pushUnique(host);
-    }
-    if (excluded.length > 0) {
-      tool.filters = { excluded_domains: excluded };
-    }
-
-    responsesPayload.tools = [tool];
-    responsesPayload.search = { mode: sp.mode || "on" };
+    responsesPayload.search = { mode: chatPayload.search_parameters.mode || "on" };
   }
 
   return responsesPayload;
