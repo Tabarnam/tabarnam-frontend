@@ -40,6 +40,7 @@ const {
 
 const { enqueueResumeRun } = require("../../_enrichmentQueue");
 const { runDirectEnrichment, applyEnrichmentToCompany } = require("../../_directEnrichment");
+const { runCanonicalImportCall } = require("../../_canonicalImport");
 
 const { importCompanyLogo } = require("../../_logoImport");
 const { PROMPT_GUIDANCE_VERSION } = require("../../_xaiPromptGuidance");
@@ -2348,57 +2349,87 @@ async function resumeWorkerHandler(req, context) {
           );
         })();
 
+        // Shared intermediate-save callback — applied to both the canonical
+        // single-call path and the legacy multi-stage runDirectEnrichment so
+        // the in-flight Cosmos write semantics stay identical regardless of
+        // which path is active.
+        const intermediateSave = async (verified) => {
+          try {
+            const mapped = { ...verified };
+            if (mapped.product_keywords && !mapped.keywords) {
+              mapped.keywords = mapped.product_keywords;
+            }
+            if (mapped.reviews && !mapped.curated_reviews) {
+              mapped.curated_reviews = mapped.reviews;
+              delete mapped.reviews;
+            }
+            // Don't overwrite a valid logo_url with null/empty from xAI structured call.
+            // import-start may have already discovered and uploaded a logo via HTML scraping
+            // before enrichment runs; the xAI call often returns logo=empty for the same company.
+            if (!mapped.logo_url && doc.logo_url) {
+              delete mapped.logo_url;
+              delete mapped.logo_source;
+            }
+            Object.assign(doc, mapped);
+            doc.updated_at = nowIso();
+            await upsertDoc(container, doc);
+            console.log(`[resume-worker] intermediate_save_ok`, {
+              session_id: sessionId,
+              company_id: companyId,
+              fields: Object.keys(mapped).join(", "),
+            });
+          } catch (err) {
+            console.warn(`[resume-worker] intermediate_save_failed`, {
+              session_id: sessionId,
+              company_id: companyId,
+              error: err?.message || String(err),
+            });
+          }
+        };
+
+        // Phase 2 dispatcher — XAI_SINGLE_CALL_MODE=on routes to the
+        // canonical single-call path (one /v1/responses call with strict
+        // json_schema instead of the multi-stage runDirectEnrichment
+        // pipeline). Default is the legacy path; flip via Function App env
+        // var for instant rollback without redeploy.
+        const singleCallMode =
+          String(process.env.XAI_SINGLE_CALL_MODE || "").trim().toLowerCase() === "on";
+
         let enrichResult;
         try {
-          enrichResult = await runDirectEnrichment({
-            company: doc,
-            sessionId,
-            budgetMs: unifiedBudgetMs,
-            xaiUrl,
-            xaiKey,
-            fieldsToEnrich: missingFields,
-            retryHints: (hadStructuredTimeout || (cycleCount > 0 && missingFields.includes("reviews")))
-              ? {
-                  hadStructuredTimeout: !!hadStructuredTimeout,
-                  browseAboutPage: cycleCount > 0 && missingFields.includes("reviews"),
-                }
-              : undefined,
-            skipDedicatedDeepening: false, // Allow Phase 3 for reviews/keywords deepening
-            signal: workerAbortController.signal, // cancel in-flight fetches when worker is orphaned
-            onIntermediateSave: async (verified) => {
-              try {
-                const mapped = { ...verified };
-                if (mapped.product_keywords && !mapped.keywords) {
-                  mapped.keywords = mapped.product_keywords;
-                }
-                if (mapped.reviews && !mapped.curated_reviews) {
-                  mapped.curated_reviews = mapped.reviews;
-                  delete mapped.reviews;
-                }
-                // Don't overwrite a valid logo_url with null/empty from xAI structured call.
-                // import-start may have already discovered and uploaded a logo via HTML scraping
-                // before enrichment runs; the xAI call often returns logo=empty for the same company.
-                if (!mapped.logo_url && doc.logo_url) {
-                  delete mapped.logo_url;
-                  delete mapped.logo_source;
-                }
-                Object.assign(doc, mapped);
-                doc.updated_at = nowIso();
-                await upsertDoc(container, doc);
-                console.log(`[resume-worker] intermediate_save_ok`, {
-                  session_id: sessionId,
-                  company_id: companyId,
-                  fields: Object.keys(mapped).join(", "),
-                });
-              } catch (err) {
-                console.warn(`[resume-worker] intermediate_save_failed`, {
-                  session_id: sessionId,
-                  company_id: companyId,
-                  error: err?.message || String(err),
-                });
-              }
-            },
-          });
+          if (singleCallMode) {
+            console.log(`[resume-worker] canonical_single_call_start`, {
+              session_id: sessionId,
+              company_id: companyId,
+              fields: missingFields,
+            });
+            enrichResult = await runCanonicalImportCall({
+              company: doc,
+              sessionId,
+              budgetMs: unifiedBudgetMs,
+              fieldsToEnrich: missingFields,
+              signal: workerAbortController.signal,
+              onIntermediateSave: intermediateSave,
+            });
+          } else {
+            enrichResult = await runDirectEnrichment({
+              company: doc,
+              sessionId,
+              budgetMs: unifiedBudgetMs,
+              xaiUrl,
+              xaiKey,
+              fieldsToEnrich: missingFields,
+              retryHints: (hadStructuredTimeout || (cycleCount > 0 && missingFields.includes("reviews")))
+                ? {
+                    hadStructuredTimeout: !!hadStructuredTimeout,
+                    browseAboutPage: cycleCount > 0 && missingFields.includes("reviews"),
+                  }
+                : undefined,
+              skipDedicatedDeepening: false, // Allow Phase 3 for reviews/keywords deepening
+              signal: workerAbortController.signal, // cancel in-flight fetches when worker is orphaned
+              onIntermediateSave: intermediateSave,
+            });
+          }
         } catch (enrichErr) {
           console.error(`[resume-worker] unified_enrichment_error`, {
             session_id: sessionId,
