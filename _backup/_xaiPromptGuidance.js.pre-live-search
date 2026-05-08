@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "6.0.0-canonical-import-prompt";
+const PROMPT_GUIDANCE_VERSION = "5.2.0-industries-as-search-terms";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -32,7 +32,7 @@ If data conflicts with the official company site, prioritize the browsed page co
 // FIELD SCHEMA — canonical field list from the import prompt.
 // Each entry describes the JSON key, its type hint, and example shape.
 // ---------------------------------------------------------------------------
-const FIELD_SCHEMA = `company_name, tagline, industries[], product_keywords (string), url (https://...), email_address, headquarters_location, manufacturing_locations[], amazon_url, red_flag (boolean), reviews[] (objects with { "text": "...", "link": "https://..." }), notes, company_contact_info { "contact_page_url": "https://...", "contact_email": "name@example.com" }`;
+const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url (https://...), email_address, headquarters_location, manufacturing_locations[], amazon_url, red_flag (boolean), reviews[] (objects with { "text": "...", "link": "https://..." }), notes, company_contact_info { "contact_page_url": "https://...", "contact_email": "name@example.com" }`;
 
 // ---------------------------------------------------------------------------
 // FIELD GUIDANCE — per-field rules for research depth and formatting.
@@ -327,115 +327,6 @@ sunglasses, tactical sunglasses, ballistic sunglasses, MILSPEC sunglasses, ANSI 
 Begin immediately.`;
 }
 
-// ---------------------------------------------------------------------------
-// CANONICAL IMPORT PROMPT — single source of truth used by the bulk xAI import
-// (xai/index.js) and the admin Refresh Search (_grokEnrichment.js). Modelled
-// directly on the grok.com cleanup prompt admin uses today, with output
-// switched to JSON so callers can parse it programmatically.
-//
-// Per-field rule blocks are baked into this function (not pulled from
-// FIELD_GUIDANCE) so the canonical prompt stays stable even if FIELD_GUIDANCE
-// drifts for other callers.
-// ---------------------------------------------------------------------------
-
-const CANONICAL_FIELD_RULES = {
-  tagline: `Provide the company's tagline, slogan, or motto. If no explicit tagline is stated on the homepage, hero, footer, meta description, og:description, or About page, use the most concise brand-defining phrase you can verify (under 15 words). Return the exact text as displayed, or empty string. Do NOT return navigation labels, sale/promotional text, or legal text.`,
-
-  HQ: `Identify the headquarters location, cross-verifying across at least 3 independent sources (e.g., official website, LinkedIn, Crunchbase, recent articles or filings) and resolving any discrepancies. Use initials for states or provinces (e.g., City, ST, Country). Use USA, not US. No explanatory info — just the location. If multiple HQ locations, separate with semicolons. Format: City, ST, Country or City, ST, Country; City2, ST2, Country2.`,
-
-  manufacturing: `Identify all known manufacturing locations worldwide, cross-verifying across at least 3 independent sources (e.g., official website, LinkedIn, Crunchbase, recent articles or filings) and resolving any discrepancies. Include every city and country found, with a deep dive on any US sites to confirm actual cities. List them exhaustively without missing any. Use initials for states or provinces. Use USA, not US. No explanatory info — just the locations. If part of a location is unspecified, include only what is known. Do not write "unspecified." Separate each location with semicolons. If the company is a retailer/marketplace/reseller with no manufacturing, return an empty array.`,
-
-  industries: `Use web_search to find verified products, categories, and offerings. Return 8-15 short noun phrases (1-3 words preferred) that read like actual user search terms for what the company manufactures or sells. Mix broad categories and specific sub-types (e.g., "Beef Jerky", "Snack Foods", "Dried Meats", "Hawaiian Foods"). Use normalized, common-search-term language. Include meaningful product distinctions ("organic", "leather", "stainless steel") but avoid narrative/marketing adjectives ("artisan", "premium", "hand-crafted"). Do NOT return generic umbrella terms like "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce", "Food", "Shopping". Only verified information; no guessing.`,
-
-  products: `Exhaustive, complete list of all products the company produces. Use browse_page on the company URL and its product/shop/collections pages, then web_search "[Company Name] products" for completeness. Return as a comma-separated string. Do NOT include navigation labels (Shop All, New, Best Sellers, Sale), site features (Account, Cart, Store Locator, FAQ), or generic categories unless they ARE an actual product line name.`,
-
-  reviews: `Find 5 unique, legitimate third-party reviews with working URLs. Use 1-2 YouTube reviews focused solely on the current company or its products; do not include unrelated reviews or reviews from or about previously discussed companies. The remaining reviews should be from X (Twitter), a magazine or blog, strictly related to the current company and its products, excluding any overlap with prior companies. Confirm all URLs are functional. Do not hallucinate or embellish. Do not include the same author or URL more than once. Accuracy is paramount. For a YouTube video, YouTube is the source. Each review object: { "source": "...", "author": "...", "url": "https://...", "title": "...", "date": "...", "text": "1-3 sentence excerpt or summary" }.`,
-
-  contact_info: `Populate { "contact_page_url": "https://...", "contact_email": "name@example.com" } with values you can verify on the company website. Omit invalid or unverifiable fields rather than guessing.`,
-};
-
-const CANONICAL_FIELD_TO_JSON_KEY = {
-  tagline: "tagline",
-  HQ: "headquarters_location",
-  headquarters: "headquarters_location",
-  manufacturing: "manufacturing_locations",
-  industries: "industries",
-  products: "product_keywords",
-  product_keywords: "product_keywords",
-  keywords: "product_keywords",
-  reviews: "reviews",
-  contact_info: "company_contact_info",
-  company_contact_info: "company_contact_info",
-};
-
-function normalizeCanonicalFieldKey(field) {
-  const f = String(field || "").trim();
-  if (!f) return null;
-  const lower = f.toLowerCase();
-  if (lower === "hq" || lower === "headquarters" || lower === "headquarters_location") return "HQ";
-  if (lower === "manufacturing" || lower === "manufacturing_locations") return "manufacturing";
-  if (lower === "products" || lower === "product_keywords" || lower === "keywords") return "products";
-  if (lower === "industries") return "industries";
-  if (lower === "reviews") return "reviews";
-  if (lower === "tagline") return "tagline";
-  if (lower === "contact_info" || lower === "company_contact_info") return "contact_info";
-  return null;
-}
-
-const DEFAULT_CANONICAL_FIELDS = ["tagline", "HQ", "manufacturing", "industries", "products", "reviews"];
-
-/**
- * Build the canonical xAI Live Search prompt used by both the bulk import
- * (xai/index.js) and the admin Refresh Search (_grokEnrichment.js).
- */
-function buildCanonicalImportPrompt({ companyName, websiteUrl, fields, includeSourceUrls = true } = {}) {
-  const name = String(companyName || "").trim() || "(unknown company)";
-  const url = String(websiteUrl || "").trim() || "(unknown website)";
-
-  const requestedRaw = Array.isArray(fields) && fields.length ? fields : DEFAULT_CANONICAL_FIELDS;
-  const normalized = [];
-  for (const f of requestedRaw) {
-    const k = normalizeCanonicalFieldKey(f);
-    if (k && !normalized.includes(k)) normalized.push(k);
-  }
-  const requested = normalized.length ? normalized : DEFAULT_CANONICAL_FIELDS;
-
-  const jsonKeys = requested.map((f) => CANONICAL_FIELD_TO_JSON_KEY[f]).filter(Boolean);
-  const sourceUrlsLine = includeSourceUrls
-    ? `\nAlso include "location_source_urls": { "hq_source_urls": ["https://...", "https://..."], "mfg_source_urls": ["https://...", "https://..."] } populated with URLs you actually visited (one or more per field; empty array if none).`
-    : "";
-
-  const ruleBlocks = requested
-    .map((f) => {
-      const rules = CANONICAL_FIELD_RULES[f];
-      if (!rules) return "";
-      const label = f === "HQ" ? "HQ"
-        : f === "contact_info" ? "Contact info"
-        : f.charAt(0).toUpperCase() + f.slice(1);
-      return `${label}:\n${rules}`;
-    })
-    .filter(Boolean)
-    .join("\n\n");
-
-  const canonicalSearchPreamble = `You have access to web_search and browse_page tools. Use them aggressively to verify every fact with multiple sources. Never guess or use training data alone. Confirm all info with working URLs and sources; do not hallucinate. If data conflicts with the official company site, prioritize the browsed page content.`;
-
-  return `You are a precise company research specialist.
-
-${canonicalSearchPreamble}
-Cross-reference at least 3 independent sources for HQ and manufacturing.
-Reviews must be live URLs you visited. Focus only on the specified company.
-
-For the Company: ${name} / ${url}
-Fields to populate: ${requested.join(", ")}
-
-Return ONLY a single JSON object with these keys: ${jsonKeys.join(", ")}.
-No prose, no markdown, no extra keys, no array wrapper.${sourceUrlsLine}
-
-${ruleBlocks}
-
-${QUALITY_RULES}`;
-}
-
 module.exports = {
   PROMPT_GUIDANCE_VERSION,
   QUALITY_RULES,
@@ -444,9 +335,4 @@ module.exports = {
   FIELD_GUIDANCE,
   FIELD_SUMMARIES,
   buildDedicatedKeywordsPrompt,
-  CANONICAL_FIELD_RULES,
-  CANONICAL_FIELD_TO_JSON_KEY,
-  DEFAULT_CANONICAL_FIELDS,
-  buildCanonicalImportPrompt,
-  normalizeCanonicalFieldKey,
 };

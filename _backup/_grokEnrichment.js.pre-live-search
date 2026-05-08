@@ -4,7 +4,7 @@
 const { xaiLiveSearch, xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
-const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE, buildDedicatedKeywordsPrompt, buildCanonicalImportPrompt, DEFAULT_CANONICAL_FIELDS } = require("./_xaiPromptGuidance");
+const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE, buildDedicatedKeywordsPrompt } = require("./_xaiPromptGuidance");
 const { SENTINEL_STRINGS, PLACEHOLDER_STRINGS } = require("./_requiredFields");
 const { discoverLogoSourceUrl, fetchText } = require("./_logoImport");
 
@@ -5451,114 +5451,8 @@ async function enrichCompanyFields({
   };
 }
 
-/* ============================================================================
- * CANONICAL IMPORT PROMPT — symmetric entry point with the bulk import.
- * ----------------------------------------------------------------------------
- * Refresh Search becomes the safety net once the bulk xAI import is producing
- * complete records on first pass. This entry point lets the admin path use the
- * EXACT prompt the bulk import uses (just with a fields subset), eliminating
- * drift between the two paths.
- *
- * Existing per-field fetchers (fetchHeadquartersLocation, fetchManufacturingLocations,
- * etc.) remain unchanged so the current Refresh Search flow is preserved as a
- * fallback while this entry point is rolled out.
- * ========================================================================== */
-async function enrichWithCanonicalPrompt({
-  companyName,
-  websiteUrl,
-  fields,
-  sessionId,
-  signal,
-  timeoutMs = 150_000,
-  maxToolCalls = 5,
-} = {}) {
-  const requested = Array.isArray(fields) && fields.length ? fields : DEFAULT_CANONICAL_FIELDS;
-
-  const websiteHost = (() => {
-    try { return websiteUrl ? new URL(websiteUrl.startsWith("http") ? websiteUrl : `https://${websiteUrl}`).hostname : ""; }
-    catch { return ""; }
-  })();
-
-  const sp = buildSearchParameters({ companyWebsiteHost: websiteHost });
-
-  const prompt = buildCanonicalImportPrompt({
-    companyName,
-    websiteUrl,
-    fields: requested,
-    includeSourceUrls: true,
-  });
-
-  const promptBody = `${prompt}${sp.prompt_exclusion_text || ""}`;
-
-  const startedAt = Date.now();
-  let res = await xaiLiveSearchStreaming({
-    prompt: promptBody,
-    timeoutMs,
-    model: resolveSearchModel(),
-    search_parameters: sp.search_parameters,
-    enableImageUnderstanding: false,
-    maxToolCalls,
-    conversationId: sessionId || undefined,
-    signal,
-  });
-
-  if (res === null) {
-    res = await xaiLiveSearch({
-      prompt: promptBody,
-      maxTokens: 4000,
-      timeoutMs,
-      model: resolveSearchModel(),
-      search_parameters: sp.search_parameters,
-      useTools: true,
-      signal,
-    });
-  }
-
-  const elapsed_ms = Date.now() - startedAt;
-  const diagnostics = {
-    elapsed_ms,
-    tool_calls_counted: res?.diagnostics?.tool_calls_counted ?? null,
-    upstream_status: res?.diagnostics?.upstream_http_status ?? null,
-    canonical_prompt: true,
-    requested_fields: requested,
-  };
-
-  if (!res?.ok) {
-    return { ok: false, error: res?.error || "canonical_call_failed", diagnostics, fields: null };
-  }
-
-  const text = extractTextFromXaiResponse(res.resp);
-  let parsed = null;
-  try {
-    let s = String(text || "").trim();
-    const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fence) s = fence[1].trim();
-    const firstBrace = s.indexOf("{");
-    const firstBracket = s.indexOf("[");
-    if (firstBrace >= 0 && (firstBracket < 0 || firstBrace < firstBracket)) {
-      const end = s.lastIndexOf("}");
-      if (end > firstBrace) parsed = JSON.parse(s.slice(firstBrace, end + 1));
-    } else if (firstBracket >= 0) {
-      const end = s.lastIndexOf("]");
-      if (end > firstBracket) {
-        const arr = JSON.parse(s.slice(firstBracket, end + 1));
-        parsed = Array.isArray(arr) && arr.length ? arr[0] : null;
-      }
-    }
-  } catch (e) {
-    return { ok: false, error: "unparseable_json", diagnostics, fields: null, raw_text: String(text || "").slice(0, 400) };
-  }
-
-  if (!parsed || typeof parsed !== "object") {
-    return { ok: false, error: "empty_object", diagnostics, fields: null };
-  }
-
-  return { ok: true, fields: parsed, diagnostics };
-}
-
 module.exports = {
   DEFAULT_REVIEW_EXCLUDE_DOMAINS,
-  enrichWithCanonicalPrompt,
   fetchCuratedReviews,
   // @deprecated v3.0 — individual fetchers replaced by fetchStructuredFields()
   fetchHeadquartersLocation,
