@@ -687,6 +687,23 @@ async function xaiLiveSearchStreaming({
       ...(response_format && typeof response_format === "object" ? { response_format } : {}),
     };
 
+    // Phase 2.1 — log payload summary so we can verify what's being sent on
+    // every streaming call. Useful for spotting missing `tools` or
+    // `response_format` config before the call gets stuck.
+    console.log(`[xaiLiveSearchStreaming] payload_summary`, {
+      url_redacted: String(url).split("?")[0],
+      model: resolvedModel,
+      prompt_chars: asString(prompt).length,
+      tools_count: payload.tools?.length || 0,
+      tool_excluded_domains_count: payload.tools?.[0]?.filters?.excluded_domains?.length || 0,
+      has_response_format: !!payload.response_format,
+      response_format_strict: !!payload.response_format?.json_schema?.strict,
+      response_format_schema_required_count: payload.response_format?.json_schema?.schema?.required?.length || 0,
+      has_conversation_id: !!payload.conversation_id,
+      max_tool_calls: maxToolCalls,
+      timeout_ms: timeoutUsedMs,
+    });
+
     const res = await fetch(url, {
       method: "POST",
       headers,
@@ -718,6 +735,35 @@ async function xaiLiveSearchStreaming({
     let abortedByToolCap = false;
     let completedResponse = null;
 
+    // Phase 2.1 — text-accumulation milestones for diagnosing the
+    // "model goes deep into tool loop and never emits text" failure mode.
+    // We log first-text-arrival timestamp + char-count milestones so we can
+    // pinpoint exactly when (and if) the model started writing the JSON.
+    let firstTextAt = null;
+    let nextTextMilestone = 100; // log first text at >=100 chars, then 500, 1000, 2000, 4000 ...
+    const logTextMilestone = (chars) => {
+      if (firstTextAt === null) {
+        firstTextAt = Date.now();
+        console.log(`[xaiLiveSearchStreaming] first_text_arrived`, {
+          elapsed_ms_since_start: firstTextAt - startedAt,
+          tool_calls_so_far: toolCalls,
+          first_chars: chars,
+        });
+      }
+      while (chars >= nextTextMilestone) {
+        console.log(`[xaiLiveSearchStreaming] text_milestone`, {
+          chars,
+          tool_calls_so_far: toolCalls,
+          elapsed_ms: Date.now() - startedAt,
+        });
+        nextTextMilestone = nextTextMilestone < 500 ? 500
+          : nextTextMilestone < 1000 ? 1000
+          : nextTextMilestone < 2000 ? 2000
+          : nextTextMilestone < 4000 ? 4000
+          : nextTextMilestone * 2;
+      }
+    };
+
     try {
       reading:
       while (true) {
@@ -747,6 +793,11 @@ async function xaiLiveSearchStreaming({
           // response.completed contains the full output array
           if (eventType === "response.completed" || (parsed.type === "response.completed")) {
             completedResponse = parsed.response || parsed;
+            console.log(`[xaiLiveSearchStreaming] response.completed received`, {
+              elapsed_ms: Date.now() - startedAt,
+              tool_calls: toolCalls,
+              accumulated_text_chars: accumulatedText.length,
+            });
             break reading;
           }
 
@@ -782,12 +833,16 @@ async function xaiLiveSearchStreaming({
             parsed.type === "response.output_text.delta"
           ) {
             const delta = parsed.delta || "";
-            if (typeof delta === "string") accumulatedText += delta;
+            if (typeof delta === "string" && delta.length > 0) {
+              accumulatedText += delta;
+              logTextMilestone(accumulatedText.length);
+            }
           }
 
           // Also catch output_text items directly
-          if (item.type === "output_text" && typeof item.text === "string") {
+          if (item.type === "output_text" && typeof item.text === "string" && item.text.length > 0) {
             accumulatedText += item.text;
+            logTextMilestone(accumulatedText.length);
           }
         }
       }

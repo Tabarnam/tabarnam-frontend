@@ -457,3 +457,123 @@ test("resume-worker handler.js declares the XAI_SINGLE_CALL_MODE dispatcher", ()
     "_canonicalImport module must be imported by the handler"
   );
 });
+
+// ── Phase 2.1 — diagnostic logging surface ──────────────────────────────────
+//
+// Source-level guards that the diagnostic logs are wired in. Without these
+// log lines we cannot post-hoc determine which path ran or why a call
+// failed. The 2026-05-08 production failure (model went 22 tool calls,
+// emitted 0 text) was diagnosable only because of these logs.
+
+test("Phase 2.1: handler.js logs dispatcher_decision unconditionally", () => {
+  const fs = require("node:fs");
+  const handlerPath = path.join(__dirname, "import", "resume-worker", "handler.js");
+  const src = fs.readFileSync(handlerPath, "utf8");
+  assert.ok(src.includes("[resume-worker] dispatcher_decision"), "dispatcher_decision log must exist");
+  assert.ok(src.includes("XAI_SINGLE_CALL_MODE_raw"), "must log raw env var value");
+  assert.ok(src.includes("XAI_SINGLE_CALL_MODE_resolved"), "must log resolved boolean");
+  assert.ok(src.includes("[resume-worker] enrich_result_summary"), "enrich_result_summary log must exist");
+  assert.ok(
+    src.includes("doc.import_diagnostics ="),
+    "handler must persist enrichResult.diagnostics to the doc as import_diagnostics"
+  );
+});
+
+test("Phase 2.1: _canonicalImport.js logs call_start, upstream_returned, parsed_ok", () => {
+  const fs = require("node:fs");
+  const canonicalPath = path.join(__dirname, "_canonicalImport.js");
+  const src = fs.readFileSync(canonicalPath, "utf8");
+  assert.ok(src.includes("[canonicalImport] call_start"), "call_start log must exist");
+  assert.ok(src.includes("[canonicalImport] upstream_returned"), "upstream_returned log must exist");
+  assert.ok(src.includes("[canonicalImport] parsed_ok"), "parsed_ok log must exist");
+  assert.ok(src.includes("[canonicalImport] streaming_threw"), "streaming_threw error log must exist");
+  assert.ok(src.includes("[canonicalImport] non_streaming_threw"), "non_streaming_threw error log must exist");
+  assert.ok(src.includes("[canonicalImport] unparseable_json"), "unparseable_json warn log must exist");
+  assert.ok(
+    src.includes("text_chars:") && src.includes("text_preview:"),
+    "upstream_returned must include text_chars and text_preview for diagnosing tool-loop-no-text failure"
+  );
+  assert.ok(
+    src.includes("tool_cap_aborted"),
+    "diagnostics must surface tool_cap_aborted so we can correlate failures with cap behavior"
+  );
+});
+
+test("Phase 2.1: _xaiLiveSearch.js logs payload_summary + text milestones", () => {
+  const fs = require("node:fs");
+  const livePath = path.join(__dirname, "_xaiLiveSearch.js");
+  const src = fs.readFileSync(livePath, "utf8");
+  assert.ok(src.includes("[xaiLiveSearchStreaming] payload_summary"), "payload_summary log must exist");
+  assert.ok(src.includes("[xaiLiveSearchStreaming] first_text_arrived"), "first_text_arrived milestone must exist");
+  assert.ok(src.includes("[xaiLiveSearchStreaming] text_milestone"), "text_milestone log must exist");
+  assert.ok(src.includes("[xaiLiveSearchStreaming] response.completed received"), "response.completed log must exist");
+  assert.ok(src.includes("response_format_strict"), "payload_summary must surface strict json_schema flag");
+  assert.ok(src.includes("response_format_schema_required_count"), "payload_summary must surface schema required count");
+});
+
+test("Phase 2.1: runCanonicalImportCall result diagnostics include mode + tool_cap_aborted + text_chars", async () => {
+  await withMockLiveSearch(
+    {
+      xaiLiveSearchStreaming: async () => ({
+        ok: true,
+        resp: {
+          text: JSON.stringify({
+            tagline: "x",
+            headquarters_location: "Austin, TX, USA",
+            manufacturing_locations: [],
+            industries: [],
+            product_keywords: "",
+            reviews: [],
+            location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
+            red_flag: false,
+          }),
+        },
+        diagnostics: { tool_calls_counted: 4, upstream_http_status: 200, tool_cap_aborted: false, streaming: true },
+      }),
+    },
+    async (mod) => {
+      const result = await mod.runCanonicalImportCall({
+        company: { company_name: "Acme", url: "https://acme.example.com" },
+        sessionId: "test",
+        budgetMs: 60_000,
+        fieldsToEnrich: ["tagline", "headquarters_location"],
+      });
+      assert.equal(result.diagnostics.mode, "streaming");
+      assert.equal(result.diagnostics.tool_cap_aborted, false);
+      assert.ok(typeof result.diagnostics.text_chars === "number");
+      assert.equal(result.diagnostics.canonical_call, true);
+    }
+  );
+});
+
+test("Phase 2.1: canonical failure result surfaces tool_cap_aborted + text preview (replicates 2026-05-08 prod failure)", async () => {
+  await withMockLiveSearch(
+    {
+      xaiLiveSearchStreaming: async () => ({
+        ok: false,
+        error: "tool_cap_abort_no_text",
+        error_code: "tool_cap_abort",
+        diagnostics: {
+          upstream_http_status: 200,
+          tool_calls_counted: 22,
+          tool_cap_aborted: true,
+          streaming: true,
+          text_length: 0,
+        },
+      }),
+    },
+    async (mod) => {
+      const result = await mod.runCanonicalImportCall({
+        company: { company_name: "Acme", url: "https://acme.example.com" },
+        sessionId: "test",
+        budgetMs: 60_000,
+        fieldsToEnrich: ["tagline"],
+      });
+      assert.equal(result.ok, false);
+      assert.equal(result.errors.tagline, "tool_cap_abort");
+      assert.equal(result.diagnostics.tool_cap_aborted, true);
+      assert.equal(result.diagnostics.tool_calls_counted, 22);
+      assert.ok("text_chars" in result.diagnostics, "text_chars must be in failure diagnostics");
+    }
+  );
+});

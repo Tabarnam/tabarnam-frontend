@@ -2392,8 +2392,24 @@ async function resumeWorkerHandler(req, context) {
         // json_schema instead of the multi-stage runDirectEnrichment
         // pipeline). Default is the legacy path; flip via Function App env
         // var for instant rollback without redeploy.
+        const xaiSingleCallModeRaw = process.env.XAI_SINGLE_CALL_MODE;
         const singleCallMode =
-          String(process.env.XAI_SINGLE_CALL_MODE || "").trim().toLowerCase() === "on";
+          String(xaiSingleCallModeRaw || "").trim().toLowerCase() === "on";
+
+        // Phase 2.1 — explicit dispatcher decision log so we can prove
+        // post-hoc which path actually ran. The earlier Phase 2 logs were
+        // ambiguous (only logged on the canonical branch); this fires on
+        // EVERY enrichment regardless of branch and includes the env-var
+        // raw value so we can spot misconfiguration fast.
+        console.log(`[resume-worker] dispatcher_decision`, {
+          session_id: sessionId,
+          company_id: companyId,
+          XAI_SINGLE_CALL_MODE_raw: xaiSingleCallModeRaw === undefined ? "(undefined)" : String(xaiSingleCallModeRaw),
+          XAI_SINGLE_CALL_MODE_resolved: singleCallMode,
+          path: singleCallMode ? "canonical" : "legacy",
+          missing_fields: missingFields,
+          missing_count: missingFields.length,
+        });
 
         let enrichResult;
         try {
@@ -2402,6 +2418,8 @@ async function resumeWorkerHandler(req, context) {
               session_id: sessionId,
               company_id: companyId,
               fields: missingFields,
+              budget_ms: unifiedBudgetMs,
+              prompt_guidance: PROMPT_GUIDANCE_VERSION,
             });
             enrichResult = await runCanonicalImportCall({
               company: doc,
@@ -2412,6 +2430,12 @@ async function resumeWorkerHandler(req, context) {
               onIntermediateSave: intermediateSave,
             });
           } else {
+            console.log(`[resume-worker] legacy_runDirectEnrichment_start`, {
+              session_id: sessionId,
+              company_id: companyId,
+              fields: missingFields,
+              budget_ms: unifiedBudgetMs,
+            });
             enrichResult = await runDirectEnrichment({
               company: doc,
               sessionId,
@@ -2434,9 +2458,38 @@ async function resumeWorkerHandler(req, context) {
           console.error(`[resume-worker] unified_enrichment_error`, {
             session_id: sessionId,
             company_id: companyId,
+            path: singleCallMode ? "canonical" : "legacy",
             error: String(enrichErr?.message || enrichErr),
+            stack_first_line: String(enrichErr?.stack || "").split("\n")[1] || null,
           });
           enrichResult = { ok: false, fields_completed: [], fields_failed: missingFields, errors: {}, enriched: {}, elapsed_ms: 0 };
+        }
+
+        // Phase 2.1 — log the full enrichResult.diagnostics so we can see
+        // upstream_status, tool_calls_counted, model used, guidance version,
+        // and (on canonical) any text-preview from unparseable responses.
+        console.log(`[resume-worker] enrich_result_summary`, {
+          session_id: sessionId,
+          company_id: companyId,
+          path: singleCallMode ? "canonical" : "legacy",
+          ok: enrichResult.ok,
+          fields_completed: enrichResult.fields_completed,
+          fields_failed: enrichResult.fields_failed,
+          elapsed_ms: enrichResult.elapsed_ms,
+          diagnostics: enrichResult.diagnostics || null,
+          errors_keys: Object.keys(enrichResult.errors || {}),
+          first_error_value: enrichResult.errors ? Object.values(enrichResult.errors)[0] : null,
+        });
+
+        // Phase 2.1 — persist enrichResult.diagnostics to the company doc so
+        // post-hoc Cosmos queries can answer "did the canonical call fire?"
+        // for any historical import without needing the live log file.
+        if (enrichResult.diagnostics && typeof enrichResult.diagnostics === "object") {
+          doc.import_diagnostics = {
+            ...enrichResult.diagnostics,
+            path: singleCallMode ? "canonical" : "legacy",
+            recorded_at: nowIso(),
+          };
         }
 
         // Check abort after enrichment completes — don't write results if superseded

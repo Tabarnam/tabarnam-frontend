@@ -195,8 +195,31 @@ async function runCanonicalImportCall({
   const model = asString(modelOverride).trim() || asString(process.env.XAI_MODEL).trim() || "grok-4-latest";
   const response_format = buildResponseFormat();
 
+  // Phase 2.1 — log entry diagnostics so we can correlate the call with
+  // its inputs (prompt size, model, tool/timeout config, schema presence).
+  console.log(`[canonicalImport] call_start`, {
+    session_id: sessionId,
+    company_name: companyName,
+    website_url: websiteUrl,
+    website_host: websiteHost,
+    requested_fields: requested,
+    requested_field_count: requested.length,
+    prompt_chars: promptBody.length,
+    timeout_ms: timeoutMs,
+    max_tool_calls: DEFAULT_MAX_TOOL_CALLS,
+    model,
+    has_response_format: Boolean(response_format),
+    response_format_strict: !!response_format?.json_schema?.strict,
+    excluded_domains_count: Array.isArray(sp.search_parameters?.sources)
+      ? (sp.search_parameters.sources[0]?.excluded_websites?.length || 0)
+      : 0,
+    has_conversation_id: !!sessionId,
+    guidance_version: PROMPT_GUIDANCE_VERSION,
+  });
+
   // Streaming first (preferred — partial-flush handler salvages tool-budget aborts).
   let res;
+  let mode = "streaming";
   try {
     res = await xaiLiveSearchStreaming({
       prompt: promptBody,
@@ -210,11 +233,16 @@ async function runCanonicalImportCall({
       response_format,
     });
   } catch (err) {
+    console.error(`[canonicalImport] streaming_threw`, {
+      session_id: sessionId,
+      error: String(err?.message || err),
+      elapsed_ms: Date.now() - startedAt,
+    });
     return buildFailureResult({
       fieldsToEnrich: requested,
       errorCode: "upstream_unreachable",
       elapsedMs: Date.now() - startedAt,
-      diagnostics: { stream_threw: String(err?.message || err) },
+      diagnostics: { stream_threw: String(err?.message || err), mode },
     });
   }
 
@@ -222,6 +250,11 @@ async function runCanonicalImportCall({
   // /chat/completions instead of /responses. Fall back to the non-streaming
   // call so the canonical path works regardless of endpoint config.
   if (res === null) {
+    mode = "non_streaming_fallback";
+    console.log(`[canonicalImport] streaming_returned_null_falling_back`, {
+      session_id: sessionId,
+      reason: "endpoint_is_chat_completions_not_responses",
+    });
     try {
       res = await xaiLiveSearch({
         prompt: promptBody,
@@ -235,16 +268,41 @@ async function runCanonicalImportCall({
         response_format,
       });
     } catch (err) {
+      console.error(`[canonicalImport] non_streaming_threw`, {
+        session_id: sessionId,
+        error: String(err?.message || err),
+        elapsed_ms: Date.now() - startedAt,
+      });
       return buildFailureResult({
         fieldsToEnrich: requested,
         errorCode: "upstream_unreachable",
         elapsedMs: Date.now() - startedAt,
-        diagnostics: { non_stream_threw: String(err?.message || err) },
+        diagnostics: { non_stream_threw: String(err?.message || err), mode },
       });
     }
   }
 
   const elapsedMs = Date.now() - startedAt;
+
+  // Phase 2.1 — log upstream return summary BEFORE parsing so we can see if
+  // the call actually returned anything useful. Key diagnostic for the
+  // "model went 22 tool calls and emitted 0 text" failure mode — text_chars
+  // and tool_cap_aborted will tell us exactly what happened.
+  const rawText = res?.ok ? extractTextFromXaiResponse(res.resp) : "";
+  console.log(`[canonicalImport] upstream_returned`, {
+    session_id: sessionId,
+    mode,
+    elapsed_ms: elapsedMs,
+    ok: !!res?.ok,
+    upstream_error: res?.error || null,
+    upstream_error_code: res?.error_code || null,
+    upstream_status: res?.diagnostics?.upstream_http_status ?? null,
+    tool_calls_counted: res?.diagnostics?.tool_calls_counted ?? null,
+    tool_cap_aborted: res?.diagnostics?.tool_cap_aborted ?? null,
+    streaming: res?.diagnostics?.streaming ?? null,
+    text_chars: rawText.length,
+    text_preview: rawText.slice(0, 200),
+  });
 
   if (!res || !res.ok) {
     return buildFailureResult({
@@ -252,31 +310,56 @@ async function runCanonicalImportCall({
       errorCode: res?.error_code || "upstream_unreachable",
       elapsedMs,
       diagnostics: {
+        mode,
         upstream_status: res?.diagnostics?.upstream_http_status ?? null,
         tool_calls_counted: res?.diagnostics?.tool_calls_counted ?? null,
+        tool_cap_aborted: res?.diagnostics?.tool_cap_aborted ?? null,
         upstream_error: res?.error || null,
+        text_chars: rawText.length,
+        text_preview_on_failure: rawText.slice(0, 200),
       },
     });
   }
 
-  const text = extractTextFromXaiResponse(res.resp);
+  const text = rawText;
   const parsed = parseCanonicalJson(text);
 
   if (!parsed) {
+    console.warn(`[canonicalImport] unparseable_json`, {
+      session_id: sessionId,
+      text_chars: text.length,
+      text_preview: text.slice(0, 400),
+    });
     return buildFailureResult({
       fieldsToEnrich: requested,
       errorCode: "unparseable_json",
       elapsedMs,
       diagnostics: {
+        mode,
         upstream_status: res.diagnostics?.upstream_http_status ?? null,
         tool_calls_counted: res.diagnostics?.tool_calls_counted ?? null,
-        unparseable_text_preview: asString(text).slice(0, 200),
+        text_chars: text.length,
+        unparseable_text_preview: asString(text).slice(0, 400),
       },
     });
   }
 
   const enriched = shapeEnrichedFromParsed(parsed);
   const { fields_completed, fields_failed, errors } = classifyFields(requested, enriched);
+
+  console.log(`[canonicalImport] parsed_ok`, {
+    session_id: sessionId,
+    fields_completed,
+    fields_failed,
+    tagline_len: enriched.tagline.length,
+    hq_len: enriched.headquarters_location.length,
+    mfg_count: enriched.manufacturing_locations.length,
+    industries_count: enriched.industries.length,
+    product_keywords_len: enriched.product_keywords.length,
+    reviews_count: enriched.reviews.length,
+    hq_source_count: enriched.location_source_urls?.hq_source_urls?.length || 0,
+    mfg_source_count: enriched.location_source_urls?.mfg_source_urls?.length || 0,
+  });
 
   // Fire the intermediate save callback for parity with runDirectEnrichment.
   // The handler's existing callback persists verified fields immediately,
@@ -307,8 +390,11 @@ async function runCanonicalImportCall({
     diagnostics: {
       canonical_call: true,
       guidance_version: PROMPT_GUIDANCE_VERSION,
+      mode,
       tool_calls_counted: res.diagnostics?.tool_calls_counted ?? null,
+      tool_cap_aborted: res.diagnostics?.tool_cap_aborted ?? null,
       upstream_status: res.diagnostics?.upstream_http_status ?? null,
+      text_chars: text.length,
       model,
     },
   };
