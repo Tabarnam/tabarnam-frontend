@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.0.0-single-call-canonical";
+const PROMPT_GUIDANCE_VERSION = "7.0.1-empty-over-hallucination";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -403,6 +403,8 @@ Date: [Publication date, any format]
 Text: [1-3 sentence excerpt or summary of the review]
 
 ${sourceUrlsLine}
+
+If you cannot verify a field after exhaustive search and your full tool budget, return it as the appropriate empty value ("" for strings, [] for arrays, false for booleans) — do not fabricate, omit, or hallucinate any required field.
 
 Return ONLY a single JSON object matching the schema below. No prose, no markdown, no extra text whatsoever. Use the exact property names from the schema. For the fields that have specific formatting rules above (tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews), follow those formatting rules precisely when populating the corresponding JSON values.`;
 }

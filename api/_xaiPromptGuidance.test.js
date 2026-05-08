@@ -21,6 +21,28 @@ test("PROMPT_GUIDANCE_VERSION reflects single-call canonical cut", () => {
   assert.match(PROMPT_GUIDANCE_VERSION, /^7\./);
 });
 
+test("buildCanonicalImportPrompt explicitly forbids fabrication / requires empty over hallucination", () => {
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "Acme",
+    websiteUrl: "https://acme.example.com",
+  });
+  // Grok-validated guard: lock down the "empty when unverified, never
+  // fabricate" contract so missing fields are trustworthy ("not available
+  // online") rather than guesses dressed up as facts.
+  assert.ok(
+    prompt.includes("do not fabricate"),
+    "must instruct the model to never fabricate missing fields"
+  );
+  assert.ok(
+    prompt.includes("appropriate empty value"),
+    "must instruct the model to use empty values for unverified fields"
+  );
+  assert.ok(
+    /\bexhaustive search\b/i.test(prompt),
+    "the empty-over-hallucination guard should fire only AFTER exhaustive search"
+  );
+});
+
 // ── DEFAULT_CANONICAL_FIELDS ────────────────────────────────────────────────
 
 test("DEFAULT_CANONICAL_FIELDS lists the 6 canonical JSON keys in order", () => {
