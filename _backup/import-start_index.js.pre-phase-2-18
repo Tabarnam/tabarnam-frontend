@@ -5539,43 +5539,6 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   console.log(`[import-start] session=${sessionId} resume enqueued (1s delay, ${mandatoryCompanyIds.length} companies)`);
                 } catch {}
 
-                // Phase 2.18.A1 — safety-net enqueue.
-                //
-                // Empirical (Dearfoams 2026-05-09 22:45:05): the primary
-                // queue message above was successfully enqueued (we saw the
-                // `resume enqueued (1s delay, 1 companies)` log) but the
-                // queue trigger function never produced a `handler_entered`
-                // event for the session. The most likely cause is a
-                // transient Azure Storage Queue drop / poison routing /
-                // visibility-timeout race. Without a follow-up message,
-                // the import sits at Stub-0% forever (until manual
-                // refresh).
-                //
-                // We enqueue a SECOND message with a 90s delay. If the
-                // primary fires successfully, the resume-worker's
-                // cycle_count idempotency makes the safety-net's run a
-                // no-op (the stub is already enriched, all fields are
-                // populated, the worker exits at the missing-fields check
-                // with nothing to do). If the primary message was
-                // dropped, the safety-net message arrives at T+90s and
-                // runs the enrichment that should have happened at T+1s.
-                //
-                // Net cost: one extra Cosmos read per import (the no-op
-                // case at the end of a successful run). Net benefit: lost
-                // queue messages stop becoming permanent stub-0% companies.
-                try {
-                  await enqueueResumeRun({
-                    session_id: sessionId,
-                    company_ids: mandatoryCompanyIds,
-                    reason: "fast_path_202_safety_net",
-                    requested_by: "import_start",
-                    enqueue_at: new Date().toISOString(),
-                    cycle_count: 0, // same cycle_count → idempotent with primary
-                    run_after_ms: 90_000, // 90s delay — fires only if primary is lost
-                  }).catch(() => null);
-                  console.log(`[import-start] session=${sessionId} resume safety-net enqueued (90s delay, ${mandatoryCompanyIds.length} companies)`);
-                } catch {}
-
                 // Fire-and-forget: run enrichment asynchronously.
                 // The Azure Function runtime keeps the execution context alive after
                 // returning the HTTP response. Don't await â€” let it run in background.

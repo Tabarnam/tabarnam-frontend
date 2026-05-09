@@ -4019,39 +4019,6 @@ export default function AdminImport() {
     setTimeout(() => { apiFetch(statusUrl).then(() => {}).catch(() => {}); }, 15_000);
   }, []);
 
-  // Phase 2.18.A2 — strict completion check helper.
-  //
-  // Empirical (Dearfoams 2026-05-09): activeStatus flipped to "done" 4
-  // seconds after import-start's 202 response, before the resume-worker
-  // had even fired (the queue message was lost — see Phase 2.18.A1 for
-  // the backend safety-net that recovers from this). The dispatcher
-  // prematurely advanced slot A to Fulton, leaving Dearfoams permanently
-  // at Stub-0%.
-  //
-  // Strict rule: a slot is allowed to advance ONLY when the underlying
-  // run is genuinely complete (saved >= 1 + completed flag set + NO
-  // pending resume) OR explicitly errored. Transient "done" states from
-  // the polling layer (e.g., from intermediate stage_beacon transitions)
-  // no longer count.
-  //
-  // If a session genuinely succeeded, the run will have:
-  //   - completed: true
-  //   - saved >= 1
-  //   - resume_needed: falsy (enrichment finished, not just queued)
-  //
-  // If a session genuinely errored, activeStatus === "error" still
-  // advances (no point waiting for failed imports).
-  const isRunStrictlyComplete = useCallback((sessionId) => {
-    const sid = asString(sessionId).trim();
-    if (!sid) return false;
-    const run = runs.find((r) => asString(r?.session_id).trim() === sid);
-    if (!run) return false;
-    if (run.resume_needed === true) return false;
-    if (Number(run.saved) <= 0) return false;
-    if (run.completed !== true) return false;
-    return true;
-  }, [runs]);
-
   // Primary slot advance — fires when activeStatus transitions to
   // done/error. Records the completion, then atomically claims the next
   // queue index and re-starts primary on that company.
@@ -4060,14 +4027,7 @@ export default function AdminImport() {
     // Guard: trigger effect fires in same commit as start; setActiveStatus
     // is batched and not yet committed. Skip while a start is in flight.
     if (startImportRequestInFlightRef.current) return;
-
-    // Phase 2.18.A2 — strict completion gate. Don't advance just because
-    // activeStatus flipped — require either genuine completion or
-    // explicit error. This blocks the Dearfoams pattern where polling
-    // briefly reported "done" before enrichment had actually run.
-    const primaryDone =
-      activeStatus === "error" ||
-      (activeStatus === "done" && isRunStrictlyComplete(activeSessionId));
+    const primaryDone = activeStatus === "done" || activeStatus === "error";
     if (!primaryDone) return;
 
     // Idempotency guard: each succession-index slot completion is processed
@@ -4100,17 +4060,14 @@ export default function AdminImport() {
     setCompanyUrl(next.companyUrl);
     setSuccessionIndex(nextIdx);
     successionTriggerRef.current = true;
-  }, [activeStatus, successionIndex, successionQueue, activeSessionId, verifyEnrichment, isRunStrictlyComplete]);
+  }, [activeStatus, successionIndex, successionQueue, activeSessionId, verifyEnrichment]);
 
   // Shadow slot advance — symmetric to primary. Fires when shadowStatus
   // transitions to done/error. Records, claims next, re-starts via
   // beginImportShadow.
   useEffect(() => {
     if (successionShadowIndex < 0) return;
-    // Phase 2.18.A2 — same strict completion gate as primary.
-    const shadowDone =
-      shadowStatus === "error" ||
-      (shadowStatus === "done" && isRunStrictlyComplete(shadowSessionId));
+    const shadowDone = shadowStatus === "done" || shadowStatus === "error";
     if (!shadowDone) return;
 
     if (lastProcessedShadowIndexRef.current === successionShadowIndex) return;
@@ -4141,7 +4098,7 @@ export default function AdminImport() {
     setSuccessionShadowIndex(nextIdx);
     setShadowStatus("idle"); // briefly idle to allow next status flip
     setTimeout(() => beginImportShadow(next.companyName, next.companyUrl), 1000);
-  }, [shadowStatus, successionShadowIndex, successionQueue, shadowSessionId, beginImportShadow, stopShadowPolling, verifyEnrichment, isRunStrictlyComplete]);
+  }, [shadowStatus, successionShadowIndex, successionQueue, shadowSessionId, beginImportShadow, stopShadowPolling, verifyEnrichment]);
 
   // Completion detector — fires the success toast once when both slots
   // have idled (sentinel -1) and the queue is exhausted. Decoupled from
