@@ -488,25 +488,85 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.11: PROMPT_GUIDANCE_VERSION is 7.1.6-companyhost-include-and-fallback-reviews", () => {
-  // Bumped from 7.1.5 in Phase 2.11 — two paired changes:
-  // 1. Stop excluding the company's own host from web_search (was the
-  //    primary blocker for small-brand imports — Gurkees proved this
-  //    against grok.com which got full data in 46 seconds).
-  // 2. Merge the legacy fallback testimonial language into the canonical
-  //    reviews rule. When third-party reviews are scarce, the model can
-  //    pull customer testimonials, "as seen in" sections, FAQ highlights,
-  //    and feature blurbs from the company's own site. The user-facing
-  //    column was already renamed "Features & Reviews" to reflect this
-  //    dual content.
+test("Phase 2.12: PROMPT_GUIDANCE_VERSION is 7.1.7-prefetch-homepage-context", () => {
+  // Bumped from 7.1.6 in Phase 2.12 — homepage pre-fetch.
+  // Empirical (Luna Sandals / Kiwi Sandals 2026-05-09): even with Phase
+  // 2.10's strict json_schema active, the model still emitted no text
+  // for small brands (1-2 web_searches → response.completed with 0
+  // chars). Strict schema didn't force emission as predicted; xAI
+  // accepts `output: [web_search_call only]` as a valid completion.
+  // Phase 2.12 fetches the company's homepage + /about + /about-us
+  // BEFORE the canonical call and injects the cleaned text as
+  // "Homepage Context: ..." in the prompt. The model has data on turn
+  // 0 — no need for tool-call rounds to find the basics. Reduces
+  // tool-call pressure on complex brands (no runaway) AND gives small
+  // brands the data they need (no give-up-early).
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.1\.6-companyhost-include-and-fallback-reviews/,
-    "PROMPT_GUIDANCE_VERSION must be 7.1.6-companyhost-include-and-fallback-reviews for Phase 2.11"
+    /^7\.1\.7-prefetch-homepage-context/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.7-prefetch-homepage-context for Phase 2.12"
   );
 });
 
-test("Phase 2.11: canonical reviews rule includes fallback-to-company-site language", () => {
+test("Phase 2.12: buildCanonicalImportPrompt accepts and injects homepageContext", () => {
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "Luna Sandals",
+    websiteUrl: "https://lunasandals.com",
+    homepageContext: "Title: Luna Sandals — Run free with sandals\nDescription: Hand-made running sandals.\n\nAbout us: Luna Sandals was founded in 2010...",
+  });
+  assert.ok(
+    /Homepage Context.*pre-fetched/i.test(prompt),
+    "prompt must include Homepage Context block when context is non-empty"
+  );
+  assert.ok(
+    prompt.includes("Run free with sandals"),
+    "prompt must inline the actual fetched content"
+  );
+  assert.ok(
+    /Use the Homepage Context FIRST/i.test(prompt),
+    "prompt must direct the model to use Homepage Context before web_search"
+  );
+});
+
+test("Phase 2.12: buildCanonicalImportPrompt handles empty homepageContext gracefully", () => {
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "Luna Sandals",
+    websiteUrl: "https://lunasandals.com",
+    homepageContext: "",
+  });
+  // When context is empty, the prompt should note the failure but still
+  // direct the model to research as usual.
+  assert.ok(
+    /pre-fetch failed or returned empty/i.test(prompt),
+    "prompt must surface that pre-fetch was unavailable when context is empty"
+  );
+  assert.ok(
+    /web_search and browse_page on the official site/i.test(prompt),
+    "prompt must direct the model to research as usual when context is empty"
+  );
+});
+
+test("Phase 2.12: anti-give-up language strengthened (Grok's verbatim wording)", () => {
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "Acme",
+    websiteUrl: "https://acme.example.com",
+  });
+  // Grok's verbatim phrasing pulled into Phase 2.6's MUST-emit block.
+  assert.ok(
+    /Never complete a response with only tool calls and zero text/i.test(prompt),
+    "anti-give-up clause must be present (Grok's verbatim phrasing)"
+  );
+  assert.ok(
+    /You cannot give up early/i.test(prompt),
+    "must explicitly forbid giving up early"
+  );
+  assert.ok(
+    /If your first 1-2 web_search calls returned thin or unhelpful results/i.test(prompt),
+    "must address the give-up-after-thin-results pattern"
+  );
+});
+
+test("Phase 2.11: canonical reviews rule includes fallback-to-company-site language (preserved through 2.12)", () => {
   const prompt = buildCanonicalImportPrompt({
     companyName: "Gurkees",
     websiteUrl: "https://gurkees.com",

@@ -25,7 +25,6 @@ const {
 
 const { xaiLiveSearch, xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { buildSearchParameters } = require("./_buildSearchParameters");
-const { prefetchHomepageContext } = require("./_homepagePrefetch");
 
 // Phase 2.4: bumped 150s → 240s (4 min). Empirical: complex brands
 // (Birkenstock) hit the 150s timeout with 0 text emitted because the
@@ -281,55 +280,11 @@ async function runCanonicalImportCall({
   const timeoutMs = Math.max(MIN_TIMEOUT_MS, Math.min(DEFAULT_TIMEOUT_MS, fromBudget));
 
   const sp = buildSearchParameters({ companyWebsiteHost: websiteHost });
-
-  // Phase 2.12 — pre-fetch homepage + key sub-pages BEFORE the canonical
-  // call so the model has substantive context on turn 0. Empirically the
-  // "model emits no text" failure mode (Eliza B / Flojos / Luna Sandals /
-  // Kiwi Sandals) happens when the first 1-2 web_search calls don't
-  // surface enough info — the model gives up rather than continue. Phase
-  // 2.11's companyHost-include unlocked the model's ability to find the
-  // company's site, but didn't change the give-up-after-thin-results
-  // behaviour. Pre-fetching the homepage gives the model the data
-  // directly, removing the search-required-then-give-up cascade.
-  //
-  // Best-effort: if prefetch fails (timeout, blocked by Cloudflare, JS-
-  // rendered SPA with no static body, etc.) we proceed with empty context
-  // — the existing prose research instructions still apply. So this is
-  // additive, not load-bearing.
-  let homepageContext = "";
-  let homepageContextDiag = null;
-  try {
-    const prefetchResult = await prefetchHomepageContext({
-      websiteUrl,
-      maxChars: 3500,
-      perPageChars: 1400,
-      perFetchTimeoutMs: 8_000,
-      signal,
-    });
-    homepageContext = prefetchResult.context || "";
-    homepageContextDiag = prefetchResult.diagnostics || null;
-    console.log(`[canonicalImport] homepage_prefetch_done`, {
-      session_id: sessionId,
-      website_url: websiteUrl,
-      context_chars: homepageContext.length,
-      pages_ok: homepageContextDiag?.pages_ok ?? null,
-      pages_with_text: homepageContextDiag?.pages_with_text ?? null,
-      elapsed_ms: homepageContextDiag?.elapsed_ms ?? null,
-      truncated: homepageContextDiag?.truncated ?? false,
-    });
-  } catch (prefetchErr) {
-    console.warn(`[canonicalImport] homepage_prefetch_threw`, {
-      session_id: sessionId,
-      error: String(prefetchErr?.message || prefetchErr),
-    });
-  }
-
   const prompt = buildCanonicalImportPrompt({
     companyName,
     websiteUrl,
     fields: requested,
     includeSourceUrls: true,
-    homepageContext,
   });
   const promptBody = `${prompt}${sp.prompt_exclusion_text || ""}`;
 

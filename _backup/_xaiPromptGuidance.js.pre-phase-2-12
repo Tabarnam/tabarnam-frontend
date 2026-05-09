@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.1.7-prefetch-homepage-context";
+const PROMPT_GUIDANCE_VERSION = "7.1.6-companyhost-include-and-fallback-reviews";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -367,7 +367,6 @@ function buildCanonicalImportPrompt({
   websiteUrl,
   fields = DEFAULT_CANONICAL_FIELDS,
   includeSourceUrls = true,
-  homepageContext = "",
 } = {}) {
   const name = String(companyName || "").trim() || "(unknown company)";
   const url = String(websiteUrl || "").trim() || "(unknown website)";
@@ -377,29 +376,10 @@ function buildCanonicalImportPrompt({
     ? "Also include location_source_urls with hq_source_urls and mfg_source_urls arrays containing the direct source URLs used for verification."
     : "";
 
-  // Phase 2.12 — homepage context block. The pre-fetch helper extracts
-  // title, meta description, and visible body text from the company's
-  // homepage + /about + /about-us, then injects it here as the model's
-  // primary highest-confidence source. Use this BEFORE web_search to
-  // avoid the give-up-after-thin-results pattern (Eliza B / Flojos / Luna
-  // Sandals / Kiwi Sandals). May be empty for JS-rendered SPAs or
-  // Cloudflare-blocked sites — the prose research instructions still
-  // apply when context is absent.
-  const homepageContextBlock = homepageContext
-    ? `Homepage Context (pre-fetched from the company's official site — your primary, highest-confidence source for tagline, HQ, products, industries, and feature/testimonial content):
-${homepageContext}
-
-Use the Homepage Context FIRST. Only run web_search / browse_page calls for facts you cannot verify from the context above (typically: manufacturing locations, third-party reviews, source URLs).
-
-`
-    : `Homepage Context: (pre-fetch failed or returned empty — proceed with web_search and browse_page on the official site as usual)
-
-`;
-
   return `You are a precise company research specialist. Use web_search and browse_page tools efficiently. Verify facts with the company's official website plus one additional source where quickly accessible. Do not hallucinate. Focus only on the specified company. Time and tool budget are bounded — prefer emitting partial JSON over searching exhaustively.
 
 For the Company: ${name} / ${url}
-${homepageContextBlock}Fields to populate: ${fieldList}
+Fields to populate: ${fieldList}
 
 Follow these baked-in rules for accuracy and formatting:
 Be thorough, exact, verify sources using web_search and browse_page tools, and do not hallucinate. Focus only on the specified company.
@@ -418,7 +398,7 @@ Reviews: Find up to 5 unique reviews. Target mix: 3-4 third-party reviews (YouTu
 
 ${sourceUrlsLine}
 
-You MUST emit a JSON object as your final response. Outputting nothing is NOT acceptable, even if your tool calls returned little or no useful data. Emitting an all-empty JSON object is preferable to emitting no output at all. Never complete a response with only tool calls and zero text — that is a critical failure mode. You cannot give up early. If your first 1-2 web_search calls returned thin or unhelpful results, do not terminate the response — instead, browse_page the official website (especially the homepage, /about, /about-us, /products) and run additional targeted searches until you have at least populated the Homepage Context-supported fields, then emit the JSON object.
+You MUST emit a JSON object as your final response. Outputting nothing is NOT acceptable, even if your tool calls returned little or no useful data. Emitting an all-empty JSON object is preferable to emitting no output at all.
 
 If you cannot verify a field after using your full tool budget, return the type-correct empty value:
 - tagline, headquarters_location, product_keywords → ""
