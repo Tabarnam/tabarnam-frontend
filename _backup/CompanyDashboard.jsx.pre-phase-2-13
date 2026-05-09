@@ -882,52 +882,6 @@ export default function CompanyDashboard() {
     };
   }, [loadCompanies, search, take]);
 
-  // Phase 2.13.A — auto-refetch the list when the tab becomes visible again
-  // and on a 60-second interval while the tab is visible.
-  //
-  // Empirical (Piper Sandals 2026-05-09): after a 4-company import completed,
-  // the dashboard list still showed Piper at "Stub-0%" because `loadCompanies`
-  // had only fired on the initial mount. The doc in Cosmos was correctly
-  // populated (per the worker's `[enrichment_final_state]` log), but the
-  // React `items` state was the snapshot from before the import worker
-  // finished. Clicking the Refresh button manually resolved the issue.
-  //
-  // Two refresh triggers cover the common cases:
-  //   1. visibilitychange — user navigated away (e.g. to Admin Import) and
-  //      came back; refetch immediately on tab return.
-  //   2. 60-second interval (only while document is visible) — covers the
-  //      case where Companies stays mounted in a tabbed UI alongside an
-  //      import panel and the user expects the list to reflect just-completed
-  //      imports without manually clicking Refresh.
-  //
-  // Both triggers go through the same `loadCompanies` path used by manual
-  // Refresh, so they share its abort + dedupe semantics.
-  useEffect(() => {
-    if (typeof document === "undefined" || !document.addEventListener) return undefined;
-
-    const refetchIfVisible = () => {
-      if (document.visibilityState === "visible") {
-        loadCompanies({ search, take });
-      }
-    };
-
-    const visibilityHandler = () => {
-      // Only refetch on the hidden→visible transition (don't fire on the
-      // initial visible state, which is already covered by the mount effect).
-      if (document.visibilityState === "visible") {
-        loadCompanies({ search, take });
-      }
-    };
-
-    document.addEventListener("visibilitychange", visibilityHandler);
-    const interval = window.setInterval(refetchIfVisible, 60_000);
-
-    return () => {
-      document.removeEventListener("visibilitychange", visibilityHandler);
-      window.clearInterval(interval);
-    };
-  }, [loadCompanies, search, take]);
-
   useEffect(() => {
     return () => {
       if (abortRef.current) {

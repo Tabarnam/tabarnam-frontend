@@ -671,9 +671,11 @@ test("Phase 2.5: handler.js wires the xAI serialization lock around the canonica
     /acquireXaiCallLock\(container,\s*sessionId,\s*companyId\)/.test(src),
     "canonical call site must call acquireXaiCallLock with session+company context"
   );
+  // Phase 2.13.B added an optional 4th `lockId` arg for sharded concurrency.
+  // Either signature is acceptable: 3-arg (legacy) or 4-arg with shard id.
   assert.ok(
-    /releaseXaiCallLock\(container,\s*xaiLock\.leaseId,\s*sessionId\)/.test(src),
-    "canonical call site must release the lock by leaseId in finally"
+    /releaseXaiCallLock\(container,\s*xaiLock\.leaseId,\s*sessionId(?:,\s*xaiLock\.lockId)?\)/.test(src),
+    "canonical call site must release the lock by leaseId in finally (Phase 2.13.B may also pass lockId for sharded mode)"
   );
 });
 

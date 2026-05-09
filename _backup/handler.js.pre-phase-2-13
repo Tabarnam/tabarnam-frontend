@@ -910,43 +910,6 @@ async function upsertDoc(container, doc) {
 
 const XAI_LOCK_DOC_ID = "_xai_call_lock";
 const XAI_LOCK_PK_VALUE = "_xai_call_lock";       // companies container PK is /normalized_domain
-
-// Phase 2.13.B — sharded concurrency.
-// XAI_CONCURRENCY=1 (default) preserves the legacy single-lock behaviour:
-// the lock doc id is exactly "_xai_call_lock" (matching the existing
-// production doc — no migration needed). When XAI_CONCURRENCY > 1, we use
-// per-shard lock docs ("_xai_call_lock_0", "_xai_call_lock_1", ...) and
-// acquirers try them in random order; the first available shard wins.
-// This caps simultaneous canonical xAI calls at N. Set via Azure Function
-// App env var; revert by setting back to 1 (instant, no redeploy).
-//
-// Empirical (Piper Sandals 2026-05-09): when 4 companies imported in
-// parallel, the 4th waited 236s for the lock. With XAI_CONCURRENCY=2 the
-// worst-case wait halves; with =4 the queue clears in parallel.
-function resolveXaiConcurrency() {
-  const raw = process.env.XAI_CONCURRENCY;
-  const n = Number.parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < 1) return 1;
-  // Hard cap at 8 to prevent accidental overload (xAI account rate limits).
-  return Math.min(n, 8);
-}
-
-function lockDocIdForShard(shard, concurrency) {
-  // Single-shard mode keeps the legacy doc id so the existing production
-  // lock doc stays valid. No migration step required to flip from
-  // single→sharded; the old doc continues to occupy shard 0 and a new
-  // shard 1 doc is created on demand.
-  if (concurrency <= 1) return XAI_LOCK_DOC_ID;
-  return `${XAI_LOCK_DOC_ID}_${shard}`;
-}
-
-function shuffleInPlace(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
 const XAI_LOCK_TTL_MS = 300_000;                   // 5 min — longer than per-call timeout
 const XAI_LOCK_MAX_WAIT_MS = 600_000;              // 10 min — outer cap on wait-for-lock
 const XAI_LOCK_INITIAL_BACKOFF_MS = 2_000;
@@ -955,113 +918,65 @@ const XAI_LOCK_MAX_BACKOFF_MS = 15_000;
 async function acquireXaiCallLock(container, sessionId, companyId) {
   if (!container) return { acquired: false, reason: "no_container" };
   const startedAt = Date.now();
-  const concurrency = resolveXaiConcurrency();
   let attempt = 0;
 
   while (true) {
-    // Phase 2.13.B — try each shard in random order. First successful
-    // create wins; the worker holds that shard's lock for the duration
-    // of its canonical call. Random rotation spreads contention so
-    // workers don't all pile up on shard 0.
-    const shardOrder = shuffleInPlace(Array.from({ length: concurrency }, (_, i) => i));
-    let anyHeldByActive = false;
-    let firstShardError = null;
+    const leaseId = (globalThis.crypto?.randomUUID?.() || `lease-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const expiresAt = new Date(Date.now() + XAI_LOCK_TTL_MS).toISOString();
+    const lockDoc = {
+      id: XAI_LOCK_DOC_ID,
+      normalized_domain: XAI_LOCK_PK_VALUE,
+      leaseId,
+      sessionId,
+      companyId,
+      acquiredAt: new Date().toISOString(),
+      expiresAt,
+    };
 
-    for (const shard of shardOrder) {
-      const lockId = lockDocIdForShard(shard, concurrency);
-      const leaseId = (globalThis.crypto?.randomUUID?.() || `lease-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-      const expiresAt = new Date(Date.now() + XAI_LOCK_TTL_MS).toISOString();
-      const lockDoc = {
-        id: lockId,
-        normalized_domain: XAI_LOCK_PK_VALUE,
-        leaseId,
-        sessionId,
-        companyId,
-        shard,
-        acquiredAt: new Date().toISOString(),
-        expiresAt,
-      };
-
-      try {
-        // Atomic create — 409 if doc exists. This is the actual locking
-        // primitive. We try the next shard on 409, only backoff after
-        // exhausting all shards in this rotation.
-        await container.items.create(lockDoc);
-        console.log(`[resume-worker] xai_lock_acquired`, {
-          session_id: sessionId,
-          company_id: companyId,
-          leaseId,
-          shard,
-          concurrency,
-          lock_id: lockId,
-          attempt,
-          wait_ms: Date.now() - startedAt,
-        });
-        return { acquired: true, leaseId, shard, lockId };
-      } catch (e) {
-        if (e?.code !== 409) {
-          // Non-409 errors on shard create are retryable — record and try
-          // the next shard. Only return failure if EVERY shard errors.
-          firstShardError = firstShardError || e;
-          continue;
-        }
-        // 409 on this shard — held. Check expiry; if stale, take over
-        // immediately on the same shard.
-        try {
-          const { resource: existing } = await container.item(lockId, XAI_LOCK_PK_VALUE).read();
-          if (existing && new Date(existing.expiresAt).getTime() < Date.now()) {
-            console.log(`[resume-worker] xai_lock_stale_takeover`, {
-              session_id: sessionId,
-              shard,
-              lock_id: lockId,
-              stale_lease: existing.leaseId,
-              stale_session: existing.sessionId,
-              expired_at: existing.expiresAt,
-            });
-            try { await container.item(lockId, XAI_LOCK_PK_VALUE).delete(); } catch {}
-            // Try create again on this same shard before moving to next.
-            try {
-              await container.items.create(lockDoc);
-              console.log(`[resume-worker] xai_lock_acquired_after_takeover`, {
-                session_id: sessionId,
-                shard,
-                lock_id: lockId,
-                leaseId,
-                wait_ms: Date.now() - startedAt,
-              });
-              return { acquired: true, leaseId, shard, lockId };
-            } catch {
-              // Lost the takeover race to another worker; treat as held by
-              // an active worker for backoff purposes.
-              anyHeldByActive = true;
-              continue;
-            }
-          }
-        } catch {
-          // Read failed — assume held; continue to next shard.
-        }
-        anyHeldByActive = true;
-        // Continue to next shard in this rotation.
-      }
-    }
-
-    // Either every shard 409'd (held by active workers), or every shard
-    // hit a non-409 error. If all errored without 409s, surface the first
-    // error and bail. Otherwise, back off and rotate again.
-    if (!anyHeldByActive && firstShardError) {
-      console.warn(`[resume-worker] xai_lock_create_error`, {
+    try {
+      // Atomic create — 409 if doc exists. This is the actual locking primitive.
+      await container.items.create(lockDoc);
+      console.log(`[resume-worker] xai_lock_acquired`, {
         session_id: sessionId,
-        concurrency,
-        error: firstShardError?.message || String(firstShardError),
-        code: firstShardError?.code,
+        company_id: companyId,
+        leaseId,
+        attempt,
+        wait_ms: Date.now() - startedAt,
       });
-      return { acquired: false, reason: "create_error", error: String(firstShardError?.message || firstShardError) };
+      return { acquired: true, leaseId };
+    } catch (e) {
+      if (e?.code !== 409) {
+        console.warn(`[resume-worker] xai_lock_create_error`, {
+          session_id: sessionId,
+          error: e?.message || String(e),
+          code: e?.code,
+        });
+        return { acquired: false, reason: "create_error", error: String(e?.message || e) };
+      }
+      // 409 — lock exists; fall through to expiry check below.
     }
 
+    // Lock is held; check if it's stale (worker died, never released).
+    try {
+      const { resource: existing } = await container.item(XAI_LOCK_DOC_ID, XAI_LOCK_PK_VALUE).read();
+      if (existing && new Date(existing.expiresAt).getTime() < Date.now()) {
+        console.log(`[resume-worker] xai_lock_stale_takeover`, {
+          session_id: sessionId,
+          stale_lease: existing.leaseId,
+          stale_session: existing.sessionId,
+          expired_at: existing.expiresAt,
+        });
+        try { await container.item(XAI_LOCK_DOC_ID, XAI_LOCK_PK_VALUE).delete(); } catch {}
+        continue;  // try create again immediately
+      }
+    } catch {
+      // Read failed — assume held; back off and retry below.
+    }
+
+    // Held by an active worker. Wait with exponential backoff.
     if (Date.now() - startedAt >= XAI_LOCK_MAX_WAIT_MS) {
       console.warn(`[resume-worker] xai_lock_acquire_timeout`, {
         session_id: sessionId,
-        concurrency,
         wait_ms: Date.now() - startedAt,
         attempts: attempt + 1,
       });
@@ -1077,23 +992,13 @@ async function acquireXaiCallLock(container, sessionId, companyId) {
   }
 }
 
-async function releaseXaiCallLock(container, leaseId, sessionId, lockIdHint) {
+async function releaseXaiCallLock(container, leaseId, sessionId) {
   if (!container || !leaseId) return;
-
-  // Phase 2.13.B — release-by-shard.
-  //
-  // Callers pass the shard's lockId (returned by acquireXaiCallLock as
-  // `lockId`) so we know which shard doc to read/delete. For backwards
-  // compatibility, if `lockIdHint` is omitted we default to the legacy
-  // single-shard doc id — handles in-flight workers that acquired before
-  // this code shipped.
-  const lockId = (typeof lockIdHint === "string" && lockIdHint) ? lockIdHint : XAI_LOCK_DOC_ID;
-
   try {
-    const { resource: existing } = await container.item(lockId, XAI_LOCK_PK_VALUE).read();
+    const { resource: existing } = await container.item(XAI_LOCK_DOC_ID, XAI_LOCK_PK_VALUE).read();
     if (existing && existing.leaseId === leaseId) {
-      await container.item(lockId, XAI_LOCK_PK_VALUE).delete();
-      console.log(`[resume-worker] xai_lock_released`, { session_id: sessionId, leaseId, lock_id: lockId });
+      await container.item(XAI_LOCK_DOC_ID, XAI_LOCK_PK_VALUE).delete();
+      console.log(`[resume-worker] xai_lock_released`, { session_id: sessionId, leaseId });
     } else if (existing) {
       // Lease mismatch — likely a stale-takeover happened. Don't delete the
       // new holder's lock.
@@ -1101,7 +1006,6 @@ async function releaseXaiCallLock(container, leaseId, sessionId, lockIdHint) {
         session_id: sessionId,
         ourLeaseId: leaseId,
         currentLeaseId: existing.leaseId,
-        lock_id: lockId,
         reason: "lease_mismatch",
       });
     }
@@ -1109,7 +1013,6 @@ async function releaseXaiCallLock(container, leaseId, sessionId, lockIdHint) {
     if (e?.code !== 404) {
       console.warn(`[resume-worker] xai_lock_release_error`, {
         session_id: sessionId,
-        lock_id: lockId,
         error: e?.message || String(e),
       });
     }
@@ -2689,7 +2592,7 @@ async function resumeWorkerHandler(req, context) {
                 });
               } finally {
                 // Release inside finally so a thrown call doesn't leak the lock.
-                await releaseXaiCallLock(container, xaiLock.leaseId, sessionId, xaiLock.lockId);
+                await releaseXaiCallLock(container, xaiLock.leaseId, sessionId);
               }
             }
           } else {
@@ -5467,12 +5370,5 @@ module.exports = {
   _test: {
     resumeWorkerHandler,
     invokeResumeWorkerInProcess,
-    // Phase 2.13.B exports for lock-shard tests
-    acquireXaiCallLock,
-    releaseXaiCallLock,
-    resolveXaiConcurrency,
-    lockDocIdForShard,
-    XAI_LOCK_DOC_ID,
-    XAI_LOCK_PK_VALUE,
   },
 };
