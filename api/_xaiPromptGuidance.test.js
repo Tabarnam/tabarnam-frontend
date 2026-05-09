@@ -481,19 +481,19 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.8: PROMPT_GUIDANCE_VERSION is 7.1.4-nested-envelope", () => {
-  // Bumped from 7.1.3 in Phase 2.8 — runCanonicalImportCall now returns
-  // result.enriched as a NESTED ENVELOPE shape (per-field object with
-  // value + _status + searched_at). This is the Variant 2 architectural
-  // fix that lets applyEnrichmentToCompany clear stale *_unknown flags,
-  // geocode HQ + manufacturing, build plural structured arrays, and set
-  // audit-trail status fields. Closes the HQ-display bug that affected
-  // Chaco/Clarks/Crocs (HQ value was correctly in Cosmos but stale
-  // hq_unknown flag from URL-seed step never cleared).
+test("Phase 2.10: PROMPT_GUIDANCE_VERSION is 7.1.5-strict-schema-on", () => {
+  // Bumped from 7.1.4 in Phase 2.10 — re-enabling response_format with
+  // strict json_schema by default. Phase 2.2 had disabled it because of
+  // a 22-call tool-loop runaway; Phase 2.10 brings it back because the
+  // runaway risk is now bounded by tool cap (10), 240s timeout, 45s
+  // grace window, 60s SSE stall detection, and account-level
+  // serialization lock. Strict schema fixes the model_emitted_no_text
+  // failure mode (Eliza B / Flojos / FitFlop) by FORCING emission
+  // server-side. Kill-switch via XAI_USE_RESPONSE_FORMAT=off.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.1\.4-nested-envelope/,
-    "PROMPT_GUIDANCE_VERSION must be 7.1.4-nested-envelope for Phase 2.8"
+    /^7\.1\.5-strict-schema-on/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.5-strict-schema-on for Phase 2.10"
   );
 });
 

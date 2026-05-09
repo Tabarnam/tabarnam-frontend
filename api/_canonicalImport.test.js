@@ -701,7 +701,14 @@ test("Phase 2.4: _xaiLiveSearch grace window is 45_000 (down from 120_000)", () 
   );
 });
 
-test("Phase 2.2: response_format is NOT sent by default (root-cause fix for 2026-05-08 tool-loop failure)", async () => {
+test("Phase 2.10: response_format IS sent by default (strict json_schema ON with bounded guardrails)", async () => {
+  // Phase 2.2 disabled response_format because of a 22-call tool-loop
+  // runaway. Phase 2.10 re-enables it as the default because the runaway
+  // risk is now bounded by tool cap + timeout + grace window + SSE stall
+  // detection + serialization lock. Strict json_schema FORCES emission
+  // server-side, fixing the model_emitted_no_text failure mode that
+  // afflicted Eliza B / Flojos / FitFlop.
+  //
   // Save and clear the env override so we test the default path.
   const prev = process.env.XAI_USE_RESPONSE_FORMAT;
   delete process.env.XAI_USE_RESPONSE_FORMAT;
@@ -741,10 +748,65 @@ test("Phase 2.2: response_format is NOT sent by default (root-cause fix for 2026
     );
 
     assert.ok(capturedPayload, "streaming was invoked");
+    assert.ok(
+      capturedPayload.response_format,
+      "Phase 2.10: response_format must be sent by default (strict json_schema forces emission, fixes model_emitted_no_text)"
+    );
+    assert.equal(capturedPayload.response_format.type, "json_schema");
+    assert.equal(capturedPayload.response_format.json_schema.strict, true);
+    assert.equal(capturedPayload.response_format.json_schema.name, "company_research");
+  } finally {
+    if (prev === undefined) delete process.env.XAI_USE_RESPONSE_FORMAT;
+    else process.env.XAI_USE_RESPONSE_FORMAT = prev;
+  }
+});
+
+test("Phase 2.10: XAI_USE_RESPONSE_FORMAT=off acts as kill-switch (disables strict schema)", async () => {
+  // Kill-switch: anything except "off" leaves the schema on. Setting
+  // XAI_USE_RESPONSE_FORMAT=off explicitly reverts to the Phase 2.2
+  // through 2.9 prose-only behavior — useful if strict schema regresses
+  // and we need an instant runtime rollback without a redeploy.
+  const prev = process.env.XAI_USE_RESPONSE_FORMAT;
+  process.env.XAI_USE_RESPONSE_FORMAT = "off";
+
+  let capturedPayload = null;
+  try {
+    await withMockLiveSearch(
+      {
+        xaiLiveSearchStreaming: async (opts) => {
+          capturedPayload = opts;
+          return {
+            ok: true,
+            resp: {
+              text: JSON.stringify({
+                tagline: "x",
+                headquarters_location: "Austin, TX, USA",
+                manufacturing_locations: [],
+                industries: [],
+                product_keywords: "",
+                reviews: [],
+                location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
+                red_flag: false,
+              }),
+            },
+            diagnostics: { tool_calls_counted: 4 },
+          };
+        },
+      },
+      async (mod) => {
+        await mod.runCanonicalImportCall({
+          company: { company_name: "Acme", url: "https://acme.example.com" },
+          sessionId: "test",
+          budgetMs: 60_000,
+          fieldsToEnrich: ["tagline"],
+        });
+      }
+    );
+
     assert.equal(
       capturedPayload.response_format,
       undefined,
-      "response_format must be undefined by default — strict json_schema with tools causes Grok-4 to loop and emit no text"
+      "XAI_USE_RESPONSE_FORMAT=off must produce undefined response_format (kill-switch)"
     );
   } finally {
     if (prev === undefined) delete process.env.XAI_USE_RESPONSE_FORMAT;

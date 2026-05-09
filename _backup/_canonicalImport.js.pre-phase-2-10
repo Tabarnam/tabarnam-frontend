@@ -290,37 +290,25 @@ async function runCanonicalImportCall({
 
   const model = asString(modelOverride).trim() || asString(process.env.XAI_MODEL).trim() || "grok-4-latest";
 
-  // Phase 2.10 — strict json_schema is now ON BY DEFAULT.
+  // Phase 2.2 — DO NOT send response_format by default.
   //
-  // Background: Phase 2.2 disabled response_format because of a 22-call
-  // tool-loop runaway on /v1/responses with tools + strict json_schema +
-  // 8 required fields. With prose-only emission rules, the runaway was
-  // bounded — but it surfaced a different failure mode: the model
-  // sometimes emits `response.completed` with `accumulated_text_chars: 0`
-  // and `output: [web_search_call only]`. Confirmed across multiple runs
-  // (Eliza B, Flojos, FitFlop). Phase 2.6 detects + classifies this as
-  // `model_emitted_no_text` so it doesn't masquerade as success, but the
-  // user-visible result is still all-empty fields.
+  // Empirically (2026-05-08, Archies + Bedrock): Grok-4 on /v1/responses
+  // with tools:[{type:"web_search"}] + response_format:{json_schema strict:true}
+  // + 8 required fields enters an aggressive tool-use loop trying to
+  // "perfectly" satisfy the schema and never reaches the text-output phase.
+  // Production ran 22+ web_search calls in 134s, emitted 0 chars of text,
+  // and the partial-flush handler aborted with no salvageable JSON.
   //
-  // Phase 2.10 brings back strict json_schema because the original
-  // runaway risk is now bounded by guardrails that didn't exist when we
-  // disabled it:
-  //   - Tool cap at 10 (Phase 2.5)
-  //   - 240s upstream timeout (Phase 2.4)
-  //   - 45s grace window after tool-cap exceeded (Phase 2.4)
-  //   - 60s SSE stall detection (Phase 2.9 C)
-  //   - Account-level serialization lock (Phase 2.5)
-  //   - 5-min lock TTL with stale-takeover (Phase 2.5)
+  // The canonical prompt's prose rules + "empty over hallucination"
+  // sentence + parseCanonicalJson's defensive parsing already enforce
+  // the same shape contract that the json_schema was meant to.
   //
-  // Strict json_schema FORCES emission server-side: xAI's API enforces the
-  // schema and the model cannot terminate the response without producing
-  // valid JSON. The "no text" failure becomes structurally impossible.
-  //
-  // Kill-switch retained: `XAI_USE_RESPONSE_FORMAT=off` disables strict
-  // schema and reverts to prose-only enforcement (the Phase 2.2 → 2.9
-  // behavior). Anything else (or unset) = strict schema ON.
+  // We keep buildResponseFormat() exported and gate its use behind an
+  // opt-in env flag so we can A/B test bringing it back if Grok-4
+  // behavior changes (e.g. on a future model version where strict mode
+  // and tools play nicer together).
   const useResponseFormat =
-    String(process.env.XAI_USE_RESPONSE_FORMAT || "on").trim().toLowerCase() !== "off";
+    String(process.env.XAI_USE_RESPONSE_FORMAT || "").trim().toLowerCase() === "on";
   const response_format = useResponseFormat ? buildResponseFormat() : undefined;
 
   // Phase 2.1 — log entry diagnostics so we can correlate the call with
