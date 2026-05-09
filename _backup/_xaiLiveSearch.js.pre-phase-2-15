@@ -830,38 +830,9 @@ async function xaiLiveSearchStreaming({
           let parsed;
           try { parsed = JSON.parse(dataStr); } catch { continue; }
 
-          // Phase 2.15.B — SSE-stall timer bumps ONLY on meaningful events,
-          // not on every parsed event.
-          //
-          // Empirical (Teva + TKEES, 2026-05-09): xAI sends periodic
-          // keep-alive / structural events (`response.in_progress`,
-          // `response.created`, etc.) during streams. The Phase 2.9 C
-          // stall detector previously bumped `lastSseEventAt` on EVERY
-          // parsed event, including these keep-alives, so a model that
-          // had silently stopped producing real output but was still
-          // receiving xAI keep-alives never tripped the 60s threshold.
-          // Result: 5-min lock-TTL waits before the next worker could
-          // stale-takeover.
-          //
-          // Tighten by only bumping on the four event types that
-          // genuinely indicate model progress: tool calls, text deltas,
-          // output items being added, and final completion. Other events
-          // (in_progress / created / unknown) still parse and route
-          // normally below — they just don't reset the stall timer.
-          //
-          // Net: a stalled stream now triggers SSE-stall in 60s even if
-          // xAI is sending pings, releasing the lock so the next worker
-          // can start its cycle 2 within ~60-70 seconds instead of 5 min.
-          const isMeaningfulEvent =
-            eventType === "response.completed" ||
-            eventType === "response.output_text.delta" ||
-            eventType === "response.output_item.added" ||
-            eventType === "response.output_item.done" ||
-            parsed?.type === "response.completed" ||
-            parsed?.type === "response.output_text.delta";
-          if (isMeaningfulEvent) {
-            lastSseEventAt = Date.now();
-          }
+          // Phase 2.9 C — bump SSE-stall timer on every parsed event so
+          // the stall checker only fires when the upstream goes truly silent.
+          lastSseEventAt = Date.now();
 
           // response.completed contains the full output array
           if (eventType === "response.completed" || (parsed.type === "response.completed")) {
@@ -884,7 +855,7 @@ async function xaiLiveSearchStreaming({
             outputItems.push({ type: item.type, id: item.id || null });
             console.log(`[xaiLiveSearchStreaming] ${item.type} #${toolCalls} detected`);
 
-            if (toolCalls >= maxToolCalls && !abortedByToolCap) {
+            if (toolCalls > maxToolCalls && !abortedByToolCap) {
               // Grok does all tool calls FIRST then generates text — aborting
               // immediately kills the stream before any text output (0 keywords).
               // Instead, mark as over-budget and set a grace timer to let text
@@ -898,18 +869,7 @@ async function xaiLiveSearchStreaming({
               // recover. Aborting at 45s frees the connection for the next
               // worker invocation rather than burning the full timeout on
               // dead grace time.
-              //
-              // Phase 2.15.A: changed boundary from `>` to `>=`. Empirical
-              // (Teva + TKEES, 2026-05-09): the model can stop EXACTLY at
-              // the cap (call #10 with cap=10) and never trigger call #11.
-              // The old `>` check waited for #11 to arm the grace timer,
-              // which never came — the stream then stalled silently for
-              // ~3 minutes until the lock TTL elapsed. Firing the grace
-              // timer the moment we hit the cap (at call #N where N=cap)
-              // catches this stall pattern. The grace window still allows
-              // 45s for text output, so legitimate completions at exactly
-              // the cap aren't penalized.
-              console.log(`[xaiLiveSearchStreaming] Tool cap ${maxToolCalls} reached (call #${toolCalls}) — waiting for text output (45s grace)`);
+              console.log(`[xaiLiveSearchStreaming] Tool cap ${maxToolCalls} exceeded (call #${toolCalls}) — waiting for text output (45s grace)`);
               abortedByToolCap = true;
               setTimeout(() => {
                 if (accumulatedText.length === 0) {

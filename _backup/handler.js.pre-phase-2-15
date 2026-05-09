@@ -947,24 +947,7 @@ function shuffleInPlace(arr) {
   }
   return arr;
 }
-// Phase 2.15.C — shortened from 300s to 180s.
-//
-// Empirical (Teva + TKEES, 2026-05-09): when a canonical call silently
-// stalls (model stops producing output but xAI keeps sending keep-alives),
-// the lock-holder never reaches its `finally` block to release. The next
-// worker has to wait the full TTL before stale-takeover. Pre-2.15 the TTL
-// was 300s — even with Phase 2.9 C SSE-stall + Phase 2.15.A tool-cap-grace
-// catching most stalls in <90s, leaks past those guards still cost 5
-// minutes of wall-clock recovery.
-//
-// 180s is the smallest TTL that's still safely > the longest typical
-// successful call (Earth Runners 165s, Hari Mari 154s, recent imports
-// 100-160s). The 240s outer canonical timeout (DEFAULT_TIMEOUT_MS) is
-// hit very rarely in practice; legitimate calls finish well under 180s.
-// Defense-in-depth: shaves up to 2 min off any future leaked-lock
-// recovery time. SSE-stall + tool-cap-grace remain the primary catchers
-// at 60-90s.
-const XAI_LOCK_TTL_MS = 180_000;                   // 3 min — defense-in-depth for leaked locks
+const XAI_LOCK_TTL_MS = 300_000;                   // 5 min — longer than per-call timeout
 const XAI_LOCK_MAX_WAIT_MS = 600_000;              // 10 min — outer cap on wait-for-lock
 const XAI_LOCK_INITIAL_BACKOFF_MS = 2_000;
 const XAI_LOCK_MAX_BACKOFF_MS = 15_000;

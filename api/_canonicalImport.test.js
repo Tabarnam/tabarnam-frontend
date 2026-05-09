@@ -703,6 +703,76 @@ test("Phase 2.4: _xaiLiveSearch grace window is 45_000 (down from 120_000)", () 
   );
 });
 
+// ── Phase 2.15 — stall-recovery source-level guards ─────────────────────────
+
+test("Phase 2.15.A: tool-cap grace fires AT cap (toolCalls >= maxToolCalls)", () => {
+  // Empirical (Teva + TKEES, 2026-05-09): the model can stop EXACTLY at
+  // the cap (call #10 with cap=10) and never trigger call #11. Pre-2.15
+  // the boundary check was `toolCalls > maxToolCalls`, so the grace timer
+  // never armed at the cap and the stream stalled silently for ~3 minutes
+  // until the lock TTL elapsed. The fix changes the boundary to `>=`.
+  const fs = require("node:fs");
+  const src = fs.readFileSync(path.join(__dirname, "_xaiLiveSearch.js"), "utf8");
+  assert.ok(
+    /toolCalls\s*>=\s*maxToolCalls\s*&&\s*!abortedByToolCap/.test(src),
+    "grace timer must arm at toolCalls >= maxToolCalls (Phase 2.15.A boundary fix)"
+  );
+  assert.ok(
+    !/toolCalls\s*>\s*maxToolCalls\s*&&\s*!abortedByToolCap/.test(src),
+    "the old `>` boundary must NOT be present (regression guard)"
+  );
+  // Log message updated to reflect the boundary change ("reached" vs "exceeded").
+  assert.ok(
+    /Tool cap \$\{maxToolCalls\} reached/.test(src),
+    "log message should say 'reached' (cap-equality semantics)"
+  );
+});
+
+test("Phase 2.15.B: SSE-stall timer bumps ONLY on meaningful events, not on every parsed event", () => {
+  // Empirical (Teva + TKEES, 2026-05-09): xAI sends periodic keep-alive
+  // events during streams. The Phase 2.9 C stall detector previously
+  // bumped lastSseEventAt on every parsed event, including keep-alives,
+  // so a stalled-but-pinged stream never tripped the 60s threshold.
+  // Phase 2.15.B gates the bump behind an `isMeaningfulEvent` check.
+  const fs = require("node:fs");
+  const src = fs.readFileSync(path.join(__dirname, "_xaiLiveSearch.js"), "utf8");
+  assert.ok(
+    /const isMeaningfulEvent\b/.test(src),
+    "isMeaningfulEvent gate must exist (Phase 2.15.B)"
+  );
+  // The bump must be inside the gate, not unconditional.
+  assert.ok(
+    /if \(isMeaningfulEvent\)\s*\{\s*lastSseEventAt = Date\.now\(\);\s*\}/.test(src),
+    "lastSseEventAt bump must be conditional on isMeaningfulEvent"
+  );
+  // Required event types in the gate.
+  assert.ok(
+    /response\.completed/.test(src) &&
+    /response\.output_text\.delta/.test(src) &&
+    /response\.output_item\.added/.test(src),
+    "isMeaningfulEvent must include response.completed / output_text.delta / output_item.added"
+  );
+});
+
+test("Phase 2.15.C: handler.js sets XAI_LOCK_TTL_MS to 180_000 (down from 300_000)", () => {
+  // Empirical (Teva + TKEES, 2026-05-09): leaked locks (worker held the
+  // lock past abort, finally never ran) cost the full 300s TTL before
+  // stale-takeover. 180s is still > the longest typical successful call
+  // (~165s) so legitimate calls aren't false-positively taken over, but
+  // any future leak recovers in 3 min instead of 5.
+  const fs = require("node:fs");
+  const handlerPath = path.join(__dirname, "import", "resume-worker", "handler.js");
+  const src = fs.readFileSync(handlerPath, "utf8");
+  assert.ok(
+    /const XAI_LOCK_TTL_MS\s*=\s*180_000\b/.test(src),
+    "XAI_LOCK_TTL_MS must be 180_000 (Phase 2.15.C)"
+  );
+  assert.ok(
+    !/const XAI_LOCK_TTL_MS\s*=\s*300_000\b/.test(src),
+    "the old 300_000 TTL must NOT be present (regression guard)"
+  );
+});
+
 test("Phase 2.10: response_format IS sent by default (strict json_schema ON with bounded guardrails)", async () => {
   // Phase 2.2 disabled response_format because of a 22-call tool-loop
   // runaway. Phase 2.10 re-enables it as the default because the runaway
