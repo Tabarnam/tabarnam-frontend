@@ -13,6 +13,7 @@ const path = require("node:path");
 
 const {
   shapeEnrichedFromParsed,
+  shapeEnvelopeForApply,
   classifyFields,
   buildResponseFormat,
   stripLabel,
@@ -212,10 +213,20 @@ test("runCanonicalImportCall: success path returns runDirectEnrichment-shape res
       assert.deepEqual(result.fields_failed, []);
       assert.deepEqual(result.errors, {});
 
-      // Enriched values map back to the parsed JSON.
-      assert.equal(result.enriched.tagline, "We make things");
-      assert.equal(result.enriched.headquarters_location, "Austin, TX, USA");
-      assert.deepEqual(result.enriched.industries, ["Specialty Foods", "Snack Foods"]);
+      // Phase 2.8 — result.enriched is now NESTED envelope shape (matches
+      // applyEnrichmentToCompany expectations). Each field is wrapped in
+      // an object with the value, *_status, and searched_at.
+      assert.equal(result.enriched.tagline.tagline, "We make things");
+      assert.equal(result.enriched.tagline.tagline_status, "ok");
+      assert.ok(result.enriched.tagline.searched_at, "tagline envelope must include searched_at");
+      assert.equal(result.enriched.headquarters_location.headquarters_location, "Austin, TX, USA");
+      assert.equal(result.enriched.headquarters_location.headquarters_location_status, "ok");
+      assert.deepEqual(
+        result.enriched.headquarters_location.location_source_urls.hq_source_urls,
+        ["https://a"]
+      );
+      assert.deepEqual(result.enriched.industries.industries, ["Specialty Foods", "Snack Foods"]);
+      assert.equal(result.enriched.industries.industries_status, "ok");
 
       // Diagnostics carry telemetry the worker writes to import_diagnostics.
       assert.equal(result.diagnostics.canonical_call, true);
@@ -350,7 +361,9 @@ test("runCanonicalImportCall: streaming returns null → falls back to xaiLiveSe
       });
       assert.equal(nonStreamingCalled, true, "fallback must invoke xaiLiveSearch when streaming returns null");
       assert.equal(result.ok, true);
-      assert.equal(result.enriched.tagline, "fallback");
+      // Phase 2.8 — nested-envelope shape
+      assert.equal(result.enriched.tagline.tagline, "fallback");
+      assert.equal(result.enriched.tagline.tagline_status, "ok");
     }
   );
 });
@@ -878,6 +891,180 @@ test("Phase 2.6: source-level guard — extractTextFromXaiResponse returns '' on
   assert.ok(
     /\[extractTextFromXaiResponse\] all paths failed/.test(src),
     "Diagnostic warn log must remain"
+  );
+});
+
+// ── Phase 2.8 — nested-envelope shape contract for applyEnrichmentToCompany ──
+
+test("Phase 2.8: shapeEnvelopeForApply wraps flat values into the nested shape applyEnrichmentToCompany expects", () => {
+  const flat = {
+    tagline: "Come As You Are",
+    headquarters_location: "Broomfield, CO, USA",
+    manufacturing_locations: ["Saladillo, Buenos Aires, Argentina", "Vietnam"],
+    industries: ["Foam Clogs", "Comfort Sandals"],
+    product_keywords: "classic clogs, sandals, slides",
+    reviews: [{ source: "Mag", author: "X", url: "https://x", title: "T", date: "D", text: "Good." }],
+    location_source_urls: { hq_source_urls: ["https://crocs.com/about"], mfg_source_urls: ["https://crocs.com/manufacturing"] },
+    red_flag: false,
+    social: {},
+  };
+  const env = shapeEnvelopeForApply(flat);
+
+  // The envelope MUST match what applyEnrichmentToCompany reads at
+  // _directEnrichment.js:307+ — each field is wrapped in an object with
+  // the value, _status, searched_at, and (for HQ/mfg) location_source_urls.
+  assert.equal(env.tagline.tagline, "Come As You Are");
+  assert.equal(env.tagline.tagline_status, "ok");
+  assert.ok(env.tagline.searched_at, "tagline.searched_at must be set");
+
+  assert.equal(env.headquarters_location.headquarters_location, "Broomfield, CO, USA");
+  assert.equal(env.headquarters_location.headquarters_location_status, "ok");
+  assert.deepEqual(env.headquarters_location.location_source_urls.hq_source_urls, ["https://crocs.com/about"]);
+
+  assert.deepEqual(
+    env.manufacturing_locations.manufacturing_locations,
+    ["Saladillo, Buenos Aires, Argentina", "Vietnam"]
+  );
+  assert.equal(env.manufacturing_locations.manufacturing_locations_status, "ok");
+  assert.deepEqual(env.manufacturing_locations.location_source_urls.mfg_source_urls, ["https://crocs.com/manufacturing"]);
+
+  assert.deepEqual(env.industries.industries, ["Foam Clogs", "Comfort Sandals"]);
+  assert.equal(env.industries.industries_status, "ok");
+
+  assert.equal(env.product_keywords.product_keywords, "classic clogs, sandals, slides");
+  assert.equal(env.product_keywords.product_keywords_status, "ok");
+
+  assert.equal(env.reviews.reviews.length, 1);
+  assert.equal(env.reviews.reviews_status, "ok");
+});
+
+test("Phase 2.8: shapeEnvelopeForApply preserves type-correct empty values (no fabrication when source is empty)", () => {
+  const flat = {
+    tagline: "",
+    headquarters_location: "",
+    manufacturing_locations: [],
+    industries: [],
+    product_keywords: "",
+    reviews: [],
+    location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
+    red_flag: false,
+    social: {},
+  };
+  const env = shapeEnvelopeForApply(flat);
+
+  // Empty string fields → envelope value is empty string (not null/undefined).
+  // Empty array fields → envelope value is empty array.
+  // applyEnrichmentToCompany guards on truthy inner value before assigning,
+  // so empty values won't overwrite real existing data on the doc.
+  assert.equal(env.tagline.tagline, "");
+  assert.equal(env.headquarters_location.headquarters_location, "");
+  assert.deepEqual(env.manufacturing_locations.manufacturing_locations, []);
+  assert.deepEqual(env.industries.industries, []);
+  assert.equal(env.product_keywords.product_keywords, "");
+  assert.deepEqual(env.reviews.reviews, []);
+});
+
+test("Phase 2.8: shapeEnvelopeForApply tolerates null/undefined input", () => {
+  for (const input of [null, undefined, {}]) {
+    const env = shapeEnvelopeForApply(input);
+    assert.equal(env.tagline.tagline, "");
+    assert.equal(env.headquarters_location.headquarters_location, "");
+    assert.deepEqual(env.manufacturing_locations.manufacturing_locations, []);
+    assert.deepEqual(env.industries.industries, []);
+    assert.equal(env.product_keywords.product_keywords, "");
+    assert.deepEqual(env.reviews.reviews, []);
+    // Source URLs default to empty arrays in both wrappers
+    assert.deepEqual(env.headquarters_location.location_source_urls.hq_source_urls, []);
+    assert.deepEqual(env.manufacturing_locations.location_source_urls.mfg_source_urls, []);
+  }
+});
+
+test("Phase 2.8: shapeEnvelopeForApply structure matches applyEnrichmentToCompany expectations", () => {
+  // applyEnrichmentToCompany reads these specific paths:
+  //   enriched.tagline.tagline_status, enriched.tagline.searched_at, enriched.tagline.tagline
+  //   enriched.headquarters_location.headquarters_location_status, .searched_at, .headquarters_location, .location_source_urls.hq_source_urls
+  //   enriched.manufacturing_locations.manufacturing_locations_status, .searched_at, .manufacturing_locations, .location_source_urls.mfg_source_urls
+  //   enriched.industries.industries_status, .searched_at, .industries
+  //   enriched.product_keywords.product_keywords_status, .searched_at, .product_keywords
+  //   enriched.reviews.reviews_status, .reviews_searched_at, .reviews
+  // This test is an integration-shape contract: if shapeEnvelopeForApply
+  // ever drifts from this layout, applyEnrichmentToCompany will silently
+  // skip fields again (which was the Crocs bug).
+  const env = shapeEnvelopeForApply({});
+
+  // Tagline path
+  assert.ok("tagline" in env.tagline, "tagline must contain inner tagline key");
+  assert.ok("tagline_status" in env.tagline);
+  assert.ok("searched_at" in env.tagline);
+
+  // HQ path (incl. nested location_source_urls)
+  assert.ok("headquarters_location" in env.headquarters_location);
+  assert.ok("headquarters_location_status" in env.headquarters_location);
+  assert.ok("searched_at" in env.headquarters_location);
+  assert.ok("location_source_urls" in env.headquarters_location);
+  assert.ok("hq_source_urls" in env.headquarters_location.location_source_urls);
+
+  // Manufacturing path (incl. nested location_source_urls)
+  assert.ok("manufacturing_locations" in env.manufacturing_locations);
+  assert.ok("manufacturing_locations_status" in env.manufacturing_locations);
+  assert.ok("location_source_urls" in env.manufacturing_locations);
+  assert.ok("mfg_source_urls" in env.manufacturing_locations.location_source_urls);
+
+  // Other field paths
+  assert.ok("industries" in env.industries);
+  assert.ok("industries_status" in env.industries);
+  assert.ok("product_keywords" in env.product_keywords);
+  assert.ok("product_keywords_status" in env.product_keywords);
+  assert.ok("reviews" in env.reviews);
+  assert.ok("reviews_status" in env.reviews);
+});
+
+test("Phase 2.8: runCanonicalImportCall result.enriched is now nested-envelope (success path)", async () => {
+  await withMockLiveSearch(
+    {
+      xaiLiveSearchStreaming: async () => ({
+        ok: true,
+        resp: {
+          text: JSON.stringify({
+            tagline: "Come As You Are",
+            headquarters_location: "Broomfield, CO, USA",
+            manufacturing_locations: ["Vietnam"],
+            industries: ["Foam Clogs"],
+            product_keywords: "clogs, sandals",
+            reviews: [],
+            location_source_urls: { hq_source_urls: ["https://crocs.com"], mfg_source_urls: [] },
+            red_flag: false,
+          }),
+        },
+        diagnostics: { tool_calls_counted: 6, upstream_http_status: 200 },
+      }),
+    },
+    async (mod) => {
+      const result = await mod.runCanonicalImportCall({
+        company: { company_name: "Crocs", url: "https://www.crocs.com/" },
+        sessionId: "test",
+        budgetMs: 60_000,
+        fieldsToEnrich: ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords"],
+      });
+
+      // Marker on diagnostics so handler.js callers can confirm shape.
+      assert.equal(result.diagnostics.enriched_envelope_shape, true);
+
+      // Per-field envelopes — must match what applyEnrichmentToCompany reads.
+      assert.equal(result.enriched.tagline.tagline, "Come As You Are");
+      assert.equal(result.enriched.headquarters_location.headquarters_location, "Broomfield, CO, USA");
+      assert.deepEqual(
+        result.enriched.headquarters_location.location_source_urls.hq_source_urls,
+        ["https://crocs.com"]
+      );
+      assert.deepEqual(result.enriched.manufacturing_locations.manufacturing_locations, ["Vietnam"]);
+      assert.deepEqual(result.enriched.industries.industries, ["Foam Clogs"]);
+      assert.equal(result.enriched.product_keywords.product_keywords, "clogs, sandals");
+
+      // Non-canonical extras (red_flag, social, location_source_urls) preserved
+      // alongside the envelopes for legacy callers that read them directly.
+      assert.equal(result.enriched.red_flag, false);
+    }
   );
 });
 

@@ -123,77 +123,6 @@ function shapeEnrichedFromParsed(parsed) {
 }
 
 /**
- * Phase 2.8 — Wrap the flat enriched object into the nested-envelope shape
- * that applyEnrichmentToCompany (in api/_directEnrichment.js) expects.
- *
- * Empirically (Crocs import 2026-05-09 + earlier Chaco/Clarks runs), the
- * canonical call's flat result silently bypassed applyEnrichmentToCompany's
- * per-field processing — the helper checks `enriched.headquarters_location`
- * for an OBJECT (then reads `.headquarters_location` from inside), but our
- * flat shape gave it a string. Result: stale `hq_unknown: true` flags from
- * the URL-seed step were never cleared, HQ display gated on the flag, and
- * the admin UI showed HQ blank even though Cosmos held the correct value.
- *
- * The nested envelope unlocks:
- *   - hq_unknown / mfg_unknown / *_unknown flag clearing
- *   - {tagline,headquarters_location,manufacturing_locations,industries,
- *      product_keywords,reviews}_status fields (audit trail)
- *   - *_searched_at timestamps
- *   - HQ + manufacturing geocoding (sets hq_lat / hq_lng + manufacturing_geocodes)
- *   - headquarters_locations plural structured array (some UI components
- *     read this instead of the singular string)
- *   - keywords[] sync (when product_keywords is array form — not used here
- *     since canonical returns string)
- *   - hq_source_urls / mfg_source_urls extracted to top level
- *
- * Internal flat shape is preserved for intermediateSave (which uses
- * Object.assign(doc, flat) for an immediate Cosmos write before
- * applyEnrichmentToCompany runs) and for classifyFields.
- */
-function shapeEnvelopeForApply(flatEnriched) {
-  const now = new Date().toISOString();
-  const e = flatEnriched || {};
-  const sourceUrls = e.location_source_urls || { hq_source_urls: [], mfg_source_urls: [] };
-
-  return {
-    tagline: {
-      tagline: e.tagline || "",
-      tagline_status: "ok",
-      searched_at: now,
-    },
-    headquarters_location: {
-      headquarters_location: e.headquarters_location || "",
-      headquarters_location_status: "ok",
-      searched_at: now,
-      location_source_urls: { hq_source_urls: sourceUrls.hq_source_urls || [] },
-    },
-    manufacturing_locations: {
-      manufacturing_locations: Array.isArray(e.manufacturing_locations) ? e.manufacturing_locations : [],
-      manufacturing_locations_status: "ok",
-      searched_at: now,
-      location_source_urls: { mfg_source_urls: sourceUrls.mfg_source_urls || [] },
-    },
-    industries: {
-      industries: Array.isArray(e.industries) ? e.industries : [],
-      industries_status: "ok",
-      searched_at: now,
-    },
-    product_keywords: {
-      // Kept as a string (matches existing Cosmos schema). The keywords[]
-      // array is synced separately by intermediateSave's flat path.
-      product_keywords: e.product_keywords || "",
-      product_keywords_status: "ok",
-      searched_at: now,
-    },
-    reviews: {
-      reviews: Array.isArray(e.reviews) ? e.reviews : [],
-      reviews_status: "ok",
-      searched_at: now,
-    },
-  };
-}
-
-/**
  * Decide per-field success from the enriched output. A field is "completed"
  * if the model returned a non-empty value (string non-blank, array non-empty,
  * boolean considered always complete). Empty values are treated as
@@ -498,67 +427,41 @@ async function runCanonicalImportCall({
     });
   }
 
-  // Phase 2.8 — keep the flat shape internally for classifyFields and the
-  // intermediateSave path (which uses Object.assign(doc, flat) for an
-  // immediate Cosmos write before applyEnrichmentToCompany runs). Then
-  // wrap into nested envelopes for the returned result.enriched, which is
-  // what handler.js feeds into applyEnrichmentToCompany — that's the helper
-  // that clears stale *_unknown flags, geocodes HQ + manufacturing, builds
-  // headquarters_locations plural array, and sets *_status / *_searched_at
-  // audit fields.
-  const flatEnriched = shapeEnrichedFromParsed(parsed);
-  const { fields_completed, fields_failed, errors } = classifyFields(requested, flatEnriched);
+  const enriched = shapeEnrichedFromParsed(parsed);
+  const { fields_completed, fields_failed, errors } = classifyFields(requested, enriched);
 
   console.log(`[canonicalImport] parsed_ok`, {
     session_id: sessionId,
     fields_completed,
     fields_failed,
-    tagline_len: flatEnriched.tagline.length,
-    hq_len: flatEnriched.headquarters_location.length,
-    mfg_count: flatEnriched.manufacturing_locations.length,
-    industries_count: flatEnriched.industries.length,
-    product_keywords_len: flatEnriched.product_keywords.length,
-    reviews_count: flatEnriched.reviews.length,
-    hq_source_count: flatEnriched.location_source_urls?.hq_source_urls?.length || 0,
-    mfg_source_count: flatEnriched.location_source_urls?.mfg_source_urls?.length || 0,
+    tagline_len: enriched.tagline.length,
+    hq_len: enriched.headquarters_location.length,
+    mfg_count: enriched.manufacturing_locations.length,
+    industries_count: enriched.industries.length,
+    product_keywords_len: enriched.product_keywords.length,
+    reviews_count: enriched.reviews.length,
+    hq_source_count: enriched.location_source_urls?.hq_source_urls?.length || 0,
+    mfg_source_count: enriched.location_source_urls?.mfg_source_urls?.length || 0,
   });
 
-  // Fire the intermediate save callback with FLAT values — the handler's
-  // existing callback persists verified fields immediately via
-  // Object.assign(doc, flat), so a worker killed before the function returns
-  // still preserves the values. Phase 2.8 unchanged: flat in, flat out at
-  // this seam.
+  // Fire the intermediate save callback for parity with runDirectEnrichment.
+  // The handler's existing callback persists verified fields immediately,
+  // so a worker killed before the function returns still preserves work.
   if (typeof onIntermediateSave === "function" && fields_completed.length > 0) {
     const verified = {};
     for (const f of fields_completed) {
-      verified[f] = flatEnriched[f];
+      verified[f] = enriched[f];
     }
-    if (flatEnriched.location_source_urls) verified.location_source_urls = flatEnriched.location_source_urls;
-    verified.red_flag = flatEnriched.red_flag;
+    // Always include source URLs and red_flag when we have verified fields,
+    // so audit data lands in Cosmos alongside the values.
+    if (enriched.location_source_urls) verified.location_source_urls = enriched.location_source_urls;
+    verified.red_flag = enriched.red_flag;
     try {
       await onIntermediateSave(verified);
     } catch {
       // Non-fatal; the handler's logger will catch save failures separately.
     }
   }
-
-  // Phase 2.8 — return the NESTED ENVELOPE for handler.js →
-  // applyEnrichmentToCompany. This is the Variant 2 architectural fix that
-  // unlocks: stale *_unknown flag clearing, *_status / *_searched_at audit
-  // fields, HQ + manufacturing geocoding (sets hq_lat/hq_lng), plural
-  // headquarters_locations structured array, and source-url top-level
-  // extraction. Previously runCanonicalImportCall returned the flat shape,
-  // which silently bypassed applyEnrichmentToCompany's per-field processing.
-  const enriched = shapeEnvelopeForApply(flatEnriched);
-
-  // Preserve the non-canonical fields on the envelope so handler.js still
-  // has access to them via existing object-spread paths. red_flag and
-  // social are not consumed by applyEnrichmentToCompany but are read
-  // directly elsewhere; keeping them on the result avoids breaking those
-  // call sites.
-  enriched.red_flag = flatEnriched.red_flag;
-  enriched.social = flatEnriched.social;
-  enriched.location_source_urls = flatEnriched.location_source_urls;
 
   return {
     ok: fields_completed.length > 0,
@@ -576,7 +479,6 @@ async function runCanonicalImportCall({
       upstream_status: res.diagnostics?.upstream_http_status ?? null,
       text_chars: text.length,
       model,
-      enriched_envelope_shape: true,  // marker: handler.js can rely on nested per-field shape
     },
   };
 }
@@ -585,7 +487,6 @@ module.exports = {
   runCanonicalImportCall,
   // Exported for tests.
   shapeEnrichedFromParsed,
-  shapeEnvelopeForApply,
   classifyFields,
   buildResponseFormat,
   stripLabel,

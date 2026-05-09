@@ -481,16 +481,19 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.7: PROMPT_GUIDANCE_VERSION is 7.1.3-reviews-attempt-required", () => {
-  // Bumped from 7.1.2 in Phase 2.7 — EMIT EARLY now requires that the
-  // model has attempted at least one reviews search before emitting.
-  // Closes the gap where complex brands populated tagline + HQ + 4 other
-  // fields but skipped reviews because EMIT EARLY's prior trigger
-  // ("tagline + HQ populated") fired first.
+test("Phase 2.8: PROMPT_GUIDANCE_VERSION is 7.1.4-nested-envelope", () => {
+  // Bumped from 7.1.3 in Phase 2.8 — runCanonicalImportCall now returns
+  // result.enriched as a NESTED ENVELOPE shape (per-field object with
+  // value + _status + searched_at). This is the Variant 2 architectural
+  // fix that lets applyEnrichmentToCompany clear stale *_unknown flags,
+  // geocode HQ + manufacturing, build plural structured arrays, and set
+  // audit-trail status fields. Closes the HQ-display bug that affected
+  // Chaco/Clarks/Crocs (HQ value was correctly in Cosmos but stale
+  // hq_unknown flag from URL-seed step never cleared).
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.1\.3-reviews-attempt-required/,
-    "PROMPT_GUIDANCE_VERSION must be 7.1.3-reviews-attempt-required for Phase 2.7"
+    /^7\.1\.4-nested-envelope/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.4-nested-envelope for Phase 2.8"
   );
 });
 
