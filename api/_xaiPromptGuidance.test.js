@@ -488,25 +488,63 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.12: PROMPT_GUIDANCE_VERSION is 7.1.7-prefetch-homepage-context", () => {
-  // Bumped from 7.1.6 in Phase 2.12 — homepage pre-fetch.
-  // Empirical (Luna Sandals / Kiwi Sandals 2026-05-09): even with Phase
-  // 2.10's strict json_schema active, the model still emitted no text
-  // for small brands (1-2 web_searches → response.completed with 0
-  // chars). Strict schema didn't force emission as predicted; xAI
-  // accepts `output: [web_search_call only]` as a valid completion.
-  // Phase 2.12 fetches the company's homepage + /about + /about-us
-  // BEFORE the canonical call and injects the cleaned text as
-  // "Homepage Context: ..." in the prompt. The model has data on turn
-  // 0 — no need for tool-call rounds to find the basics. Reduces
-  // tool-call pressure on complex brands (no runaway) AND gives small
-  // brands the data they need (no give-up-early).
+test("Phase 2.14: PROMPT_GUIDANCE_VERSION is 7.1.8-manufacturing-search-direction", () => {
+  // Bumped from 7.1.7 in Phase 2.14 — improved manufacturing-search direction.
+  // Empirical (Sanuk 2026-05-09): the model did 9 web_search calls (near
+  // the 10-cap) but came back with manufacturing_locations: [] because
+  // the canonical prompt restricted the model to "official website + ONE
+  // targeted web_search". Sanuk doesn't publicly disclose Vietnam
+  // manufacturing on sanuk.com — those facts live in Deckers Brands'
+  // (parent company) sustainability report. Phase 2.14 updates the
+  // Manufacturing rule to:
+  //   - Acknowledge consumer brands often don't disclose manufacturing publicly
+  //   - Direct the model to parent company / portfolio sources
+  //   - Suggest concrete search queries
+  //   - Allow up to 3 dedicated manufacturing searches (was: 1)
+  //   - Reaffirm country-level granularity is acceptable
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.1\.7-prefetch-homepage-context/,
-    "PROMPT_GUIDANCE_VERSION must be 7.1.7-prefetch-homepage-context for Phase 2.12"
+    /^7\.1\.8-manufacturing-search-direction/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.8-manufacturing-search-direction for Phase 2.14"
   );
 });
+
+test("Phase 2.14: Manufacturing rule directs the model to parent-company sources", () => {
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "Sanuk",
+    websiteUrl: "https://sanuk.com",
+  });
+  assert.ok(
+    /parent company|larger portfolio/i.test(prompt),
+    "Manufacturing rule must mention parent-company / portfolio search path"
+  );
+  assert.ok(
+    /sustainability report/i.test(prompt),
+    "Manufacturing rule must mention sustainability reports as a source"
+  );
+  assert.ok(
+    /supplier list/i.test(prompt),
+    "Manufacturing rule must mention supplier lists as a source"
+  );
+  // Concrete brand-portfolio examples (these aren't required, but help the
+  // model recognize the pattern).
+  assert.ok(
+    /Sanuk\s*→\s*Deckers/i.test(prompt) || /Deckers Brands/i.test(prompt),
+    "Manufacturing rule should include at least one brand-portfolio example"
+  );
+  // Country-level granularity stays acceptable.
+  assert.ok(
+    /Country-level granularity is acceptable/i.test(prompt),
+    "Manufacturing rule must keep country-level granularity allowance"
+  );
+  // Concrete search-query suggestions.
+  assert.ok(
+    /\[Brand\] manufacturing|\[Brand\] supplier|\[Brand\] factory|made in/i.test(prompt),
+    "Manufacturing rule must suggest concrete web_search queries"
+  );
+});
+
+// Phase 2.12 version assertion superseded by Phase 2.14 (7.1.8) above.
 
 test("Phase 2.12: buildCanonicalImportPrompt accepts and injects homepageContext", () => {
   const prompt = buildCanonicalImportPrompt({
