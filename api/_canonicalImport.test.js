@@ -603,17 +603,64 @@ test("Phase 2.3: shapeEnrichedFromParsed strips leaked labels from string fields
   assert.equal(out.tagline, "beauty *can* be comfortable", "clean tagline must pass through unchanged");
 });
 
-test("Phase 2.4: DEFAULT_MAX_TOOL_CALLS is 12 (bumped from 8)", () => {
-  // Source-level guard so a future rebase can't accidentally drop the bump.
-  // 8 was insufficient for complex brands (Birkenstock: model went past 8
-  // and timed out at 150s with 0 text emitted). 12 + the new "EMIT EARLY
-  // at 6+ calls" prompt instruction gives complex brands enough headroom
-  // without risking the 22-call runaway.
+test("Phase 2.5: DEFAULT_MAX_TOOL_CALLS is 10 (tightened from 12 alongside serialization lock)", () => {
+  // Source-level guard. Phase 2.4 had bumped 8→12 because complex brands
+  // were competing for xAI rate-limit headroom under concurrency. With
+  // Phase 2.5's account-level serialization lock (one active call at a
+  // time), the contention is gone, so we tighten back to 10 to align with
+  // the prompt's TOOL BUDGET block and to lean harder on the EMIT EARLY
+  // trigger.
   const fs = require("node:fs");
   const src = fs.readFileSync(path.join(__dirname, "_canonicalImport.js"), "utf8");
   assert.ok(
-    /const DEFAULT_MAX_TOOL_CALLS\s*=\s*12\b/.test(src),
-    "DEFAULT_MAX_TOOL_CALLS must be 12 (Phase 2.4 bump)"
+    /const DEFAULT_MAX_TOOL_CALLS\s*=\s*10\b/.test(src),
+    "DEFAULT_MAX_TOOL_CALLS must be 10 (Phase 2.5)"
+  );
+});
+
+test("Phase 2.5: handler.js wires the xAI serialization lock around the canonical call", () => {
+  const fs = require("node:fs");
+  const handlerPath = path.join(__dirname, "import", "resume-worker", "handler.js");
+  const src = fs.readFileSync(handlerPath, "utf8");
+  // Lock primitives must be declared with the corrected (atomic-create)
+  // implementation — NOT upsert (which always overwrites and would not
+  // actually lock).
+  assert.ok(
+    /async function acquireXaiCallLock\b/.test(src),
+    "acquireXaiCallLock helper must be declared"
+  );
+  assert.ok(
+    /async function releaseXaiCallLock\b/.test(src),
+    "releaseXaiCallLock helper must be declared"
+  );
+  assert.ok(
+    /container\.items\.create\(lockDoc\)/.test(src),
+    "lock acquisition must use container.items.create (atomic, NOT upsert)"
+  );
+  assert.ok(
+    !/container\.items\.upsert\(lockDoc\)/.test(src),
+    "lock acquisition must NOT use upsert (would silently overwrite, not lock)"
+  );
+  // Stale-lock takeover is essential — a worker dying mid-call must not
+  // permanently jam future imports.
+  assert.ok(
+    /xai_lock_stale_takeover/.test(src),
+    "stale-lock takeover path must exist (handles dead workers)"
+  );
+  // Lease-id check on release prevents accidentally deleting another
+  // worker's lock if our lock was already stale-taken-over.
+  assert.ok(
+    /existing\.leaseId === leaseId/.test(src),
+    "release must verify leaseId match before deleting the lock doc"
+  );
+  // Lock must wrap the canonical call site.
+  assert.ok(
+    /acquireXaiCallLock\(container,\s*sessionId,\s*companyId\)/.test(src),
+    "canonical call site must call acquireXaiCallLock with session+company context"
+  );
+  assert.ok(
+    /releaseXaiCallLock\(container,\s*xaiLock\.leaseId,\s*sessionId\)/.test(src),
+    "canonical call site must release the lock by leaseId in finally"
   );
 });
 

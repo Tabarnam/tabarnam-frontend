@@ -884,141 +884,6 @@ async function upsertDoc(container, doc) {
   return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
 }
 
-// ─── Phase 2.5 — xAI account-level serialization lock ────────────────────────
-//
-// Empirically (sessions 1975896d, a56cc11e — Birkenstock / Chaco / Clarks)
-// concurrent xAI Live Search streams from the same account silently stall:
-// streams stop emitting events for ~3 minutes with no error, no rate-limit
-// header, no abort. By the time our 240s timeout fires, the call is dead.
-//
-// The lock forces ONE active xAI call per account at any moment. Bulk-import
-// concurrency is preserved at the queue level — multiple companies enqueue
-// in parallel; their workers wait their turn for the xAI call.
-//
-// This is NOT a safety net: if the canonical call fails, this code does not
-// retry it. The lock just paces calls so each one runs without contention.
-//
-// Implementation notes (vs Grok's first-pass proposal):
-//   - Uses container.items.create() — atomic; fails with HTTP 409 if the
-//     lock doc already exists. Grok's diff used items.upsert() which always
-//     succeeds (overwrites) — that would NOT have actually locked.
-//   - Stale-lock takeover: if a worker dies mid-call, expiresAt elapses and
-//     the next acquirer deletes-and-recreates rather than waiting forever.
-//   - Lease ID prevents accidental release: a worker only deletes the lock
-//     if its leaseId still matches (so a stale-takeover release doesn't
-//     blow away the new holder's lock).
-
-const XAI_LOCK_DOC_ID = "_xai_call_lock";
-const XAI_LOCK_PK_VALUE = "_xai_call_lock";       // companies container PK is /normalized_domain
-const XAI_LOCK_TTL_MS = 300_000;                   // 5 min — longer than per-call timeout
-const XAI_LOCK_MAX_WAIT_MS = 600_000;              // 10 min — outer cap on wait-for-lock
-const XAI_LOCK_INITIAL_BACKOFF_MS = 2_000;
-const XAI_LOCK_MAX_BACKOFF_MS = 15_000;
-
-async function acquireXaiCallLock(container, sessionId, companyId) {
-  if (!container) return { acquired: false, reason: "no_container" };
-  const startedAt = Date.now();
-  let attempt = 0;
-
-  while (true) {
-    const leaseId = (globalThis.crypto?.randomUUID?.() || `lease-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    const expiresAt = new Date(Date.now() + XAI_LOCK_TTL_MS).toISOString();
-    const lockDoc = {
-      id: XAI_LOCK_DOC_ID,
-      normalized_domain: XAI_LOCK_PK_VALUE,
-      leaseId,
-      sessionId,
-      companyId,
-      acquiredAt: new Date().toISOString(),
-      expiresAt,
-    };
-
-    try {
-      // Atomic create — 409 if doc exists. This is the actual locking primitive.
-      await container.items.create(lockDoc);
-      console.log(`[resume-worker] xai_lock_acquired`, {
-        session_id: sessionId,
-        company_id: companyId,
-        leaseId,
-        attempt,
-        wait_ms: Date.now() - startedAt,
-      });
-      return { acquired: true, leaseId };
-    } catch (e) {
-      if (e?.code !== 409) {
-        console.warn(`[resume-worker] xai_lock_create_error`, {
-          session_id: sessionId,
-          error: e?.message || String(e),
-          code: e?.code,
-        });
-        return { acquired: false, reason: "create_error", error: String(e?.message || e) };
-      }
-      // 409 — lock exists; fall through to expiry check below.
-    }
-
-    // Lock is held; check if it's stale (worker died, never released).
-    try {
-      const { resource: existing } = await container.item(XAI_LOCK_DOC_ID, XAI_LOCK_PK_VALUE).read();
-      if (existing && new Date(existing.expiresAt).getTime() < Date.now()) {
-        console.log(`[resume-worker] xai_lock_stale_takeover`, {
-          session_id: sessionId,
-          stale_lease: existing.leaseId,
-          stale_session: existing.sessionId,
-          expired_at: existing.expiresAt,
-        });
-        try { await container.item(XAI_LOCK_DOC_ID, XAI_LOCK_PK_VALUE).delete(); } catch {}
-        continue;  // try create again immediately
-      }
-    } catch {
-      // Read failed — assume held; back off and retry below.
-    }
-
-    // Held by an active worker. Wait with exponential backoff.
-    if (Date.now() - startedAt >= XAI_LOCK_MAX_WAIT_MS) {
-      console.warn(`[resume-worker] xai_lock_acquire_timeout`, {
-        session_id: sessionId,
-        wait_ms: Date.now() - startedAt,
-        attempts: attempt + 1,
-      });
-      return { acquired: false, reason: "wait_timeout" };
-    }
-
-    const backoff = Math.min(
-      XAI_LOCK_INITIAL_BACKOFF_MS * Math.pow(1.5, attempt),
-      XAI_LOCK_MAX_BACKOFF_MS
-    );
-    attempt++;
-    await new Promise((r) => setTimeout(r, backoff));
-  }
-}
-
-async function releaseXaiCallLock(container, leaseId, sessionId) {
-  if (!container || !leaseId) return;
-  try {
-    const { resource: existing } = await container.item(XAI_LOCK_DOC_ID, XAI_LOCK_PK_VALUE).read();
-    if (existing && existing.leaseId === leaseId) {
-      await container.item(XAI_LOCK_DOC_ID, XAI_LOCK_PK_VALUE).delete();
-      console.log(`[resume-worker] xai_lock_released`, { session_id: sessionId, leaseId });
-    } else if (existing) {
-      // Lease mismatch — likely a stale-takeover happened. Don't delete the
-      // new holder's lock.
-      console.log(`[resume-worker] xai_lock_release_skip`, {
-        session_id: sessionId,
-        ourLeaseId: leaseId,
-        currentLeaseId: existing.leaseId,
-        reason: "lease_mismatch",
-      });
-    }
-  } catch (e) {
-    if (e?.code !== 404) {
-      console.warn(`[resume-worker] xai_lock_release_error`, {
-        session_id: sessionId,
-        error: e?.message || String(e),
-      });
-    }
-  }
-}
-
 async function readStopControl(container, sessionId) {
   const sid = String(sessionId || "").trim();
   if (!sid) return null;
@@ -2549,52 +2414,21 @@ async function resumeWorkerHandler(req, context) {
         let enrichResult;
         try {
           if (singleCallMode) {
-            // Phase 2.5 — serialize xAI calls account-wide so concurrent
-            // companies queue up rather than racing each other into xAI's
-            // silent-stall failure mode (see acquireXaiCallLock comment).
-            const xaiLock = await acquireXaiCallLock(container, sessionId, companyId);
-            if (!xaiLock.acquired) {
-              console.warn(`[resume-worker] xai_lock_unavailable_failing_fast`, {
-                session_id: sessionId,
-                company_id: companyId,
-                reason: xaiLock.reason,
-              });
-              enrichResult = {
-                ok: false,
-                fields_completed: [],
-                fields_failed: missingFields,
-                errors: Object.fromEntries(missingFields.map((f) => [f, xaiLock.reason || "xai_lock_unavailable"])),
-                enriched: {},
-                elapsed_ms: 0,
-                diagnostics: {
-                  canonical_call: true,
-                  xai_lock_acquired: false,
-                  xai_lock_reason: xaiLock.reason,
-                },
-              };
-            } else {
-              console.log(`[resume-worker] canonical_single_call_start`, {
-                session_id: sessionId,
-                company_id: companyId,
-                fields: missingFields,
-                budget_ms: unifiedBudgetMs,
-                prompt_guidance: PROMPT_GUIDANCE_VERSION,
-                xai_lock_lease: xaiLock.leaseId,
-              });
-              try {
-                enrichResult = await runCanonicalImportCall({
-                  company: doc,
-                  sessionId,
-                  budgetMs: unifiedBudgetMs,
-                  fieldsToEnrich: missingFields,
-                  signal: workerAbortController.signal,
-                  onIntermediateSave: intermediateSave,
-                });
-              } finally {
-                // Release inside finally so a thrown call doesn't leak the lock.
-                await releaseXaiCallLock(container, xaiLock.leaseId, sessionId);
-              }
-            }
+            console.log(`[resume-worker] canonical_single_call_start`, {
+              session_id: sessionId,
+              company_id: companyId,
+              fields: missingFields,
+              budget_ms: unifiedBudgetMs,
+              prompt_guidance: PROMPT_GUIDANCE_VERSION,
+            });
+            enrichResult = await runCanonicalImportCall({
+              company: doc,
+              sessionId,
+              budgetMs: unifiedBudgetMs,
+              fieldsToEnrich: missingFields,
+              signal: workerAbortController.signal,
+              onIntermediateSave: intermediateSave,
+            });
           } else {
             console.log(`[resume-worker] legacy_runDirectEnrichment_start`, {
               session_id: sessionId,

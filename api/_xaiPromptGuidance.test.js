@@ -152,16 +152,24 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
     "prompt must include TOOL BUDGET block (Phase 2.4)"
   );
   assert.ok(
-    /maximum of 12 web_search/i.test(prompt),
-    "prompt must declare 12-call ceiling (Phase 2.4 bump from 8)"
+    /maximum of 10 web_search/i.test(prompt),
+    "prompt must declare 10-call ceiling (Phase 2.5 tightened from 12 alongside serialization lock)"
   );
   assert.ok(
     /EMIT EARLY/i.test(prompt) && /6 or more tool calls/i.test(prompt),
     "prompt must include EMIT EARLY trigger at 6+ tool calls"
   );
+  // Phase 2.5 — EMIT EARLY now requires tagline AND headquarters_location
+  // specifically (was: any 2 fields). Tagline + HQ are the cheapest fields
+  // to verify and the most important for user-facing display, so making
+  // them the trigger means the model emits with the highest-value data.
   assert.ok(
-    /After 12 tool calls you MUST stop/i.test(prompt),
-    "prompt must include hard cap at 12 tool calls"
+    /tagline and headquarters_location/i.test(prompt),
+    "Phase 2.5: EMIT EARLY trigger must require tagline AND headquarters_location specifically"
+  );
+  assert.ok(
+    /After 10 tool calls you MUST stop/i.test(prompt),
+    "prompt must include hard cap at 10 tool calls (Phase 2.5)"
   );
 
   // Phase 2.3 — explicit "no label leakage" instruction. Without this, the

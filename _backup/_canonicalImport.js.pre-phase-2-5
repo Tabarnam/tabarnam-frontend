@@ -32,13 +32,11 @@ const { buildSearchParameters } = require("./_buildSearchParameters");
 // 240s leaves ample headroom. Worker is async (UI returned 202 already),
 // so user-facing latency is unaffected.
 const DEFAULT_TIMEOUT_MS = 240_000;
-// Phase 2.5: tightened 12 → 10 to align with the prompt's new TOOL BUDGET
-// block. With Phase 2.5's account-level serialization (one xAI call active
-// at a time) the model no longer competes for xAI rate-limit headroom, so
-// it doesn't need the extra cushion that 12 provided. The stronger EMIT
-// EARLY trigger ("6+ calls AND have tagline + HQ → stop") means most
-// imports will end well below the cap anyway.
-const DEFAULT_MAX_TOOL_CALLS = 10;
+// Phase 2.4: bumped 8 → 12. Combined with the new prompt's per-field
+// budgeting and "EMIT EARLY at 6+ calls if you have data" trigger, this
+// gives the model enough room for moderately complex brands without
+// risking the 22-call runaway we saw when strict json_schema was on.
+const DEFAULT_MAX_TOOL_CALLS = 12;
 const MIN_TIMEOUT_MS = 30_000;
 
 function asString(v) {

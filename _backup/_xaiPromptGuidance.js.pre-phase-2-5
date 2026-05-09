@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.1.1-emit-early-serialization-lock";
+const PROMPT_GUIDANCE_VERSION = "7.1.0-balanced-budget";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -410,18 +410,18 @@ Do NOT include any field labels (e.g. "HQ:", "Tagline:", "Manufacturing:", "Indu
 
 TOOL BUDGET — read carefully:
 
-You have a maximum of 10 web_search + browse_page tool calls TOTAL across all fields.
+You have a maximum of 12 web_search + browse_page tool calls TOTAL across all fields.
 
 Plan your work:
 - 1 call: company homepage (covers tagline, HQ hint, product preview)
-- 1 call: HQ verification (only if unclear from homepage)
-- 1 call: manufacturing locations
+- 1-2 calls: HQ verification (only if unclear from homepage)
+- 1-2 calls: Manufacturing locations
 - 1 call: products / shop page for category extraction
 - 1-2 calls: reviews
 
-EMIT EARLY: Once you have made 6 or more tool calls AND you have at least the tagline and headquarters_location, immediately stop searching and emit the JSON object. Better a partial-but-real answer than a complete-but-timed-out failure. Empty fields are valid output.
+EMIT EARLY: Once you have made 6 or more tool calls AND have at least 2 fields populated with verified data, immediately stop searching and emit the JSON object. Better a partial-but-real answer than a complete-but-timed-out failure. Empty fields are valid output.
 
-After 10 tool calls you MUST stop searching and emit the JSON object using empty values for any field still unverified. Do NOT exceed 10 tool calls under any circumstances.
+After 12 tool calls you MUST stop searching and emit the JSON object using empty values for any field still unverified. Do NOT exceed 12.
 
 Return ONLY a single JSON object with these exact property names: tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews, location_source_urls (with hq_source_urls and mfg_source_urls), red_flag, social. No prose, no markdown, no extra text whatsoever. For the fields that have specific formatting rules above (tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews), follow those formatting rules precisely when populating the corresponding JSON values.`;
 }
