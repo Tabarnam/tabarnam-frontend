@@ -754,6 +754,79 @@ test("Phase 2.15.B: SSE-stall timer bumps ONLY on meaningful events, not on ever
   );
 });
 
+test("Phase 2.16: forceWriteHeartbeat helper exists and bypasses the throttle", () => {
+  // Empirical (RockDove 2026-05-09): heartbeat throttle used `>` (strict)
+  // which rejected exactly-30s ticks, causing every other tick to be
+  // skipped. With Cosmos read latency drifting the timer further, gaps
+  // grew to 90-120s and tripped the orchestration's 210s stale threshold
+  // during long post-processing. Phase 2.16 introduces forceWriteHeartbeat
+  // that writes unconditionally; the timer ITSELF rate-limits at 30s, no
+  // need to double-throttle inside the writer.
+  const fs = require("node:fs");
+  const handlerPath = path.join(__dirname, "import", "resume-worker", "handler.js");
+  const src = fs.readFileSync(handlerPath, "utf8");
+  assert.ok(
+    /const forceWriteHeartbeat\s*=\s*async/.test(src),
+    "forceWriteHeartbeat helper must be declared (Phase 2.16)"
+  );
+  // forceWriteHeartbeat must NOT contain a throttle check on lastHeartbeatWrite
+  // (the inline throttle is correctly only in maybeWriteHeartbeat).
+  const forceMatch = src.match(/const forceWriteHeartbeat\s*=[\s\S]*?\n\s{4}\};/);
+  assert.ok(forceMatch, "forceWriteHeartbeat function body must be parseable");
+  assert.ok(
+    !/now - lastHeartbeatWrite\s*[<>]/.test(forceMatch[0]),
+    "forceWriteHeartbeat must NOT throttle (defeats the purpose)"
+  );
+});
+
+test("Phase 2.16: setInterval-based timer uses forceWriteHeartbeat (not throttled maybeWrite)", () => {
+  // The timer itself runs at HEARTBEAT_INTERVAL_MS — using the throttled
+  // maybeWriteHeartbeat from inside the timer caused the every-other-tick
+  // skip pattern. Switching to forceWriteHeartbeat makes the timer the
+  // single source of rate-limiting truth.
+  const fs = require("node:fs");
+  const handlerPath = path.join(__dirname, "import", "resume-worker", "handler.js");
+  const src = fs.readFileSync(handlerPath, "utf8");
+  // Find the heartbeatTimer setInterval body and verify it calls forceWriteHeartbeat.
+  const timerMatch = src.match(/heartbeatTimer\s*=\s*setInterval\(async \(\) => \{[\s\S]*?\}, HEARTBEAT_INTERVAL_MS\)/);
+  assert.ok(timerMatch, "heartbeatTimer setInterval must be parseable");
+  assert.ok(
+    /await forceWriteHeartbeat\(\)/.test(timerMatch[0]),
+    "heartbeatTimer setInterval body must call forceWriteHeartbeat (not the throttled maybeWriteHeartbeat)"
+  );
+});
+
+test("Phase 2.16: explicit heartbeat fires in finally after canonical-call returns", () => {
+  // Defense-in-depth: the timer-driven heartbeat may drift or be skipped
+  // during the canonical call's long streaming await. Writing a heartbeat
+  // the moment the call returns ensures post-processing inherits a fresh
+  // (sub-30s) heartbeat rather than relying on whatever the timer last
+  // wrote during the call.
+  const fs = require("node:fs");
+  const handlerPath = path.join(__dirname, "import", "resume-worker", "handler.js");
+  const src = fs.readFileSync(handlerPath, "utf8");
+  // Look for forceWriteHeartbeat call inside the canonical-call's finally block.
+  const canonicalFinally = src.match(/await releaseXaiCallLock\(container, xaiLock\.leaseId, sessionId, xaiLock\.lockId\);[\s\S]{0,2000}?\}/);
+  assert.ok(canonicalFinally, "canonical-call finally block must be parseable");
+  assert.ok(
+    /forceWriteHeartbeat\(\)/.test(canonicalFinally[0]),
+    "forceWriteHeartbeat must be called in finally after the canonical call (Phase 2.16)"
+  );
+});
+
+test("Phase 2.16: maybeWriteHeartbeat throttle uses `>=` (was: `>` strict — caused 30s skip)", () => {
+  // Phase 2.16 boundary fix: at exactly 30s elapsed, the previous strict
+  // `>` rejected the write. With `>=` every 30s tick from the throttled
+  // call sites can also write.
+  const fs = require("node:fs");
+  const handlerPath = path.join(__dirname, "import", "resume-worker", "handler.js");
+  const src = fs.readFileSync(handlerPath, "utf8");
+  assert.ok(
+    /now - lastHeartbeatWrite\s*>=\s*HEARTBEAT_INTERVAL_MS/.test(src),
+    "throttle must use `>=` not `>` (Phase 2.16 boundary fix)"
+  );
+});
+
 test("Phase 2.15.C: handler.js sets XAI_LOCK_TTL_MS to 180_000 (down from 300_000)", () => {
   // Empirical (Teva + TKEES, 2026-05-09): leaked locks (worker held the
   // lock past abort, finally never ran) cost the full 300s TTL before

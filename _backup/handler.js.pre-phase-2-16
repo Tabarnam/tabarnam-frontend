@@ -2259,68 +2259,44 @@ async function resumeWorkerHandler(req, context) {
     // enrichCompanyFields → fetch functions → xaiLiveSearchWithRetry → xaiLiveSearch → fetch().
     const workerAbortController = new AbortController();
 
-    // Phase 2.16 — forceWriteHeartbeat unconditionally writes the
-    // heartbeat without consulting the lastHeartbeatWrite throttle.
-    //
-    // Rationale: the inline call sites (post-apply upsert, etc.) want
-    // throttling — they may fire many times per worker but only need to
-    // bump the heartbeat every 30s. The setInterval timer driving the
-    // heartbeat ALREADY rate-limits at 30s — calling the throttled
-    // maybeWriteHeartbeat from the timer caused a subtle bug where
-    // `now - lastHeartbeatWrite > 30000` returns FALSE at exact 30s
-    // intervals, so every other tick was skipped, producing 60s+ effective
-    // heartbeat spacing. Worse, with Cosmos read latency adding small
-    // delays to the tick body, the timing drifted further and gaps
-    // could grow to 90-120s. The orchestration's stale threshold is
-    // 210s, so a few delayed ticks let the threshold trip.
-    //
-    // Empirical (RockDove 2026-05-09): 4 heartbeats wrote at
-    // 21:24:13/43/56 + 21:25:56 + 21:26:27, then NOTHING for 1:48 until
-    // the orchestration fired a self-invocation at 21:28:15 thinking
-    // the worker was dead. RockDove's cycle 1 had actually completed
-    // successfully at 21:26:12; the post-processing was just slow. The
-    // duplicate cycle 2 wasted ~3 minutes redoing work that was already
-    // done.
-    const forceWriteHeartbeat = async () => {
-      const nowIsoStr = nowIso();
-      const now = Date.now();
-      lastHeartbeatWrite = now;
-      try {
-        bestEffortPatchSessionDoc({
-          container,
-          sessionId,
-          patch: {
-            resume_worker_heartbeat_at: nowIsoStr,
-            resume_worker_current_field: currentEnrichmentField || null,
-            resume_worker_current_company: currentEnrichmentCompanyName || null,
-            updated_at: nowIsoStr,
-          },
-        }).catch(() => null);
-        readControlDoc(container, resumeDocId, sessionId).then((freshResume) => {
-          if (freshResume && typeof freshResume === "object") {
-            return upsertDoc(container, {
-              ...freshResume,
-              resume_worker_heartbeat_at: nowIsoStr,
-              updated_at: nowIsoStr,
-            });
-          }
-        }).catch(() => null);
-        console.log(`[resume-worker] heartbeat written at ${nowIsoStr} (field=${currentEnrichmentField || "none"})`);
-      } catch (err) {
-        console.warn(`[resume-worker] heartbeat write failed: ${err?.message || err}`);
-      }
-    };
-
     const maybeWriteHeartbeat = async () => {
       const now = Date.now();
-      // Phase 2.16 — boundary changed `>` → `>=`. At exactly 30s elapsed,
-      // the previous strict `>` rejected the write; ticks at 30s/60s/90s
-      // wrote alternating heartbeats producing 60s effective spacing.
-      // `>=` lets every 30s tick write. Inline call sites still benefit
-      // from throttling (don't write more often than every 30s) but
-      // don't slip the boundary anymore.
-      if (now - lastHeartbeatWrite >= HEARTBEAT_INTERVAL_MS) {
-        await forceWriteHeartbeat();
+      if (now - lastHeartbeatWrite > HEARTBEAT_INTERVAL_MS) {
+        const nowIsoStr = nowIso();
+        // Update IMMEDIATELY to prevent drift — don't wait for async Cosmos writes
+        lastHeartbeatWrite = now;
+        try {
+          // Primary heartbeat: session doc (UI status) — fire-and-forget
+          // Don't await: lastHeartbeatWrite is already updated above, and blocking
+          // on slow Cosmos writes causes heartbeat gaps that trigger stale detection.
+          bestEffortPatchSessionDoc({
+            container,
+            sessionId,
+            patch: {
+              resume_worker_heartbeat_at: nowIsoStr,
+              resume_worker_current_field: currentEnrichmentField || null,
+              resume_worker_current_company: currentEnrichmentCompanyName || null,
+              updated_at: nowIsoStr,
+            },
+          }).catch(() => null);
+
+          // Secondary heartbeat: resume control doc — fire-and-forget (don't block next cycle)
+          // Staleness checks in import-status (index.js:847) and handler (line ~1295)
+          // use this to detect dead workers via heartbeat age.
+          readControlDoc(container, resumeDocId, sessionId).then((freshResume) => {
+            if (freshResume && typeof freshResume === "object") {
+              return upsertDoc(container, {
+                ...freshResume,
+                resume_worker_heartbeat_at: nowIsoStr,
+                updated_at: nowIsoStr,
+              });
+            }
+          }).catch(() => null);
+
+          console.log(`[resume-worker] heartbeat written at ${nowIsoStr} (field=${currentEnrichmentField || "none"})`);
+        } catch (err) {
+          console.warn(`[resume-worker] heartbeat write failed: ${err?.message || err}`);
+        }
       }
     };
 
@@ -2411,14 +2387,7 @@ async function resumeWorkerHandler(req, context) {
             return;
           }
         }
-        // Phase 2.16 — call forceWriteHeartbeat (bypassing the 30s throttle)
-        // because the timer ITSELF is at 30s. The previous maybeWriteHeartbeat
-        // call double-rate-limited (interval + boundary check), causing every
-        // other tick to be skipped at exact 30s and producing 60s effective
-        // spacing between heartbeats. With Cosmos latency drift, this could
-        // grow to 90-120s and trip the 210s stale threshold during long
-        // post-processing.
-        await forceWriteHeartbeat();
+        await maybeWriteHeartbeat();
       } catch {} finally {
         heartbeatTickRunning = false;
       }
@@ -2738,18 +2707,6 @@ async function resumeWorkerHandler(req, context) {
               } finally {
                 // Release inside finally so a thrown call doesn't leak the lock.
                 await releaseXaiCallLock(container, xaiLock.leaseId, sessionId, xaiLock.lockId);
-                // Phase 2.16 — write a heartbeat the moment the canonical
-                // call returns (success or failure). The timer-driven
-                // heartbeat is unreliable during the canonical call's long
-                // streaming await (Node setInterval can drift / be skipped
-                // under load). Without this, post-processing inherits a
-                // potentially stale heartbeat from when the call started,
-                // and the orchestration may fire a self-invocation thinking
-                // the worker is dead while it's actually still running
-                // applyEnrichmentToCompany / scoring / backfill. Empirical
-                // (RockDove 2026-05-09): 1:48 of post-processing with no
-                // heartbeats triggered a duplicate cycle 2.
-                try { await forceWriteHeartbeat(); } catch {}
               }
             }
           } else {
