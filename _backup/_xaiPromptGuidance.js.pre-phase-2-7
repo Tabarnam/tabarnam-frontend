@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.1.3-reviews-attempt-required";
+const PROMPT_GUIDANCE_VERSION = "7.1.2-mandatory-emission";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -423,7 +423,7 @@ Plan your work:
 
 MINIMUM EFFORT: Make at least 2 tool calls (homepage + 1 verification or category-extraction call) before deciding the company has no findable data. Even small obscure brands typically have a tagline visible on the homepage, which is one tool call away. Do NOT terminate after 0 or 1 tool calls — that violates the minimum-effort rule.
 
-EMIT EARLY: Once you have made 6 or more tool calls AND you have populated tagline + headquarters_location AND you have attempted at least one reviews search, immediately stop searching and emit the JSON object. Better a partial-but-real answer than a complete-but-timed-out failure. Empty fields are valid output.
+EMIT EARLY: Once you have made 6 or more tool calls AND you have at least the tagline and headquarters_location, immediately stop searching and emit the JSON object. Better a partial-but-real answer than a complete-but-timed-out failure. (Empty fields are valid in the JSON object — the requirement is that the JSON object itself MUST be emitted.)
 
 After 10 tool calls you MUST stop searching and emit the JSON object using empty values for any field still unverified. Do NOT exceed 10 tool calls under any circumstances.
 

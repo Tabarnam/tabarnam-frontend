@@ -159,13 +159,19 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
     /EMIT EARLY/i.test(prompt) && /6 or more tool calls/i.test(prompt),
     "prompt must include EMIT EARLY trigger at 6+ tool calls"
   );
-  // Phase 2.5 — EMIT EARLY now requires tagline AND headquarters_location
-  // specifically (was: any 2 fields). Tagline + HQ are the cheapest fields
-  // to verify and the most important for user-facing display, so making
-  // them the trigger means the model emits with the highest-value data.
+  // Phase 2.5 — EMIT EARLY required tagline AND headquarters_location.
+  // Phase 2.7 — additionally requires "attempted at least one reviews
+  // search" so the model spends a tool call on reviews before emitting,
+  // closing the gap where complex brands (Crocs) populated 5/6 fields
+  // but skipped reviews entirely because EMIT EARLY fired before the
+  // model got to the reviews phase.
   assert.ok(
-    /tagline and headquarters_location/i.test(prompt),
-    "Phase 2.5: EMIT EARLY trigger must require tagline AND headquarters_location specifically"
+    /tagline \+ headquarters_location/i.test(prompt) || /tagline and headquarters_location/i.test(prompt),
+    "Phase 2.5+: EMIT EARLY trigger must require tagline AND headquarters_location"
+  );
+  assert.ok(
+    /attempted at least one reviews search/i.test(prompt),
+    "Phase 2.7: EMIT EARLY trigger must require attempted reviews search"
   );
   assert.ok(
     /After 10 tool calls you MUST stop/i.test(prompt),
@@ -475,11 +481,16 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.6: PROMPT_GUIDANCE_VERSION is 7.1.2-mandatory-emission", () => {
+test("Phase 2.7: PROMPT_GUIDANCE_VERSION is 7.1.3-reviews-attempt-required", () => {
+  // Bumped from 7.1.2 in Phase 2.7 — EMIT EARLY now requires that the
+  // model has attempted at least one reviews search before emitting.
+  // Closes the gap where complex brands populated tagline + HQ + 4 other
+  // fields but skipped reviews because EMIT EARLY's prior trigger
+  // ("tagline + HQ populated") fired first.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.1\.2-mandatory-emission/,
-    "PROMPT_GUIDANCE_VERSION must be 7.1.2-mandatory-emission for Phase 2.6"
+    /^7\.1\.3-reviews-attempt-required/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.3-reviews-attempt-required for Phase 2.7"
   );
 });
 
