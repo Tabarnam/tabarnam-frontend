@@ -13,7 +13,7 @@ const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { computeEnrichmentHealth, computeMissingFields, isRealValue } = require("../_requiredFields");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { expandBusinessAbbreviations } = require("../_searchSynonyms");
-const { foldDiacritics } = require("../_queryNormalizer");
+const { foldDiacritics, parseQuery } = require("../_queryNormalizer");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -291,80 +291,249 @@ function buildVariantSearchClauses(search, params) {
  *
  * Domain bonus: +20 if normalized_domain contains the compact query
  */
-function computeAdminSearchRelevance(company, searchLower, searchCompact) {
-  if (!company || !searchLower) return 0;
+// ─────────────────────────────────────────────────────────────────────
+// Search scoring — COPIED VERBATIM from api/search-companies/index.js
+// (computeNameMatchScore, computeKeywordMatchScore, isSynonymOnlyMatch,
+// computeRelevanceScore). Kept in lockstep manually so admin search
+// behaves identically to frontend search. If you change the frontend
+// scoring, update this block to match.
+// ─────────────────────────────────────────────────────────────────────
 
-  // Fold diacritics in the search query so "fre" matches "Fré".
-  const searchFolded = foldDiacritics(searchLower);
-  const searchCompactFolded = foldDiacritics(searchCompact);
+function _asString(v) {
+  return typeof v === "string" ? v : v == null ? "" : String(v);
+}
 
-  // --- Name score ---
-  let nameScore = 0;
+function _normalizeStringArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
+  if (!company || (!q_raw && !q_norm && !q_compact)) return 0;
+
   const names = [
-    (company.company_name || ""),
-    (company.display_name || ""),
-    (company.name || ""),
-  ].map(n => typeof n === "string" ? n.trim() : "").filter(Boolean);
+    _asString(company.company_name).trim(),
+    _asString(company.display_name).trim(),
+    _asString(company.name).trim(),
+  ].filter(Boolean);
+
+  const rawNorm = q_raw ? foldDiacritics(q_raw.toLowerCase()).replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim() : "";
+  const queries = [
+    rawNorm,
+    q_norm ? q_norm.toLowerCase().trim() : "",
+    q_compact ? q_compact.toLowerCase().trim() : "",
+  ].filter(Boolean);
+
+  const uniqueQueries = [...new Set(queries)];
+  if (!uniqueQueries.length || !names.length) return 0;
+
+  let best = 0;
 
   for (const rawName of names) {
-    const nameLower = rawName.toLowerCase();
-    const nameFolded = foldDiacritics(nameLower);
+    const nameLower = foldDiacritics(rawName.toLowerCase()).replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
     const nameCompact = nameLower.replace(/\s+/g, "");
-    const nameCompactFolded = foldDiacritics(nameCompact);
-    if (
-      nameLower === searchLower ||
-      nameFolded === searchFolded ||
-      nameCompact === searchCompact ||
-      nameCompactFolded === searchCompactFolded
-    ) {
-      nameScore = Math.max(nameScore, 200); // Strongly prefer exact matches
-    } else if (
-      nameLower.startsWith(searchLower) ||
-      nameFolded.startsWith(searchFolded) ||
-      nameCompact.startsWith(searchCompact) ||
-      nameCompactFolded.startsWith(searchCompactFolded)
-    ) {
-      nameScore = Math.max(nameScore, 80);
-    } else {
-      const escaped = searchFolded.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (new RegExp(`(?:^|[\\s\\-_])${escaped}`).test(nameFolded)) {
-        nameScore = Math.max(nameScore, 60);
-      } else if (
-        nameLower.includes(searchLower) ||
-        nameFolded.includes(searchFolded) ||
-        nameCompact.includes(searchCompact) ||
-        nameCompactFolded.includes(searchCompactFolded)
-      ) {
-        nameScore = Math.max(nameScore, 40);
+
+    for (const q of uniqueQueries) {
+      if (nameLower === q || nameCompact === q) {
+        best = Math.max(best, 100);
+        continue;
+      }
+      if (nameLower.startsWith(q) || nameCompact.startsWith(q)) {
+        best = Math.max(best, 80);
+        continue;
+      }
+      if (q.startsWith(nameLower) || q.startsWith(nameCompact)) {
+        best = Math.max(best, 70);
+        continue;
+      }
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`(?:^|[\\s\\-_])${escaped}`).test(nameLower)) {
+        best = Math.max(best, 60);
+        continue;
+      }
+      if (nameLower.includes(q) || nameCompact.includes(q)) {
+        best = Math.max(best, 40);
       }
     }
   }
 
-  // --- Keyword score ---
-  let keywordScore = 0;
-  const kwArrays = [company.product_keywords, company.keywords, company.industries];
-  for (const raw of kwArrays) {
-    const arr = Array.isArray(raw) ? raw : (typeof raw === "string" && raw ? [raw] : []);
-    for (const kw of arr) {
-      if (typeof kw !== "string") continue;
-      const kwLower = kw.toLowerCase().trim();
-      if (!kwLower) continue;
-      const kwFolded = foldDiacritics(kwLower);
-      if (kwLower === searchLower || kwFolded === searchFolded) { keywordScore = Math.max(keywordScore, 100); }
-      else if (kwLower.startsWith(searchLower) || kwFolded.startsWith(searchFolded) || searchLower.startsWith(kwLower) || searchFolded.startsWith(kwFolded)) { keywordScore = Math.max(keywordScore, 70); }
-      else if (kwLower.includes(searchLower) || kwFolded.includes(searchFolded)) { keywordScore = Math.max(keywordScore, 40); }
+  return best;
+}
+
+function computeKeywordMatchScore(company, q_norm, q_compact) {
+  if (!company || (!q_norm && !q_compact)) return 0;
+
+  const queryTerms = [q_norm, q_compact].filter(Boolean).map((t) => t.toLowerCase());
+  if (!queryTerms.length) return 0;
+
+  const queryWords = (q_norm || "").toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
+  const coveredWords = new Set();
+
+  let best = 0;
+  let matchCount = 0;
+
+  const checkField = (arr) => {
+    for (const raw of arr) {
+      const kw = _asString(raw).toLowerCase().trim();
+      if (!kw) continue;
+      let matched = false;
+      for (const qt of queryTerms) {
+        if (kw === qt) {
+          best = Math.max(best, 100);
+          matched = true;
+        } else if (kw.startsWith(qt) || qt.startsWith(kw)) {
+          best = Math.max(best, 60);
+          matched = true;
+        } else if (kw.includes(qt)) {
+          const idx = kw.indexOf(qt);
+          const atWordBoundary = idx === 0 || /\s/.test(kw[idx - 1]);
+          best = Math.max(best, atWordBoundary ? 70 : 20);
+          matched = true;
+        } else if (qt.includes(kw)) {
+          best = Math.max(best, 25);
+          matched = true;
+        }
+      }
+      if (!matched && queryWords.length >= 2) {
+        for (const w of queryWords) {
+          if (kw === w) {
+            best = Math.max(best, 60);
+            matched = true;
+          } else if (kw.startsWith(w + " ") || kw.endsWith(" " + w) || kw.includes(" " + w + " ")) {
+            best = Math.max(best, 50);
+            matched = true;
+          }
+        }
+      }
+      if (queryWords.length >= 2) {
+        for (const w of queryWords) {
+          if (
+            kw === w ||
+            kw.startsWith(w + " ") ||
+            kw.endsWith(" " + w) ||
+            kw.includes(" " + w + " ")
+          ) {
+            coveredWords.add(w);
+          }
+        }
+      }
+      if (matched) matchCount++;
+    }
+  };
+
+  checkField(_normalizeStringArray(company.product_keywords));
+  checkField(_normalizeStringArray(company.keywords));
+  checkField(_normalizeStringArray(company.industries));
+
+  if (best === 0) return 0;
+
+  const freqMult = matchCount >= 3 ? 1.3 : matchCount >= 2 ? 1.15 : 1.0;
+
+  let couplingAdj = 0;
+  if (queryWords.length >= 2) {
+    if (coveredWords.size >= queryWords.length) {
+      couplingAdj = 25;
+    } else if (coveredWords.size <= 1) {
+      return Math.round(best * 0.6);
     }
   }
 
-  // --- Domain bonus ---
-  let domainBonus = 0;
-  const domain = typeof company.normalized_domain === "string" ? company.normalized_domain.toLowerCase() : "";
-  const domainFolded = foldDiacritics(domain);
-  if (searchCompact && domain && (domain.includes(searchCompact) || domainFolded.includes(searchCompactFolded))) {
-    domainBonus = 20;
+  return Math.min(130, Math.round(best * freqMult) + couplingAdj);
+}
+
+function isSynonymOnlyMatch(company, q_norm, q_compact) {
+  if (!q_norm) return false;
+
+  const names = [
+    _asString(company.company_name),
+    _asString(company.display_name),
+    _asString(company.name),
+  ].filter(Boolean).map((n) => n.toLowerCase());
+
+  for (const name of names) {
+    if (name.includes(q_norm) || (q_compact && name.replace(/\s+/g, "").includes(q_compact))) {
+      return false;
+    }
   }
 
-  return Math.round(nameScore * 0.7 + keywordScore * 0.3) + domainBonus;
+  const allKeywords = [
+    ..._normalizeStringArray(company.product_keywords),
+    ..._normalizeStringArray(company.keywords),
+    ..._normalizeStringArray(company.industries),
+  ].map((k) => _asString(k).toLowerCase().trim()).filter(Boolean);
+
+  for (const kw of allKeywords) {
+    if (kw.includes(q_norm) || q_norm.includes(kw)) return false;
+    if (q_compact && (kw.includes(q_compact) || q_compact.includes(kw))) return false;
+  }
+
+  const stn = _asString(company.search_text_norm).toLowerCase();
+  if (stn && (stn.includes(` ${q_norm} `) || stn.includes(q_norm))) {
+    return false;
+  }
+
+  const queryWords = q_norm.split(/\s+/).filter((w) => w.length >= 2);
+  if (queryWords.length >= 2) {
+    for (const w of queryWords) {
+      for (const kw of allKeywords) {
+        if (
+          kw === w ||
+          kw.startsWith(w + " ") ||
+          kw.endsWith(" " + w) ||
+          kw.includes(" " + w + " ")
+        ) {
+          return false;
+        }
+      }
+      if (stn && stn.includes(` ${w} `)) return false;
+    }
+  }
+
+  return true;
+}
+
+function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndustries = []) {
+  const nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
+  const keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
+  const nameBonus = nameScore >= 60 ? 20 : 0;
+
+  const industries = _normalizeStringArray(company.industries).map((s) => _asString(s).toLowerCase().trim());
+  const qLower = (q_norm || "").toLowerCase().trim();
+  const industryBonus = qLower && industries.some((ind) => ind === qLower) ? 30 : 0;
+
+  const hasAffinity = affinityIndustries.length > 0 &&
+    industries.some((ind) => affinityIndustries.some((aff) => ind.includes(aff.toLowerCase())));
+  const affinityBonus = hasAffinity ? 25 : (affinityIndustries.length > 0 ? -15 : 0);
+
+  let relevanceScore = nameScore > 0
+    ? Math.round(nameScore * 0.7 + keywordScore * 0.3) + nameBonus + industryBonus + affinityBonus
+    : Math.round(keywordScore * 0.6) + industryBonus + affinityBonus;
+
+  const synonymOnly = isSynonymOnlyMatch(company, q_norm, q_compact);
+  if (synonymOnly) {
+    relevanceScore = Math.round(relevanceScore * 0.4);
+  }
+
+  relevanceScore = Math.max(0, relevanceScore);
+
+  return { _nameMatchScore: nameScore, _keywordMatchScore: keywordScore, _relevanceScore: relevanceScore, _synonymOnly: synonymOnly };
+}
+
+// Wrapper used by the admin endpoint — parses the search input via the
+// shared parseQuery() helper and returns the numeric relevance score.
+// affinityIndustries is intentionally omitted (admin doesn't load the
+// industry-affinity index for performance).
+function computeAdminSearchRelevance(company, search) {
+  if (!company || !search) return 0;
+  const { q_raw, q_norm, q_compact } = parseQuery(search);
+  const { _relevanceScore } = computeRelevanceScore(company, q_raw, q_norm, q_compact, []);
+  return _relevanceScore;
 }
 
 function isPlainObject(value) {
@@ -1404,7 +1573,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         // surface above weak keyword/search_text hits (Cosmos returns _ts DESC).
         if (search) {
           for (const item of items) {
-            item._searchRelevance = computeAdminSearchRelevance(item, search, searchCompact);
+            item._searchRelevance = computeAdminSearchRelevance(item, search);
           }
           items.sort((a, b) => (b._searchRelevance || 0) - (a._searchRelevance || 0));
         }
