@@ -305,60 +305,10 @@ async function runDirectEnrichment({
  * @returns {Object} - Updated company document
  */
 async function applyEnrichmentToCompany(company, enrichmentResult) {
-  if (!company || !enrichmentResult?.enriched) {
-    // Phase 2.9 A — log when this no-ops, so we can spot canonical results
-    // arriving with empty/missing enriched objects (which would mean the
-    // upstream call effectively failed even if the diagnostic claimed ok).
-    try {
-      console.warn(`[applyEnrichmentToCompany] no_op_skip`, {
-        has_company: !!company,
-        has_enrichment_result: !!enrichmentResult,
-        has_enriched: !!enrichmentResult?.enriched,
-        ok_flag: enrichmentResult?.ok,
-        company_id: company?.id,
-      });
-    } catch {}
-    return company;
-  }
+  if (!company || !enrichmentResult?.enriched) return company;
 
   const updated = { ...company };
   const enriched = enrichmentResult.enriched;
-
-  // Phase 2.9 A — diagnostic entry log so we can correlate post-hoc whether
-  // applyEnrichmentToCompany ran at all + what shape it received. Empirical
-  // (Earth Runners session bbefd04c, 2026-05-09): canonical call returned
-  // ok:true with envelope shape but the cosmos doc lacked all the fields
-  // this helper is supposed to produce (cleared *_unknown flags, *_status
-  // audit fields, geocoded HQ, plural headquarters_locations array). Logging
-  // tells us whether it ran and what each per-field block did with the
-  // input.
-  try {
-    const fieldShapes = {};
-    for (const f of ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"]) {
-      const v = enriched[f];
-      if (v == null) {
-        fieldShapes[f] = "missing";
-      } else if (typeof v === "string") {
-        fieldShapes[f] = `string(${v.length})`;
-      } else if (Array.isArray(v)) {
-        fieldShapes[f] = `array(${v.length})`;
-      } else if (typeof v === "object") {
-        fieldShapes[f] = `object{${Object.keys(v).join(",")}}`;
-      } else {
-        fieldShapes[f] = typeof v;
-      }
-    }
-    console.log(`[applyEnrichmentToCompany] entered`, {
-      company_id: company.id,
-      company_name: company.company_name,
-      ok_flag: enrichmentResult.ok,
-      enriched_keys: Object.keys(enriched),
-      field_shapes: fieldShapes,
-      diagnostics_envelope_marker: enrichmentResult?.diagnostics?.enriched_envelope_shape ?? null,
-      pre_hq_unknown: company.hq_unknown ?? null,
-      pre_mfg_unknown: company.mfg_unknown ?? null,
-    });
-  } catch {}
 
   // Apply tagline — always write status/searched_at so we record that the
   // field was attempted, even when Grok returned empty.
@@ -380,19 +330,6 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
   }
 
   // Apply headquarters_location
-  // Phase 2.9 A — diagnostic before processing so we can confirm whether
-  // this block fires for the canonical envelope shape.
-  try {
-    console.log(`[applyEnrichmentToCompany] hq_block_check`, {
-      company_id: company.id,
-      enriched_hq_truthy: !!enriched.headquarters_location,
-      enriched_hq_type: typeof enriched.headquarters_location,
-      enriched_hq_inner_truthy: !!enriched.headquarters_location?.headquarters_location,
-      enriched_hq_inner_value: typeof enriched.headquarters_location?.headquarters_location === "string"
-        ? enriched.headquarters_location.headquarters_location.slice(0, 50)
-        : null,
-    });
-  } catch {}
   if (enriched.headquarters_location) {
     updated.headquarters_location_status = enriched.headquarters_location.headquarters_location_status || "ok";
     updated.headquarters_location_searched_at = enriched.headquarters_location.searched_at;
@@ -410,17 +347,6 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
         updated.hq_unknown_reason = null;
       }
 
-      // Phase 2.9 A — log flag clearing so we can verify it ran
-      try {
-        console.log(`[applyEnrichmentToCompany] hq_flag_cleared`, {
-          company_id: company.id,
-          new_hq_unknown: updated.hq_unknown,
-          new_hq_unknown_reason: updated.hq_unknown_reason,
-          new_hq_status: updated.headquarters_location_status,
-          hq_value: updated.headquarters_location.slice(0, 60),
-        });
-      } catch {}
-
       // Geocode HQ location for distance calculations
       try {
         const hqString = updated.headquarters_location;
@@ -433,40 +359,12 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
             updated.headquarters_locations = [{ address: hqString, ...geo }];
             updated.headquarters = updated.headquarters_locations;
           }
-          // Phase 2.9 A — log geocoding outcome whether or not it succeeded
-          try {
-            console.log(`[applyEnrichmentToCompany] hq_geocode_done`, {
-              company_id: company.id,
-              hq_string: hqString.slice(0, 60),
-              found_coords: !!(updated.hq_lat != null && updated.hq_lng != null),
-              hq_lat: updated.hq_lat ?? null,
-              hq_lng: updated.hq_lng ?? null,
-              built_plural_array: Array.isArray(updated.headquarters_locations),
-            });
-          } catch {}
         }
-      } catch (geoErr) {
-        try {
-          console.warn(`[applyEnrichmentToCompany] hq_geocode_threw`, {
-            company_id: company.id,
-            error: String(geoErr?.message || geoErr),
-          });
-        } catch {}
-      }
+      } catch { /* geocoding failure is non-fatal */ }
     }
   }
 
   // Apply manufacturing_locations
-  // Phase 2.9 A — diagnostic before processing
-  try {
-    console.log(`[applyEnrichmentToCompany] mfg_block_check`, {
-      company_id: company.id,
-      enriched_mfg_truthy: !!enriched.manufacturing_locations,
-      enriched_mfg_inner_array_len: Array.isArray(enriched.manufacturing_locations?.manufacturing_locations)
-        ? enriched.manufacturing_locations.manufacturing_locations.length
-        : null,
-    });
-  } catch {}
   if (enriched.manufacturing_locations) {
     updated.manufacturing_locations_status = enriched.manufacturing_locations.manufacturing_locations_status || "ok";
     updated.manufacturing_locations_searched_at = enriched.manufacturing_locations.searched_at;
@@ -483,16 +381,6 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
         updated.mfg_unknown = false;
         updated.mfg_unknown_reason = null;
       }
-      // Phase 2.9 A — log flag clearing so we can verify it ran
-      try {
-        console.log(`[applyEnrichmentToCompany] mfg_flag_cleared`, {
-          company_id: company.id,
-          new_mfg_unknown: updated.mfg_unknown,
-          new_mfg_unknown_reason: updated.mfg_unknown_reason,
-          new_mfg_status: updated.manufacturing_locations_status,
-          mfg_count: Array.isArray(updated.manufacturing_locations) ? updated.manufacturing_locations.length : 0,
-        });
-      } catch {}
 
       // Geocode manufacturing locations for distance calculations
       try {
@@ -767,26 +655,6 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     import_missing_fields: updated.import_missing_fields || [],
     import_missing_reason: updated.import_missing_reason || {},
   });
-
-  // Phase 2.9 A — exit log so we can confirm the function completed and
-  // returned the expected post-apply state. If this log fires but the
-  // Cosmos doc still shows stale flags, the issue is upstream-of-upsert
-  // (handler.js doesn't persist the returned doc). If this log doesn't
-  // fire, the function threw silently somewhere.
-  try {
-    console.log(`[applyEnrichmentToCompany] exit`, {
-      company_id: company.id,
-      hq_unknown_after: updated.hq_unknown ?? null,
-      mfg_unknown_after: updated.mfg_unknown ?? null,
-      hq_status_set: !!updated.headquarters_location_status,
-      mfg_status_set: !!updated.manufacturing_locations_status,
-      tagline_status_set: !!updated.tagline_status,
-      industries_status_set: !!updated.industries_status,
-      hq_geocoded: updated.hq_lat != null && updated.hq_lng != null,
-      headquarters_locations_built: Array.isArray(updated.headquarters_locations),
-      manufacturing_geocodes_built: Array.isArray(updated.manufacturing_geocodes),
-    });
-  } catch {}
 
   return updated;
 }

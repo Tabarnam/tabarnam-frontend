@@ -1068,6 +1068,125 @@ test("Phase 2.8: runCanonicalImportCall result.enriched is now nested-envelope (
   );
 });
 
+// ── Phase 2.9 — diagnostic logging + SSE stall detection ────────────────────
+//
+// Source-level guards. Phase 2.9 ships diagnostic logging in
+// applyEnrichmentToCompany (Option A) and SSE-stall detection in
+// xaiLiveSearchStreaming (Option C). These tests pin both in place so a
+// future refactor can't silently regress them.
+
+test("Phase 2.9 A: applyEnrichmentToCompany logs entry/per-field/exit diagnostics", () => {
+  const fs = require("node:fs");
+  const dePath = path.join(__dirname, "_directEnrichment.js");
+  const src = fs.readFileSync(dePath, "utf8");
+
+  // Entry log
+  assert.ok(
+    /\[applyEnrichmentToCompany\] entered/.test(src),
+    "entered log must exist (signals function ran)"
+  );
+  assert.ok(
+    /diagnostics_envelope_marker/.test(src),
+    "entered log must capture the canonical-call envelope marker for correlation"
+  );
+
+  // Per-field block-check + flag-clear logs
+  assert.ok(
+    /\[applyEnrichmentToCompany\] hq_block_check/.test(src),
+    "hq_block_check log must exist (proves enriched.headquarters_location shape)"
+  );
+  assert.ok(
+    /\[applyEnrichmentToCompany\] hq_flag_cleared/.test(src),
+    "hq_flag_cleared log must exist (proves the unknown flag was cleared)"
+  );
+  assert.ok(
+    /\[applyEnrichmentToCompany\] hq_geocode_done/.test(src),
+    "hq_geocode_done log must exist (proves geocoding ran whether or not it found coords)"
+  );
+  assert.ok(
+    /\[applyEnrichmentToCompany\] mfg_block_check/.test(src),
+    "mfg_block_check log must exist"
+  );
+  assert.ok(
+    /\[applyEnrichmentToCompany\] mfg_flag_cleared/.test(src),
+    "mfg_flag_cleared log must exist"
+  );
+
+  // Exit log — confirms the function returned
+  assert.ok(
+    /\[applyEnrichmentToCompany\] exit/.test(src),
+    "exit log must exist (confirms function ran to completion)"
+  );
+
+  // No-op skip log — confirms when input is missing
+  assert.ok(
+    /\[applyEnrichmentToCompany\] no_op_skip/.test(src),
+    "no_op_skip log must exist (catches case where helper bails early)"
+  );
+});
+
+test("Phase 2.9 C: xaiLiveSearchStreaming has SSE stall detection (60s threshold)", () => {
+  const fs = require("node:fs");
+  const livePath = path.join(__dirname, "_xaiLiveSearch.js");
+  const src = fs.readFileSync(livePath, "utf8");
+
+  // Threshold + interval constants must be declared
+  assert.ok(
+    /SSE_STALL_THRESHOLD_MS\s*=\s*60_000/.test(src),
+    "SSE_STALL_THRESHOLD_MS must be 60_000 (60s of silence triggers abort)"
+  );
+  assert.ok(
+    /SSE_STALL_CHECK_INTERVAL_MS\s*=\s*10_000/.test(src),
+    "SSE_STALL_CHECK_INTERVAL_MS must be 10_000 (10s polling cadence)"
+  );
+
+  // The detector itself + bump-on-event + cleanup + dedicated error_code
+  assert.ok(
+    /lastSseEventAt = Date\.now\(\)/.test(src),
+    "lastSseEventAt must be initialized at SSE-loop entry"
+  );
+  assert.ok(
+    /sseStallChecker = setInterval/.test(src),
+    "sseStallChecker setInterval must be declared"
+  );
+  assert.ok(
+    /\[xaiLiveSearchStreaming\] sse_stall_detected/.test(src),
+    "sse_stall_detected warn log must exist"
+  );
+  assert.ok(
+    /clearInterval\(sseStallChecker\)/.test(src),
+    "sseStallChecker must be cleared in finally to avoid leak"
+  );
+  assert.ok(
+    /error_code:\s*"sse_stall"/.test(src),
+    "sse_stall must surface as a distinct error_code so callers can recognize it"
+  );
+  assert.ok(
+    /sse_stall:\s*true/.test(src),
+    "diagnostics.sse_stall must be set on stall failure"
+  );
+  assert.ok(
+    /last_event_silence_ms/.test(src),
+    "diagnostics.last_event_silence_ms must be reported on stall"
+  );
+});
+
+test("Phase 2.9 C: SSE stall checker only aborts when threshold exceeded — uses interval pattern", () => {
+  const fs = require("node:fs");
+  const livePath = path.join(__dirname, "_xaiLiveSearch.js");
+  const src = fs.readFileSync(livePath, "utf8");
+  // The pattern: silenceMs comparison gates abort
+  assert.ok(
+    /silenceMs > SSE_STALL_THRESHOLD_MS/.test(src),
+    "stall detection must compare actual silence time against threshold"
+  );
+  // Idempotency guard: sseStallAborted prevents duplicate aborts
+  assert.ok(
+    /!sseStallAborted/.test(src),
+    "sseStallAborted flag must guard against duplicate aborts"
+  );
+});
+
 test("Phase 2.6: source-level guard — _canonicalImport.js detects empty rawText on res.ok", () => {
   const fs = require("node:fs");
   const canonicalPath = path.join(__dirname, "_canonicalImport.js");

@@ -739,42 +739,6 @@ async function xaiLiveSearchStreaming({
     let abortedByToolCap = false;
     let completedResponse = null;
 
-    // Phase 2.9 C — SSE stall detection.
-    // Empirical (Earth Runners session bbefd04c, 2026-05-09): cycle 1 of
-    // the canonical call streamed 10 web_search_call events in 75 seconds,
-    // then went COMPLETELY silent — no further SSE events of any kind for
-    // ~3:47 until our 240s timeout fired. Phase 2.5's lock then stayed
-    // held until its 5-min TTL elapsed before the next worker could
-    // stale-takeover. Net loss: ~5 minutes wall-clock per stalled call.
-    //
-    // The existing tool-cap grace window (45s) only fires AFTER the model
-    // exceeds the tool-call cap. This stall happened well before — model
-    // just stopped. So we add a generic "no SSE event for N seconds"
-    // detector: bump lastSseEventAt on every parsed event; a separate
-    // poller checks every 10s and aborts if the silence exceeds the
-    // threshold. Pairs cleanly with Phase 2.5's lock — when SSE stalls,
-    // the call aborts within ~60s, the worker's `finally` releases the
-    // lock, and the next worker picks up immediately instead of waiting
-    // 5 min for the lock TTL.
-    let lastSseEventAt = Date.now();
-    let sseStallAborted = false;
-    const SSE_STALL_THRESHOLD_MS = 60_000;  // 60s of silence → assume dead, abort
-    const SSE_STALL_CHECK_INTERVAL_MS = 10_000;
-    const sseStallChecker = setInterval(() => {
-      const silenceMs = Date.now() - lastSseEventAt;
-      if (silenceMs > SSE_STALL_THRESHOLD_MS && !sseStallAborted) {
-        sseStallAborted = true;
-        console.warn(`[xaiLiveSearchStreaming] sse_stall_detected`, {
-          silence_ms: silenceMs,
-          tool_calls_so_far: toolCalls,
-          accumulated_text_chars: accumulatedText.length,
-          elapsed_ms_since_start: Date.now() - startedAt,
-        });
-        try { controller.abort(); } catch {}
-        try { clearInterval(sseStallChecker); } catch {}
-      }
-    }, SSE_STALL_CHECK_INTERVAL_MS);
-
     // Phase 2.1 — text-accumulation milestones for diagnosing the
     // "model goes deep into tool loop and never emits text" failure mode.
     // We log first-text-arrival timestamp + char-count milestones so we can
@@ -829,10 +793,6 @@ async function xaiLiveSearchStreaming({
 
           let parsed;
           try { parsed = JSON.parse(dataStr); } catch { continue; }
-
-          // Phase 2.9 C — bump SSE-stall timer on every parsed event so
-          // the stall checker only fires when the upstream goes truly silent.
-          lastSseEventAt = Date.now();
 
           // response.completed contains the full output array
           if (eventType === "response.completed" || (parsed.type === "response.completed")) {
@@ -901,9 +861,6 @@ async function xaiLiveSearchStreaming({
       }
     } finally {
       try { reader.releaseLock(); } catch {}
-      // Phase 2.9 C — always clear the SSE-stall checker, even if the loop
-      // exits via `break reading`, an exception, or normal completion.
-      try { clearInterval(sseStallChecker); } catch {}
     }
 
     const elapsedMs = Date.now() - startedAt;
@@ -993,25 +950,6 @@ async function xaiLiveSearchStreaming({
           aborted_by_us: true,
           circuit_breaker_open: true,
           mid_flight_circuit_abort: true,
-        },
-      };
-    }
-    // Phase 2.9 C — surface sse_stall as a distinct error_code so callers
-    // (canonical path) can recognize this specific failure mode in
-    // diagnostics. Otherwise it would just appear as upstream_timeout.
-    if (sseStallAborted) {
-      console.log(`[xaiLiveSearchStreaming] mid-flight aborted by sse stall detector after ${elapsedMs}ms`);
-      return {
-        ok: false,
-        error: "sse_stall",
-        error_code: "sse_stall",
-        diagnostics: {
-          elapsed_ms: elapsedMs,
-          tool_calls_counted: toolCalls,
-          streaming: true,
-          aborted_by_us: true,
-          sse_stall: true,
-          last_event_silence_ms: Date.now() - lastSseEventAt,
         },
       };
     }
