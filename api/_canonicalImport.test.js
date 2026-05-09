@@ -805,3 +805,100 @@ test("Phase 2.1: canonical failure result surfaces tool_cap_aborted + text previ
     }
   );
 });
+
+// ── Phase 2.6 — model_emitted_no_text detection ─────────────────────────────
+//
+// Replicates the Eliza B failure (session 91d1ade3, 2026-05-09):
+// xAI returned response.completed with output: [{type: "web_search_call"}]
+// — NO output_text/message item. Previously this slipped through as
+// false-positive "parsed_ok" with all empty fields because
+// extractTextFromXaiResponse fell back to JSON.stringify(envelope) and
+// parseCanonicalJson succeeded on the envelope. Phase 2.6 fixes both.
+
+test("Phase 2.6: model_emitted_no_text detected when output has only web_search_call (no text)", async () => {
+  await withMockLiveSearch(
+    {
+      // Mock: ok=true (response.completed received) BUT extractTextFromXaiResponse
+      // returns "" because the response has no text-bearing item.
+      xaiLiveSearchStreaming: async () => ({
+        ok: true,
+        resp: {
+          // Realistic shape from Eliza B failure:
+          status: "completed",
+          incomplete_details: null,
+          output: [
+            { type: "web_search_call", id: "ws_xyz", status: "completed", action: {} },
+          ],
+        },
+        diagnostics: { tool_calls_counted: 1, upstream_http_status: 200 },
+      }),
+      extractTextFromXaiResponse: () => "",  // canonical "no text" signal
+    },
+    async (mod) => {
+      const result = await mod.runCanonicalImportCall({
+        company: { company_name: "Eliza B", url: "https://www.elizab.com/" },
+        sessionId: "test",
+        budgetMs: 60_000,
+        fieldsToEnrich: ["tagline", "headquarters_location", "industries", "product_keywords", "manufacturing_locations", "reviews"],
+      });
+
+      // Must be a failure, not a false-positive parsed_ok.
+      assert.equal(result.ok, false, "must report failure when model emitted no text");
+      assert.equal(
+        result.errors.tagline,
+        "model_emitted_no_text",
+        "all requested fields must be classified as model_emitted_no_text (not 'not_found')"
+      );
+      assert.equal(result.errors.headquarters_location, "model_emitted_no_text");
+
+      // Diagnostics must capture WHAT the model did emit (so we can correlate
+      // with future failures of the same shape).
+      assert.equal(result.diagnostics.upstream_completed_no_text, true);
+      assert.deepEqual(result.diagnostics.output_summary, ["web_search_call"]);
+      assert.equal(result.diagnostics.text_chars, 0);
+      assert.equal(result.diagnostics.tool_calls_counted, 1);
+    }
+  );
+});
+
+test("Phase 2.6: source-level guard — extractTextFromXaiResponse returns '' on no-text fallback (NOT JSON.stringify)", () => {
+  const fs = require("node:fs");
+  const livePath = path.join(__dirname, "_xaiLiveSearch.js");
+  const src = fs.readFileSync(livePath, "utf8");
+  // The buggy fallback that masked Eliza B's no-text completion as success
+  // must NOT be present. The previous form was:
+  //   try { return JSON.stringify(r); } catch { return ""; }
+  // Phase 2.6 replaces it with a plain `return "";`
+  assert.ok(
+    !/return JSON\.stringify\(r\);/.test(src),
+    "JSON.stringify(r) fallback must be removed from extractTextFromXaiResponse"
+  );
+  // Ensure the warn log path is still present (we still log when extraction
+  // fails — we just don't fabricate text from the envelope).
+  assert.ok(
+    /\[extractTextFromXaiResponse\] all paths failed/.test(src),
+    "Diagnostic warn log must remain"
+  );
+});
+
+test("Phase 2.6: source-level guard — _canonicalImport.js detects empty rawText on res.ok", () => {
+  const fs = require("node:fs");
+  const canonicalPath = path.join(__dirname, "_canonicalImport.js");
+  const src = fs.readFileSync(canonicalPath, "utf8");
+  assert.ok(
+    /\[canonicalImport\] model_emitted_no_text/.test(src),
+    "model_emitted_no_text warn log must exist"
+  );
+  assert.ok(
+    /errorCode:\s*"model_emitted_no_text"/.test(src),
+    "buildFailureResult must use 'model_emitted_no_text' error code"
+  );
+  assert.ok(
+    /upstream_completed_no_text:\s*true/.test(src),
+    "diagnostics must surface upstream_completed_no_text flag"
+  );
+  assert.ok(
+    /output_summary/.test(src),
+    "diagnostics must include output_summary so we know what the model DID emit"
+  );
+});

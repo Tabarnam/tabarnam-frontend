@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.1.2-mandatory-emission";
+const PROMPT_GUIDANCE_VERSION = "7.1.1-emit-early-serialization-lock";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -398,15 +398,13 @@ Reviews: Find up to 5 unique third-party reviews of the company or its products.
 
 ${sourceUrlsLine}
 
-You MUST emit a JSON object as your final response. Outputting nothing is NOT acceptable, even if your tool calls returned little or no useful data. Emitting an all-empty JSON object is preferable to emitting no output at all.
-
 If you cannot verify a field after using your full tool budget, return the type-correct empty value:
 - tagline, headquarters_location, product_keywords → ""
 - manufacturing_locations, industries, reviews → []
 - location_source_urls → {"hq_source_urls": [], "mfg_source_urls": []}
 - red_flag → false
 
-Never use "" for an array field. Never omit any required field. Do not fabricate or hallucinate. If the company has thin web presence and your first tool call returned little useful information, that means you should emit the JSON object with empty fields, NOT skip emission.
+Never use "" for an array field. Never omit any required field. Do not fabricate or hallucinate.
 
 Do NOT include any field labels (e.g. "HQ:", "Tagline:", "Manufacturing:", "Industries:", "Products:", "Reviews:") inside the JSON values. The labels in the rules above are for your internal reasoning; emit only the clean value content. For example, headquarters_location should be "Newport Beach, CA, USA" — not "HQ: Newport Beach, CA, USA".
 
@@ -421,9 +419,7 @@ Plan your work:
 - 1 call: products / shop page for category extraction
 - 1-2 calls: reviews
 
-MINIMUM EFFORT: Make at least 2 tool calls (homepage + 1 verification or category-extraction call) before deciding the company has no findable data. Even small obscure brands typically have a tagline visible on the homepage, which is one tool call away. Do NOT terminate after 0 or 1 tool calls — that violates the minimum-effort rule.
-
-EMIT EARLY: Once you have made 6 or more tool calls AND you have at least the tagline and headquarters_location, immediately stop searching and emit the JSON object. Better a partial-but-real answer than a complete-but-timed-out failure. (Empty fields are valid in the JSON object — the requirement is that the JSON object itself MUST be emitted.)
+EMIT EARLY: Once you have made 6 or more tool calls AND you have at least the tagline and headquarters_location, immediately stop searching and emit the JSON object. Better a partial-but-real answer than a complete-but-timed-out failure. Empty fields are valid output.
 
 After 10 tool calls you MUST stop searching and emit the JSON object using empty values for any field still unverified. Do NOT exceed 10 tool calls under any circumstances.
 

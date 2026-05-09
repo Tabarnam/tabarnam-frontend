@@ -467,3 +467,57 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
   const passthroughMatches = src.match(/response_format && typeof response_format === "object" \? \{ response_format \}/g) || [];
   assert.ok(passthroughMatches.length >= 2, "response_format must flow into both payload builders");
 });
+
+// ── Phase 2.6 — mandatory emission + minimum tool-call floor ────────────────
+//
+// Replicates fixes for the Eliza B failure (model emitted no text after 1
+// tool call). The prompt now MUST instruct the model that emitting nothing
+// is unacceptable, AND require a minimum of 2 tool calls before deciding
+// the company has no findable data.
+
+test("Phase 2.6: PROMPT_GUIDANCE_VERSION is 7.1.2-mandatory-emission", () => {
+  assert.match(
+    PROMPT_GUIDANCE_VERSION,
+    /^7\.1\.2-mandatory-emission/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.2-mandatory-emission for Phase 2.6"
+  );
+});
+
+test("Phase 2.6: prompt mandates JSON object emission (cannot output nothing)", () => {
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "Acme",
+    websiteUrl: "https://acme.example.com",
+  });
+  // The single most important Phase 2.6 instruction: model MUST emit JSON.
+  assert.ok(
+    /You MUST emit a JSON object/i.test(prompt),
+    "prompt must explicitly mandate that the model emits a JSON object"
+  );
+  assert.ok(
+    /Outputting nothing is NOT acceptable/i.test(prompt),
+    "prompt must explicitly forbid emitting nothing"
+  );
+  assert.ok(
+    /Emitting an all-empty JSON object is preferable/i.test(prompt),
+    "prompt must clarify that all-empty JSON is preferable to no output"
+  );
+});
+
+test("Phase 2.6: prompt requires minimum 2 tool calls before giving up", () => {
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "Acme",
+    websiteUrl: "https://acme.example.com",
+  });
+  assert.ok(
+    /MINIMUM EFFORT/i.test(prompt),
+    "prompt must include a MINIMUM EFFORT block"
+  );
+  assert.ok(
+    /at least 2 tool calls/i.test(prompt),
+    "prompt must require at least 2 tool calls"
+  );
+  assert.ok(
+    /Do NOT terminate after 0 or 1 tool calls/i.test(prompt),
+    "prompt must explicitly forbid 0-or-1-call termination"
+  );
+});

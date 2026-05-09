@@ -366,44 +366,6 @@ async function runCanonicalImportCall({
     });
   }
 
-  // Phase 2.6 — model_emitted_no_text: upstream returned ok with
-  // `response.completed`, but the output array contained no text-bearing
-  // item (only a web_search_call or similar). Empirically (Eliza B
-  // session 91d1ade3): the model decided "I have nothing useful, I'm done"
-  // and terminated the response with status=completed, incomplete=null,
-  // and no output_text/message item.
-  //
-  // Without this branch, extractTextFromXaiResponse used to return
-  // JSON.stringify(envelope), parseCanonicalJson succeeded on the envelope,
-  // and we reported all-fields-empty as "parsed_ok" — false-positive
-  // success that masked the real failure mode.
-  if (rawText.length === 0) {
-    const outputSummary = Array.isArray(res?.resp?.output)
-      ? res.resp.output.map((o) => o?.type).filter(Boolean)
-      : [];
-    console.warn(`[canonicalImport] model_emitted_no_text`, {
-      session_id: sessionId,
-      tool_calls_counted: res.diagnostics?.tool_calls_counted ?? null,
-      output_summary: outputSummary,
-      upstream_status: res.resp?.status ?? null,
-      upstream_incomplete: res.resp?.incomplete_details ?? null,
-    });
-    return buildFailureResult({
-      fieldsToEnrich: requested,
-      errorCode: "model_emitted_no_text",
-      elapsedMs,
-      diagnostics: {
-        mode,
-        upstream_status: res.diagnostics?.upstream_http_status ?? null,
-        tool_calls_counted: res.diagnostics?.tool_calls_counted ?? null,
-        text_chars: 0,
-        upstream_completed_no_text: true,
-        output_summary: outputSummary,
-        upstream_response_status: res.resp?.status ?? null,
-      },
-    });
-  }
-
   const text = rawText;
   const parsed = parseCanonicalJson(text);
 

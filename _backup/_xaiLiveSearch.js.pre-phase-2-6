@@ -261,15 +261,11 @@ function extractTextFromXaiResponse(resp) {
     );
   } catch {}
 
-  // Phase 2.6 — return empty string when the model emitted no text content.
-  // Previous behaviour fell back to JSON.stringify(r), which returned the
-  // entire xAI response envelope as if it were the model's text. Downstream
-  // parsers (parseCanonicalJson) then succeeded on the envelope and
-  // shapeEnrichedFromParsed read empty values for the canonical field
-  // names — producing a false-positive success. Returning "" forces callers
-  // to explicitly handle the no-text case (model_emitted_no_text in
-  // _canonicalImport.js).
-  return "";
+  try {
+    return JSON.stringify(r);
+  } catch {
+    return "";
+  }
 }
 
 async function xaiLiveSearch({
