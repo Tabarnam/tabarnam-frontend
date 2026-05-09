@@ -128,33 +128,6 @@ export default function AdminImport() {
   const shadowStatusRef = useRef("idle");
   shadowStatusRef.current = shadowStatus;
 
-  // Phase 2.17 — rolling-pool dispatcher state.
-  //
-  // Pre-2.17 the dispatcher was pair-batched: start companies 0+1, wait for
-  // BOTH to finish, then start 2+3. If one company in the pair was much
-  // slower than the other (RockDove 6:43 paired with Merippa 2:18, the
-  // Steger+Verloop pair couldn't start until 6:43 elapsed), the wall-clock
-  // for the whole batch was bottlenecked by the slowest company in each
-  // pair.
-  //
-  // Phase 2.17 makes each slot advance independently: when EITHER slot
-  // finishes, it claims the next available company from the queue and
-  // starts immediately, regardless of what the other slot is doing.
-  //
-  // - successionShadowIndex: shadow slot's current queue index (was
-  //   implicit as successionIndex + 1 under pair-batching).
-  // - nextDispatchIndexRef: atomic counter for the next company to claim
-  //   from the queue. Refs update synchronously, so two simultaneous
-  //   advance-effects can't grab the same index.
-  // - lastProcessedPrimaryIndexRef / lastProcessedShadowIndexRef: guard
-  //   refs to ensure we record each completion exactly once (the slot
-  //   advance effect fires whenever activeStatus/shadowStatus changes,
-  //   including transient "running" → "done" → re-mounted "running").
-  const [successionShadowIndex, setSuccessionShadowIndex] = useState(-1);
-  const nextDispatchIndexRef = useRef(0);
-  const lastProcessedPrimaryIndexRef = useRef(-1);
-  const lastProcessedShadowIndexRef = useRef(-1);
-
   // Preflight duplicate check state
   const [preflightResults, setPreflightResults] = useState(null);
   const [preflightLoading, setPreflightLoading] = useState(false);
@@ -3922,15 +3895,6 @@ export default function AdminImport() {
     setSuccessionResults([]);
     setSuccessionIndex(0);
 
-    // Phase 2.17 — rolling-pool init.
-    // Slot A (primary) takes index 0, slot B (shadow) takes index 1.
-    // The "next to dispatch" pointer starts at 2 — when EITHER slot
-    // finishes, it claims index 2 next, and so on.
-    setSuccessionShadowIndex(SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1 ? 1 : -1);
-    nextDispatchIndexRef.current = SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1 ? 2 : 1;
-    lastProcessedPrimaryIndexRef.current = -1;
-    lastProcessedShadowIndexRef.current = -1;
-
     const first = validRows[0];
     setQuery(first.companyName);
     setCompanyUrl(first.companyUrl);
@@ -3967,12 +3931,6 @@ export default function AdminImport() {
     setSuccessionResults([]);
     setSuccessionIndex(0);
 
-    // Phase 2.17 — rolling-pool init (mirror of handleStartSuccession).
-    setSuccessionShadowIndex(SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1 ? 1 : -1);
-    nextDispatchIndexRef.current = SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1 ? 2 : 1;
-    lastProcessedPrimaryIndexRef.current = -1;
-    lastProcessedShadowIndexRef.current = -1;
-
     const first = validRows[0];
     setQuery(first.companyName);
     setCompanyUrl(first.companyUrl);
@@ -3997,131 +3955,78 @@ export default function AdminImport() {
     handleStartImportStaged();
   }, [successionIndex, query, companyUrl, handleStartImportStaged, successionQueue]);
 
-  // Phase 2.17 — rolling-pool dispatcher.
-  //
-  // Each slot independently advances when ITS status flips to done/error,
-  // claiming the next available company from a shared atomic counter
-  // (nextDispatchIndexRef). This eliminates the pair-batched bottleneck
-  // where Steger+Verloop had to wait for RockDove's 6:43 to finish before
-  // they could even start.
-  //
-  // Two effects (one per slot) plus a completion detector that fires when
-  // the queue is exhausted AND both slots are idle.
-
-  // Helper: fire-and-forget enrichment verification poll. Called when ANY
-  // slot's session completes — triggers the resume-worker watchdog/HTTP
-  // self-invocation as a safety net for sessions whose enrichment was
-  // queued but the worker never picked up.
-  const verifyEnrichment = useCallback((sessionId) => {
-    if (!sessionId) return;
-    const statusUrl = join(API_BASE, `/import-status?session_id=${encodeURIComponent(sessionId)}`);
-    apiFetch(statusUrl).then(() => {}).catch(() => {});
-    setTimeout(() => { apiFetch(statusUrl).then(() => {}).catch(() => {}); }, 15_000);
-  }, []);
-
-  // Primary slot advance — fires when activeStatus transitions to
-  // done/error. Records the completion, then atomically claims the next
-  // queue index and re-starts primary on that company.
+  // Succession import: advancement effect — when current import completes, start next.
+  // With SUCCESSION_CONCURRENCY >= 2, waits for BOTH primary and shadow slots to finish.
   useEffect(() => {
     if (successionIndex < 0) return;
-    // Guard: trigger effect fires in same commit as start; setActiveStatus
-    // is batched and not yet committed. Skip while a start is in flight.
+    // Guard: the trigger effect fires in the same render commit and calls
+    // beginImport(), whose setActiveStatus("running") is batched and NOT yet committed.
     if (startImportRequestInFlightRef.current) return;
+
     const primaryDone = activeStatus === "done" || activeStatus === "error";
     if (!primaryDone) return;
 
-    // Idempotency guard: each succession-index slot completion is processed
-    // exactly once. Without this, every re-render after "done" would re-fire.
-    if (lastProcessedPrimaryIndexRef.current === successionIndex) return;
-    const completedIndex = successionIndex;
-    lastProcessedPrimaryIndexRef.current = completedIndex;
-
-    setSuccessionResults((prev) => [...prev, {
-      index: completedIndex,
-      status: activeStatus === "done" ? "done" : "error",
-      sessionId: activeSessionId,
-    }]);
-    verifyEnrichment(activeSessionId);
-
-    // Atomically claim next index from the shared counter. Refs update
-    // synchronously, so even if shadow's effect fires in the same tick
-    // they can't both grab the same index.
-    const nextIdx = nextDispatchIndexRef.current;
-    if (nextIdx >= successionQueue.length) {
-      // No more companies to dispatch — primary slot goes idle.
-      // Sentinel: -1 marks the slot as exhausted.
-      setSuccessionIndex(-1);
-      return;
-    }
-    nextDispatchIndexRef.current = nextIdx + 1;
-
-    const next = successionQueue[nextIdx];
-    setQuery(next.companyName);
-    setCompanyUrl(next.companyUrl);
-    setSuccessionIndex(nextIdx);
-    successionTriggerRef.current = true;
-  }, [activeStatus, successionIndex, successionQueue, activeSessionId, verifyEnrichment]);
-
-  // Shadow slot advance — symmetric to primary. Fires when shadowStatus
-  // transitions to done/error. Records, claims next, re-starts via
-  // beginImportShadow.
-  useEffect(() => {
-    if (successionShadowIndex < 0) return;
-    const shadowDone = shadowStatus === "done" || shadowStatus === "error";
+    // Determine if shadow slot was active for this batch
+    const hasShadow = SUCCESSION_CONCURRENCY >= 2 && successionIndex + 1 < successionQueue.length;
+    const shadowDone = !hasShadow || shadowStatus === "done" || shadowStatus === "error" || shadowStatus === "idle";
     if (!shadowDone) return;
 
-    if (lastProcessedShadowIndexRef.current === successionShadowIndex) return;
-    const completedIndex = successionShadowIndex;
-    lastProcessedShadowIndexRef.current = completedIndex;
+    // Record results for both slots
+    const batchSize = hasShadow ? 2 : 1;
+    const newResults = [
+      { index: successionIndex, status: activeStatus === "done" ? "done" : "error", sessionId: activeSessionId },
+    ];
+    if (hasShadow) {
+      newResults.push({
+        index: successionIndex + 1,
+        status: shadowStatus === "done" ? "done" : "error",
+        sessionId: shadowSessionId,
+      });
+    }
 
-    setSuccessionResults((prev) => [...prev, {
-      index: completedIndex,
-      status: shadowStatus === "done" ? "done" : "error",
-      sessionId: shadowSessionId,
-    }]);
-    verifyEnrichment(shadowSessionId);
+    setSuccessionResults((prev) => [...prev, ...newResults]);
 
-    // Reset shadow state before re-starting
+    // Fire-and-forget enrichment verification for completed sessions.
+    // If a session's enrichment was queued but the resume-worker never picked it up,
+    // this import-status poll triggers the watchdog/HTTP self-invocation as a safety net.
+    // Two polls: immediate (triggers watchdog) + delayed 15s (ensures re-queue happened).
+    for (const nr of newResults) {
+      if (nr.sessionId) {
+        const statusUrl = join(API_BASE, `/import-status?session_id=${encodeURIComponent(nr.sessionId)}`);
+        apiFetch(statusUrl).then(() => {}).catch(() => {});
+        setTimeout(() => { apiFetch(statusUrl).then(() => {}).catch(() => {}); }, 15_000);
+      }
+    }
+
+    // Reset shadow state
     stopShadowPolling();
     setShadowSessionId(null);
+    setShadowStatus("idle");
 
-    const nextIdx = nextDispatchIndexRef.current;
-    if (nextIdx >= successionQueue.length) {
-      // Queue exhausted — shadow slot goes idle.
-      setSuccessionShadowIndex(-1);
-      setShadowStatus("idle");
+    const nextIndex = successionIndex + batchSize;
+
+    if (nextIndex >= successionQueue.length) {
+      const doneCount = successionResults.length + batchSize;
+      setSuccessionIndex(-1);
+      toast.success(`Succession import complete: ${doneCount} imports processed`);
       return;
     }
-    nextDispatchIndexRef.current = nextIdx + 1;
 
-    const next = successionQueue[nextIdx];
-    setSuccessionShadowIndex(nextIdx);
-    setShadowStatus("idle"); // briefly idle to allow next status flip
-    setTimeout(() => beginImportShadow(next.companyName, next.companyUrl), 1000);
-  }, [shadowStatus, successionShadowIndex, successionQueue, shadowSessionId, beginImportShadow, stopShadowPolling, verifyEnrichment]);
+    // Set up next batch — slot A (primary)
+    const nextA = successionQueue[nextIndex];
+    setQuery(nextA.companyName);
+    setCompanyUrl(nextA.companyUrl);
+    setSuccessionIndex(nextIndex);
+    successionTriggerRef.current = true;
 
-  // Completion detector — fires the success toast once when both slots
-  // have idled (sentinel -1) and the queue is exhausted. Decoupled from
-  // either slot's advance effect so the toast doesn't double-fire.
-  const successionToastFiredRef = useRef(false);
-  useEffect(() => {
-    if (successionIndex >= 0) return;             // primary still running
-    if (successionShadowIndex >= 0) return;        // shadow still running
-    if (successionResults.length === 0) return;    // nothing started yet
-    if (successionToastFiredRef.current) return;   // already toasted
-    if (nextDispatchIndexRef.current < successionQueue.length) return; // still queued
-    if (successionResults.length < successionQueue.length) return;     // not all recorded yet
-    successionToastFiredRef.current = true;
-    toast.success(`Succession import complete: ${successionResults.length} imports processed`);
-  }, [successionIndex, successionShadowIndex, successionResults.length, successionQueue.length]);
-
-  // Reset toast-fired flag when a new succession kicks off (so the next
-  // batch can fire its own completion toast).
-  useEffect(() => {
-    if (successionIndex === 0 && successionResults.length === 0) {
-      successionToastFiredRef.current = false;
+    // Launch shadow slot (slot B) for next pair if available
+    if (SUCCESSION_CONCURRENCY >= 2 && nextIndex + 1 < successionQueue.length) {
+      const nextB = successionQueue[nextIndex + 1];
+      setTimeout(() => {
+        beginImportShadow(nextB.companyName, nextB.companyUrl);
+      }, 2000);
     }
-  }, [successionIndex, successionResults.length]);
+  }, [activeStatus, shadowStatus, successionIndex, successionQueue, activeSessionId, shadowSessionId, successionResults, beginImportShadow, stopShadowPolling, SUCCESSION_CONCURRENCY]);
 
   // Bulk import handlers
   const bulkUrlCount = useMemo(() => {
