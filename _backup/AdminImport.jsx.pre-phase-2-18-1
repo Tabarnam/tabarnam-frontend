@@ -4021,30 +4021,32 @@ export default function AdminImport() {
 
   // Phase 2.18.A2 — strict completion check helper.
   //
-  // Phase 2.18.1 HOTFIX (2026-05-09 23:46): the original A2 also required
-  // !run.resume_needed but the runs[] state has
-  // `resume_needed: snapshotResumeNeeded || Boolean(r.resume_needed)`
-  // (monotonic OR — once true, never flips false). That made the gate
-  // unreachable for any session that ever had resume_needed: true,
-  // which is every session via the 202 fast-path. Result: slots stuck
-  // forever after the first pair completes. Glerups + Haflinger
-  // finished at 23:43, but Kyrgies + Sorel never started because the
-  // gate blocked slot advance.
+  // Empirical (Dearfoams 2026-05-09): activeStatus flipped to "done" 4
+  // seconds after import-start's 202 response, before the resume-worker
+  // had even fired (the queue message was lost — see Phase 2.18.A1 for
+  // the backend safety-net that recovers from this). The dispatcher
+  // prematurely advanced slot A to Fulton, leaving Dearfoams permanently
+  // at Stub-0%.
   //
-  // Removed the resume_needed check. The safety-net (A1) provides the
-  // structural protection against lost queue messages — even if the
-  // dispatcher advances "prematurely" for a session whose enrichment
-  // hasn't actually run, the safety-net fires the resume-worker 90s
-  // later and recovers. The strict gate is now: completed === true AND
-  // saved > 0 (or explicit error).
+  // Strict rule: a slot is allowed to advance ONLY when the underlying
+  // run is genuinely complete (saved >= 1 + completed flag set + NO
+  // pending resume) OR explicitly errored. Transient "done" states from
+  // the polling layer (e.g., from intermediate stage_beacon transitions)
+  // no longer count.
   //
-  // For genuinely failed imports (activeStatus === "error"), the slot
-  // still advances immediately — no point waiting on a failure.
+  // If a session genuinely succeeded, the run will have:
+  //   - completed: true
+  //   - saved >= 1
+  //   - resume_needed: falsy (enrichment finished, not just queued)
+  //
+  // If a session genuinely errored, activeStatus === "error" still
+  // advances (no point waiting for failed imports).
   const isRunStrictlyComplete = useCallback((sessionId) => {
     const sid = asString(sessionId).trim();
     if (!sid) return false;
     const run = runs.find((r) => asString(r?.session_id).trim() === sid);
     if (!run) return false;
+    if (run.resume_needed === true) return false;
     if (Number(run.saved) <= 0) return false;
     if (run.completed !== true) return false;
     return true;
