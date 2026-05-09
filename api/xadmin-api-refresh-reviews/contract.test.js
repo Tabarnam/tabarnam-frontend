@@ -85,9 +85,11 @@ test("xadmin refresh reviews upstream payload caps excluded websites to 5 and sp
   assert.ok(web.excluded_websites.length <= 5);
   assert.ok(news.excluded_websites.length <= 5);
 
+  // Phase 2.11 — companyHost no longer auto-excluded; spillover-to-prompt
+  // no longer triggers by default. See admin-refresh-reviews/contract.test.js
+  // for full rationale.
   const user = Array.isArray(payload.messages) ? payload.messages.find((m) => m?.role === "user") : null;
   assert.ok(typeof user?.content === "string");
-  assert.ok(user.content.includes("Also avoid these websites"));
 });
 
 test("/api/xadmin-api-refresh-reviews returns 200 ok:false on upstream 500 html/text", async () => {

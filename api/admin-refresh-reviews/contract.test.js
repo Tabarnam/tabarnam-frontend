@@ -32,7 +32,13 @@ test("admin-refresh-reviews upstream payload caps excluded websites to 5 and spi
   assert.ok(web.excluded_websites.length <= 5);
   assert.ok(news.excluded_websites.length <= 5);
 
+  // Phase 2.11 — spillover-to-prompt no longer triggers by default. Pre-2.11
+  // the companyHost was auto-added to excludes (6 total → 1 spilled to prompt
+  // → "Also avoid these websites" appeared). Phase 2.11 stops excluding the
+  // company's own host (it's the primary source of truth for small brands),
+  // so the default case has 5 noise hosts and nothing spills. The
+  // spillover MECHANISM is still intact and tested via
+  // buildPromptExclusionText in _buildSearchParameters.test.js.
   const msg = Array.isArray(payload.messages) ? payload.messages[0] : null;
   assert.ok(typeof msg?.content === "string");
-  assert.ok(msg.content.includes("Also avoid these websites"));
 });

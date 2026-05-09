@@ -56,9 +56,20 @@ test("buildExcludedHostsCandidates includes defaults", () => {
   assert.ok(candidates.includes("google.com"));
 });
 
-test("buildExcludedHostsCandidates puts company host first", () => {
+test("Phase 2.11: buildExcludedHostsCandidates does NOT include the company host (was prepended pre-2.11)", () => {
+  // Empirical (Gurkees vs grok.com 2026-05-09): excluding the company's
+  // own website from web_search blocked grok-4 from finding tagline / HQ /
+  // testimonials for small brands whose only substantive source IS their
+  // own site. Phase 2.11 drops the companyHost prepend so the model can
+  // naturally search the company's own pages.
   const candidates = buildExcludedHostsCandidates({ companyWebsiteHost: "acme.com" });
-  assert.equal(candidates[0], "acme.com");
+  assert.ok(
+    !candidates.includes("acme.com"),
+    "company host must NOT appear in excluded hosts (Phase 2.11)"
+  );
+  // Noise sources (Amazon listings, Google shorteners) remain excluded.
+  assert.ok(candidates.includes("amazon.com"), "amazon.com must still be excluded as noise");
+  assert.ok(candidates.includes("google.com"), "google.com must still be excluded as noise");
 });
 
 test("buildExcludedHostsCandidates includes additional hosts", () => {
@@ -84,12 +95,18 @@ test("buildCappedExcludedHosts caps at maxExcluded", () => {
   assert.ok(result.spilled.length > 0);
 });
 
-test("buildCappedExcludedHosts prioritizes company host", () => {
+test("Phase 2.11: buildCappedExcludedHosts does NOT include the company host (was prioritized pre-2.11)", () => {
+  // Phase 2.11 — the company's own host must not be excluded. Prior
+  // behaviour put it first in the priority list and surfaced it in `used`;
+  // now `used` should contain only the noise hosts.
   const result = buildCappedExcludedHosts({
     companyWebsiteHost: "acme.com",
     maxExcluded: 2,
   });
-  assert.equal(result.used[0], "acme.com");
+  assert.ok(
+    !result.used.includes("acme.com"),
+    "company host must NOT appear in capped used list (Phase 2.11)"
+  );
 });
 
 test("buildCappedExcludedHosts provides telemetry", () => {
@@ -137,9 +154,17 @@ test("buildSearchParameters returns search_parameters with sources", () => {
   assert.equal(result.search_parameters.sources[2].type, "x");
 });
 
-test("buildSearchParameters includes company host in used exclusions", () => {
+test("Phase 2.11: buildSearchParameters does NOT exclude the company host", () => {
+  // Phase 2.11 — same expectation as above, exercised through the public
+  // buildSearchParameters facade. Verifies the companyHost passes through
+  // every layer without being added to excluded_hosts.used.
   const result = buildSearchParameters({ companyWebsiteHost: "acme.com" });
-  assert.ok(result.excluded_hosts.used.includes("acme.com"));
+  assert.ok(
+    !result.excluded_hosts.used.includes("acme.com"),
+    "buildSearchParameters must NOT exclude the company host (Phase 2.11)"
+  );
+  // Sanity: the noise hosts remain excluded.
+  assert.ok(result.excluded_hosts.used.includes("amazon.com"));
 });
 
 test("buildSearchParameters includes telemetry", () => {

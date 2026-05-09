@@ -108,18 +108,25 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   assert.ok(prompt.includes("8-15 short noun phrases"), "industries count rule missing");
   // Phase 2.4: relaxed from "Find 5 unique, legitimate third-party reviews"
   // to "Find up to 5 unique third-party reviews" — accepts fewer-than-5
-  // results without padding (matches the user's "quality over quantity"
-  // preference and prevents the model from spinning on review searches
-  // when only 2-3 are credibly available).
+  // results without padding.
+  // Phase 2.11: opening phrase further generalized to "Find up to 5 unique
+  // reviews" (third-party preference moved to the "Target mix" sentence)
+  // because the rule now permits company-site testimonials as a fallback
+  // for small brands where the third-party-only floor was unreachable.
   assert.ok(
+    /Find up to 5 unique reviews/i.test(prompt) ||
     /Find up to 5 unique third-party reviews/i.test(prompt) ||
     /Find 5 unique, legitimate third-party reviews/i.test(prompt),
-    "reviews 5-count rule missing (Phase 2.4: 'up to 5' or earlier 'Find 5')"
+    "reviews 5-count rule missing"
   );
-  // Phase 2.4: rewording dropped "1-2 YouTube reviews" → "Prefer 1-2 from YouTube"
+  // Phase 2.11: target-mix sentence now describes 3-4 third-party + 1-2
+  // own-site instead of "1-2 from YouTube" only. Either phrasing acceptable.
   assert.ok(
-    /1-2 YouTube reviews/i.test(prompt) || /1-2 from YouTube/i.test(prompt),
-    "YouTube source mix rule missing (1-2 from YouTube)"
+    /1-2 YouTube reviews/i.test(prompt) ||
+    /1-2 from YouTube/i.test(prompt) ||
+    /3-4 third-party reviews/i.test(prompt) ||
+    /YouTube/.test(prompt),
+    "YouTube / third-party source mix rule missing"
   );
 
   // Source-URL request (the bridge to JSON schema field)
@@ -481,19 +488,55 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.10: PROMPT_GUIDANCE_VERSION is 7.1.5-strict-schema-on", () => {
-  // Bumped from 7.1.4 in Phase 2.10 — re-enabling response_format with
-  // strict json_schema by default. Phase 2.2 had disabled it because of
-  // a 22-call tool-loop runaway; Phase 2.10 brings it back because the
-  // runaway risk is now bounded by tool cap (10), 240s timeout, 45s
-  // grace window, 60s SSE stall detection, and account-level
-  // serialization lock. Strict schema fixes the model_emitted_no_text
-  // failure mode (Eliza B / Flojos / FitFlop) by FORCING emission
-  // server-side. Kill-switch via XAI_USE_RESPONSE_FORMAT=off.
+test("Phase 2.11: PROMPT_GUIDANCE_VERSION is 7.1.6-companyhost-include-and-fallback-reviews", () => {
+  // Bumped from 7.1.5 in Phase 2.11 — two paired changes:
+  // 1. Stop excluding the company's own host from web_search (was the
+  //    primary blocker for small-brand imports — Gurkees proved this
+  //    against grok.com which got full data in 46 seconds).
+  // 2. Merge the legacy fallback testimonial language into the canonical
+  //    reviews rule. When third-party reviews are scarce, the model can
+  //    pull customer testimonials, "as seen in" sections, FAQ highlights,
+  //    and feature blurbs from the company's own site. The user-facing
+  //    column was already renamed "Features & Reviews" to reflect this
+  //    dual content.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.1\.5-strict-schema-on/,
-    "PROMPT_GUIDANCE_VERSION must be 7.1.5-strict-schema-on for Phase 2.10"
+    /^7\.1\.6-companyhost-include-and-fallback-reviews/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.6-companyhost-include-and-fallback-reviews for Phase 2.11"
+  );
+});
+
+test("Phase 2.11: canonical reviews rule includes fallback-to-company-site language", () => {
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "Gurkees",
+    websiteUrl: "https://gurkees.com",
+  });
+  // Verbatim phrases pulled from the legacy fallback (FIELD_GUIDANCE.unified()
+  // and reviews.rulesFull()) and re-incorporated into the canonical rule.
+  assert.ok(
+    /testimonials/i.test(prompt),
+    "canonical reviews rule must mention testimonials (fallback path)"
+  );
+  assert.ok(
+    /as seen in/i.test(prompt),
+    "canonical reviews rule must mention 'as seen in' sections (fallback path)"
+  );
+  assert.ok(
+    /FAQ highlights|FAQ/i.test(prompt),
+    "canonical reviews rule must mention FAQ highlights (fallback path)"
+  );
+  assert.ok(
+    /company's own site|own website|own page/i.test(prompt),
+    "canonical reviews rule must explicitly authorize company's own site as a source"
+  );
+  assert.ok(
+    /smaller brands|limited third-party/i.test(prompt),
+    "canonical reviews rule must address the small-brand case where own-site is the primary source"
+  );
+  // The fabrication guard remains intact.
+  assert.ok(
+    /Do NOT pad with fabricated entries/.test(prompt),
+    "canonical reviews rule must still forbid fabrication"
   );
 });
 

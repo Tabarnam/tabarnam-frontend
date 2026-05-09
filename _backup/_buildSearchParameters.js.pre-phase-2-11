@@ -75,28 +75,10 @@ function uniqPreserveOrder(items) {
 }
 
 function buildExcludedHostsCandidates({ companyWebsiteHost, additionalExcludedHosts } = {}) {
-  // Phase 2.11 — companyWebsiteHost is intentionally NOT excluded anymore.
-  //
-  // Empirical (Gurkees vs grok.com test, 2026-05-09): for small / niche
-  // brands with limited third-party coverage, the company's own website is
-  // the primary source of truth for tagline, HQ, manufacturing, products,
-  // and customer testimonials. Excluding it (the prior behaviour from
-  // pre-Phase 2.4 "force the model to use independent sources" guidance)
-  // strangled imports for these brands while delivering ~no benefit for
-  // big brands (which had plenty of alternative sources anyway). Phase 2.10's
-  // strict json_schema and the per-field rules already prevent fabrication;
-  // we don't need search-side blacklisting of the company's own host to
-  // enforce honesty.
-  //
-  // The `companyWebsiteHost` parameter is still accepted (callers may rely
-  // on the signature for diagnostic logging) but is intentionally a no-op
-  // here — it is no longer prepended to the excludes list.
-  const _unusedCompanyHost = normalizeExcludedHost(companyWebsiteHost); // eslint-disable-line no-unused-vars
+  const companyHost = normalizeExcludedHost(companyWebsiteHost);
 
   const defaults = [
-    // Noise sources only — Amazon product listings (SEO spam, not editorial)
-    // and Google URL shorteners (circular). Keep these excluded.
-    // Keep as separate candidates so anything beyond 5 can spill into prompt text.
+    // Keep these as separate candidates so anything beyond 5 can spill into prompt text.
     "amazon.com",
     "amzn.to",
     "google.com",
@@ -111,6 +93,8 @@ function buildExcludedHostsCandidates({ companyWebsiteHost, additionalExcludedHo
     const h = normalizeExcludedHost(x);
     if (h) normalized.push(h);
   }
+
+  if (companyHost) normalized.unshift(companyHost);
 
   return uniqPreserveOrder(normalized);
 }

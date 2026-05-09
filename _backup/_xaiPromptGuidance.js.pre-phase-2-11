@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.1.6-companyhost-include-and-fallback-reviews";
+const PROMPT_GUIDANCE_VERSION = "7.1.5-strict-schema-on";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -394,7 +394,7 @@ Industries: Provide 8-15 short noun phrases (1-3 words each) that read like real
 
 Products: Provide 10-20 universal product categories or notable product lines, comma-separated. Prefer category-level terms that aid cross-company comparison and user search. Examples for a footwear brand: "Arizona sandals, Boston clogs, Mayari sandals, Gizeh sandals, Madrid sandals, EVA sandals, shearling clogs, mules, slides, boots". Examples for a snack brand: "beef jerky, dried meats, snack sticks, jerky bites, hawaiian-style snacks". Do NOT enumerate every SKU, every color/width variant, or every model number. Quality and breadth over exhaustiveness. Output as a single comma-separated string. Do NOT prefix with "Products:".
 
-Reviews: Find up to 5 unique reviews. Target mix: 3-4 third-party reviews (YouTube, credible magazines, blogs, X/Twitter) + 1-2 entries pulled from the company's own site (testimonials, press mentions, "as seen in" sections, FAQ highlights, mission statements, or customer feedback). For smaller brands with limited third-party coverage, the company's own site is a valid primary source — pull customer testimonials and feature highlights from there to reach 5 total entries. Do not include reviews from amazon.* or google.* domains. Do not include duplicate authors or duplicate URLs. You are NOT required to revisit each URL to confirm liveness — return URLs as you found them during search. Output as a JSON array of objects, each with EXACTLY these keys: source (publication or channel name, or e.g. "[Company] official site testimonials" for site-sourced entries), author (name, or "Verified customers" / "Multiple customers" for site-sourced entries), url (direct URL to the review/article/video — for site testimonials, link to the page where they appear, not the site root), title (exact title as published, or short descriptive label for site testimonials), date (any format including "Ongoing" for live testimonial pages), text (1-3 sentence excerpt or summary). If you find fewer than 5, return what you found. If genuinely no reviews or testimonials exist, emit []. Do NOT pad with fabricated entries.
+Reviews: Find up to 5 unique third-party reviews of the company or its products. Prefer 1-2 from YouTube and the rest from credible magazines, blogs, or X (Twitter). Do not include reviews from amazon.* or google.* domains. Do not include duplicate authors or duplicate URLs. You are NOT required to revisit each URL to confirm liveness — return URLs as you found them during search. Output as a JSON array of objects, each with EXACTLY these keys: source (publication or channel name), author (name), url (direct URL to the review/article/video, not the site root), title (exact title as published), date (any format), text (1-3 sentence excerpt or summary). If you find fewer than 5, return what you found. If you find none, emit []. Do NOT pad with fabricated entries.
 
 ${sourceUrlsLine}
 

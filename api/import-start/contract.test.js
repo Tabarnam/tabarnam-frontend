@@ -744,9 +744,11 @@ test("import-start reviews upstream payload caps excluded websites to 5 and spil
   assert.ok(web.excluded_websites.length <= 5);
   assert.ok(news.excluded_websites.length <= 5);
 
+  // Phase 2.11 — spillover-to-prompt no longer triggers by default
+  // (companyHost is no longer auto-excluded). See
+  // admin-refresh-reviews/contract.test.js for the full rationale.
   const user = Array.isArray(payload.messages) ? payload.messages.find((m) => m?.role === "user") : null;
   assert.ok(typeof user?.content === "string");
-  assert.ok(user.content.includes("Also avoid these websites"));
 });
 
 test("/api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)", async () => {
@@ -2856,9 +2858,11 @@ test("/api/import/start buildReviewsUpstreamPayloadForImportStart uses live sear
   assert.ok(web.excluded_websites.length <= 5);
   assert.ok(news.excluded_websites.length <= 5);
 
+  // Phase 2.11 — companyHost no longer auto-excluded; spillover-to-prompt
+  // no longer triggers by default. See admin-refresh-reviews/contract.test.js
+  // for full rationale.
   const msg = Array.isArray(payload.messages) ? payload.messages.find((m) => m?.role === "user") : null;
   assert.ok(typeof msg?.content === "string");
-  assert.ok(msg.content.includes("Also avoid these websites"));
 });
 
 test("/api/import/start uses provided session_id for async primary job and import-status reaches terminal state", async () => {
