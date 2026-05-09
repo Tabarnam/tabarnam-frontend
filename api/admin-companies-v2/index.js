@@ -13,6 +13,7 @@ const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { computeEnrichmentHealth, computeMissingFields, isRealValue } = require("../_requiredFields");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { expandBusinessAbbreviations } = require("../_searchSynonyms");
+const { foldDiacritics } = require("../_queryNormalizer");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -293,6 +294,10 @@ function buildVariantSearchClauses(search, params) {
 function computeAdminSearchRelevance(company, searchLower, searchCompact) {
   if (!company || !searchLower) return 0;
 
+  // Fold diacritics in the search query so "fre" matches "Fré".
+  const searchFolded = foldDiacritics(searchLower);
+  const searchCompactFolded = foldDiacritics(searchCompact);
+
   // --- Name score ---
   let nameScore = 0;
   const names = [
@@ -303,16 +308,33 @@ function computeAdminSearchRelevance(company, searchLower, searchCompact) {
 
   for (const rawName of names) {
     const nameLower = rawName.toLowerCase();
+    const nameFolded = foldDiacritics(nameLower);
     const nameCompact = nameLower.replace(/\s+/g, "");
-    if (nameLower === searchLower || nameCompact === searchCompact) {
-      nameScore = Math.max(nameScore, 100);
-    } else if (nameLower.startsWith(searchLower) || nameCompact.startsWith(searchCompact)) {
+    const nameCompactFolded = foldDiacritics(nameCompact);
+    if (
+      nameLower === searchLower ||
+      nameFolded === searchFolded ||
+      nameCompact === searchCompact ||
+      nameCompactFolded === searchCompactFolded
+    ) {
+      nameScore = Math.max(nameScore, 200); // Strongly prefer exact matches
+    } else if (
+      nameLower.startsWith(searchLower) ||
+      nameFolded.startsWith(searchFolded) ||
+      nameCompact.startsWith(searchCompact) ||
+      nameCompactFolded.startsWith(searchCompactFolded)
+    ) {
       nameScore = Math.max(nameScore, 80);
     } else {
-      const escaped = searchLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (new RegExp(`(?:^|[\\s\\-_])${escaped}`).test(nameLower)) {
+      const escaped = searchFolded.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`(?:^|[\\s\\-_])${escaped}`).test(nameFolded)) {
         nameScore = Math.max(nameScore, 60);
-      } else if (nameLower.includes(searchLower) || nameCompact.includes(searchCompact)) {
+      } else if (
+        nameLower.includes(searchLower) ||
+        nameFolded.includes(searchFolded) ||
+        nameCompact.includes(searchCompact) ||
+        nameCompactFolded.includes(searchCompactFolded)
+      ) {
         nameScore = Math.max(nameScore, 40);
       }
     }
@@ -327,16 +349,18 @@ function computeAdminSearchRelevance(company, searchLower, searchCompact) {
       if (typeof kw !== "string") continue;
       const kwLower = kw.toLowerCase().trim();
       if (!kwLower) continue;
-      if (kwLower === searchLower) { keywordScore = Math.max(keywordScore, 100); }
-      else if (kwLower.startsWith(searchLower) || searchLower.startsWith(kwLower)) { keywordScore = Math.max(keywordScore, 70); }
-      else if (kwLower.includes(searchLower)) { keywordScore = Math.max(keywordScore, 40); }
+      const kwFolded = foldDiacritics(kwLower);
+      if (kwLower === searchLower || kwFolded === searchFolded) { keywordScore = Math.max(keywordScore, 100); }
+      else if (kwLower.startsWith(searchLower) || kwFolded.startsWith(searchFolded) || searchLower.startsWith(kwLower) || searchFolded.startsWith(kwFolded)) { keywordScore = Math.max(keywordScore, 70); }
+      else if (kwLower.includes(searchLower) || kwFolded.includes(searchFolded)) { keywordScore = Math.max(keywordScore, 40); }
     }
   }
 
   // --- Domain bonus ---
   let domainBonus = 0;
   const domain = typeof company.normalized_domain === "string" ? company.normalized_domain.toLowerCase() : "";
-  if (searchCompact && domain && domain.includes(searchCompact)) {
+  const domainFolded = foldDiacritics(domain);
+  if (searchCompact && domain && (domain.includes(searchCompact) || domainFolded.includes(searchCompactFolded))) {
     domainBonus = 20;
   }
 
