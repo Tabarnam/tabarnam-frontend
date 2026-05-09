@@ -603,16 +603,41 @@ test("Phase 2.3: shapeEnrichedFromParsed strips leaked labels from string fields
   assert.equal(out.tagline, "beauty *can* be comfortable", "clean tagline must pass through unchanged");
 });
 
-test("Phase 2.3: DEFAULT_MAX_TOOL_CALLS is 8 (bumped from 5)", () => {
+test("Phase 2.4: DEFAULT_MAX_TOOL_CALLS is 12 (bumped from 8)", () => {
   // Source-level guard so a future rebase can't accidentally drop the bump.
-  // 5 was insufficient (Beek import: model used all 5 on easy fields,
-  // emitted empties for the other 4). 8 gives ~3 extra calls without
-  // risking the 22-call runaway we saw with strict json_schema.
+  // 8 was insufficient for complex brands (Birkenstock: model went past 8
+  // and timed out at 150s with 0 text emitted). 12 + the new "EMIT EARLY
+  // at 6+ calls" prompt instruction gives complex brands enough headroom
+  // without risking the 22-call runaway.
   const fs = require("node:fs");
   const src = fs.readFileSync(path.join(__dirname, "_canonicalImport.js"), "utf8");
   assert.ok(
-    /const DEFAULT_MAX_TOOL_CALLS\s*=\s*8\b/.test(src),
-    "DEFAULT_MAX_TOOL_CALLS must be 8 (Phase 2.3 bump)"
+    /const DEFAULT_MAX_TOOL_CALLS\s*=\s*12\b/.test(src),
+    "DEFAULT_MAX_TOOL_CALLS must be 12 (Phase 2.4 bump)"
+  );
+});
+
+test("Phase 2.4: DEFAULT_TIMEOUT_MS is 240_000 (bumped from 150_000)", () => {
+  // Birkenstock empirically hit the 150s timeout. grok.com finishes the
+  // same prompt in 43s, so 240s leaves ample headroom. Worker is async so
+  // user-facing latency is unaffected.
+  const fs = require("node:fs");
+  const src = fs.readFileSync(path.join(__dirname, "_canonicalImport.js"), "utf8");
+  assert.ok(
+    /const DEFAULT_TIMEOUT_MS\s*=\s*240_000\b/.test(src),
+    "DEFAULT_TIMEOUT_MS must be 240_000 (Phase 2.4 bump)"
+  );
+});
+
+test("Phase 2.4: _xaiLiveSearch grace window is 45_000 (down from 120_000)", () => {
+  // After tool cap exceeded, give 45s for text to start. If the model
+  // hasn't emitted text in 45s, it's stuck — abort to free the connection
+  // rather than burn the full timeout on dead grace.
+  const fs = require("node:fs");
+  const src = fs.readFileSync(path.join(__dirname, "_xaiLiveSearch.js"), "utf8");
+  assert.ok(
+    /\}, 45_000\)/.test(src) && /Grace period \(45s\)/i.test(src),
+    "grace window must be 45_000ms with matching log message (Phase 2.4 reduction)"
   );
 });
 

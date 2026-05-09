@@ -26,17 +26,14 @@ const {
 const { xaiLiveSearch, xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 
-// Phase 2.4: bumped 150s → 240s (4 min). Empirical: complex brands
-// (Birkenstock) hit the 150s timeout with 0 text emitted because the
-// model was still browsing. grok.com finishes the same prompt in 43s, so
-// 240s leaves ample headroom. Worker is async (UI returned 202 already),
-// so user-facing latency is unaffected.
-const DEFAULT_TIMEOUT_MS = 240_000;
-// Phase 2.4: bumped 8 → 12. Combined with the new prompt's per-field
-// budgeting and "EMIT EARLY at 6+ calls if you have data" trigger, this
-// gives the model enough room for moderately complex brands without
-// risking the 22-call runaway we saw when strict json_schema was on.
-const DEFAULT_MAX_TOOL_CALLS = 12;
+const DEFAULT_TIMEOUT_MS = 150_000;
+// Phase 2.3: bumped 5 → 8. Empirically, 5 was insufficient — model used
+// all 5 on tagline + HQ + homepage and emitted empties for industries,
+// products, manufacturing, and reviews. Without strict json_schema (Phase
+// 2.2), Grok-4 reliably honors the cap and emits text afterwards, so 8
+// is safe — gives ~3 extra calls for the harder fields without risking
+// the 22-call runaway we saw with strict schema.
+const DEFAULT_MAX_TOOL_CALLS = 8;
 const MIN_TIMEOUT_MS = 30_000;
 
 function asString(v) {

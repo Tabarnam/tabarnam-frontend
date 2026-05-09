@@ -78,10 +78,21 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   );
 
   // Tool-use directive
-  assert.ok(prompt.includes("web_search and browse_page tools aggressively"), "missing tool-use directive");
+  // Phase 2.4: preamble was softened from "aggressively" → "efficiently"
+  // because the prior wording contributed to runaway tool calls on complex
+  // brands. The test checks the core tool-use directive without locking in
+  // a specific adjective.
+  assert.ok(
+    /web_search and browse_page tools (efficiently|aggressively)/i.test(prompt),
+    "missing tool-use directive (web_search + browse_page)"
+  );
 
-  // 3-source cross-verify rule
-  assert.ok(prompt.includes("Cross-verify every fact with at least 3 independent sources"), "missing 3-source rule");
+  // Phase 2.4 — the old "Cross-verify every fact with at least 3 independent
+  // sources" rule was REMOVED because it caused tool-loop runaway on complex
+  // brands (Birkenstock: model went 11+ tool calls trying to satisfy 3
+  // sources × 6 fields, hit 150s timeout with 0 text). Replaced with
+  // "official site + 1 additional source" floor. Verification of the
+  // removal lives in the Phase 2.4 assertions further down.
 
   // Per-field rule blocks (verbatim from grok.com — short labels)
   assert.ok(/^Tagline:/m.test(prompt), "missing Tagline section");
@@ -95,8 +106,21 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   assert.ok(prompt.includes("Use initials for states or provinces"), "HQ format rule missing");
   assert.ok(prompt.includes("Use USA, not US"), "USA-not-US rule missing");
   assert.ok(prompt.includes("8-15 short noun phrases"), "industries count rule missing");
-  assert.ok(prompt.includes("Find 5 unique, legitimate third-party reviews"), "reviews 5-count rule missing");
-  assert.ok(prompt.includes("1-2 YouTube reviews"), "YouTube source mix rule missing");
+  // Phase 2.4: relaxed from "Find 5 unique, legitimate third-party reviews"
+  // to "Find up to 5 unique third-party reviews" — accepts fewer-than-5
+  // results without padding (matches the user's "quality over quantity"
+  // preference and prevents the model from spinning on review searches
+  // when only 2-3 are credibly available).
+  assert.ok(
+    /Find up to 5 unique third-party reviews/i.test(prompt) ||
+    /Find 5 unique, legitimate third-party reviews/i.test(prompt),
+    "reviews 5-count rule missing (Phase 2.4: 'up to 5' or earlier 'Find 5')"
+  );
+  // Phase 2.4: rewording dropped "1-2 YouTube reviews" → "Prefer 1-2 from YouTube"
+  assert.ok(
+    /1-2 YouTube reviews/i.test(prompt) || /1-2 from YouTube/i.test(prompt),
+    "YouTube source mix rule missing (1-2 from YouTube)"
+  );
 
   // Source-URL request (the bridge to JSON schema field)
   assert.ok(prompt.includes("location_source_urls"), "missing location_source_urls request");
@@ -120,13 +144,24 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   assert.ok(prompt.includes("manufacturing_locations"), "must enumerate canonical manufacturing_locations key");
   assert.ok(prompt.includes("product_keywords"), "must enumerate canonical product_keywords key");
 
-  // Phase 2.3 — explicit "stop searching after 8 tool calls" instruction.
-  // Bumped from 5 in Phase 2.3 because 5 was insufficient: the model used
-  // them all on tagline + HQ + homepage, leaving 4 fields unverified.
-  // The prose-level guard backs up the streaming-handler tool cap.
+  // Phase 2.4 — TOOL BUDGET block with explicit per-field allocation,
+  // EMIT EARLY trigger at 6+ calls, and hard cap at 12. Replaces the
+  // single-sentence "after N tool calls" guard from earlier phases.
   assert.ok(
-    /After 8 web_search or browse_page tool calls/i.test(prompt),
-    "prompt must instruct the model to stop tool-calling after 8 calls (Phase 2.3 bump)"
+    /TOOL BUDGET/i.test(prompt),
+    "prompt must include TOOL BUDGET block (Phase 2.4)"
+  );
+  assert.ok(
+    /maximum of 12 web_search/i.test(prompt),
+    "prompt must declare 12-call ceiling (Phase 2.4 bump from 8)"
+  );
+  assert.ok(
+    /EMIT EARLY/i.test(prompt) && /6 or more tool calls/i.test(prompt),
+    "prompt must include EMIT EARLY trigger at 6+ tool calls"
+  );
+  assert.ok(
+    /After 12 tool calls you MUST stop/i.test(prompt),
+    "prompt must include hard cap at 12 tool calls"
   );
 
   // Phase 2.3 — explicit "no label leakage" instruction. Without this, the
@@ -140,9 +175,14 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   // previous wording described plaintext blank-line format which conflicted
   // with the JSON contract — every review attempt failed because the model
   // emitted plaintext but the parser expected an array.
+  // Phase 2.3 fix: Reviews must emit a JSON array of objects (the prior
+  // plaintext "Source: / Author: / URL: ..." block was removed).
+  // Phase 2.4: rewording dropped the word "reviews" from the directive
+  // ("Output as a JSON array of objects" rather than "Output reviews as
+  // a JSON array of objects") — both are valid contracts.
   assert.ok(
-    /Output reviews as a JSON array of objects/i.test(prompt),
-    "Reviews rule must specify JSON array of objects (Phase 2.3 fix)"
+    /Output (reviews )?as a JSON array of objects/i.test(prompt),
+    "Reviews rule must specify JSON array of objects (Phase 2.3 fix preserved)"
   );
   // The plaintext blank-line block must be GONE.
   assert.ok(
@@ -152,6 +192,70 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   assert.ok(
     !/Separate each review with one blank line/i.test(prompt),
     "blank-line separator language must be removed (was for plaintext output)"
+  );
+
+  // ── Phase 2.4 — softened verification language ────────────────────────────
+  // Original "cross-verify with at least 3 independent sources" language was
+  // the largest contributor to runaway tool calls. Replaced with "official
+  // site + 1 additional source". The prompt must NOT contain the old
+  // hard-three-source demand.
+  assert.ok(
+    !/at least 3 independent sources/i.test(prompt),
+    "Phase 2.4: hard '3 independent sources' demand must be removed (caused tool-loop runaway on complex brands)"
+  );
+  assert.ok(
+    !/cross-verifying across at least 3/i.test(prompt),
+    "Phase 2.4: 'cross-verifying across at least 3' phrasing must be removed from HQ/Manufacturing rules"
+  );
+  assert.ok(
+    /official website/i.test(prompt) && /one additional/i.test(prompt),
+    "Phase 2.4: HQ/Manufacturing rules must reference 'official site + 1 additional' as the verification floor"
+  );
+  assert.ok(
+    /prefer emitting partial JSON/i.test(prompt),
+    "Phase 2.4: preamble must include 'prefer emitting partial JSON' bounded-budget framing"
+  );
+
+  // ── Phase 2.4 — Products rule (universal categories, NOT exhaustive) ──────
+  // User preference: universal/category-level terms over SKU-by-SKU lists.
+  // Empirical: grok.com produces this style naturally; our previous
+  // "Exhaustive, complete list" wording pushed the model into deep crawls
+  // that exhausted the tool budget before any text emitted.
+  assert.ok(
+    /universal product categories/i.test(prompt) || /universal product categor/i.test(prompt),
+    "Phase 2.4: Products rule must specify 'universal product categories' (user preference)"
+  );
+  assert.ok(
+    !/Exhaustive, complete list of all products/i.test(prompt),
+    "Phase 2.4: 'Exhaustive, complete list of all products' wording must be removed"
+  );
+  assert.ok(
+    /Do NOT enumerate every SKU/i.test(prompt),
+    "Phase 2.4: Products rule must explicitly forbid enumerating every SKU/variant"
+  );
+  // Concrete examples nudge the model toward the right style.
+  assert.ok(
+    /Arizona sandals/i.test(prompt) && /Boston clogs/i.test(prompt),
+    "Phase 2.4: Products rule must include concrete footwear examples (Arizona sandals, Boston clogs)"
+  );
+
+  // ── Phase 2.4 — Reviews URL verification dropped ──────────────────────────
+  // Costs ~5 tool calls (1 per review). Empirically grok.com doesn't
+  // re-verify URLs and produces high-quality reviews; we accept the model's
+  // search results without spot-check.
+  assert.ok(
+    !/Confirm all URLs are functional/i.test(prompt),
+    "Phase 2.4: 'Confirm all URLs are functional' must be removed (costs ~5 tool calls)"
+  );
+  assert.ok(
+    /NOT required to revisit each URL/i.test(prompt),
+    "Phase 2.4: Reviews rule must explicitly state URL re-verification is NOT required"
+  );
+
+  // ── Phase 2.4 — Industries rule examples ──────────────────────────────────
+  assert.ok(
+    /Cork Footbed Sandals/i.test(prompt) && /Orthopedic Footwear/i.test(prompt),
+    "Phase 2.4: Industries rule must include Birkenstock-style category examples"
   );
 
   // No markdown formatting
