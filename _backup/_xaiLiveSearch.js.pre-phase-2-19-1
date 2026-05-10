@@ -639,17 +639,6 @@ async function xaiLiveSearchStreaming({
   const controller = new AbortController();
   let abortTimerFired = false;
   let circuitAbortFired = false;
-  // Phase 2.19.1 — hoisted from inside the try block so they're visible in the
-  // catch handler at line ~1042. Previously declared inside the try (lines 736,
-  // 759, 760) which made them block-scoped and inaccessible to catch — references
-  // in the catch block (e.g. `if (sseStallAborted)`, `tool_calls_counted: toolCalls`,
-  // `last_event_silence_ms: Date.now() - lastSseEventAt`) threw ReferenceError.
-  // Empirical (Skippy session, 2026-05-09): `streaming_threw { error:
-  // 'sseStallAborted is not defined' }` killed the canonical call entirely
-  // whenever the tool-cap grace timer fired post-stream-end.
-  let toolCalls = 0;
-  let lastSseEventAt = Date.now();
-  let sseStallAborted = false;
   const timeoutUsedMs = Math.max(1000, Math.trunc(Number(timeoutMs) || 210000));
   const timer = setTimeout(() => { abortTimerFired = true; controller.abort(); }, timeoutUsedMs);
 
@@ -744,8 +733,7 @@ async function xaiLiveSearchStreaming({
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    // toolCalls hoisted to function-level scope above the try (Phase 2.19.1)
-    toolCalls = 0;
+    let toolCalls = 0;
     let accumulatedText = "";
     const outputItems = [];
     let abortedByToolCap = false;
@@ -768,10 +756,8 @@ async function xaiLiveSearchStreaming({
     // the call aborts within ~60s, the worker's `finally` releases the
     // lock, and the next worker picks up immediately instead of waiting
     // 5 min for the lock TTL.
-    // lastSseEventAt and sseStallAborted hoisted to function-level scope above
-    // the try (Phase 2.19.1) so the catch block can reference them safely.
-    lastSseEventAt = Date.now();
-    sseStallAborted = false;
+    let lastSseEventAt = Date.now();
+    let sseStallAborted = false;
     const SSE_STALL_THRESHOLD_MS = 60_000;  // 60s of silence → assume dead, abort
     const SSE_STALL_CHECK_INTERVAL_MS = 10_000;
     const sseStallChecker = setInterval(() => {
