@@ -719,45 +719,12 @@ async function xaiLiveSearchStreaming({
       timeout_ms: timeoutUsedMs,
     });
 
-    // Phase 2.19.6 — single-retry on 503.
-    // Empirical (Santa Cruz Organic, 2026-05-09): xAI returned HTTP 503 for
-    // a single call; the canonical call completed in 1242ms with all 6
-    // fields empty (Stub-0%). 503s on xAI's API are typically transient
-    // (1-3s); a one-shot retry with a 2s backoff rescues this case without
-    // adding meaningful latency to the success path.
-    //
-    // We retry ONCE only — multiple 503s in close succession indicate a
-    // genuine outage and should fall through to the existing circuit
-    // breaker (which opens after 2x 503s in 60s).
-    let res = await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
-
-    if (res.status === 503) {
-      console.warn(`[xaiLiveSearchStreaming] upstream returned 503 — retrying once after 2s backoff`);
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      try {
-        res = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-        if (res.ok) {
-          console.log(`[xaiLiveSearchStreaming] 503 retry succeeded`);
-        } else {
-          console.warn(`[xaiLiveSearchStreaming] 503 retry returned status=${res.status} — failing through`);
-        }
-      } catch (retryErr) {
-        // Retry threw (e.g., abort signal fired during sleep). Synthesize a
-        // 503-shaped failure so the caller's existing 503 path engages.
-        console.warn(`[xaiLiveSearchStreaming] 503 retry threw: ${retryErr?.message || retryErr}`);
-        res = { ok: false, status: 503, body: null };
-      }
-    }
 
     if (!res.ok) {
       const failResult = {
