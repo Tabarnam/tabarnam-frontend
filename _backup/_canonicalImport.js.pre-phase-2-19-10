@@ -290,21 +290,21 @@ Extract:
 
 Output ONLY a JSON object with exactly these two keys: tagline (string), headquarters_location (string). No markdown, no prose, no extra text.`;
 
-  // Phase 2.19.10: removed fallbackSchema; switched to response_format
-  // { type: "json_object" } below. The shape constraint now lives in the
-  // prompt's "exactly these two keys" sentence rather than schema enforcement.
+  const fallbackSchema = {
+    type: "object",
+    properties: {
+      tagline: { type: "string" },
+      headquarters_location: { type: "string" },
+    },
+    required: ["tagline", "headquarters_location"],
+    additionalProperties: false,
+  };
 
   const startedAt = Date.now();
   try {
     const res = await xaiLiveSearchStreaming({
-      // Phase 2.19.10 — bumped timeout 30s → 60s. Empirical (Jeff's Garden +
-      // Kosterina, 2026-05-10): the fallback's 30s timeout was firing
-      // before the model emitted text. Doubling to 60s gives the
-      // tools-disabled summarization call enough room to finish on cold-
-      // start xAI workers without affecting success-path latency (fallback
-      // only runs when canonical has already failed).
       prompt: fallbackPrompt,
-      timeoutMs: 60_000,
+      timeoutMs: 30_000,
       model: model || asString(process.env.XAI_MODEL).trim() || "grok-4-latest",
       // No search_parameters → no tools array built (also maxToolCalls=0
       // omits the tools field entirely; both belt-and-suspenders).
@@ -312,15 +312,10 @@ Output ONLY a JSON object with exactly these two keys: tagline (string), headqua
       maxToolCalls: 0,  // Tools disabled — pure summarization
       conversationId: conversationId || sessionId,  // prefer per-company id (Phase 2.19.9)
       signal,
-      // Phase 2.19.10 — switched from strict json_schema to json_object.
-      // Per Phase 2.19.9's Grok-aligned reasoning: strict schema with
-      // required fields creates a "perfect-or-nothing trap" even when
-      // tools are disabled. The model can hesitate to emit if it can't
-      // satisfy the schema confidently. json_object is looser — it nudges
-      // toward JSON output without the all-or-nothing semantic. We keep
-      // the fallback prompt's explicit "Output ONLY a JSON object with
-      // exactly these two keys" instruction to guide the shape.
-      response_format: { type: "json_object" },
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "homepage_extraction", schema: fallbackSchema, strict: true },
+      },
     });
 
     const elapsed = Date.now() - startedAt;
