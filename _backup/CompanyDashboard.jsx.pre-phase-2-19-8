@@ -922,22 +922,8 @@ export default function CompanyDashboard() {
     document.addEventListener("visibilitychange", visibilityHandler);
     const interval = window.setInterval(refetchIfVisible, 60_000);
 
-    // Phase 2.19.8 — listen for import-complete events dispatched by
-    // AdminImport.jsx when a session reaches terminal state. Refresh the
-    // list immediately so just-completed companies show their populated
-    // fields without waiting for the 60s poll. Empirical (Early California
-    // 2026-05-10): canonical call succeeded, all 6 fields landed in Cosmos,
-    // but the dashboard list showed Stub-0% because `loadCompanies` hadn't
-    // fired since before the import. Without this listener, users see stale
-    // data and assume the import failed when it actually succeeded.
-    const importCompleteHandler = () => {
-      loadCompanies({ search, take });
-    };
-    window.addEventListener("tabarnam:import-complete", importCompleteHandler);
-
     return () => {
       document.removeEventListener("visibilitychange", visibilityHandler);
-      window.removeEventListener("tabarnam:import-complete", importCompleteHandler);
       window.clearInterval(interval);
     };
   }, [loadCompanies, search, take]);

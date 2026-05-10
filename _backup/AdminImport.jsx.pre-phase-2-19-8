@@ -4081,18 +4081,6 @@ export default function AdminImport() {
     }]);
     verifyEnrichment(activeSessionId);
 
-    // Phase 2.19.8 — dispatch a window-level event so other open admin views
-    // (CompanyDashboard list, etc.) can refetch their data immediately when
-    // an import completes. Without this, list views stay stale until the
-    // tab-visibility refetch (Phase 2.13.A) or the 60s poll fires —
-    // empirically (Early California, 2026-05-10) the list showed Stub-0%
-    // for several minutes even though Cosmos had all 6 fields populated.
-    try {
-      window.dispatchEvent(new CustomEvent("tabarnam:import-complete", {
-        detail: { sessionId: activeSessionId, status: activeStatus === "done" ? "done" : "error", slot: "primary" },
-      }));
-    } catch { /* ignore in non-browser env */ }
-
     // Atomically claim next index from the shared counter. Refs update
     // synchronously, so even if shadow's effect fires in the same tick
     // they can't both grab the same index.
@@ -4133,13 +4121,6 @@ export default function AdminImport() {
       sessionId: shadowSessionId,
     }]);
     verifyEnrichment(shadowSessionId);
-
-    // Phase 2.19.8 — same import-complete event as primary slot.
-    try {
-      window.dispatchEvent(new CustomEvent("tabarnam:import-complete", {
-        detail: { sessionId: shadowSessionId, status: shadowStatus === "done" ? "done" : "error", slot: "shadow" },
-      }));
-    } catch { /* ignore in non-browser env */ }
 
     // Reset shadow state before re-starting
     stopShadowPolling();
