@@ -488,21 +488,24 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.19.2: PROMPT_GUIDANCE_VERSION is 7.1.10-retailer-curator-mfg", () => {
-  // Bumped from 7.1.9 (Phase 2.19.A tool-cap-12) — adjusted Manufacturing rule
-  // for retailer-curators. Empirical (Top Drawer, 2026-05-09): the canonical
-  // call ran 12 tool calls in 144s and emitted manufacturing_locations: []
-  // because the prompt told the model "If retailer/marketplace/reseller →
-  // emit []". Top Drawer is a curator of Japanese-style products from many
-  // suppliers (notebooks, pens, watercolors, eyewear) — country-level supplier
-  // info IS meaningful here. grok.com on the same prompt returned 9 supplier
-  // countries in 29s. Phase 2.19.2 narrows the [] exception to true marketplace
-  // platforms (Amazon/eBay) and explicitly tells the model to list supplier
-  // countries for retailer-curators.
+test("Phase 2.19.A: PROMPT_GUIDANCE_VERSION is 7.1.9-tool-cap-12", () => {
+  // Bumped from 7.1.7 in Phase 2.14 — improved manufacturing-search direction.
+  // Empirical (Sanuk 2026-05-09): the model did 9 web_search calls (near
+  // the 10-cap) but came back with manufacturing_locations: [] because
+  // the canonical prompt restricted the model to "official website + ONE
+  // targeted web_search". Sanuk doesn't publicly disclose Vietnam
+  // manufacturing on sanuk.com — those facts live in Deckers Brands'
+  // (parent company) sustainability report. Phase 2.14 updates the
+  // Manufacturing rule to:
+  //   - Acknowledge consumer brands often don't disclose manufacturing publicly
+  //   - Direct the model to parent company / portfolio sources
+  //   - Suggest concrete search queries
+  //   - Allow up to 3 dedicated manufacturing searches (was: 1)
+  //   - Reaffirm country-level granularity is acceptable
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.1\.10-retailer-curator-mfg/,
-    "PROMPT_GUIDANCE_VERSION must be 7.1.10-retailer-curator-mfg for Phase 2.19.2"
+    /^7\.1\.9-tool-cap-12/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.9-tool-cap-12 for Phase 2.19.A"
   );
 });
 
@@ -538,28 +541,6 @@ test("Phase 2.14: Manufacturing rule directs the model to parent-company sources
   assert.ok(
     /\[Brand\] manufacturing|\[Brand\] supplier|\[Brand\] factory|made in/i.test(prompt),
     "Manufacturing rule must suggest concrete web_search queries"
-  );
-});
-
-test("Phase 2.19.2: Manufacturing rule lists supplier countries for retailer-curators", () => {
-  const prompt = buildCanonicalImportPrompt({
-    companyName: "Top Drawer",
-    websiteUrl: "https://topdrawershop.com",
-  });
-  // Retailer-curators (multi-supplier resellers) should NOT short-circuit to []
-  // — they should list supplier countries.
-  assert.ok(
-    /retailer-curator/i.test(prompt),
-    "Manufacturing rule must call out retailer-curator pattern explicitly"
-  );
-  assert.ok(
-    /supplier countries/i.test(prompt),
-    "Manufacturing rule must instruct the model to list supplier countries for retailer-curators"
-  );
-  // The [] short-circuit should now apply only to pure marketplace platforms.
-  assert.ok(
-    /pure marketplace platform|Amazon|eBay/i.test(prompt),
-    "Manufacturing rule must restrict the [] exception to pure marketplace platforms"
   );
 });
 
