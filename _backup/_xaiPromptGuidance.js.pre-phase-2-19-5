@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.1.12-emit-direct-from-homepage";
+const PROMPT_GUIDANCE_VERSION = "7.1.11-narrow-brand-relax";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -389,15 +389,7 @@ function buildCanonicalImportPrompt({
     ? `Homepage Context (pre-fetched from the company's official site — your primary, highest-confidence source for tagline, HQ, products, industries, and feature/testimonial content):
 ${homepageContext}
 
-CRITICAL — EMIT-DIRECT RULES (saves wall-clock; avoids the deep-tool-loop failure):
-
-If the Homepage Context above contains the tagline (slogan, mission statement, or brand promise visible on the homepage), EMIT IT DIRECTLY from this context. DO NOT run a web_search or browse_page call to verify — the homepage IS the authoritative source for the tagline.
-
-If the Homepage Context contains an address or city/state for the company headquarters (typically in the footer, contact page, or About section), EMIT IT DIRECTLY. DO NOT run a verification search — the homepage IS the authoritative source for HQ.
-
-If the Homepage Context lists products or product categories, use those for the product_keywords / industries fields directly without additional searches.
-
-Spend your tool budget on the data NOT in the Homepage Context: manufacturing locations, third-party reviews, and source URLs. Do not waste tool calls re-verifying facts the homepage already provides.
+Use the Homepage Context FIRST. Only run web_search / browse_page calls for facts you cannot verify from the context above (typically: manufacturing locations, third-party reviews, source URLs).
 
 `
     : `Homepage Context: (pre-fetch failed or returned empty — proceed with web_search and browse_page on the official site as usual)
