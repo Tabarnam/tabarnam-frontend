@@ -614,13 +614,6 @@ export function formatContractMissingField(field) {
     case "keywords":
     case "product_keywords":
       return "products";
-    case "products_partial":
-      // Phase 2.19.B — distinguish "partial" from "missing". The "+"
-      // prefix signals that the field IS populated but may be incomplete
-      // (worker didn't populate enough product keywords for the chip
-      // count to feel complete). Different from a fully-missing
-      // "products" tag which has no prefix.
-      return "+ products";
     case "amazon_url":
       return "Amz";
     case "homepage":
@@ -632,54 +625,10 @@ export function formatContractMissingField(field) {
   }
 }
 
-// Phase 2.19.B — count product keywords, handling both array and
-// comma-separated string forms. Cosmos schema uses strings via the
-// canonical canonicalImport path; legacy paths and admin edits use
-// arrays. Normalize to a single count.
-const PARTIAL_PRODUCTS_THRESHOLD = 5;
-function countProductKeywords(company) {
-  if (!company || typeof company !== "object") return 0;
-  const keywords = company.keywords;
-  if (Array.isArray(keywords)) {
-    return keywords.filter((k) => typeof k === "string" && k.trim()).length;
-  }
-  const pk = company.product_keywords;
-  if (typeof pk === "string" && pk.trim()) {
-    return pk.split(",").map((s) => s.trim()).filter(Boolean).length;
-  }
-  if (Array.isArray(pk)) {
-    return pk.filter((k) => typeof k === "string" && k.trim()).length;
-  }
-  return 0;
-}
-
 export function toIssueTags(company) {
-  // Issues column renders from enrichment_health.missing_fields (contract), not legacy heuristics.
+  // Issues column must render from enrichment_health.missing_fields (contract), not legacy heuristics.
   // Legacy heuristics treat placeholders like "Unknown" as present and hide real missing fields.
-  const tags = getContractMissingFields(company);
-
-  // Phase 2.19.B — partial-products signal.
-  //
-  // When the products field is populated but sparse (fewer than
-  // PARTIAL_PRODUCTS_THRESHOLD entries), surface a "+ products" chip in
-  // the Issues column. This tells the admin "products has SOMETHING but
-  // may not be the full list — worth a manual review." Distinct from
-  // the "products" missing tag which means "no products at all."
-  //
-  // Skip the partial tag when products is ALREADY flagged as fully
-  // missing — no point adding a partial signal for a completely empty
-  // field.
-  const productsAlreadyMissing = tags.some(
-    (t) => t === "product_keywords" || t === "products" || t === "keywords"
-  );
-  if (!productsAlreadyMissing) {
-    const productCount = countProductKeywords(company);
-    if (productCount > 0 && productCount < PARTIAL_PRODUCTS_THRESHOLD) {
-      tags.push("products_partial");
-    }
-  }
-
-  return tags;
+  return getContractMissingFields(company);
 }
 
 export function toDisplayDate(value) {

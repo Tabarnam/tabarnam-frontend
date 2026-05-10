@@ -131,6 +131,63 @@ async function createHomepageBackfillJob(options = {}) {
   const maxAttempts = Math.max(1, Math.min(20, Number(options.maxAttempts) || 3));
   const source = typeof options.source === "string" ? options.source.trim() : "";
 
+  // Phase 2.19.C — dedupe concurrent auto-trigger calls.
+  //
+  // Empirical (Sundance + Teepee Creepers 2026-05-09 00:20:06): each
+  // resume-worker session auto-triggers a homepage backfill when its
+  // session completes. With Phase 2.17's rolling-pool dispatcher, 4
+  // companies in a batch can produce 4+ near-simultaneous trigger calls
+  // — we observed two backfill jobs (4ef58e23 with pending=2 + 8a0a3465
+  // with pending=3) running concurrently and re-processing the same
+  // companies (Sundance and Teepee each appeared in both jobs, costing
+  // ~25s of wasted Microlink calls + Cosmos writes per batch).
+  //
+  // Dedupe at the source: if a job for the same `source` value (e.g.
+  // "import_auto") is already running and was started within the last
+  // 30 seconds, return that job's id instead of creating a new one.
+  // The existing job will pick up any newly-pending companies on its
+  // next batch poll. Net: one job processes all 4 companies in a
+  // batch, instead of 2-4 jobs racing.
+  //
+  // Only auto-trigger callers benefit (they share source="import_auto").
+  // Manual admin triggers (different source string) still create their
+  // own jobs.
+  if (source) {
+    try {
+      const RECENT_JOB_WINDOW_MS = 30_000;
+      const cutoffIso = new Date(Date.now() - RECENT_JOB_WINDOW_MS).toISOString();
+      const query = `SELECT c.id, c.job_id, c.started_at, c.total_to_process, c.processed, c.failed, c.status FROM c WHERE c.job_type = "homepages" AND c.source = @source AND c.status = "running" AND c.started_at > @cutoff ORDER BY c.started_at DESC`;
+      const { resources: recent } = await jobsContainer.items
+        .query(
+          { query, parameters: [{ name: "@source", value: source }, { name: "@cutoff", value: cutoffIso }] },
+          { enableCrossPartitionQuery: true }
+        )
+        .fetchAll();
+      if (Array.isArray(recent) && recent.length > 0) {
+        const existing = recent[0];
+        try {
+          logger.log(`[backfill-homepages-start] dedupe_skip: existing job=${existing.job_id} source=${source} started_at=${existing.started_at} — returning existing job instead of creating new`);
+        } catch {}
+        return {
+          ok: true,
+          job_id: existing.job_id,
+          total_to_process: existing.total_to_process || 0,
+          processed: existing.processed || 0,
+          failed: existing.failed || 0,
+          status: existing.status,
+          deduped: true,
+          message: `Reusing recent job ${existing.job_id} (started ${existing.started_at})`,
+        };
+      }
+    } catch (e) {
+      // Dedup query failed — fall through to normal creation. Better to
+      // create a duplicate than fail an auto-trigger entirely.
+      try {
+        logger.warn(`[backfill-homepages-start] dedup_query_failed: ${e?.message || e} — proceeding with new job`);
+      } catch {}
+    }
+  }
+
   // Count pending companies
   let totalPending = 0;
   try {

@@ -421,12 +421,38 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
         });
       } catch {}
 
-      // Phase 2.19.D — HQ geocoding moved to a parallel block after the
-      // MFG block (see below). Originally HQ geocoded synchronously here
-      // before the MFG block ran, serializing the two geocode passes.
-      // For multi-region brands (UGG: HQ in Goleta + 3 mfg sites) this
-      // cost 10-20s of sequential geocoding. With both running via
-      // Promise.all, total time = max(hq, mfg) instead of sum.
+      // Geocode HQ location for distance calculations
+      try {
+        const hqString = updated.headquarters_location;
+        if (hqString && typeof hqString === "string") {
+          const geocoded = await geocodeLocationArray([{ address: hqString }], { timeoutMs: 5000, concurrency: 1 });
+          if (geocoded?.[0]?.lat != null && geocoded?.[0]?.lng != null) {
+            const geo = geocoded[0];
+            updated.hq_lat = geo.lat;
+            updated.hq_lng = geo.lng;
+            updated.headquarters_locations = [{ address: hqString, ...geo }];
+            updated.headquarters = updated.headquarters_locations;
+          }
+          // Phase 2.9 A — log geocoding outcome whether or not it succeeded
+          try {
+            console.log(`[applyEnrichmentToCompany] hq_geocode_done`, {
+              company_id: company.id,
+              hq_string: hqString.slice(0, 60),
+              found_coords: !!(updated.hq_lat != null && updated.hq_lng != null),
+              hq_lat: updated.hq_lat ?? null,
+              hq_lng: updated.hq_lng ?? null,
+              built_plural_array: Array.isArray(updated.headquarters_locations),
+            });
+          } catch {}
+        }
+      } catch (geoErr) {
+        try {
+          console.warn(`[applyEnrichmentToCompany] hq_geocode_threw`, {
+            company_id: company.id,
+            error: String(geoErr?.message || geoErr),
+          });
+        } catch {}
+      }
     }
   }
 
@@ -468,64 +494,19 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
         });
       } catch {}
 
-      // Phase 2.19.D — MFG geocoding moved to the parallel block below.
-    }
-  }
-
-  // Phase 2.19.D — Parallel geocoding for HQ + manufacturing.
-  //
-  // Pre-2.19 the two geocode passes ran sequentially: HQ first
-  // (synchronously inside the HQ block), then MFG (synchronously inside
-  // the MFG block). For multi-region brands this serialized 5-25s of
-  // network calls for no architectural reason. Now both kick off
-  // concurrently via Promise.allSettled — total time becomes max(hq, mfg)
-  // instead of sum. Each geocode is independently failure-tolerant
-  // (failures are non-fatal; the field's status_unknown flag is
-  // already set to false in the per-block logic above).
-  {
-    const hqString = typeof updated.headquarters_location === "string" ? updated.headquarters_location : null;
-    const mfgArr = Array.isArray(updated.manufacturing_locations) ? updated.manufacturing_locations : null;
-
-    const hqGeocodePromise = hqString
-      ? geocodeLocationArray([{ address: hqString }], { timeoutMs: 5000, concurrency: 1 }).catch(() => null)
-      : Promise.resolve(null);
-
-    const mfgGeocodePromise = mfgArr && mfgArr.length > 0
-      ? (() => {
+      // Geocode manufacturing locations for distance calculations
+      try {
+        const mfgArr = updated.manufacturing_locations;
+        if (Array.isArray(mfgArr) && mfgArr.length > 0) {
           const seeds = mfgArr.map((loc) =>
             typeof loc === "string" ? { location: loc, address: loc } : loc
           );
-          return geocodeLocationArray(seeds, { timeoutMs: 5000, concurrency: 4 }).catch(() => null);
-        })()
-      : Promise.resolve(null);
-
-    const [hqGeocoded, mfgGeocoded] = await Promise.all([hqGeocodePromise, mfgGeocodePromise]);
-
-    // Apply HQ geocoding result (back to the same shape the pre-2.19 HQ
-    // block produced).
-    if (hqString && Array.isArray(hqGeocoded) && hqGeocoded[0]?.lat != null && hqGeocoded[0]?.lng != null) {
-      const geo = hqGeocoded[0];
-      updated.hq_lat = geo.lat;
-      updated.hq_lng = geo.lng;
-      updated.headquarters_locations = [{ address: hqString, ...geo }];
-      updated.headquarters = updated.headquarters_locations;
-    }
-    if (hqString) {
-      try {
-        console.log(`[applyEnrichmentToCompany] hq_geocode_done`, {
-          company_id: company.id,
-          hq_string: hqString.slice(0, 60),
-          found_coords: !!(updated.hq_lat != null && updated.hq_lng != null),
-          hq_lat: updated.hq_lat ?? null,
-          hq_lng: updated.hq_lng ?? null,
-          built_plural_array: Array.isArray(updated.headquarters_locations),
-        });
-      } catch {}
-    }
-
-    // Apply MFG geocoding result.
-    if (Array.isArray(mfgGeocoded) && mfgGeocoded.length > 0) {
-      updated.manufacturing_geocodes = mfgGeocoded;
+          const geocoded = await geocodeLocationArray(seeds, { timeoutMs: 5000, concurrency: 4 });
+          if (geocoded && geocoded.length > 0) {
+            updated.manufacturing_geocodes = geocoded;
+          }
+        }
+      } catch { /* geocoding failure is non-fatal */ }
     }
   }
 

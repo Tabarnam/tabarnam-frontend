@@ -159,8 +159,8 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
     "prompt must include TOOL BUDGET block (Phase 2.4)"
   );
   assert.ok(
-    /maximum of 10 web_search/i.test(prompt),
-    "prompt must declare 10-call ceiling (Phase 2.5 tightened from 12 alongside serialization lock)"
+    /maximum of 12 web_search/i.test(prompt),
+    "prompt must declare 12-call ceiling (Phase 2.19.A re-bumped from 10 — UGG hit cap exactly)"
   );
   assert.ok(
     /EMIT EARLY/i.test(prompt) && /6 or more tool calls/i.test(prompt),
@@ -181,7 +181,7 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
     "Phase 2.7: EMIT EARLY trigger must require attempted reviews search"
   );
   assert.ok(
-    /After 10 tool calls you MUST stop/i.test(prompt),
+    /After 12 tool calls you MUST stop/i.test(prompt),
     "prompt must include hard cap at 10 tool calls (Phase 2.5)"
   );
 
@@ -488,7 +488,7 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.14: PROMPT_GUIDANCE_VERSION is 7.1.8-manufacturing-search-direction", () => {
+test("Phase 2.19.A: PROMPT_GUIDANCE_VERSION is 7.1.9-tool-cap-12", () => {
   // Bumped from 7.1.7 in Phase 2.14 — improved manufacturing-search direction.
   // Empirical (Sanuk 2026-05-09): the model did 9 web_search calls (near
   // the 10-cap) but came back with manufacturing_locations: [] because
@@ -504,8 +504,8 @@ test("Phase 2.14: PROMPT_GUIDANCE_VERSION is 7.1.8-manufacturing-search-directio
   //   - Reaffirm country-level granularity is acceptable
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.1\.8-manufacturing-search-direction/,
-    "PROMPT_GUIDANCE_VERSION must be 7.1.8-manufacturing-search-direction for Phase 2.14"
+    /^7\.1\.9-tool-cap-12/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.9-tool-cap-12 for Phase 2.19.A"
   );
 });
 

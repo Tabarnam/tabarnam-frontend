@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.1.9-tool-cap-12";
+const PROMPT_GUIDANCE_VERSION = "7.1.8-manufacturing-search-direction";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -437,7 +437,7 @@ Do NOT include any field labels (e.g. "HQ:", "Tagline:", "Manufacturing:", "Indu
 
 TOOL BUDGET — read carefully:
 
-You have a maximum of 12 web_search + browse_page tool calls TOTAL across all fields.
+You have a maximum of 10 web_search + browse_page tool calls TOTAL across all fields.
 
 Plan your work:
 - 1 call: company homepage (covers tagline, HQ hint, product preview)
@@ -450,7 +450,7 @@ MINIMUM EFFORT: Make at least 2 tool calls (homepage + 1 verification or categor
 
 EMIT EARLY: Once you have made 6 or more tool calls AND you have populated tagline + headquarters_location AND you have attempted at least one reviews search, immediately stop searching and emit the JSON object. Better a partial-but-real answer than a complete-but-timed-out failure. Empty fields are valid output.
 
-After 12 tool calls you MUST stop searching and emit the JSON object using empty values for any field still unverified. Do NOT exceed 12 tool calls under any circumstances.
+After 10 tool calls you MUST stop searching and emit the JSON object using empty values for any field still unverified. Do NOT exceed 10 tool calls under any circumstances.
 
 Return ONLY a single JSON object with these exact property names: tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews, location_source_urls (with hq_source_urls and mfg_source_urls), red_flag, social. No prose, no markdown, no extra text whatsoever. For the fields that have specific formatting rules above (tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews), follow those formatting rules precisely when populating the corresponding JSON values.`;
 }

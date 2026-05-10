@@ -141,6 +141,45 @@ async function createLogoBackfillJob(options = {}) {
   const maxAttempts = Math.max(1, Math.min(20, Number(options.maxAttempts) || 3));
   const source = typeof options.source === "string" ? options.source.trim() : "";
 
+  // Phase 2.19.C — dedupe concurrent auto-trigger calls (mirror of
+  // homepage backfill dedupe). Same rationale: each per-company
+  // resume-worker session auto-triggers a logo backfill on completion;
+  // 4 simultaneous companies produce 4+ overlapping jobs that re-process
+  // the same Cosmos rows. Reuse a recent same-source job instead.
+  if (source) {
+    try {
+      const RECENT_JOB_WINDOW_MS = 30_000;
+      const cutoffIso = new Date(Date.now() - RECENT_JOB_WINDOW_MS).toISOString();
+      const query = `SELECT c.id, c.job_id, c.started_at, c.total_to_process, c.processed, c.failed, c.status FROM c WHERE c.job_type = "logos" AND c.source = @source AND c.status = "running" AND c.started_at > @cutoff ORDER BY c.started_at DESC`;
+      const { resources: recent } = await jobsContainer.items
+        .query(
+          { query, parameters: [{ name: "@source", value: source }, { name: "@cutoff", value: cutoffIso }] },
+          { enableCrossPartitionQuery: true }
+        )
+        .fetchAll();
+      if (Array.isArray(recent) && recent.length > 0) {
+        const existing = recent[0];
+        try {
+          logger.log(`[backfill-logos-start] dedupe_skip: existing job=${existing.job_id} source=${source} started_at=${existing.started_at} — returning existing job instead of creating new`);
+        } catch {}
+        return {
+          ok: true,
+          job_id: existing.job_id,
+          total_to_process: existing.total_to_process || 0,
+          processed: existing.processed || 0,
+          failed: existing.failed || 0,
+          status: existing.status,
+          deduped: true,
+          message: `Reusing recent job ${existing.job_id} (started ${existing.started_at})`,
+        };
+      }
+    } catch (e) {
+      try {
+        logger.warn(`[backfill-logos-start] dedup_query_failed: ${e?.message || e} — proceeding with new job`);
+      } catch {}
+    }
+  }
+
   // Count pending companies
   let totalPending = 0;
   try {

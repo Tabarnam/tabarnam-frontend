@@ -616,7 +616,7 @@ test("Phase 2.3: shapeEnrichedFromParsed strips leaked labels from string fields
   assert.equal(out.tagline, "beauty *can* be comfortable", "clean tagline must pass through unchanged");
 });
 
-test("Phase 2.5: DEFAULT_MAX_TOOL_CALLS is 10 (tightened from 12 alongside serialization lock)", () => {
+test("Phase 2.19.A: DEFAULT_MAX_TOOL_CALLS is 12 (re-bumped from 10 — UGG hit cap exactly)", () => {
   // Source-level guard. Phase 2.4 had bumped 8→12 because complex brands
   // were competing for xAI rate-limit headroom under concurrency. With
   // Phase 2.5's account-level serialization lock (one active call at a
@@ -626,8 +626,8 @@ test("Phase 2.5: DEFAULT_MAX_TOOL_CALLS is 10 (tightened from 12 alongside seria
   const fs = require("node:fs");
   const src = fs.readFileSync(path.join(__dirname, "_canonicalImport.js"), "utf8");
   assert.ok(
-    /const DEFAULT_MAX_TOOL_CALLS\s*=\s*10\b/.test(src),
-    "DEFAULT_MAX_TOOL_CALLS must be 10 (Phase 2.5)"
+    /const DEFAULT_MAX_TOOL_CALLS\s*=\s*12\b/.test(src),
+    "DEFAULT_MAX_TOOL_CALLS must be 12 (Phase 2.19.A — bumped from 10 after UGG hit cap exactly)"
   );
 });
 

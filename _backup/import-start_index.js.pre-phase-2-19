@@ -3804,23 +3804,6 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           ensureStageBudgetOrThrow("primary", "xai_primary_fetch_start");
           mark("xai_primary_fetch_start");
 
-          // Phase 2.19.E — skip xAI primary call when companyUrl is provided.
-          //
-          // Empirical: each import-start call wastes ~5-7s + xAI tokens
-          // doing a synchronous "search for this company by name+URL"
-          // round-trip when the user already provided the URL. The
-          // canonical call (resume-worker) handles all the actual
-          // research independently; the primary call here only resolves
-          // company_name + tagline + structure, all of which the
-          // canonical pass refreshes anyway. For the bulk-paste / URL-
-          // driven import case, this is pure latency tax.
-          //
-          // When companyUrl is provided AND we can build a valid seed
-          // from it, short-circuit to the seed and skip xAI. Net:
-          // saves ~5-7s × N companies per batch.
-          const hasCompanyUrlHint = !!(xaiPayload.company_url_hint && String(xaiPayload.company_url_hint).trim());
-          const canSkipPrimaryXaiViaUrl = inputCompanies.length === 0 && hasCompanyUrlHint;
-
           let xaiResponse;
           if (inputCompanies.length > 0) {
             try {
@@ -3844,60 +3827,6 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 ],
               },
             };
-          } else if (canSkipPrimaryXaiViaUrl) {
-            const urlSeed = buildCompanyUrlSeedFromQuery(query);
-            if (urlSeed) {
-              try {
-                console.log(`[import-start] session=${sessionId} fast_path_url_hint_skip_primary: seed_company_name=${urlSeed.company_name} hint_url=${xaiPayload.company_url_hint}`);
-              } catch {}
-              mark("xai_primary_fetch_skipped_url_hint");
-              xaiResponse = {
-                status: 200,
-                headers: {},
-                data: {
-                  choices: [
-                    {
-                      message: {
-                        content: JSON.stringify([urlSeed]),
-                      },
-                    },
-                  ],
-                },
-              };
-            } else {
-              // Seed builder couldn't extract a hostname — rare edge
-              // case (malformed URL). Fall through to the xAI primary
-              // call so we still have a chance to resolve via Grok.
-              try {
-                xaiResponse = await postXaiJsonWithBudget({
-                  stageKey: "primary",
-                  stageBeacon: "xai_primary_fetch_start",
-                  body: outboundBody,
-                });
-              } catch (e) {
-                if (e instanceof AcceptedResponseError) {
-                  // Match the existing primary-timeout fallback below.
-                  const seed = buildCompanyUrlSeedFromQuery(query);
-                  addWarning("primary_timeout_company_url", {
-                    stage: "primary",
-                    root_cause: "upstream_timeout_returning_202",
-                    retryable: true,
-                    message: "Primary upstream timed out for malformed company_url. Falling back to URL seed.",
-                    upstream_status: 202,
-                    company_name: seed?.company_name,
-                    website_url: seed?.website_url,
-                  });
-                  mark("xai_primary_fallback_company_url_seed");
-                  xaiResponse = {
-                    status: 200,
-                    headers: {},
-                    data: { choices: [{ message: { content: JSON.stringify([seed]) } }] },
-                  };
-                } else {
-                  throw e;
-                }
-              }
-            }
           } else {
             try {
               xaiResponse = await postXaiJsonWithBudget({

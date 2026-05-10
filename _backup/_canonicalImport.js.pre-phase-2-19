@@ -39,13 +39,7 @@ const DEFAULT_TIMEOUT_MS = 240_000;
 // it doesn't need the extra cushion that 12 provided. The stronger EMIT
 // EARLY trigger ("6+ calls AND have tagline + HQ → stop") means most
 // imports will end well below the cap anyway.
-// Phase 2.19.A — bumped 10 → 12. UGG hit the 10-cap exactly with all
-// 6 fields populated and just barely emitted text within the 45s grace
-// window. Complex multi-region brands (UGG: Goleta + China + Vietnam +
-// 1 more, Birkenstock-class portfolios) are right at the boundary.
-// Two extra calls give legitimate complex brands headroom without
-// changing simpler-brand behaviour (most finish in 5-8 calls).
-const DEFAULT_MAX_TOOL_CALLS = 12;
+const DEFAULT_MAX_TOOL_CALLS = 10;
 const MIN_TIMEOUT_MS = 30_000;
 
 function asString(v) {
