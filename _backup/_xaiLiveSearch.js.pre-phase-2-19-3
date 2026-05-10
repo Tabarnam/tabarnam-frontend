@@ -931,26 +931,6 @@ async function xaiLiveSearchStreaming({
                   controller.abort();
                 }
               }, 45_000);
-            } else if (abortedByToolCap && accumulatedText.length === 0) {
-              // Phase 2.19.3 — aggressive abort when model keeps making tool
-              // calls AFTER the cap with still 0 text. Empirical (Adams
-              // peanut butter session 2cf0333f, 2026-05-09): cap hit at #12,
-              // model then made #13 and #14 during the grace window with 0
-              // text emitted, grace expired at +45s with still 0 text →
-              // abort. Net loss: 45s of grace burned on the model continuing
-              // to research instead of preparing to emit.
-              //
-              // Compare Big Spoon Roasters (same batch): cap hit at #12 was
-              // the LAST tool call; model immediately started emitting text
-              // ~0.5s later and finished cleanly at 12 calls / 3685 chars.
-              //
-              // The signal that distinguishes "stuck" from "wrapping up" is
-              // whether ANOTHER tool call fires after the cap is reached.
-              // If so, the model is still in research mode and the 45s grace
-              // is burning on dead time. Abort immediately and free the lock
-              // for the next worker.
-              console.log(`[xaiLiveSearchStreaming] Tool call #${toolCalls} fired AFTER cap (${maxToolCalls}) with 0 text — aborting (model stuck in research loop)`);
-              try { controller.abort(); } catch {}
             }
           }
 
@@ -1098,10 +1078,7 @@ async function xaiLiveSearchStreaming({
           : "streaming_error",
       diagnostics: {
         elapsed_ms: elapsedMs,
-        // Phase 2.19.1 hoist enables surfacing the actual tool-call count
-        // here. Previously hardcoded to 0, which masked the "model made N
-        // tool calls but emitted 0 text → grace timed out" failure pattern.
-        tool_calls_counted: toolCalls,
+        tool_calls_counted: 0,
         streaming: true,
         aborted_by_us: Boolean(controller.signal.aborted),
         abort_timer_fired: abortTimerFired,
