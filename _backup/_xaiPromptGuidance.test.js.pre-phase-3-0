@@ -18,10 +18,7 @@ const {
 // ── PROMPT_GUIDANCE_VERSION ─────────────────────────────────────────────────
 
 test("PROMPT_GUIDANCE_VERSION reflects single-call canonical cut", () => {
-  // Phase 1-2.x: major version 7. Phase 3.0 bumps to major 8 (multi-call).
-  // Either is acceptable here — this is the broad "we're on the canonical
-  // architecture" guard.
-  assert.match(PROMPT_GUIDANCE_VERSION, /^[78]\./);
+  assert.match(PROMPT_GUIDANCE_VERSION, /^7\./);
 });
 
 test("buildCanonicalImportPrompt explicitly forbids fabrication and requires per-field empty types (Phase 2.3)", () => {
@@ -484,16 +481,20 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 3.0: PROMPT_GUIDANCE_VERSION is 8.0.0-multi-call", () => {
-  // Major version bump from 7.x to 8.x marks the multi-call parallel canonical
-  // architecture. Phase 3.0 splits the single canonical call into 3 parallel
-  // calls (Core / Locations / Reviews) per Grok-4's architectural review.
-  // The 8.0.0 version signals the architectural cut; subsequent multi-call
-  // refinements would be 8.0.x or 8.x.
+test("Phase 2.19.9: PROMPT_GUIDANCE_VERSION is 7.2.0-grok-aligned-quick-wins", () => {
+  // Bumped from 7.1.12 (Phase 2.19.5). Phase 2.19.9 implements Grok-4's
+  // architectural review recommendations:
+  //   - Default response_format mode = json_object (not strict json_schema)
+  //   - excluded_websites narrowed to amazon variants only (drop google.*)
+  //   - conversation_id = per-company (not per-batch) for fresh prefix-cache
+  //   - Prompt trimmed: drop TOOL BUDGET / MINIMUM EFFORT / EMIT EARLY /
+  //     NARROW BRANDS / EMIT-DIRECT RULES blocks. Code now enforces those
+  //     guarantees via tool cap, grace timer, abort logic, and fallback.
+  // Net: ~50% prompt reduction; emission feels primary, not secondary.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^8\.0\.0-multi-call/,
-    "PROMPT_GUIDANCE_VERSION must be 8.0.0-multi-call for Phase 3.0"
+    /^7\.2\.0-grok-aligned-quick-wins/,
+    "PROMPT_GUIDANCE_VERSION must be 7.2.0-grok-aligned-quick-wins for Phase 2.19.9"
   );
 });
 
