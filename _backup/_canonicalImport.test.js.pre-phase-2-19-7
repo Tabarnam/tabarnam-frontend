@@ -1402,13 +1402,9 @@ test("Phase 2.6: source-level guard — _canonicalImport.js detects empty rawTex
     /\[canonicalImport\] model_emitted_no_text/.test(src),
     "model_emitted_no_text warn log must exist"
   );
-  // Phase 2.19.7 wrapped failure paths in `failureWithFallback`. The error
-  // code may be passed as a positional arg now or via the legacy errorCode:
-  // key. Either form is acceptable as long as the literal string appears.
   assert.ok(
-    /errorCode:\s*"model_emitted_no_text"/.test(src) ||
-    /failureWithFallback\("model_emitted_no_text"/.test(src),
-    "code must use 'model_emitted_no_text' error code (literal string)"
+    /errorCode:\s*"model_emitted_no_text"/.test(src),
+    "buildFailureResult must use 'model_emitted_no_text' error code"
   );
   assert.ok(
     /upstream_completed_no_text:\s*true/.test(src),
@@ -1418,81 +1414,4 @@ test("Phase 2.6: source-level guard — _canonicalImport.js detects empty rawTex
     /output_summary/.test(src),
     "diagnostics must include output_summary so we know what the model DID emit"
   );
-});
-
-// ── Phase 2.19.7 — homepage-extraction fallback ────────────────────────────────
-//
-// When the canonical call fails (model_emitted_no_text, upstream 503,
-// sse_stall, upstream_timeout, unparseable_json), the homepage prefetch
-// we already ran often contains tagline + HQ visible on the page. Test
-// that buildFailureOrPartialFromFallback either returns a partial-success
-// result (when fallback finds tagline/HQ) or falls through to the
-// original buildFailureResult.
-
-test("Phase 2.19.7: buildFailureOrPartialFromFallback falls through to failure when no fallbackArgs", async () => {
-  const { buildFailureOrPartialFromFallback } = require("./_canonicalImport");
-  const result = await buildFailureOrPartialFromFallback({
-    fieldsToEnrich: ["tagline", "headquarters_location", "manufacturing_locations"],
-    errorCode: "model_emitted_no_text",
-    elapsedMs: 100,
-    diagnostics: { mode: "streaming" },
-    fallbackArgs: null,
-  });
-  assert.equal(result.ok, false, "no fallback args means failure");
-  assert.equal(result.fields_completed.length, 0);
-  assert.equal(result.fields_failed.length, 3);
-  assert.equal(result.errors.tagline, "model_emitted_no_text");
-});
-
-test("Phase 2.19.7: buildFailureOrPartialFromFallback falls through when homepageContext is empty", async () => {
-  const { buildFailureOrPartialFromFallback } = require("./_canonicalImport");
-  const result = await buildFailureOrPartialFromFallback({
-    fieldsToEnrich: ["tagline", "headquarters_location"],
-    errorCode: "upstream_http_503",
-    elapsedMs: 1242,
-    diagnostics: { mode: "streaming", upstream_status: 503 },
-    fallbackArgs: {
-      homepageContext: "",  // empty → fallback skipped
-      companyName: "Acme",
-      websiteUrl: "https://acme.example",
-      sessionId: "test",
-    },
-  });
-  assert.equal(result.ok, false);
-  assert.equal(result.errors.tagline, "upstream_http_503");
-});
-
-test("Phase 2.19.7: buildFailureOrPartialFromFallback falls through when homepageContext too short", async () => {
-  const { buildFailureOrPartialFromFallback } = require("./_canonicalImport");
-  const result = await buildFailureOrPartialFromFallback({
-    fieldsToEnrich: ["tagline"],
-    errorCode: "model_emitted_no_text",
-    elapsedMs: 100,
-    diagnostics: { mode: "streaming" },
-    fallbackArgs: {
-      homepageContext: "short",  // <100 chars → fallback skipped
-      companyName: "Acme",
-      websiteUrl: "https://acme.example",
-      sessionId: "test",
-    },
-  });
-  assert.equal(result.ok, false);
-  assert.equal(result.fields_failed.length, 1);
-});
-
-test("Phase 2.19.7: tryHomepageExtractionFallback returns null when context is empty or too short", async () => {
-  const { tryHomepageExtractionFallback } = require("./_canonicalImport");
-  const r1 = await tryHomepageExtractionFallback({
-    homepageContext: "",
-    companyName: "X",
-    websiteUrl: "https://x.example",
-  });
-  assert.equal(r1, null, "empty context returns null");
-
-  const r2 = await tryHomepageExtractionFallback({
-    homepageContext: "short string",
-    companyName: "X",
-    websiteUrl: "https://x.example",
-  });
-  assert.equal(r2, null, "too-short context returns null");
 });

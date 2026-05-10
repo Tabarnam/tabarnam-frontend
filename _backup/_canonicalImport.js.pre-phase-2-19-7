@@ -242,204 +242,6 @@ function buildFailureResult({ fieldsToEnrich, errorCode, elapsedMs, diagnostics 
 }
 
 /**
- * Phase 2.19.7 — homepage-extraction fallback.
- *
- * When the canonical call fails (model_emitted_no_text, upstream_503,
- * sse_stall, upstream_timeout, unparseable_json), the homepage prefetch
- * we already ran often contains tagline + HQ visible on the page. This
- * helper makes a SHORT, bounded xAI call with NO tools enabled to extract
- * just those two fields from the prefetched homepage text. Pure
- * summarization, no web_search, no tool-loop possible.
- *
- * Empirical (2026-05-09 batch — Santa Cruz Organic / Spread the Love /
- * MaraNatha / Adams): all four failed canonical calls had non-empty
- * homepage prefetch contexts (>100 chars) containing the tagline and
- * city-level HQ. Without this fallback, those fields landed empty and
- * the row showed Stub-0%. With the fallback, those rows can land
- * Partial-X% with at minimum tagline + HQ populated.
- *
- * Returns null on any failure (fall through to original buildFailureResult).
- * Otherwise returns an object with keys tagline / headquarters_location
- * (either may be empty string if not findable in the prefetch) plus
- * diagnostics about the fallback call.
- */
-async function tryHomepageExtractionFallback({
-  homepageContext,
-  companyName,
-  websiteUrl,
-  sessionId,
-  signal,
-  model,
-}) {
-  if (!homepageContext || homepageContext.length < 100) {
-    return null;  // Nothing useful to extract from
-  }
-
-  const fallbackPrompt = `You are extracting two specific facts from the company's homepage text below. Use ONLY the homepage text provided — do not search, do not make up information.
-
-Company: ${companyName}
-Website: ${websiteUrl}
-
-Homepage text (already fetched):
-${homepageContext}
-
-Extract:
-- tagline: the company's tagline, slogan, mission statement, or brand promise as it appears on the homepage. If the homepage has no clear tagline, emit "".
-- headquarters_location: the city, state/province, and country of the company's headquarters if visible in the homepage text (often in a footer, contact section, or about paragraph). Format as "City, ST, USA" or "City, Country". If not visible, emit "".
-
-Output ONLY a JSON object with exactly these two keys: tagline (string), headquarters_location (string). No markdown, no prose, no extra text.`;
-
-  const fallbackSchema = {
-    type: "object",
-    properties: {
-      tagline: { type: "string" },
-      headquarters_location: { type: "string" },
-    },
-    required: ["tagline", "headquarters_location"],
-    additionalProperties: false,
-  };
-
-  const startedAt = Date.now();
-  try {
-    const res = await xaiLiveSearchStreaming({
-      prompt: fallbackPrompt,
-      timeoutMs: 30_000,
-      model: model || asString(process.env.XAI_MODEL).trim() || "grok-4-latest",
-      // No search_parameters → no tools array built (also maxToolCalls=0
-      // omits the tools field entirely; both belt-and-suspenders).
-      enableImageUnderstanding: false,
-      maxToolCalls: 0,  // Tools disabled — pure summarization
-      conversationId: sessionId,
-      signal,
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "homepage_extraction", schema: fallbackSchema, strict: true },
-      },
-    });
-
-    const elapsed = Date.now() - startedAt;
-
-    if (!res?.ok) {
-      console.warn(`[canonicalImport] fallback_failed`, {
-        session_id: sessionId,
-        elapsed_ms: elapsed,
-        error: res?.error || "unknown",
-      });
-      return null;
-    }
-
-    const text = extractTextFromXaiResponse(res.resp);
-    if (!text || text.length === 0) {
-      console.warn(`[canonicalImport] fallback_no_text`, {
-        session_id: sessionId,
-        elapsed_ms: elapsed,
-      });
-      return null;
-    }
-
-    const parsed = parseCanonicalJson(text);
-    if (!parsed || typeof parsed !== "object") {
-      console.warn(`[canonicalImport] fallback_unparseable`, {
-        session_id: sessionId,
-        elapsed_ms: elapsed,
-        text_preview: text.slice(0, 200),
-      });
-      return null;
-    }
-
-    const tagline = asString(parsed.tagline).trim();
-    const hq = asString(parsed.headquarters_location).trim();
-
-    console.log(`[canonicalImport] fallback_succeeded`, {
-      session_id: sessionId,
-      elapsed_ms: elapsed,
-      tagline_chars: tagline.length,
-      hq_chars: hq.length,
-    });
-
-    return {
-      tagline,
-      headquarters_location: hq,
-      _diagnostics: {
-        fallback_used: true,
-        fallback_elapsed_ms: elapsed,
-        fallback_tagline_found: tagline.length > 0,
-        fallback_hq_found: hq.length > 0,
-      },
-    };
-  } catch (err) {
-    console.warn(`[canonicalImport] fallback_threw`, {
-      session_id: sessionId,
-      elapsed_ms: Date.now() - startedAt,
-      error: String(err?.message || err),
-    });
-    return null;
-  }
-}
-
-/**
- * Phase 2.19.7 wrapper — try homepage-extraction fallback before falling
- * through to the all-empty failure result. Returns either a partial-success
- * result (when fallback finds tagline or HQ) or the original failure result.
- */
-async function buildFailureOrPartialFromFallback({
-  fieldsToEnrich,
-  errorCode,
-  elapsedMs,
-  diagnostics,
-  fallbackArgs,
-}) {
-  const fallback = fallbackArgs ? await tryHomepageExtractionFallback(fallbackArgs) : null;
-
-  if (fallback && (fallback.tagline || fallback.headquarters_location)) {
-    // Partial success: at least tagline or HQ was extractable.
-    const fields = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length ? fieldsToEnrich : DEFAULT_CANONICAL_FIELDS;
-    const completed = [];
-    const failed = [];
-    const errors = {};
-    for (const f of fields) {
-      if (f === "tagline" && fallback.tagline) {
-        completed.push("tagline");
-      } else if (f === "headquarters_location" && fallback.headquarters_location) {
-        completed.push("headquarters_location");
-      } else {
-        failed.push(f);
-        errors[f] = errorCode;
-      }
-    }
-
-    const flatEnriched = {
-      tagline: fallback.tagline,
-      headquarters_location: fallback.headquarters_location,
-      manufacturing_locations: [],
-      industries: [],
-      product_keywords: "",
-      reviews: [],
-      location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
-      red_flag: false,
-    };
-
-    return {
-      ok: true,  // Partial-but-real beats Stub-0%
-      fields_completed: completed,
-      fields_failed: failed,
-      errors,
-      enriched: shapeEnvelopeForApply(flatEnriched),
-      elapsed_ms: elapsedMs,
-      diagnostics: {
-        canonical_call: true,
-        guidance_version: PROMPT_GUIDANCE_VERSION,
-        ...(diagnostics || {}),
-        ...(fallback._diagnostics || {}),
-      },
-    };
-  }
-
-  // Fallback didn't help — return the original failure result.
-  return buildFailureResult({ fieldsToEnrich, errorCode, elapsedMs, diagnostics });
-}
-
-/**
  * Single-call replacement for runDirectEnrichment. Returns the same shape
  * so resume-worker handler.js can consume the result without branching
  * downstream.
@@ -594,27 +396,6 @@ async function runCanonicalImportCall({
     guidance_version: PROMPT_GUIDANCE_VERSION,
   });
 
-  // Phase 2.19.7 — closure that builds the homepage-extraction fallback args
-  // for the failure paths below. The fallback runs a tools-disabled,
-  // strict-json_schema xAI call against the homepage prefetch text. It can
-  // rescue tagline + HQ when the canonical call fails (model_emitted_no_text,
-  // upstream 503, sse_stall, upstream_timeout, unparseable_json).
-  const failureWithFallback = (errorCode, failureElapsedMs, diagnostics) =>
-    buildFailureOrPartialFromFallback({
-      fieldsToEnrich: requested,
-      errorCode,
-      elapsedMs: failureElapsedMs,
-      diagnostics,
-      fallbackArgs: {
-        homepageContext,
-        companyName,
-        websiteUrl,
-        sessionId,
-        signal,
-        model,
-      },
-    });
-
   // Streaming first (preferred — partial-flush handler salvages tool-budget aborts).
   let res;
   let mode = "streaming";
@@ -636,9 +417,11 @@ async function runCanonicalImportCall({
       error: String(err?.message || err),
       elapsed_ms: Date.now() - startedAt,
     });
-    return await failureWithFallback("upstream_unreachable", Date.now() - startedAt, {
-      stream_threw: String(err?.message || err),
-      mode,
+    return buildFailureResult({
+      fieldsToEnrich: requested,
+      errorCode: "upstream_unreachable",
+      elapsedMs: Date.now() - startedAt,
+      diagnostics: { stream_threw: String(err?.message || err), mode },
     });
   }
 
@@ -669,9 +452,11 @@ async function runCanonicalImportCall({
         error: String(err?.message || err),
         elapsed_ms: Date.now() - startedAt,
       });
-      return await failureWithFallback("upstream_unreachable", Date.now() - startedAt, {
-        non_stream_threw: String(err?.message || err),
-        mode,
+      return buildFailureResult({
+        fieldsToEnrich: requested,
+        errorCode: "upstream_unreachable",
+        elapsedMs: Date.now() - startedAt,
+        diagnostics: { non_stream_threw: String(err?.message || err), mode },
       });
     }
   }
@@ -699,10 +484,11 @@ async function runCanonicalImportCall({
   });
 
   if (!res || !res.ok) {
-    return await failureWithFallback(
-      res?.error_code || "upstream_unreachable",
+    return buildFailureResult({
+      fieldsToEnrich: requested,
+      errorCode: res?.error_code || "upstream_unreachable",
       elapsedMs,
-      {
+      diagnostics: {
         mode,
         upstream_status: res?.diagnostics?.upstream_http_status ?? null,
         tool_calls_counted: res?.diagnostics?.tool_calls_counted ?? null,
@@ -710,8 +496,8 @@ async function runCanonicalImportCall({
         upstream_error: res?.error || null,
         text_chars: rawText.length,
         text_preview_on_failure: rawText.slice(0, 200),
-      }
-    );
+      },
+    });
   }
 
   // Phase 2.6 — model_emitted_no_text: upstream returned ok with
@@ -736,14 +522,19 @@ async function runCanonicalImportCall({
       upstream_status: res.resp?.status ?? null,
       upstream_incomplete: res.resp?.incomplete_details ?? null,
     });
-    return await failureWithFallback("model_emitted_no_text", elapsedMs, {
-      mode,
-      upstream_status: res.diagnostics?.upstream_http_status ?? null,
-      tool_calls_counted: res.diagnostics?.tool_calls_counted ?? null,
-      text_chars: 0,
-      upstream_completed_no_text: true,
-      output_summary: outputSummary,
-      upstream_response_status: res.resp?.status ?? null,
+    return buildFailureResult({
+      fieldsToEnrich: requested,
+      errorCode: "model_emitted_no_text",
+      elapsedMs,
+      diagnostics: {
+        mode,
+        upstream_status: res.diagnostics?.upstream_http_status ?? null,
+        tool_calls_counted: res.diagnostics?.tool_calls_counted ?? null,
+        text_chars: 0,
+        upstream_completed_no_text: true,
+        output_summary: outputSummary,
+        upstream_response_status: res.resp?.status ?? null,
+      },
     });
   }
 
@@ -756,12 +547,17 @@ async function runCanonicalImportCall({
       text_chars: text.length,
       text_preview: text.slice(0, 400),
     });
-    return await failureWithFallback("unparseable_json", elapsedMs, {
-      mode,
-      upstream_status: res.diagnostics?.upstream_http_status ?? null,
-      tool_calls_counted: res.diagnostics?.tool_calls_counted ?? null,
-      text_chars: text.length,
-      unparseable_text_preview: asString(text).slice(0, 400),
+    return buildFailureResult({
+      fieldsToEnrich: requested,
+      errorCode: "unparseable_json",
+      elapsedMs,
+      diagnostics: {
+        mode,
+        upstream_status: res.diagnostics?.upstream_http_status ?? null,
+        tool_calls_counted: res.diagnostics?.tool_calls_counted ?? null,
+        text_chars: text.length,
+        unparseable_text_preview: asString(text).slice(0, 400),
+      },
     });
   }
 
@@ -856,6 +652,4 @@ module.exports = {
   classifyFields,
   buildResponseFormat,
   stripLabel,
-  tryHomepageExtractionFallback,
-  buildFailureOrPartialFromFallback,
 };
