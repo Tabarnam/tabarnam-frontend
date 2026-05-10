@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "7.2.0-grok-aligned-quick-wins";
+const PROMPT_GUIDANCE_VERSION = "7.1.12-emit-direct-from-homepage";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -386,22 +386,31 @@ function buildCanonicalImportPrompt({
   // Cloudflare-blocked sites — the prose research instructions still
   // apply when context is absent.
   const homepageContextBlock = homepageContext
-    ? `Homepage Context (pre-fetched from the company's official site — your primary source for tagline, HQ, products, and industries):
+    ? `Homepage Context (pre-fetched from the company's official site — your primary, highest-confidence source for tagline, HQ, products, industries, and feature/testimonial content):
 ${homepageContext}
 
-Emit tagline and HQ directly from this context if visible — do NOT run verification searches for facts the homepage already provides. Spend tool calls on data NOT in the context: manufacturing locations, third-party reviews, and source URLs.
+CRITICAL — EMIT-DIRECT RULES (saves wall-clock; avoids the deep-tool-loop failure):
+
+If the Homepage Context above contains the tagline (slogan, mission statement, or brand promise visible on the homepage), EMIT IT DIRECTLY from this context. DO NOT run a web_search or browse_page call to verify — the homepage IS the authoritative source for the tagline.
+
+If the Homepage Context contains an address or city/state for the company headquarters (typically in the footer, contact page, or About section), EMIT IT DIRECTLY. DO NOT run a verification search — the homepage IS the authoritative source for HQ.
+
+If the Homepage Context lists products or product categories, use those for the product_keywords / industries fields directly without additional searches.
+
+Spend your tool budget on the data NOT in the Homepage Context: manufacturing locations, third-party reviews, and source URLs. Do not waste tool calls re-verifying facts the homepage already provides.
 
 `
     : `Homepage Context: (pre-fetch failed or returned empty — proceed with web_search and browse_page on the official site as usual)
 
 `;
 
-  return `You are a precise company research specialist. Use web_search and browse_page tools efficiently. Do not fabricate or hallucinate. Focus only on the specified company.
+  return `You are a precise company research specialist. Use web_search and browse_page tools efficiently. Verify facts with the company's official website plus one additional source where quickly accessible. Do not hallucinate. Focus only on the specified company. Time and tool budget are bounded — prefer emitting partial JSON over searching exhaustively.
 
 For the Company: ${name} / ${url}
 ${homepageContextBlock}Fields to populate: ${fieldList}
 
-Per-field rules:
+Follow these baked-in rules for accuracy and formatting:
+Be thorough, exact, verify sources using web_search and browse_page tools, and do not hallucinate. Focus only on the specified company.
 
 Tagline: Provide the company's tagline, slogan, or motto. Format as described below.
 
@@ -422,19 +431,38 @@ Reviews: Find up to 5 unique reviews. Target mix: 3-4 third-party reviews (YouTu
 
 ${sourceUrlsLine}
 
-You MUST emit a JSON object as your final response. Never finish with only tool calls — that is a critical failure mode. If the company has thin web presence, emit the JSON with empty values for what you couldn't find; do not skip emission.
+You MUST emit a JSON object as your final response. Outputting nothing is NOT acceptable, even if your tool calls returned little or no useful data. Emitting an all-empty JSON object is preferable to emitting no output at all. Never complete a response with only tool calls and zero text — that is a critical failure mode. You cannot give up early. If your first 1-2 web_search calls returned thin or unhelpful results, do not terminate the response — instead, browse_page the official website (especially the homepage, /about, /about-us, /products) and run additional targeted searches until you have at least populated the Homepage Context-supported fields, then emit the JSON object.
 
-Type-correct empty values (use these when a field can't be verified):
+If you cannot verify a field after using your full tool budget, return the type-correct empty value:
 - tagline, headquarters_location, product_keywords → ""
 - manufacturing_locations, industries, reviews → []
 - location_source_urls → {"hq_source_urls": [], "mfg_source_urls": []}
 - red_flag → false
 
-Never use "" for an array field. Never omit any required field.
+Never use "" for an array field. Never omit any required field. Do not fabricate or hallucinate. If the company has thin web presence and your first tool call returned little useful information, that means you should emit the JSON object with empty fields, NOT skip emission.
 
-Do NOT include field labels (e.g. "HQ:", "Tagline:") inside JSON values — emit only the clean content. Example: headquarters_location should be "Newport Beach, CA, USA", not "HQ: Newport Beach, CA, USA".
+Do NOT include any field labels (e.g. "HQ:", "Tagline:", "Manufacturing:", "Industries:", "Products:", "Reviews:") inside the JSON values. The labels in the rules above are for your internal reasoning; emit only the clean value content. For example, headquarters_location should be "Newport Beach, CA, USA" — not "HQ: Newport Beach, CA, USA".
 
-Return ONLY a single JSON object with these property names: tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews, location_source_urls (with hq_source_urls and mfg_source_urls), red_flag, social. No prose, no markdown, no extra text.`;
+TOOL BUDGET — read carefully:
+
+You have a maximum of 12 web_search + browse_page tool calls TOTAL across all fields.
+
+Plan your work:
+- 1 call: company homepage (covers tagline, HQ hint, product preview)
+- 1 call: HQ verification (only if unclear from homepage)
+- 1 call: manufacturing locations
+- 1 call: products / shop page for category extraction
+- 1-2 calls: reviews
+
+MINIMUM EFFORT: Make at least 2 tool calls (homepage + 1 verification or category-extraction call) before deciding the company has no findable data. Even small obscure brands typically have a tagline visible on the homepage, which is one tool call away. Do NOT terminate after 0 or 1 tool calls — that violates the minimum-effort rule.
+
+EMIT EARLY: Once you have made 6 or more tool calls AND you have populated tagline + headquarters_location AND you have attempted at least one reviews search, immediately stop searching and emit the JSON object. Better a partial-but-real answer than a complete-but-timed-out failure. Empty fields are valid output.
+
+NARROW BRANDS — emit early: If the company is a narrow / single-product brand (e.g., one product type, one flavor, one SKU family), the industries and product_keywords lists will legitimately be short — 3-6 entries is the correct answer, not a failure. DO NOT keep searching to pad those lists. As soon as you have catalogued the brand's actual product set from the homepage and one verification call, stop searching and emit the JSON object with the small-but-accurate list. The lower bound of 3 in industries / products is intentional — small lists are correct for narrow brands.
+
+After 12 tool calls you MUST stop searching and emit the JSON object using empty values for any field still unverified. Do NOT exceed 12 tool calls under any circumstances.
+
+Return ONLY a single JSON object with these exact property names: tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews, location_source_urls (with hq_source_urls and mfg_source_urls), red_flag, social. No prose, no markdown, no extra text whatsoever. For the fields that have specific formatting rules above (tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews), follow those formatting rules precisely when populating the corresponding JSON values.`;
 }
 
 /**

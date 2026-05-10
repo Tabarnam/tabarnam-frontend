@@ -846,25 +846,16 @@ test("Phase 2.15.C: handler.js sets XAI_LOCK_TTL_MS to 180_000 (down from 300_00
   );
 });
 
-test("Phase 2.19.9: response_format defaults to json_object (looser than strict, avoids perfect-or-nothing trap)", async () => {
-  // Phase 2.2 disabled response_format. Phase 2.10 re-enabled it as strict
-  // json_schema, expecting it to "force emission server-side". Empirically
-  // (Spread the Love + Adams + Woodstock + MaraNatha 2026-05-09): strict
-  // schema does NOT force emission — it only validates IF the model emits.
-  // The "model emits 0 text after N tool calls" failure persisted with
-  // strict schema fully active.
+test("Phase 2.10: response_format IS sent by default (strict json_schema ON with bounded guardrails)", async () => {
+  // Phase 2.2 disabled response_format because of a 22-call tool-loop
+  // runaway. Phase 2.10 re-enables it as the default because the runaway
+  // risk is now bounded by tool cap + timeout + grace window + SSE stall
+  // detection + serialization lock. Strict json_schema FORCES emission
+  // server-side, fixing the model_emitted_no_text failure mode that
+  // afflicted Eliza B / Flojos / FitFlop.
   //
-  // Per Grok-4's review: strict schema + 8 required fields + tools creates
-  // a "perfect-or-nothing trap" — the model keeps researching to satisfy
-  // ALL required keys, runs out of budget, terminates without emission.
-  // The fix is to switch to json_object (looser) which still nudges the
-  // model toward JSON emission without the all-or-nothing semantic.
-  //
-  // Three modes via XAI_RESPONSE_FORMAT_MODE: strict / json_object / off.
-  // Phase 2.19.9 default is "json_object".
-  const prev = process.env.XAI_RESPONSE_FORMAT_MODE;
-  const prevLegacy = process.env.XAI_USE_RESPONSE_FORMAT;
-  delete process.env.XAI_RESPONSE_FORMAT_MODE;
+  // Save and clear the env override so we test the default path.
+  const prev = process.env.XAI_USE_RESPONSE_FORMAT;
   delete process.env.XAI_USE_RESPONSE_FORMAT;
 
   let capturedPayload = null;
@@ -904,53 +895,14 @@ test("Phase 2.19.9: response_format defaults to json_object (looser than strict,
     assert.ok(capturedPayload, "streaming was invoked");
     assert.ok(
       capturedPayload.response_format,
-      "Phase 2.19.9: response_format must be sent by default (json_object mode)"
-    );
-    assert.equal(
-      capturedPayload.response_format.type,
-      "json_object",
-      "default mode should be json_object (Phase 2.19.9), not strict json_schema"
-    );
-  } finally {
-    if (prev === undefined) delete process.env.XAI_RESPONSE_FORMAT_MODE;
-    else process.env.XAI_RESPONSE_FORMAT_MODE = prev;
-    if (prevLegacy === undefined) delete process.env.XAI_USE_RESPONSE_FORMAT;
-    else process.env.XAI_USE_RESPONSE_FORMAT = prevLegacy;
-  }
-});
-
-test("Phase 2.19.9: XAI_RESPONSE_FORMAT_MODE=strict opts back into strict json_schema", async () => {
-  const prev = process.env.XAI_RESPONSE_FORMAT_MODE;
-  process.env.XAI_RESPONSE_FORMAT_MODE = "strict";
-
-  let capturedPayload = null;
-  try {
-    await withMockLiveSearch(
-      {
-        xaiLiveSearchStreaming: async (opts) => {
-          capturedPayload = opts;
-          return {
-            ok: true,
-            resp: { text: JSON.stringify({ tagline: "x", headquarters_location: "", manufacturing_locations: [], industries: [], product_keywords: "", reviews: [], location_source_urls: { hq_source_urls: [], mfg_source_urls: [] }, red_flag: false }) },
-            diagnostics: {},
-          };
-        },
-      },
-      async (mod) => {
-        await mod.runCanonicalImportCall({
-          company: { company_name: "Acme", url: "https://acme.example.com" },
-          sessionId: "test",
-          budgetMs: 60_000,
-          fieldsToEnrich: ["tagline"],
-        });
-      }
+      "Phase 2.10: response_format must be sent by default (strict json_schema forces emission, fixes model_emitted_no_text)"
     );
     assert.equal(capturedPayload.response_format.type, "json_schema");
     assert.equal(capturedPayload.response_format.json_schema.strict, true);
     assert.equal(capturedPayload.response_format.json_schema.name, "company_research");
   } finally {
-    if (prev === undefined) delete process.env.XAI_RESPONSE_FORMAT_MODE;
-    else process.env.XAI_RESPONSE_FORMAT_MODE = prev;
+    if (prev === undefined) delete process.env.XAI_USE_RESPONSE_FORMAT;
+    else process.env.XAI_USE_RESPONSE_FORMAT = prev;
   }
 });
 
@@ -1007,16 +959,8 @@ test("Phase 2.10: XAI_USE_RESPONSE_FORMAT=off acts as kill-switch (disables stri
   }
 });
 
-test("Phase 2.19.9: legacy XAI_USE_RESPONSE_FORMAT=on falls through to default (json_object)", async () => {
-  // Phase 2.19.9: the legacy XAI_USE_RESPONSE_FORMAT env var only carries
-  // the "off" kill-switch semantic now. Any other value (including "on")
-  // falls through to XAI_RESPONSE_FORMAT_MODE's default of "json_object".
-  // This is a behaviour change vs Phase 2.10 where "on" mapped to strict.
-  // To explicitly request strict json_schema, set
-  // XAI_RESPONSE_FORMAT_MODE=strict (covered in the preceding test).
+test("Phase 2.2: response_format IS sent when XAI_USE_RESPONSE_FORMAT=on (env-var override)", async () => {
   const prev = process.env.XAI_USE_RESPONSE_FORMAT;
-  const prevMode = process.env.XAI_RESPONSE_FORMAT_MODE;
-  delete process.env.XAI_RESPONSE_FORMAT_MODE;
   process.env.XAI_USE_RESPONSE_FORMAT = "on";
 
   let capturedPayload = null;
@@ -1041,17 +985,12 @@ test("Phase 2.19.9: legacy XAI_USE_RESPONSE_FORMAT=on falls through to default (
         });
       }
     );
-    assert.ok(capturedPayload?.response_format, "response_format must be present");
-    assert.equal(
-      capturedPayload.response_format.type,
-      "json_object",
-      "Phase 2.19.9: legacy 'on' now falls through to json_object default"
-    );
+    assert.ok(capturedPayload?.response_format, "response_format must be present when override is on");
+    assert.equal(capturedPayload.response_format.type, "json_schema");
+    assert.equal(capturedPayload.response_format.json_schema.strict, true);
   } finally {
     if (prev === undefined) delete process.env.XAI_USE_RESPONSE_FORMAT;
     else process.env.XAI_USE_RESPONSE_FORMAT = prev;
-    if (prevMode === undefined) delete process.env.XAI_RESPONSE_FORMAT_MODE;
-    else process.env.XAI_RESPONSE_FORMAT_MODE = prevMode;
   }
 });
 

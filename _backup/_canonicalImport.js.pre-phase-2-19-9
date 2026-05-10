@@ -268,7 +268,6 @@ async function tryHomepageExtractionFallback({
   companyName,
   websiteUrl,
   sessionId,
-  conversationId,  // Phase 2.19.9 — per-company id for fresh prefix-cache namespace
   signal,
   model,
 }) {
@@ -310,7 +309,7 @@ Output ONLY a JSON object with exactly these two keys: tagline (string), headqua
       // omits the tools field entirely; both belt-and-suspenders).
       enableImageUnderstanding: false,
       maxToolCalls: 0,  // Tools disabled — pure summarization
-      conversationId: conversationId || sessionId,  // prefer per-company id (Phase 2.19.9)
+      conversationId: sessionId,
       signal,
       response_format: {
         type: "json_schema",
@@ -478,20 +477,6 @@ async function runCanonicalImportCall({
   const websiteUrl = asString(company?.url) || asString(company?.website_url);
   const websiteHost = extractWebsiteHost(websiteUrl);
 
-  // Phase 2.19.9 — fresh conversation_id per company.
-  //
-  // Previously we reused sessionId as the xAI conversation_id across all
-  // companies in a batch for prefix-cache benefits. Per Grok-4's review:
-  // for thin-presence brands, cached context from earlier brands' research
-  // can bias the model toward "I already covered something similar" patterns
-  // and degrade emission. Use the company_id (stable per company) instead so
-  // we still get prefix caching within a company's own retries / cycles, but
-  // not across unrelated companies.
-  const companyConversationId =
-    asString(company?.company_id).trim() ||
-    asString(company?.id).trim() ||
-    asString(sessionId);
-
   const requested = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length ? fieldsToEnrich : [...DEFAULT_CANONICAL_FIELDS];
 
   // Clamp timeout to budget but never below 30s (a tighter cap risks killing
@@ -554,43 +539,38 @@ async function runCanonicalImportCall({
 
   const model = asString(modelOverride).trim() || asString(process.env.XAI_MODEL).trim() || "grok-4-latest";
 
-  // Phase 2.19.9 — three-mode response_format selector.
+  // Phase 2.10 — strict json_schema is now ON BY DEFAULT.
   //
-  // Phase 2.10's claim that "strict json_schema FORCES emission server-side"
-  // turned out to be wrong empirically (Spread the Love, Adams, Woodstock,
-  // MaraNatha, etc.). Strict schema only validates IF the model emits text;
-  // it does NOT prevent the model from terminating with status="completed"
-  // and output containing only web_search_call items. Confirmed in the
-  // 2026-05-09 batch with `has_response_format: true, text_chars: 0`.
+  // Background: Phase 2.2 disabled response_format because of a 22-call
+  // tool-loop runaway on /v1/responses with tools + strict json_schema +
+  // 8 required fields. With prose-only emission rules, the runaway was
+  // bounded — but it surfaced a different failure mode: the model
+  // sometimes emits `response.completed` with `accumulated_text_chars: 0`
+  // and `output: [web_search_call only]`. Confirmed across multiple runs
+  // (Eliza B, Flojos, FitFlop). Phase 2.6 detects + classifies this as
+  // `model_emitted_no_text` so it doesn't masquerade as success, but the
+  // user-visible result is still all-empty fields.
   //
-  // Per Grok-4's architectural review: strict schema + 8 required fields +
-  // tools creates a "perfect-or-nothing trap" — the model keeps researching
-  // to satisfy ALL required keys, runs out of budget, terminates without
-  // emitting. JSON-mode (`{ type: "json_object" }`) is looser — it nudges
-  // the model toward JSON output without the all-or-nothing semantic.
+  // Phase 2.10 brings back strict json_schema because the original
+  // runaway risk is now bounded by guardrails that didn't exist when we
+  // disabled it:
+  //   - Tool cap at 10 (Phase 2.5)
+  //   - 240s upstream timeout (Phase 2.4)
+  //   - 45s grace window after tool-cap exceeded (Phase 2.4)
+  //   - 60s SSE stall detection (Phase 2.9 C)
+  //   - Account-level serialization lock (Phase 2.5)
+  //   - 5-min lock TTL with stale-takeover (Phase 2.5)
   //
-  // Three modes via XAI_RESPONSE_FORMAT_MODE env var:
-  //   - "strict"      → response_format: { type: "json_schema", strict: true, ... }
-  //                     (Phase 2.10 behavior — prone to no-text failure)
-  //   - "json_object" → response_format: { type: "json_object" }
-  //                     (Phase 2.19.9 default — looser, emission-friendly)
-  //   - "off"         → response_format omitted entirely; prompt-only enforcement
-  //                     (Phase 2.2 → 2.9 behavior)
+  // Strict json_schema FORCES emission server-side: xAI's API enforces the
+  // schema and the model cannot terminate the response without producing
+  // valid JSON. The "no text" failure becomes structurally impossible.
   //
-  // Legacy XAI_USE_RESPONSE_FORMAT=off still maps to "off" for backward
-  // compatibility with existing Azure Function App settings.
-  const responseFormatMode = (() => {
-    const newVar = String(process.env.XAI_RESPONSE_FORMAT_MODE || "").trim().toLowerCase();
-    if (newVar === "strict" || newVar === "json_object" || newVar === "off") return newVar;
-    // Legacy fallback: XAI_USE_RESPONSE_FORMAT=off → off; anything else → json_object default
-    const legacyVar = String(process.env.XAI_USE_RESPONSE_FORMAT || "").trim().toLowerCase();
-    if (legacyVar === "off") return "off";
-    return "json_object";  // Phase 2.19.9 default
-  })();
-  const response_format =
-    responseFormatMode === "strict" ? buildResponseFormat() :
-    responseFormatMode === "json_object" ? { type: "json_object" } :
-    undefined;
+  // Kill-switch retained: `XAI_USE_RESPONSE_FORMAT=off` disables strict
+  // schema and reverts to prose-only enforcement (the Phase 2.2 → 2.9
+  // behavior). Anything else (or unset) = strict schema ON.
+  const useResponseFormat =
+    String(process.env.XAI_USE_RESPONSE_FORMAT || "on").trim().toLowerCase() !== "off";
+  const response_format = useResponseFormat ? buildResponseFormat() : undefined;
 
   // Phase 2.1 — log entry diagnostics so we can correlate the call with
   // its inputs (prompt size, model, tool/timeout config, schema presence).
@@ -606,13 +586,11 @@ async function runCanonicalImportCall({
     max_tool_calls: DEFAULT_MAX_TOOL_CALLS,
     model,
     has_response_format: Boolean(response_format),
-    response_format_mode: responseFormatMode,  // Phase 2.19.9
     response_format_strict: !!response_format?.json_schema?.strict,
     excluded_domains_count: Array.isArray(sp.search_parameters?.sources)
       ? (sp.search_parameters.sources[0]?.excluded_websites?.length || 0)
       : 0,
-    has_conversation_id: !!companyConversationId,  // Phase 2.19.9
-    conversation_id_source: companyConversationId === sessionId ? "session" : "company",
+    has_conversation_id: !!sessionId,
     guidance_version: PROMPT_GUIDANCE_VERSION,
   });
 
@@ -632,7 +610,6 @@ async function runCanonicalImportCall({
         companyName,
         websiteUrl,
         sessionId,
-        conversationId: companyConversationId,  // Phase 2.19.9
         signal,
         model,
       },
@@ -649,7 +626,7 @@ async function runCanonicalImportCall({
       search_parameters: sp.search_parameters,
       enableImageUnderstanding: false,
       maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
-      conversationId: companyConversationId,  // Phase 2.19.9 — per-company id
+      conversationId: sessionId,
       signal,
       response_format,
     });
@@ -682,7 +659,7 @@ async function runCanonicalImportCall({
         model,
         search_parameters: sp.search_parameters,
         useTools: true,
-        conversationId: companyConversationId,  // Phase 2.19.9 — per-company id
+        conversationId: sessionId,
         signal,
         response_format,
       });

@@ -50,19 +50,10 @@ test("normalizeExcludedHost strips trailing dots", () => {
 
 // ── buildExcludedHostsCandidates ────────────────────────────────────────────
 
-test("buildExcludedHostsCandidates includes Amazon defaults (Phase 2.19.9 narrowed exclusion)", () => {
-  // Phase 2.19.9: per Grok-4's architectural review, excluding google.com /
-  // g.co / goo.gl was hurting research for small / thin-presence brands
-  // (substantive data on Crunchbase / LinkedIn / news lives behind Google
-  // indexed pages). Narrowed to Amazon variants only — they're genuine SEO
-  // spam, not editorial sources.
+test("buildExcludedHostsCandidates includes defaults", () => {
   const candidates = buildExcludedHostsCandidates({});
-  assert.ok(candidates.includes("amazon.com"), "amazon.com must remain excluded as SEO noise");
-  assert.ok(candidates.includes("amzn.to"), "amzn.to must remain excluded as SEO noise");
-  // Google was deliberately removed in Phase 2.19.9.
-  assert.ok(!candidates.includes("google.com"), "google.com should NOT be excluded (Phase 2.19.9)");
-  assert.ok(!candidates.includes("g.co"), "g.co should NOT be excluded (Phase 2.19.9)");
-  assert.ok(!candidates.includes("goo.gl"), "goo.gl should NOT be excluded (Phase 2.19.9)");
+  assert.ok(candidates.includes("amazon.com"));
+  assert.ok(candidates.includes("google.com"));
 });
 
 test("Phase 2.11: buildExcludedHostsCandidates does NOT include the company host (was prepended pre-2.11)", () => {
@@ -76,8 +67,9 @@ test("Phase 2.11: buildExcludedHostsCandidates does NOT include the company host
     !candidates.includes("acme.com"),
     "company host must NOT appear in excluded hosts (Phase 2.11)"
   );
-  // Noise sources (Amazon listings) remain excluded.
+  // Noise sources (Amazon listings, Google shorteners) remain excluded.
   assert.ok(candidates.includes("amazon.com"), "amazon.com must still be excluded as noise");
+  assert.ok(candidates.includes("google.com"), "google.com must still be excluded as noise");
 });
 
 test("buildExcludedHostsCandidates includes additional hosts", () => {
@@ -98,13 +90,7 @@ test("buildExcludedHostsCandidates deduplicates", () => {
 // ── buildCappedExcludedHosts ────────────────────────────────────────────────
 
 test("buildCappedExcludedHosts caps at maxExcluded", () => {
-  // Phase 2.19.9: defaults are now [amazon.com, amzn.to] (2 entries). To
-  // exercise capping behaviour we need additionalExcludedHosts to push past
-  // the cap.
-  const result = buildCappedExcludedHosts({
-    additionalExcludedHosts: ["foo.com", "bar.com", "baz.com", "qux.com"],
-    maxExcluded: 3,
-  });
+  const result = buildCappedExcludedHosts({ maxExcluded: 3 });
   assert.equal(result.used.length, 3);
   assert.ok(result.spilled.length > 0);
 });
@@ -124,12 +110,7 @@ test("Phase 2.11: buildCappedExcludedHosts does NOT include the company host (wa
 });
 
 test("buildCappedExcludedHosts provides telemetry", () => {
-  // Phase 2.19.9: defaults are 2 (amazon.com, amzn.to). Add extras to exercise
-  // the truncation path.
-  const result = buildCappedExcludedHosts({
-    additionalExcludedHosts: ["foo.com", "bar.com", "baz.com", "qux.com"],
-    maxExcluded: 3,
-  });
+  const result = buildCappedExcludedHosts({ maxExcluded: 3 });
   assert.ok(result.telemetry.excluded_websites_original_count > 3);
   assert.equal(result.telemetry.excluded_websites_used_count, 3);
   assert.equal(result.telemetry.excluded_websites_truncated, true);

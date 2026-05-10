@@ -94,19 +94,14 @@ function buildExcludedHostsCandidates({ companyWebsiteHost, additionalExcludedHo
   const _unusedCompanyHost = normalizeExcludedHost(companyWebsiteHost); // eslint-disable-line no-unused-vars
 
   const defaults = [
-    // Phase 2.19.9 — narrowed exclusion list. Empirical (Woodstock / Adams /
-    // Divina / MaraNatha 2026-05-09): for small / thin-presence / private-
-    // label brands, a substantial amount of substantive third-party data
-    // (Crunchbase, LinkedIn, news, retailer listings, "as seen in" press)
-    // is indexed and surfaced via Google. Excluding `google.com / g.co /
-    // goo.gl` was crippling research for exactly the brands that needed
-    // it most. Per Grok-4's review of the architecture (paste-back from
-    // grok.com), Google exclusion was hurting more than helping.
-    //
-    // Keep only Amazon variants — Amazon product listings are SEO spam and
-    // genuinely not useful editorial sources.
+    // Noise sources only — Amazon product listings (SEO spam, not editorial)
+    // and Google URL shorteners (circular). Keep these excluded.
+    // Keep as separate candidates so anything beyond 5 can spill into prompt text.
     "amazon.com",
     "amzn.to",
+    "google.com",
+    "g.co",
+    "goo.gl",
   ];
 
   const provided = Array.isArray(additionalExcludedHosts) ? additionalExcludedHosts : [];

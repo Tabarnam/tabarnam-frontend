@@ -144,37 +144,57 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   assert.ok(prompt.includes("Return ONLY a single JSON object"), "missing JSON-object output instruction");
   assert.ok(!/array wrapper/i.test(prompt) || prompt.includes("no extra"), "should disallow array wrapper");
 
-  // Field-name bridging — the prompt lists property names inline.
-  // Phase 2.19.9 reworded the trailing sentence from "Return ONLY a single
-  // JSON object with these exact property names: ..." to "Return ONLY a
-  // single JSON object with these property names: ..." — both forms enumerate
-  // the canonical keys, just differing on the word "exact".
+  // Field-name bridging — the prompt now lists property names inline
+  // (Phase 2.2 dropped strict json_schema enforcement, so the trailing
+  // sentence enumerates exact JSON keys instead of referencing "the schema
+  // below"). The point is still that short labels (HQ:, Manufacturing:)
+  // are translated to canonical schema keys.
   assert.ok(
-    prompt.includes("with these exact property names") ||
-    prompt.includes("with these property names"),
+    prompt.includes("with these exact property names"),
     "missing inline property-names enumeration"
   );
   assert.ok(prompt.includes("headquarters_location"), "must enumerate canonical headquarters_location key");
   assert.ok(prompt.includes("manufacturing_locations"), "must enumerate canonical manufacturing_locations key");
   assert.ok(prompt.includes("product_keywords"), "must enumerate canonical product_keywords key");
 
-  // Phase 2.19.9: the verbose TOOL BUDGET / EMIT EARLY / "After 12 tool calls"
-  // prose blocks were removed. The same protections are now enforced in code:
-  //   - Tool cap at 12 in xaiLiveSearchStreaming
-  //   - 45s grace window after cap
-  //   - Abort on post-cap tool call with 0 text (Phase 2.19.3)
-  //   - Homepage-extraction fallback (Phase 2.19.7)
-  // Locking this in: assert these prose blocks are NOT in the prompt.
-  assert.ok(!/TOOL BUDGET — read carefully/i.test(prompt), "TOOL BUDGET prose block should be removed (code enforces)");
-  assert.ok(!/EMIT EARLY/i.test(prompt), "EMIT EARLY prose block should be removed (code enforces)");
-  assert.ok(!/After 12 tool calls you MUST stop/i.test(prompt), "explicit 12-cap prose should be removed (code enforces)");
+  // Phase 2.4 — TOOL BUDGET block with explicit per-field allocation,
+  // EMIT EARLY trigger at 6+ calls, and hard cap at 12. Replaces the
+  // single-sentence "after N tool calls" guard from earlier phases.
+  assert.ok(
+    /TOOL BUDGET/i.test(prompt),
+    "prompt must include TOOL BUDGET block (Phase 2.4)"
+  );
+  assert.ok(
+    /maximum of 12 web_search/i.test(prompt),
+    "prompt must declare 12-call ceiling (Phase 2.19.A re-bumped from 10 — UGG hit cap exactly)"
+  );
+  assert.ok(
+    /EMIT EARLY/i.test(prompt) && /6 or more tool calls/i.test(prompt),
+    "prompt must include EMIT EARLY trigger at 6+ tool calls"
+  );
+  // Phase 2.5 — EMIT EARLY required tagline AND headquarters_location.
+  // Phase 2.7 — additionally requires "attempted at least one reviews
+  // search" so the model spends a tool call on reviews before emitting,
+  // closing the gap where complex brands (Crocs) populated 5/6 fields
+  // but skipped reviews entirely because EMIT EARLY fired before the
+  // model got to the reviews phase.
+  assert.ok(
+    /tagline \+ headquarters_location/i.test(prompt) || /tagline and headquarters_location/i.test(prompt),
+    "Phase 2.5+: EMIT EARLY trigger must require tagline AND headquarters_location"
+  );
+  assert.ok(
+    /attempted at least one reviews search/i.test(prompt),
+    "Phase 2.7: EMIT EARLY trigger must require attempted reviews search"
+  );
+  assert.ok(
+    /After 12 tool calls you MUST stop/i.test(prompt),
+    "prompt must include hard cap at 10 tool calls (Phase 2.5)"
+  );
 
   // Phase 2.3 — explicit "no label leakage" instruction. Without this, the
   // model bled "HQ:" into the headquarters_location JSON value (Beek import).
-  // Phase 2.19.9 reworded "Do NOT include any field labels" to "Do NOT
-  // include field labels" — same intent, one fewer word.
   assert.ok(
-    /Do NOT include (any )?field labels/i.test(prompt),
+    /Do NOT include any field labels/i.test(prompt),
     "prompt must explicitly forbid label leakage into JSON values"
   );
 
@@ -218,16 +238,9 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
     /official website/i.test(prompt) && /one additional/i.test(prompt),
     "Phase 2.4: HQ/Manufacturing rules must reference 'official site + 1 additional' as the verification floor"
   );
-  // Phase 2.19.9: "Time and tool budget are bounded — prefer emitting partial
-  // JSON over searching exhaustively" sentence was dropped during the prompt
-  // trimming pass (TOOL BUDGET / EMIT EARLY blocks were removed; this preamble
-  // sentence was their setup). Same intent now lives in the simpler trailing
-  // emission mandate ("If the company has thin web presence, emit the JSON
-  // with empty values for what you couldn't find — do not skip emission").
   assert.ok(
-    /prefer emitting partial JSON/i.test(prompt) ||
-    /do not skip emission/i.test(prompt),
-    "Phase 2.4/2.19.9: preamble or trailing must convey 'partial JSON beats no JSON'"
+    /prefer emitting partial JSON/i.test(prompt),
+    "Phase 2.4: preamble must include 'prefer emitting partial JSON' bounded-budget framing"
   );
 
   // ── Phase 2.4 — Products rule (universal categories, NOT exhaustive) ──────
@@ -481,47 +494,40 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.19.9: PROMPT_GUIDANCE_VERSION is 7.2.0-grok-aligned-quick-wins", () => {
-  // Bumped from 7.1.12 (Phase 2.19.5). Phase 2.19.9 implements Grok-4's
-  // architectural review recommendations:
-  //   - Default response_format mode = json_object (not strict json_schema)
-  //   - excluded_websites narrowed to amazon variants only (drop google.*)
-  //   - conversation_id = per-company (not per-batch) for fresh prefix-cache
-  //   - Prompt trimmed: drop TOOL BUDGET / MINIMUM EFFORT / EMIT EARLY /
-  //     NARROW BRANDS / EMIT-DIRECT RULES blocks. Code now enforces those
-  //     guarantees via tool cap, grace timer, abort logic, and fallback.
-  // Net: ~50% prompt reduction; emission feels primary, not secondary.
+test("Phase 2.19.5: PROMPT_GUIDANCE_VERSION is 7.1.12-emit-direct-from-homepage", () => {
+  // Bumped from 7.1.11 (Phase 2.19.4 narrow-brand-relax) — strengthened the
+  // homepage-context block to explicitly tell the model "EMIT DIRECTLY from
+  // Homepage Context for tagline/HQ; do NOT run verification searches".
+  // Empirical (Green Mountain + Jif batch, 2026-05-09): both succeeded in
+  // 3:32 / 3:26 wall-clock with the model running near-full 12 tool calls,
+  // when 2-4 of those were verification searches for facts already in the
+  // homepage prefetch. Skipping those saves ~30-60s per company AND reduces
+  // the chance of hitting the deep-tool-loop failure pattern that hits
+  // small/Smucker-owned brands like Adams + MaraNatha.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.2\.0-grok-aligned-quick-wins/,
-    "PROMPT_GUIDANCE_VERSION must be 7.2.0-grok-aligned-quick-wins for Phase 2.19.9"
+    /^7\.1\.12-emit-direct-from-homepage/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.12-emit-direct-from-homepage for Phase 2.19.5"
   );
 });
 
-test("Phase 2.19.9: homepage-context block uses concise emit-from-context phrasing", () => {
-  // Phase 2.19.5 added a verbose "EMIT-DIRECT RULES" block (~6 lines).
-  // Phase 2.19.9 trimmed it to a single sentence per Grok-4's review:
-  // "Emit tagline and HQ directly from this context if visible — do NOT
-  // run verification searches for facts the homepage already provides."
-  // Locks down the intent without the verbose all-caps prose.
+test("Phase 2.19.5: emit-direct rules appear in homepage-context block when context is non-empty", () => {
   const promptWithContext = buildCanonicalImportPrompt({
     companyName: "Acme Corp",
     websiteUrl: "https://acme.example",
     homepageContext: "Title: Acme Corp\nDescription: makers of widgets\nAbout: Founded 2010 in Boise, ID, USA",
   });
   assert.ok(
-    /Homepage Context.*pre-fetched/i.test(promptWithContext),
-    "Homepage-context block must remain present"
+    /EMIT-DIRECT RULES/i.test(promptWithContext),
+    "Homepage-context block must include EMIT-DIRECT RULES section"
   );
   assert.ok(
-    /Emit tagline and HQ directly/i.test(promptWithContext) ||
-    /EMIT IT DIRECTLY/i.test(promptWithContext),
-    "Must instruct emit directly from context (either trimmed or verbose form)"
+    /EMIT IT DIRECTLY/.test(promptWithContext),
+    "Must explicitly tell model to EMIT directly without verification searches"
   );
   assert.ok(
-    /do NOT run verification searches/i.test(promptWithContext) ||
     /DO NOT run a (web_search|verification search)/i.test(promptWithContext),
-    "Must tell model not to run verification searches for facts in context"
+    "Must explicitly tell model not to run verification searches for facts in context"
   );
   // No-context branch unchanged.
   const promptNoContext = buildCanonicalImportPrompt({
@@ -612,16 +618,10 @@ test("Phase 2.19.4: Industries / Products rules accommodate narrow / single-prod
     /creamy peanut butter|crunchy peanut butter|natural peanut butter/i.test(prompt),
     "Should provide a concrete narrow-brand example (single-product peanut butter)"
   );
-  // Phase 2.19.9: the standalone "NARROW BRANDS — emit early" prose block
-  // was removed (per Grok-4's review of prompt bloat). The narrow-brand
-  // intent is now captured INSIDE the Industries and Products rules
-  // themselves ("DO NOT keep searching to pad the list ..."). The test
-  // asserts that the inline narrow-brand intent is still present in
-  // either rule, even though the standalone all-caps trigger block is gone.
+  // EMIT EARLY trigger should explicitly cover narrow brands.
   assert.ok(
-    /DO NOT keep searching to pad/i.test(prompt) &&
-    /narrow.*single-product brand/i.test(prompt),
-    "Industries/Products rules must inline the don't-pad-narrow-brands intent"
+    /NARROW BRANDS.*emit early/i.test(prompt),
+    "EMIT EARLY trigger must include the NARROW BRANDS branch"
   );
 });
 
@@ -664,13 +664,11 @@ test("Phase 2.12: buildCanonicalImportPrompt accepts and injects homepageContext
     "prompt must inline the actual fetched content"
   );
   // Phase 2.19.5 replaced "Use the Homepage Context FIRST" with explicit
-  // EMIT-DIRECT RULES. Phase 2.19.9 trimmed those rules to the single
-  // sentence "Emit tagline and HQ directly from this context". All three
-  // phrasings communicate the same intent; accept any of them.
+  // EMIT-DIRECT RULES that go further: emit tagline / HQ from homepage
+  // context without verification searches. Either phrasing is acceptable.
   assert.ok(
     /Use the Homepage Context FIRST/i.test(prompt) ||
-    /EMIT-DIRECT RULES/i.test(prompt) ||
-    /Emit tagline and HQ directly from this context/i.test(prompt),
+    /EMIT-DIRECT RULES/i.test(prompt),
     "prompt must direct the model to use Homepage Context before web_search"
   );
 });
@@ -693,26 +691,24 @@ test("Phase 2.12: buildCanonicalImportPrompt handles empty homepageContext grace
   );
 });
 
-test("Phase 2.19.9: anti-give-up condensed to a single emission mandate", () => {
-  // Phase 2.12 added Grok's verbatim verbose anti-give-up paragraph (~5
-  // sentences). Phase 2.19.9 condensed this per Grok-4's later review —
-  // the verbose version was contributing to prompt bloat and making
-  // emission feel secondary. The single core mandate ("never finish with
-  // only tool calls") plus the type-correct empty values guidance carry
-  // the same protection in fewer tokens.
+test("Phase 2.12: anti-give-up language strengthened (Grok's verbatim wording)", () => {
   const prompt = buildCanonicalImportPrompt({
     companyName: "Acme",
     websiteUrl: "https://acme.example.com",
   });
+  // Grok's verbatim phrasing pulled into Phase 2.6's MUST-emit block.
   assert.ok(
-    /Never finish with only tool calls/i.test(prompt) ||
     /Never complete a response with only tool calls and zero text/i.test(prompt),
-    "anti-give-up clause must be present (trimmed or verbose form)"
+    "anti-give-up clause must be present (Grok's verbatim phrasing)"
   );
-  // The "You cannot give up early" + "If your first 1-2 web_search calls"
-  // sentences are dropped; their intent is captured by "do not skip emission"
-  // and the Phase 2.19.7 homepage-extraction fallback (which rescues
-  // tagline+HQ when the canonical model gives up).
+  assert.ok(
+    /You cannot give up early/i.test(prompt),
+    "must explicitly forbid giving up early"
+  );
+  assert.ok(
+    /If your first 1-2 web_search calls returned thin or unhelpful results/i.test(prompt),
+    "must address the give-up-after-thin-results pattern"
+  );
 });
 
 test("Phase 2.11: canonical reviews rule includes fallback-to-company-site language (preserved through 2.12)", () => {
@@ -755,47 +751,35 @@ test("Phase 2.6: prompt mandates JSON object emission (cannot output nothing)", 
     websiteUrl: "https://acme.example.com",
   });
   // The single most important Phase 2.6 instruction: model MUST emit JSON.
-  // Phase 2.19.9 trimmed the redundant follow-up sentences ("Outputting
-  // nothing is NOT acceptable" etc.) since the same intent is captured by
-  // the shorter "Never finish with only tool calls" + "do not skip emission"
-  // phrasing. Lock down the core mandate only.
   assert.ok(
     /You MUST emit a JSON object/i.test(prompt),
     "prompt must explicitly mandate that the model emits a JSON object"
   );
   assert.ok(
-    /Never finish with only tool calls/i.test(prompt) ||
     /Outputting nothing is NOT acceptable/i.test(prompt),
-    "prompt must explicitly forbid finishing without text"
+    "prompt must explicitly forbid emitting nothing"
   );
   assert.ok(
-    /do not skip emission/i.test(prompt) ||
     /Emitting an all-empty JSON object is preferable/i.test(prompt),
-    "prompt must clarify that emission is mandatory even with empty fields"
+    "prompt must clarify that all-empty JSON is preferable to no output"
   );
 });
 
-test("Phase 2.19.9: tool-budget enforcement now lives in code, not prompt prose", () => {
-  // Phase 2.6 originally required a "MINIMUM EFFORT" prose block telling the
-  // model to make at least 2 tool calls before giving up. Phase 2.19.9 drops
-  // that block — the same protection is now enforced in code:
-  //   - Tool cap (12 calls) in xaiLiveSearchStreaming
-  //   - 45s grace window after cap is hit
-  //   - Abort on post-cap tool call with 0 text (Phase 2.19.3)
-  //   - Homepage-extraction fallback rescues tagline+HQ on canonical failure
-  //     (Phase 2.19.7)
-  //   - SSE-stall detection (60s silence → abort) in Phase 2.9.C
-  // Per Grok-4's review: the redundant prompt blocks (TOOL BUDGET,
-  // MINIMUM EFFORT, EMIT EARLY, NARROW BRANDS) were bloating the prompt to
-  // 13K chars and making emission feel secondary to the model. Trimming them
-  // and relying on code-level enforcement is the cleaner architecture.
+test("Phase 2.6: prompt requires minimum 2 tool calls before giving up", () => {
   const prompt = buildCanonicalImportPrompt({
     companyName: "Acme",
     websiteUrl: "https://acme.example.com",
   });
-  // The trimmed prompt should NOT contain the verbose blocks anymore.
-  assert.ok(!/MINIMUM EFFORT/i.test(prompt), "MINIMUM EFFORT block should be removed");
-  assert.ok(!/TOOL BUDGET — read carefully/i.test(prompt), "TOOL BUDGET block should be removed");
-  assert.ok(!/EMIT EARLY/i.test(prompt), "EMIT EARLY prose block should be removed");
-  // But the JSON-emission mandate must remain (locked in the test above).
+  assert.ok(
+    /MINIMUM EFFORT/i.test(prompt),
+    "prompt must include a MINIMUM EFFORT block"
+  );
+  assert.ok(
+    /at least 2 tool calls/i.test(prompt),
+    "prompt must require at least 2 tool calls"
+  );
+  assert.ok(
+    /Do NOT terminate after 0 or 1 tool calls/i.test(prompt),
+    "prompt must explicitly forbid 0-or-1-call termination"
+  );
 });
