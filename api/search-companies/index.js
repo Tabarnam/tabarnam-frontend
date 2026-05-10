@@ -2003,6 +2003,75 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       }
 
+      // ── Pass 4: industry-related companies ──
+      // When the user searched a specific brand (clear name match,
+      // nameScore >= 90) — e.g. "MaraNatha", "Santa Cruz Organic" — also
+      // surface companies that share the brand's industry tags so the user
+      // sees peers in the same product category. Without this, an obscure
+      // brand search returns one card; with it, the user gets the brand
+      // first plus a curated set of related companies (e.g. other Organic
+      // Nut Butter makers for MaraNatha).
+      //
+      // Skipped: in quickMode, on pages > 1 (related companies belong with
+      // the primary on page 1), and when no primary brand match exists in
+      // the result set.
+      if (!quickMode && q_norm && skip === 0) {
+        let primary = null;
+        let primaryScore = 0;
+        for (const c of items) {
+          const score = computeNameMatchScore(c, q_raw, q_norm, q_compact);
+          if (score > primaryScore) {
+            primaryScore = score;
+            primary = c;
+          }
+        }
+        if (
+          primary &&
+          primaryScore >= 90 &&
+          Array.isArray(primary.industries) &&
+          primary.industries.length > 0
+        ) {
+          // Cap how many of the primary's industries we look up — most brands
+          // have 1-3 meaningful tags; capping at 5 keeps the SQL bounded.
+          const seedIndustries = primary.industries
+            .map((ind) => String(ind || "").toLowerCase().trim())
+            .filter(Boolean)
+            .slice(0, 5);
+          if (seedIndustries.length > 0) {
+            const indParams = [{ name: "@indTake", value: 50 }];
+            const indClauses = seedIndustries.map((ind, i) => {
+              const p = `@ind${i}`;
+              indParams.push({ name: p, value: ind });
+              // EXISTS over c.industries with LOWER() so the match is
+              // case-insensitive against however the data was stored.
+              return `EXISTS(SELECT VALUE x FROM x IN c.industries WHERE LOWER(x) = ${p})`;
+            });
+            const indSql = `
+              SELECT TOP @indTake ${SELECT_FIELDS}
+              FROM c
+              WHERE (${indClauses.join(" OR ")}) AND ${softDeleteFilter}
+              ORDER BY c._ts DESC
+            `;
+            try {
+              const indRes = await container.items
+                .query({ query: indSql, parameters: indParams }, { enableCrossPartitionQuery: true })
+                .fetchAll();
+              const indItems = indRes.resources || [];
+              const existingIds = new Set(items.map((i) => i.id));
+              for (const item of indItems) {
+                if (existingIds.has(item.id)) continue;
+                item._industryRelated = true;
+                items.push(item);
+                existingIds.add(item.id);
+              }
+            } catch (indErr) {
+              // Best-effort. If this fails the user still gets the primary match.
+              context.log("[search-companies] industry-related pass error:", indErr?.message);
+            }
+          }
+        }
+      }
+
       const normalized = items.map((r) => {
         if (!r?.created_at && typeof r?._ts === "number") {
           try {
