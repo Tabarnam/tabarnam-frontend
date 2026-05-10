@@ -530,6 +530,13 @@ async function _runMultiSubCall({
       conversationId,
       signal,
       response_format,
+      // Phase 3.0.1 — multi-call mode disables the post-cap-abort heuristic.
+      // The 45s grace timer (Phase 2.4) is the correct backstop for multi-call
+      // since per-call scope is narrow enough that "model stuck in research"
+      // is unlikely; the more common pattern is "model just hit cap and is
+      // about to compose JSON" — Phase 2.19.3 was aborting those legitimate
+      // emissions for Mezzetta + Partanna-style brands.
+      disablePostCapAbort: true,
     });
   } catch (err) {
     return {
