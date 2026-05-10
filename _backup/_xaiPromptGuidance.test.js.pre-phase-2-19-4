@@ -105,13 +105,7 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   // Specific verbatim grok.com phrases (production-refined wording)
   assert.ok(prompt.includes("Use initials for states or provinces"), "HQ format rule missing");
   assert.ok(prompt.includes("Use USA, not US"), "USA-not-US rule missing");
-  // Phase 2.19.4: lowered floor from "8-15" to "3-15" for narrow / single-
-  // product brands (e.g. Adams Peanut Butter — only ~4 actual industry tags).
-  // Either phrasing acceptable to support transition.
-  assert.ok(
-    prompt.includes("3-15 short noun phrases") || prompt.includes("8-15 short noun phrases"),
-    "industries count rule missing"
-  );
+  assert.ok(prompt.includes("8-15 short noun phrases"), "industries count rule missing");
   // Phase 2.4: relaxed from "Find 5 unique, legitimate third-party reviews"
   // to "Find up to 5 unique third-party reviews" — accepts fewer-than-5
   // results without padding.
@@ -494,21 +488,21 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 2.19.4: PROMPT_GUIDANCE_VERSION is 7.1.11-narrow-brand-relax", () => {
-  // Bumped from 7.1.10 (Phase 2.19.2 retailer-curator-mfg) — relaxed
-  // industries / products minimums for narrow / single-product brands.
-  // Empirical (Adams Peanut Butter, 2026-05-09): canonical call made 14
-  // tool calls in 178s and emitted 0 text. Adams is a single-product brand
-  // (peanut butter only — creamy, crunchy, natural variants). The prompt's
-  // hard floors of "8-15 industries" and "10-20 products" drove the model
-  // to keep searching to pad those lists when the brand legitimately makes
-  // 3-6 things. Phase 2.19.4 lowers the floors to 3 with explicit narrow-
-  // brand examples and an EMIT EARLY trigger that says "small-but-accurate
-  // is correct, don't pad."
+test("Phase 2.19.2: PROMPT_GUIDANCE_VERSION is 7.1.10-retailer-curator-mfg", () => {
+  // Bumped from 7.1.9 (Phase 2.19.A tool-cap-12) — adjusted Manufacturing rule
+  // for retailer-curators. Empirical (Top Drawer, 2026-05-09): the canonical
+  // call ran 12 tool calls in 144s and emitted manufacturing_locations: []
+  // because the prompt told the model "If retailer/marketplace/reseller →
+  // emit []". Top Drawer is a curator of Japanese-style products from many
+  // suppliers (notebooks, pens, watercolors, eyewear) — country-level supplier
+  // info IS meaningful here. grok.com on the same prompt returned 9 supplier
+  // countries in 29s. Phase 2.19.2 narrows the [] exception to true marketplace
+  // platforms (Amazon/eBay) and explicitly tells the model to list supplier
+  // countries for retailer-curators.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^7\.1\.11-narrow-brand-relax/,
-    "PROMPT_GUIDANCE_VERSION must be 7.1.11-narrow-brand-relax for Phase 2.19.4"
+    /^7\.1\.10-retailer-curator-mfg/,
+    "PROMPT_GUIDANCE_VERSION must be 7.1.10-retailer-curator-mfg for Phase 2.19.2"
   );
 });
 
@@ -544,42 +538,6 @@ test("Phase 2.14: Manufacturing rule directs the model to parent-company sources
   assert.ok(
     /\[Brand\] manufacturing|\[Brand\] supplier|\[Brand\] factory|made in/i.test(prompt),
     "Manufacturing rule must suggest concrete web_search queries"
-  );
-});
-
-test("Phase 2.19.4: Industries / Products rules accommodate narrow / single-product brands", () => {
-  const prompt = buildCanonicalImportPrompt({
-    companyName: "Adams Peanut Butter",
-    websiteUrl: "https://www.adamspeanutbutter.com",
-  });
-  // Industries floor must be relaxed to allow short lists for narrow brands.
-  assert.ok(
-    prompt.includes("3-15 short noun phrases"),
-    "Industries rule must use 3-15 floor (relaxed from 8-15) for narrow brands"
-  );
-  // Products floor must be relaxed similarly.
-  assert.ok(
-    /3-20 universal product/i.test(prompt),
-    "Products rule must use 3-20 floor (relaxed from 10-20) for narrow brands"
-  );
-  // Explicit narrow-brand call-outs must appear in both rules.
-  assert.ok(
-    /narrow.*single-product brand/i.test(prompt),
-    "Industries / Products rules must explicitly call out narrow / single-product brands"
-  );
-  assert.ok(
-    /DO NOT keep searching to pad/i.test(prompt),
-    "Rules must explicitly tell the model not to pad lists by searching"
-  );
-  // Concrete narrow-brand example for peanut butter (matches the Adams pattern).
-  assert.ok(
-    /creamy peanut butter|crunchy peanut butter|natural peanut butter/i.test(prompt),
-    "Should provide a concrete narrow-brand example (single-product peanut butter)"
-  );
-  // EMIT EARLY trigger should explicitly cover narrow brands.
-  assert.ok(
-    /NARROW BRANDS.*emit early/i.test(prompt),
-    "EMIT EARLY trigger must include the NARROW BRANDS branch"
   );
 });
 
