@@ -563,6 +563,30 @@ export function getContractMissingFields(company) {
     }
   }
 
+  // Check for missing tagline (client-side, in case backend didn't flag it)
+  if (!asString(company?.tagline).trim() && !fields.includes("tagline")) {
+    fields.push("tagline");
+  }
+
+  // Check for missing industries (client-side, in case backend didn't flag it)
+  const hasIndustriesData =
+    (Array.isArray(company?.industries) && company.industries.length > 0) ||
+    (Array.isArray(company?.industry) && company.industry.length > 0) ||
+    Boolean(asString(company?.industry).trim());
+  if (!hasIndustriesData && !fields.includes("industries") && !fields.includes("industry")) {
+    fields.push("industries");
+  }
+
+  // Check for missing keywords / products (client-side, in case backend didn't flag it)
+  const hasKeywordsData =
+    (Array.isArray(company?.keywords) && company.keywords.length > 0) ||
+    (Array.isArray(company?.product_keywords) && company.product_keywords.length > 0) ||
+    Boolean(asString(company?.product_keywords).trim()) ||
+    Boolean(asString(company?.keywords).trim());
+  if (!hasKeywordsData && !fields.includes("keywords") && !fields.includes("product_keywords")) {
+    fields.push("keywords");
+  }
+
   // Check for missing homepage image (unless admin cleared the issue)
   const hasHomepage = Boolean(asString(company?.homepage_image_url).trim());
   const homepageCleared = Boolean(company?.homepage_issue_cleared);
