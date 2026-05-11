@@ -692,17 +692,15 @@ test("Phase 2.4: DEFAULT_TIMEOUT_MS is 240_000 (bumped from 150_000)", () => {
   );
 });
 
-test("Phase 3.3: _xaiLiveSearch grace window is 25_000 (down from 45_000)", () => {
-  // Empirical evidence (Mezzetta, Big Spoon, Amagabeli, Camp Chef): when the
-  // model emits text post-cap legitimately, first_text arrives within
-  // 0.5-20s. 25s gives generous headroom for that path while saving 20s
-  // when the model is genuinely stuck in a research loop (Amagabeli, Camp
-  // Chef pattern). Previous values: Phase 2.4 (45s ← 120s), Phase 3.3 (25s).
+test("Phase 2.4: _xaiLiveSearch grace window is 45_000 (down from 120_000)", () => {
+  // After tool cap exceeded, give 45s for text to start. If the model
+  // hasn't emitted text in 45s, it's stuck — abort to free the connection
+  // rather than burn the full timeout on dead grace.
   const fs = require("node:fs");
   const src = fs.readFileSync(path.join(__dirname, "_xaiLiveSearch.js"), "utf8");
   assert.ok(
-    /\}, 25_000\)/.test(src) && /Grace period \(25s\)/i.test(src),
-    "grace window must be 25_000ms with matching log message (Phase 3.3 reduction)"
+    /\}, 45_000\)/.test(src) && /Grace period \(45s\)/i.test(src),
+    "grace window must be 45_000ms with matching log message (Phase 2.4 reduction)"
   );
 });
 

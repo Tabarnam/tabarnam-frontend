@@ -530,14 +530,13 @@ async function _runMultiSubCall({
       conversationId,
       signal,
       response_format,
-      // Phase 3.3 — replaced Phase 3.0.1's `disablePostCapAbort: true` with
-      // a tolerance of 2 tool calls past cap. Empirical (Amagabeli + Camp
-      // Chef, 2026-05-11): multi-call brands' Call 2/3 went 6+ calls past
-      // cap with 0 text emitted, burning the full grace timer. tolerance=2
-      // catches Mezzetta-style "one more search before emit" (Mezzetta
-      // emitted at #6, well within tolerance) while bounding Amagabeli-
-      // style deep-research runaway (#8 forces abort).
-      postCapToolCallTolerance: 2,
+      // Phase 3.0.1 — multi-call mode disables the post-cap-abort heuristic.
+      // The 45s grace timer (Phase 2.4) is the correct backstop for multi-call
+      // since per-call scope is narrow enough that "model stuck in research"
+      // is unlikely; the more common pattern is "model just hit cap and is
+      // about to compose JSON" — Phase 2.19.3 was aborting those legitimate
+      // emissions for Mezzetta + Partanna-style brands.
+      disablePostCapAbort: true,
     });
   } catch (err) {
     return {

@@ -591,34 +591,25 @@ async function xaiLiveSearchStreaming({
   maxToolCalls = 5,
   conversationId, // Optional: xAI conversation_id for prefix caching
   response_format, // Optional: { type: "json_schema", json_schema: { name, schema, strict } } for guaranteed shape
-  // Phase 3.3 — replaced Phase 3.0.1's boolean `disablePostCapAbort` with a
-  // numeric tolerance. Now caller specifies how many tool calls past the
-  // soft cap are allowed before forcing an abort.
+  // Phase 3.0.1 — disable the Phase 2.19.3 post-cap-abort heuristic.
+  // When true, a tool call firing AFTER the soft cap does NOT trigger an
+  // immediate controller.abort(). The 45s grace timer (set when cap is
+  // first reached) still runs and aborts if no text accumulates.
   //
-  // Phase 3.0.1 set this to "infinity" for multi-call mode (post-cap-abort
-  // disabled). Phase 2.19.3's behavior was effectively 0 (abort at first
-  // post-cap call). Both were wrong:
-  // - Phase 2.19.3 (tolerance 0): Mezzetta/Partanna fired #6 then emitted
-  //   text within 15s. Abort killed legitimate synthesis.
-  // - Phase 3.0.1 (tolerance ∞): Amagabeli/Camp Chef fired #6..#11 with
-  //   ZERO text emitted. Grace timer eventually aborted but burned 40-60s
-  //   of dead tool calls + grace per failed sub-call.
+  // Use case: multi-call mode (Phase 3.0). Empirical (Mezzetta + Partanna,
+  // 2026-05-10): Grok-4 with web_search batches ALL tool calls first, then
+  // emits text in a final burst. Phase 2.19.3's post-cap-abort fires when
+  // tool call #6 happens with 0 text — but the model is often just about
+  // to enter the emission phase. Aborting at #6 throws away the synthesis
+  // that was 1-3 seconds away. Multi-call's smaller per-call scope and
+  // 5-tool cap make the "stuck in research loop" pattern that Phase 2.19.3
+  // was protecting against far less likely; the 45s grace timer suffices.
   //
-  // Sweet spot: tolerance=2 (multi-call) — allows #6, #7, hard-aborts at #8.
-  // Catches Mezzetta-style "one more search before emit" while bounding
-  // Amagabeli-style deep-research runaway.
-  //
-  // Single-call mode (Phase 2.x) keeps tolerance=0 (legacy behavior) since
-  // its larger 12-cap already has more headroom.
-  //
-  // Legacy `disablePostCapAbort` parameter still honored: true → tolerance=∞.
-  postCapToolCallTolerance = 0,
-  disablePostCapAbort = false,  // legacy, translates to tolerance=∞
+  // Single-call mode (Phase 2.x) keeps the post-cap-abort to bound cost
+  // for the Adams-style 14-tool-call runaways (cap=12, ~$0.05 wasted on
+  // each runaway). Default false for backward compatibility.
+  disablePostCapAbort = false,
 } = {}) {
-  // Phase 3.3 — reconcile legacy + new param.
-  const _effectiveTolerance = disablePostCapAbort
-    ? Number.POSITIVE_INFINITY
-    : Math.max(0, Math.trunc(Number(postCapToolCallTolerance) || 0));
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
   ).trim();
@@ -983,24 +974,15 @@ async function xaiLiveSearchStreaming({
               // catches this stall pattern. The grace window still allows
               // 45s for text output, so legitimate completions at exactly
               // the cap aren't penalized.
-              // Phase 3.3 — tightened grace 45s → 25s. Empirical evidence:
-              // when the model emits text post-cap legitimately (Mezzetta,
-              // Big Spoon), first_text arrives within 0.5-20s. 25s gives
-              // generous headroom for that path while saving 20s when the
-              // model is genuinely stuck (Amagabeli, Camp Chef).
-              console.log(`[xaiLiveSearchStreaming] Tool cap ${maxToolCalls} reached (call #${toolCalls}) — waiting for text output (25s grace)`);
+              console.log(`[xaiLiveSearchStreaming] Tool cap ${maxToolCalls} reached (call #${toolCalls}) — waiting for text output (45s grace)`);
               abortedByToolCap = true;
               setTimeout(() => {
                 if (accumulatedText.length === 0) {
-                  console.log(`[xaiLiveSearchStreaming] Grace period (25s) expired with 0 text — aborting`);
+                  console.log(`[xaiLiveSearchStreaming] Grace period (45s) expired with 0 text — aborting`);
                   controller.abort();
                 }
-              }, 25_000);
-            } else if (
-              abortedByToolCap &&
-              accumulatedText.length === 0 &&
-              (toolCalls - maxToolCalls) > _effectiveTolerance
-            ) {
+              }, 45_000);
+            } else if (abortedByToolCap && accumulatedText.length === 0 && !disablePostCapAbort) {
               // Phase 2.19.3 — aggressive abort when model keeps making tool
               // calls AFTER the cap with still 0 text. Empirical (Adams
               // peanut butter session 2cf0333f, 2026-05-09): cap hit at #12,
@@ -1028,7 +1010,7 @@ async function xaiLiveSearchStreaming({
               // of cap and were aborted before the model could emit text.
               // The 45s grace timer (above) is the correct backstop for
               // multi-call.
-              console.log(`[xaiLiveSearchStreaming] Tool call #${toolCalls} fired AFTER cap (${maxToolCalls}, tolerance=${_effectiveTolerance}) with 0 text — aborting (model stuck in research loop)`);
+              console.log(`[xaiLiveSearchStreaming] Tool call #${toolCalls} fired AFTER cap (${maxToolCalls}) with 0 text — aborting (model stuck in research loop)`);
               try { controller.abort(); } catch {}
             }
           }
