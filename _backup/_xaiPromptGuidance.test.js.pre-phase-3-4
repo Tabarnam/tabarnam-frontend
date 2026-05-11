@@ -19,10 +19,9 @@ const {
 
 test("PROMPT_GUIDANCE_VERSION reflects single-call canonical cut", () => {
   // Phase 1-2.x: major version 7. Phase 3.0 bumps to major 8 (multi-call).
-  // Phase 3.4 bumps to major 9 (single-call revert with 18-tool budget).
-  // All three are acceptable here — this is the broad "we're on the
-  // canonical architecture" guard.
-  assert.match(PROMPT_GUIDANCE_VERSION, /^[789]\./);
+  // Either is acceptable here — this is the broad "we're on the canonical
+  // architecture" guard.
+  assert.match(PROMPT_GUIDANCE_VERSION, /^[78]\./);
 });
 
 test("buildCanonicalImportPrompt explicitly forbids fabrication and requires per-field empty types (Phase 2.3)", () => {
@@ -224,16 +223,14 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   );
   // Phase 2.19.9: "Time and tool budget are bounded — prefer emitting partial
   // JSON over searching exhaustively" sentence was dropped during the prompt
-  // trimming pass. Same intent lived in the trailing emission mandate
-  // ("emit the JSON with empty values... do not skip emission"). Phase 3.4
-  // replaced the trailing sentence with a strengthened mandate at the top:
-  // "Always emit a complete JSON object even if some fields are partial or
-  // unknown." Same partial-JSON-beats-no-JSON intent.
+  // trimming pass (TOOL BUDGET / EMIT EARLY blocks were removed; this preamble
+  // sentence was their setup). Same intent now lives in the simpler trailing
+  // emission mandate ("If the company has thin web presence, emit the JSON
+  // with empty values for what you couldn't find — do not skip emission").
   assert.ok(
     /prefer emitting partial JSON/i.test(prompt) ||
-    /do not skip emission/i.test(prompt) ||
-    /complete JSON object even if some fields are partial or unknown/i.test(prompt),
-    "Phase 2.4/2.19.9/3.4: preamble or trailing must convey 'partial JSON beats no JSON'"
+    /do not skip emission/i.test(prompt),
+    "Phase 2.4/2.19.9: preamble or trailing must convey 'partial JSON beats no JSON'"
   );
 
   // ── Phase 2.4 — Products rule (universal categories, NOT exhaustive) ──────
@@ -487,65 +484,16 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 3.4: PROMPT_GUIDANCE_VERSION is 9.0.0-single-call-budget-18", () => {
-  // Phase 3.4 reverts from Phase 3.0's multi-call architecture back to
-  // single-call with an 18-tool budget (matching grok.com's empirical
-  // 14-15 tool-call usage observed on Amagabeli + Camp Chef 2026-05-11).
-  // Major bump 8.x → 9.x signals the architectural reversion.
+test("Phase 3.0: PROMPT_GUIDANCE_VERSION is 8.0.0-multi-call", () => {
+  // Major version bump from 7.x to 8.x marks the multi-call parallel canonical
+  // architecture. Phase 3.0 splits the single canonical call into 3 parallel
+  // calls (Core / Locations / Reviews) per Grok-4's architectural review.
+  // The 8.0.0 version signals the architectural cut; subsequent multi-call
+  // refinements would be 8.0.x or 8.x.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.0\.0-single-call-budget-18/,
-    "PROMPT_GUIDANCE_VERSION must be 9.0.0-single-call-budget-18 for Phase 3.4"
-  );
-});
-
-test("Phase 3.4: buildCanonicalImportPrompt includes emission mandate + 18-tool budget block at top", () => {
-  // Phase 3.4 inserts two paragraphs at the top of the SYSTEM block
-  // (between homepageContextBlock and Fields to populate). Grok-4 reviewed
-  // both paragraphs across two rounds; this test locks down the final
-  // strengthened wording so accidental reversion is caught.
-  const prompt = buildCanonicalImportPrompt({
-    companyName: "Acme Corp",
-    websiteUrl: "https://acme.example",
-    homepageContext: "Title: Acme Corp\nAbout: makers of widgets",
-  });
-  // (a) Strengthened emission mandate (Grok revision 1)
-  assert.ok(
-    /you MUST emit the final JSON object as your response/i.test(prompt),
-    "prompt must include 'you MUST emit the final JSON object as your response' (Grok revision 1)"
-  );
-  assert.ok(
-    /never finish with only tool calls and zero text/i.test(prompt),
-    "prompt must include 'never finish with only tool calls and zero text'"
-  );
-  assert.ok(
-    /critical failure mode we have observed and must avoid/i.test(prompt),
-    "prompt must include the Grok-tightened 'we have observed and must avoid' phrase"
-  );
-  assert.ok(
-    /complete JSON object even if some fields are partial or unknown/i.test(prompt),
-    "prompt must include 'complete JSON object... partial or unknown'"
-  );
-  // (b) Budget
-  assert.ok(
-    /tool budget:\s*up to 18 web_search/i.test(prompt),
-    "prompt must include 'tool budget: up to 18 web_search'"
-  );
-  // (c) Highest-confidence source (Grok revision 2)
-  assert.ok(
-    /Homepage Context block is your highest-confidence source[^.]*trust it directly/i.test(prompt),
-    "prompt must include the 'highest-confidence source — trust it directly' sentence (Grok revision 2)"
-  );
-  // (d) Reconciled homepage-aware emission language (Grok revision 3)
-  assert.ok(
-    /every requested field that isn't already (clearly )?present in the Homepage Context block above/i.test(prompt),
-    "prompt must contain the reconciled homepage-aware emission language (Grok revision 3)"
-  );
-  // Anti-regression — must NOT contain the unreconciled "verify EVERY field" wording
-  // that would conflict with the homepage-direct-emit optimization.
-  assert.ok(
-    !/until you have verified data for EVERY requested field/.test(prompt),
-    "prompt must NOT contain the unreconciled emission language that conflicts with homepage-direct-emit"
+    /^8\.0\.0-multi-call/,
+    "PROMPT_GUIDANCE_VERSION must be 8.0.0-multi-call for Phase 3.0"
   );
 });
 
@@ -806,13 +754,12 @@ test("Phase 2.6: prompt mandates JSON object emission (cannot output nothing)", 
     websiteUrl: "https://acme.example.com",
   });
   // The single most important Phase 2.6 instruction: model MUST emit JSON.
-  // Phase 2.19.9 trimmed the redundant follow-up sentences. Phase 3.4
-  // restructured: the strengthened mandate now lives at the TOP of the
-  // prompt ("You MUST emit the final JSON object as your response") and
-  // the redundant trailing "do not skip emission" sentence was deleted.
-  // Lock down the core mandate using the Phase 3.4 wording.
+  // Phase 2.19.9 trimmed the redundant follow-up sentences ("Outputting
+  // nothing is NOT acceptable" etc.) since the same intent is captured by
+  // the shorter "Never finish with only tool calls" + "do not skip emission"
+  // phrasing. Lock down the core mandate only.
   assert.ok(
-    /You MUST emit (a|the final) JSON object/i.test(prompt),
+    /You MUST emit a JSON object/i.test(prompt),
     "prompt must explicitly mandate that the model emits a JSON object"
   );
   assert.ok(
@@ -822,8 +769,7 @@ test("Phase 2.6: prompt mandates JSON object emission (cannot output nothing)", 
   );
   assert.ok(
     /do not skip emission/i.test(prompt) ||
-    /Emitting an all-empty JSON object is preferable/i.test(prompt) ||
-    /complete JSON object even if some fields are partial or unknown/i.test(prompt),
+    /Emitting an all-empty JSON object is preferable/i.test(prompt),
     "prompt must clarify that emission is mandatory even with empty fields"
   );
 });

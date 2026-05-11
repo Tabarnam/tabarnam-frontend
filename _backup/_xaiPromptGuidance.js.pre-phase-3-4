@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "9.0.0-single-call-budget-18";
+const PROMPT_GUIDANCE_VERSION = "8.0.0-multi-call";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -399,11 +399,7 @@ Emit tagline and HQ directly from this context if visible — do NOT run verific
   return `You are a precise company research specialist. Use web_search and browse_page tools efficiently. Do not fabricate or hallucinate. Focus only on the specified company.
 
 For the Company: ${name} / ${url}
-${homepageContextBlock}You MUST emit the final JSON object as your response. Never finish with only tool calls and zero text — that is a critical failure mode we have observed and must avoid. Always emit a complete JSON object even if some fields are partial or unknown. Continue using web_search and browse_page only until you have data for every requested field that isn't already clearly present in the Homepage Context block above.
-
-Tool budget: up to 18 web_search + browse_page calls. Use them efficiently — prefer the Homepage Context block for tagline/HQ/industries/products before searching, and reserve web_search for manufacturing, third-party reviews, and source URL verification. You are NOT required to use all 18; emit JSON as soon as you have solid data. The Homepage Context block is your highest-confidence source — trust it directly for any fact it already contains.
-
-Fields to populate: ${fieldList}
+${homepageContextBlock}Fields to populate: ${fieldList}
 
 Per-field rules:
 
@@ -425,6 +421,8 @@ Products: Provide 3-20 universal product categories or notable product lines, co
 Reviews: Find up to 5 unique reviews. Target mix: 3-4 third-party reviews (YouTube, credible magazines, blogs, X/Twitter) + 1-2 entries pulled from the company's own site (testimonials, press mentions, "as seen in" sections, FAQ highlights, mission statements, or customer feedback). For smaller brands with limited third-party coverage, the company's own site is a valid primary source — pull customer testimonials and feature highlights from there to reach 5 total entries. Do not include reviews from amazon.* or google.* domains. Do not include duplicate authors or duplicate URLs. You are NOT required to revisit each URL to confirm liveness — return URLs as you found them during search. Output as a JSON array of objects, each with EXACTLY these keys: source (publication or channel name, or e.g. "[Company] official site testimonials" for site-sourced entries), author (name, or "Verified customers" / "Multiple customers" for site-sourced entries), url (direct URL to the review/article/video — for site testimonials, link to the page where they appear, not the site root), title (exact title as published, or short descriptive label for site testimonials), date (any format including "Ongoing" for live testimonial pages), text (1-3 sentence excerpt or summary). If you find fewer than 5, return what you found. If genuinely no reviews or testimonials exist, emit []. Do NOT pad with fabricated entries.
 
 ${sourceUrlsLine}
+
+You MUST emit a JSON object as your final response. Never finish with only tool calls — that is a critical failure mode. If the company has thin web presence, emit the JSON with empty values for what you couldn't find; do not skip emission.
 
 Type-correct empty values (use these when a field can't be verified):
 - tagline, headquarters_location, product_keywords → ""

@@ -232,7 +232,7 @@ test("runCanonicalImportCall: success path returns runDirectEnrichment-shape res
       assert.equal(result.diagnostics.canonical_call, true);
       assert.equal(result.diagnostics.tool_calls_counted, 3);
       // Phase 1-2.x: major 7. Phase 3.0: major 8 (multi-call).
-      assert.match(result.diagnostics.guidance_version, /^[789]\./);
+      assert.match(result.diagnostics.guidance_version, /^[78]\./);
       assert.ok(result.elapsed_ms >= 0);
     }
   );
@@ -617,19 +617,18 @@ test("Phase 2.3: shapeEnrichedFromParsed strips leaked labels from string fields
   assert.equal(out.tagline, "beauty *can* be comfortable", "clean tagline must pass through unchanged");
 });
 
-test("Phase 3.4: DEFAULT_MAX_TOOL_CALLS is 18 (single-call revert matching grok.com's 14-15 baseline)", () => {
-  // Phase 3.4 source-level guard. Replaces the prior Phase 2.19.A (cap=12)
-  // assertion. Empirical (2026-05-11 Amagabeli + Camp Chef on grok.com):
-  // the same Grok-4 with the same web_search tool uses ~14-15 tool calls
-  // per company when coordinated by grok.com's internal multi-agent loop.
-  // 18 = grok.com's observed 14-15 + 3-tool headroom. Pairs with the
-  // revert from Phase 3.0's multi-call architecture back to single-call
-  // (XAI_MULTI_CALL_MODE=off).
+test("Phase 2.19.A: DEFAULT_MAX_TOOL_CALLS is 12 (re-bumped from 10 — UGG hit cap exactly)", () => {
+  // Source-level guard. Phase 2.4 had bumped 8→12 because complex brands
+  // were competing for xAI rate-limit headroom under concurrency. With
+  // Phase 2.5's account-level serialization lock (one active call at a
+  // time), the contention is gone, so we tighten back to 10 to align with
+  // the prompt's TOOL BUDGET block and to lean harder on the EMIT EARLY
+  // trigger.
   const fs = require("node:fs");
   const src = fs.readFileSync(path.join(__dirname, "_canonicalImport.js"), "utf8");
   assert.ok(
-    /const DEFAULT_MAX_TOOL_CALLS\s*=\s*18\b/.test(src),
-    "DEFAULT_MAX_TOOL_CALLS must be 18 (Phase 3.4 — single-call revert)"
+    /const DEFAULT_MAX_TOOL_CALLS\s*=\s*12\b/.test(src),
+    "DEFAULT_MAX_TOOL_CALLS must be 12 (Phase 2.19.A — bumped from 10 after UGG hit cap exactly)"
   );
 });
 
@@ -681,17 +680,15 @@ test("Phase 2.5: handler.js wires the xAI serialization lock around the canonica
   );
 });
 
-test("Phase 3.4: DEFAULT_TIMEOUT_MS is 270_000 (Grok-4-tuned for 18-tool budget)", () => {
-  // Phase 3.4 bumped 240s → 270s. At the new 18-tool budget (vs prior 12),
-  // 18 × ~10s + reasoning overhead can plausibly cross 4 min. 270s leaves
-  // headroom for the slowest-disambiguating brands while keeping SSE-stall
-  // detection + Phase 3.3 grace timer (25s) as the dominant abort path.
-  // Grok-4 reviewed and specifically preferred 270s over 300s.
+test("Phase 2.4: DEFAULT_TIMEOUT_MS is 240_000 (bumped from 150_000)", () => {
+  // Birkenstock empirically hit the 150s timeout. grok.com finishes the
+  // same prompt in 43s, so 240s leaves ample headroom. Worker is async so
+  // user-facing latency is unaffected.
   const fs = require("node:fs");
   const src = fs.readFileSync(path.join(__dirname, "_canonicalImport.js"), "utf8");
   assert.ok(
-    /const DEFAULT_TIMEOUT_MS\s*=\s*270_000\b/.test(src),
-    "DEFAULT_TIMEOUT_MS must be 270_000 (Phase 3.4)"
+    /const DEFAULT_TIMEOUT_MS\s*=\s*240_000\b/.test(src),
+    "DEFAULT_TIMEOUT_MS must be 240_000 (Phase 2.4 bump)"
   );
 });
 
