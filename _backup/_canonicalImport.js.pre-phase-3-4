@@ -36,14 +36,7 @@ const { prefetchHomepageContext } = require("./_homepagePrefetch");
 // model was still browsing. grok.com finishes the same prompt in 43s, so
 // 240s leaves ample headroom. Worker is async (UI returned 202 already),
 // so user-facing latency is unaffected.
-// Phase 3.4 — bumped 240s → 270s (4.5 min). At the new 18-tool budget
-// (vs prior 12), 18 × ~10s + reasoning overhead can plausibly cross
-// 4 min. 270s leaves headroom for the slowest-disambiguating brands
-// while keeping SSE-stall detection + Phase 3.3 grace timer (25s) as
-// the dominant abort path — both fire well before the timeout.
-// Grok-4 reviewed and specifically preferred 270s over 300s for this
-// reason.
-const DEFAULT_TIMEOUT_MS = 270_000;
+const DEFAULT_TIMEOUT_MS = 240_000;
 // Phase 2.5: tightened 12 → 10 to align with the prompt's new TOOL BUDGET
 // block. With Phase 2.5's account-level serialization (one xAI call active
 // at a time) the model no longer competes for xAI rate-limit headroom, so
@@ -56,15 +49,7 @@ const DEFAULT_TIMEOUT_MS = 270_000;
 // 1 more, Birkenstock-class portfolios) are right at the boundary.
 // Two extra calls give legitimate complex brands headroom without
 // changing simpler-brand behaviour (most finish in 5-8 calls).
-// Phase 3.4 — bumped 12 → 18. Empirical (2026-05-11 Amagabeli + Camp
-// Chef on grok.com): the same Grok-4 model with the same web_search
-// tool uses ~14-15 tool calls per company when coordinated by
-// grok.com's internal multi-agent loop. Our prior 12-cap killed the
-// model mid-disambiguation (Amagabeli's Redding/CA vs Beijing HQ
-// conflict took 8+ searches on grok.com). 18 = grok.com's observed
-// 14-15 + 3-tool headroom. Pairs with Phase 3.4's revert to single-
-// call architecture (XAI_MULTI_CALL_MODE=off).
-const DEFAULT_MAX_TOOL_CALLS = 18;
+const DEFAULT_MAX_TOOL_CALLS = 12;
 const MIN_TIMEOUT_MS = 30_000;
 
 function asString(v) {
