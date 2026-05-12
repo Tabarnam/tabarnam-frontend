@@ -232,3 +232,25 @@ html.transitioning *::after {
     column-count: 1;
   }
 }
+
+/* Phase 3.8.2 — Throbbing animation for the "waiting for xAI lock" indicator
+   on the AdminImport panel. Replaces the static hourglass with a pulsing
+   Tabarnam logo so the user can see at-a-glance that the row is in-flight
+   (waiting its turn) rather than completed or stalled. The pulse is
+   ~1.4s/cycle, opacity-only (no transform) so it doesn't reflow the
+   surrounding layout. */
+@keyframes phase-3-8-2-throb {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+.phase-3-8-2-throb {
+  animation: phase-3-8-2-throb 1.4s ease-in-out infinite;
+}
+/* Respect user preference for reduced motion — fall back to a static
+   50% opacity so the icon still reads as "waiting" but doesn't pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .phase-3-8-2-throb {
+    animation: none;
+    opacity: 0.55;
+  }
+}

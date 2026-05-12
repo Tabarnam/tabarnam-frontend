@@ -453,49 +453,25 @@ export default function AdminImport() {
     // and only cleared when canonical finishes. A row in that state IS the
     // lock-holder by definition. Fall back to xai_lock_status only when
     // the canonical timestamps aren't available yet.
-    // Phase 3.8.2 — strengthened lock-holder detection. Pre-3.8.2 the
-    // heuristic fallback could return "" when no run records yet had a
-    // populated session_id, OR when both rows had stale "waiting" status
-    // from the wait-loop's repeated patches. In that case heldByRunId
-    // was empty AND both rows' xai_lock_status === "waiting" → both
-    // flipped to waiting_for_xai → UI showed two amber hourglasses.
-    //
-    // Strict rule: with XAI_CONCURRENCY=1, exactly ONE in-flight row
-    // must hold the lock at any moment. We always identify ONE row as
-    // the lock-holder using a priority chain of signals:
-    //   1. Canonical started AND not finished (Phase 3.5.2 timestamp)
-    //   2. xai_lock_acquired_at set AND no xai_lock_released_at (or
-    //      released_at older than acquired_at — re-acquired)
-    //   3. xai_lock_status === "held" (laggy patch, last resort signal)
-    //   4. Earliest xai_lock_wait_started_at (most-waited = most likely
-    //      next to acquire OR current holder)
-    //   5. Earliest run.startedAt as ultimate fallback
-    //
-    // If there are NO in-flight rows (all completed), heldByRunId is "".
     const heldByRunId = (() => {
-      // Signal 1: canonical in progress.
+      // Primary: a row whose canonical has STARTED but not FINISHED is
+      // actively in canonical = holds the lock.
       for (const r of runs) {
         const startedAt = r?.resume_worker?.xai_canonical_started_at;
         const finishedAt = r?.resume_worker?.xai_canonical_finished_at;
         if (startedAt && !finishedAt) return asString(r.session_id).trim();
       }
-      // Signal 2: lock acquired but not released.
-      for (const r of runs) {
-        const acquiredAt = Date.parse(r?.resume_worker?.xai_lock_acquired_at || "") || 0;
-        const releasedAt = Date.parse(r?.resume_worker?.xai_lock_released_at || "") || 0;
-        if (acquiredAt && (!releasedAt || acquiredAt > releasedAt)) {
-          return asString(r.session_id).trim();
-        }
-      }
-      // Signal 3: explicit "held" status string (laggy fallback).
+      // Fallback: explicit "held" status when canonical timestamps aren't
+      // yet available (pre-canonical-startup window).
       for (const r of runs) {
         const s = r?.resume_worker?.xai_lock_status;
         if (s === "held") return asString(r.session_id).trim();
       }
-      // Signals 4 + 5: pick the most-likely candidate among in-flight rows.
-      // With XAI_CONCURRENCY=1, ONE of them MUST hold the lock — even if
-      // none of signals 1-3 have surfaced yet (early startup window where
-      // patches haven't landed).
+      // Last-resort heuristic: if there are multiple in-flight rows but no
+      // signal yet identifies the lock-holder, pick the one with the
+      // EARLIEST xai_lock_wait_started_at (it's been waiting longest, so
+      // most likely the next to acquire OR the current holder). If even
+      // that's missing, take the earliest startedAt.
       const candidates = runs
         .map((r) => ({
           sessionId: asString(r?.session_id).trim(),
@@ -506,6 +482,8 @@ export default function AdminImport() {
         .filter((c) => c.sessionId && !c.completed);
       if (candidates.length === 0) return "";
       candidates.sort((a, b) => {
+        // Prefer earliest wait_started (most likely current holder or
+        // imminent holder). Tie-break on overall start time.
         if (a.waitStartedAt && b.waitStartedAt && a.waitStartedAt !== b.waitStartedAt) {
           return a.waitStartedAt - b.waitStartedAt;
         }
@@ -559,12 +537,13 @@ export default function AdminImport() {
       const xaiLockStatus = run?.resume_worker?.xai_lock_status || null;
       const sessionId = asString(run?.session_id).trim();
       const isLockHolder = Boolean(heldByRunId && sessionId === heldByRunId);
-      // Phase 3.8.2 — strict rule. With heldByRunId now guaranteed to
-      // identify ONE in-flight row (via the priority chain above), any
-      // other in-flight row is by definition waiting. We no longer need
-      // the secondary "explicit waiting" fallback that previously caused
-      // the stale-patch bug where both rows flipped to waiting_for_xai.
       if (status === "running" && heldByRunId && !isLockHolder) {
+        // Someone else IS the lock-holder (positive identification via
+        // canonical timestamp). We're queued.
+        status = "waiting_for_xai";
+      } else if (status === "running" && xaiLockStatus === "waiting" && !isLockHolder) {
+        // Explicit "waiting" status (and we're not the lock-holder per the
+        // primary signal). Fallback for pre-canonical-startup window.
         status = "waiting_for_xai";
       }
 
@@ -5113,18 +5092,12 @@ export default function AdminImport() {
                         ) : item.status === "running" ? (
                           <Loader2 className="inline h-3.5 w-3.5 animate-spin text-blue-600 dark:text-blue-400" />
                         ) : item.status === "waiting_for_xai" ? (
-                          // Phase 3.8.2 — throbbing Tabarnam logo replaces
-                          // the U+23F3 hourglass for waiting rows. Same
-                          // semantic (not actively talking to xAI yet) but
-                          // visually distinguishable from the active row's
-                          // blue spinner and clearly different from a
-                          // static "pending" bullet.
-                          <img
-                            src="/pwa/icon-192.png"
-                            alt="Waiting for xAI lock"
-                            title="Queued · waiting for xAI"
-                            className="inline h-3.5 w-3.5 phase-3-8-2-throb"
-                          />
+                          // Hourglass / clock icon for queued. Not a spinner —
+                          // this company isn't doing work yet, it's waiting in
+                          // line behind another company's xAI call.
+                          <span className="text-amber-600 dark:text-amber-400" title="Waiting for xAI lock">
+                            &#9203;
+                          </span>
                         ) : (
                           <span className="text-slate-400 dark:text-slate-500">&#8226;</span>
                         )}
