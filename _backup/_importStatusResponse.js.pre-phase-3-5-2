@@ -142,13 +142,6 @@ function buildResumeWorkerMeta({ sessionDoc, resumeDoc }) {
     xai_lock_wait_attempts: sd.xai_lock_wait_attempts ?? null,
     xai_lock_wait_started_at: sd.xai_lock_wait_started_at || null,
     xai_lock_shard: sd.xai_lock_shard ?? null,
-    // Phase 3.5.2 — canonical-call timing (xAI work only, no lock-wait).
-    // The UI prefers this for the row's TRT so it reflects what xAI was
-    // actually doing for THIS company, not the time spent queued behind
-    // another company's lock holder.
-    xai_canonical_started_at: sd.xai_canonical_started_at || null,
-    xai_canonical_finished_at: sd.xai_canonical_finished_at || null,
-    xai_canonical_elapsed_ms: sd.xai_canonical_elapsed_ms ?? null,
     xai_lock_concurrency: sd.xai_lock_concurrency ?? null,
     ...missingAnalysis,
     // Budget diagnostics for debugging deferred fields

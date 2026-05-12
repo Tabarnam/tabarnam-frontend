@@ -2872,26 +2872,6 @@ async function resumeWorkerHandler(req, context) {
                   }
                 }
               }, XAI_LOCK_REFRESH_INTERVAL_MS);
-
-              // Phase 3.5.2 — record the precise canonical-call timing on
-              // the session doc so the UI can show a TRT that reflects only
-              // the xAI work (start → end of runCanonicalImportCall), NOT
-              // the lock-wait that preceded it. Empirical (Solo Stove
-              // 2026-05-11): the user saw TRT=5:09 because frontend
-              // (updatedAt - startedAt) included a 3:01 lock-wait, even
-              // though Solo Stove's actual canonical work was only 1:54.
-              const xaiCanonicalStartedAtMs = Date.now();
-              const xaiCanonicalStartedAtIso = new Date(xaiCanonicalStartedAtMs).toISOString();
-              bestEffortPatchSessionDoc({
-                container,
-                sessionId,
-                patch: {
-                  xai_canonical_started_at: xaiCanonicalStartedAtIso,
-                  xai_canonical_finished_at: null,
-                  xai_canonical_elapsed_ms: null,
-                },
-              }).catch(() => null);
-
               try {
                 enrichResult = await runCanonicalImportCall({
                   company: doc,
@@ -2905,19 +2885,6 @@ async function resumeWorkerHandler(req, context) {
                 // Stop refreshing first so we don't try to extend a lock
                 // we're about to release.
                 try { clearInterval(lockRefreshTimer); } catch {}
-                // Phase 3.5.2 — capture canonical-call elapsed BEFORE the
-                // lock release patch fires (lock-released patch happens
-                // synchronously in the same finally block).
-                const xaiCanonicalFinishedAtMs = Date.now();
-                const xaiCanonicalElapsedMs = xaiCanonicalFinishedAtMs - xaiCanonicalStartedAtMs;
-                bestEffortPatchSessionDoc({
-                  container,
-                  sessionId,
-                  patch: {
-                    xai_canonical_finished_at: new Date(xaiCanonicalFinishedAtMs).toISOString(),
-                    xai_canonical_elapsed_ms: xaiCanonicalElapsedMs,
-                  },
-                }).catch(() => null);
                 // Release inside finally so a thrown call doesn't leak the lock.
                 await releaseXaiCallLock(container, xaiLock.leaseId, sessionId, xaiLock.lockId);
                 // Phase 2.16 — write a heartbeat the moment the canonical
