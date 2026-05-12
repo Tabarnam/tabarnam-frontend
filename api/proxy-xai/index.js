@@ -8,7 +8,7 @@ try {
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 const { stripAmazonAffiliateTagForStorage } = require("../_amazonAffiliate");
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel, DEFAULT_XAI_MODEL } = require("../_shared");
 
 const BUILD_STAMP = "proxy-xai build 2025-11-23T03:00Z";
 
@@ -329,7 +329,7 @@ async function proxyXaiHandler(req, ctx) {
       messages: [
         buildXaiMessage(queryType, query, limit, center),
       ],
-      model: "grok-4-latest",
+      model: DEFAULT_XAI_MODEL,
       temperature: 0.1,
       stream: false,
     };

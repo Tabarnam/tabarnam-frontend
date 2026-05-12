@@ -2,6 +2,8 @@
 // Overwrite file
 
 const { xaiLiveSearch, xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
+// Phase 4.0 — centralized default xAI model (grok-4.3 per xAI's May 15 migration).
+const { DEFAULT_XAI_MODEL } = require("./_shared");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 const { FIELD_GUIDANCE, FIELD_SUMMARIES, QUALITY_RULES, SEARCH_PREAMBLE, buildDedicatedKeywordsPrompt } = require("./_xaiPromptGuidance");
@@ -557,7 +559,7 @@ function resolveChatModel(provided) {
   const fromArg = asString(provided).trim();
   if (fromArg) return fromArg;
 
-  return asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest").trim();
+  return asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || DEFAULT_XAI_MODEL).trim();
 }
 
 function resolveSearchModel(provided) {
@@ -565,7 +567,7 @@ function resolveSearchModel(provided) {
   if (fromArg) return fromArg;
 
   return asString(
-    process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest"
+    process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || DEFAULT_XAI_MODEL
   ).trim();
 }
 
@@ -1020,7 +1022,7 @@ async function fetchCuratedReviews({
   budgetMs = 25000,
   xaiUrl,
   xaiKey,
-  model = "grok-4-latest",
+  model = DEFAULT_XAI_MODEL,
   attempted_urls = [],
   browseAboutPage = false, // @deprecated — kept for signature compat, ignored
   signal,
@@ -1101,7 +1103,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
     }),
     maxAttempts: 1,
     maxTokens: 2000,
-    model: asString(model).trim() || "grok-4-latest",
+    model: asString(model).trim() || DEFAULT_XAI_MODEL,
     xaiUrl,
     xaiKey,
     signal,
@@ -1152,7 +1154,7 @@ ${FIELD_GUIDANCE.reviews.plainTextFormat}`.trim();
           timeoutMs: Math.min(30_000, phase2Budget - 10_000),
           maxAttempts: 1,
           maxTokens: 2000,
-          model: asString(model).trim() || "grok-4-latest",
+          model: asString(model).trim() || DEFAULT_XAI_MODEL,
           xaiUrl, xaiKey, signal,
           // NO useTools, NO search_parameters — pure text extraction
         });
@@ -1916,7 +1918,7 @@ async function fetchTagline({
   budgetMs = 12000,
   xaiUrl,
   xaiKey,
-  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || DEFAULT_XAI_MODEL,
 } = {}) {
   const started = Date.now();
 
@@ -2046,7 +2048,7 @@ async function fetchIndustries({
   budgetMs = 15000,
   xaiUrl,
   xaiKey,
-  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || DEFAULT_XAI_MODEL,
 } = {}) {
   const started = Date.now();
 
@@ -2170,7 +2172,7 @@ async function fetchProductKeywords({
   budgetMs = 15000,
   xaiUrl,
   xaiKey,
-  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || DEFAULT_XAI_MODEL,
 } = {}) {
   const started = Date.now();
 
@@ -2333,7 +2335,7 @@ async function fetchLogo({
   budgetMs = 15000,
   xaiUrl,
   xaiKey,
-  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || DEFAULT_XAI_MODEL,
 } = {}) {
   const started = Date.now();
 

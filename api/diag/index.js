@@ -463,7 +463,7 @@ app.http("diag-xai", {
       // Wrap model resolution (requirement B.2)
       let model, url;
       try {
-        model = configuredModel || asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest").trim();
+        model = configuredModel || asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4.3").trim();
         url = base && model ? resolveXaiEndpointForModel(base, model) : null;
       } catch (e) {
         return json({

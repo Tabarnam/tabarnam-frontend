@@ -702,7 +702,11 @@ test("/api/import/start live mode builds >=2 messages and hits /v1/chat/completi
         assert.ok(typeof bodyText === "string");
         const bodyObj = JSON.parse(bodyText);
 
-        assert.equal(bodyObj.model, "grok-4-latest");
+        // Phase 4.0 transition — tighten to grok-4.3 only after 1 week stable production.
+        assert.ok(
+          bodyObj.model === "grok-4.3" || bodyObj.model === "grok-4-latest",
+          `expected grok-4.3 or grok-4-latest, got ${bodyObj.model}`
+        );
         assert.ok(Array.isArray(bodyObj.messages));
         assert.ok(bodyObj.messages.length >= 2);
         assert.ok(bodyObj.messages.some((m) => m?.role === "system"));
@@ -896,7 +900,11 @@ test("/api/import/start explain=1 returns outbound payload meta and does not cal
         assert.ok(meta);
         assert.ok(typeof meta.handler_version === "string");
         assert.ok(typeof meta.build_id === "string");
-        assert.equal(meta.model, "grok-4-latest");
+        // Phase 4.0 transition — tighten to grok-4.3 only after 1 week stable production.
+        assert.ok(
+          meta.model === "grok-4.3" || meta.model === "grok-4-latest",
+          `expected grok-4.3 or grok-4-latest, got ${meta.model}`
+        );
         assert.ok(Number(meta.messages_len) >= 2);
         assert.ok(Number(meta.system_count) >= 1);
         assert.ok(Number(meta.user_count) >= 1);

@@ -5,7 +5,7 @@ try {
   axios = null;
 }
 
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel, DEFAULT_XAI_MODEL } = require("./_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
 
 // Lazy require to avoid circular dependency with _grokEnrichment.js
 function _recordXaiResultLazy(result) {
@@ -277,7 +277,7 @@ async function xaiLiveSearch({
   maxTokens = 900,
   timeoutMs = 12000,
   attempt = 0,
-  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || DEFAULT_XAI_MODEL,
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
   xaiUrl,
   xaiKey,
   search_parameters,
@@ -290,7 +290,7 @@ async function xaiLiveSearch({
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
   ).trim();
-  const resolvedModel = asString(model).trim() || configuredModel || DEFAULT_XAI_MODEL;
+  const resolvedModel = asString(model).trim() || configuredModel || "grok-4-latest";
 
   // Contract tests should never hit the real network, but they may want to exercise
   // higher-level enrichment logic. Allow a global stub to provide deterministic responses.
@@ -582,7 +582,7 @@ async function xaiLiveSearch({
 async function xaiLiveSearchStreaming({
   prompt,
   timeoutMs = 210000,
-  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || DEFAULT_XAI_MODEL,
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
   xaiUrl,
   xaiKey,
   search_parameters,
@@ -622,7 +622,7 @@ async function xaiLiveSearchStreaming({
   const configuredModel = asString(
     process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
   ).trim();
-  const resolvedModel = asString(model).trim() || configuredModel || DEFAULT_XAI_MODEL;
+  const resolvedModel = asString(model).trim() || configuredModel || "grok-4-latest";
   const resolvedBase = asString(xaiUrl).trim() || asString(getXAIEndpoint()).trim();
   const key = asString(xaiKey).trim() || asString(getXAIKey()).trim();
   const url = resolveXaiEndpointForModel(resolvedBase, resolvedModel);

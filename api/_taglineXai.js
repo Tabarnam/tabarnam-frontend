@@ -1,4 +1,6 @@
 const { extractJsonFromText, asString } = require("./_curatedReviewsXai");
+// Phase 4.0 — centralized default xAI model.
+const { DEFAULT_XAI_MODEL } = require("./_shared");
 
 function toNumberOrNull(value) {
   const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
@@ -85,7 +87,7 @@ async function fetchConfirmedCompanyTagline({ axiosPost, xaiUrl, xaiKey, company
   const inputName = asString(companyName).trim();
   const inputUrl = asString(websiteUrl).trim();
 
-  const model = "grok-4-latest";
+  const model = DEFAULT_XAI_MODEL;
 
   const system = {
     role: "system",

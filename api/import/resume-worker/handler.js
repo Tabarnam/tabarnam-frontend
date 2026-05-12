@@ -2814,7 +2814,12 @@ async function resumeWorkerHandler(req, context) {
       // Use shared XAI config resolution for consistent endpoint/key handling
       const xaiEndpointRaw = getXAIEndpoint();
       const xaiKey = getXAIKey();
-      const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, "grok-4-latest");
+      // Phase 4.0 — model hint updated from grok-4-latest to grok-4.3
+      // (xAI retires grok-4 family May 15, 2026; grok-4.3 is the
+      // recommended replacement). The hint only affects endpoint routing
+      // (vision/image/audio → /v1/responses vs default → /v1/chat/completions),
+      // which is the same for both names; updating for consistency.
+      const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, "grok-4.3");
 
       const grokArgs = {
         companyName,
@@ -4161,7 +4166,7 @@ async function resumeWorkerHandler(req, context) {
     // Use shared XAI config resolution for consistent endpoint/key handling
     const xaiEndpointRaw2 = getXAIEndpoint();
     const xaiKey2 = getXAIKey();
-    const xaiUrl2 = resolveXaiEndpointForModel(xaiEndpointRaw2, "grok-4-latest");
+    const xaiUrl2 = resolveXaiEndpointForModel(xaiEndpointRaw2, "grok-4.3");
 
     const grokArgs = {
       companyName,

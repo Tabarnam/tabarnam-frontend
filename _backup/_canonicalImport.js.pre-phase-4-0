@@ -28,8 +28,6 @@ const {
 } = require("./_xaiPromptGuidance");
 
 const { xaiLiveSearch, xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
-// Phase 4.0 — centralized default xAI model (grok-4.3).
-const { DEFAULT_XAI_MODEL } = require("./_shared");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 const { prefetchHomepageContext } = require("./_homepagePrefetch");
 
@@ -449,7 +447,7 @@ Output ONLY a JSON object with exactly these 6 keys: tagline (string), headquart
       // only runs when canonical has already failed).
       prompt: fallbackPrompt,
       timeoutMs: 60_000,
-      model: model || asString(process.env.XAI_MODEL).trim() || DEFAULT_XAI_MODEL,
+      model: model || asString(process.env.XAI_MODEL).trim() || "grok-4-latest",
       // No search_parameters → no tools array built (also maxToolCalls=0
       // omits the tools field entirely; both belt-and-suspenders).
       enableImageUnderstanding: false,
@@ -1339,7 +1337,7 @@ async function runCanonicalImportCall({
     });
   }
 
-  const model = asString(modelOverride).trim() || asString(process.env.XAI_MODEL).trim() || DEFAULT_XAI_MODEL;
+  const model = asString(modelOverride).trim() || asString(process.env.XAI_MODEL).trim() || "grok-4-latest";
 
   // Phase 3.0 — dispatch to multi-call orchestrator if XAI_MULTI_CALL_MODE=on.
   //

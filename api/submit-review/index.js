@@ -13,6 +13,8 @@ const {
   incrementCompanyReviewCounts,
 } = require("../_reviewCounts");
 const { xaiResponses } = require("../_xai");
+// Phase 4.0 — centralized default xAI model.
+const { DEFAULT_XAI_MODEL } = require("../_shared");
 
 // -------- helpers ----------
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
@@ -104,7 +106,7 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
         text.length
       }`;
       const result = await xaiResponses({
-        model: "grok-4-latest",
+        model: DEFAULT_XAI_MODEL,
         input: [{ role: "user", content: prompt }],
         store: false,
       });

@@ -6,10 +6,10 @@
  * extract metadata directly from the page content.
  */
 
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel, DEFAULT_XAI_MODEL } = require("./_shared");
 const { extractTextFromXaiResponse } = require("./_xaiResponseFormat");
 
-const MODEL = "grok-4-latest";
+const MODEL = DEFAULT_XAI_MODEL;
 const TIMEOUT_MS = 60000;
 
 const PROMPT_TEMPLATE = (url) =>
