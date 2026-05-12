@@ -2065,3 +2065,165 @@ test("Phase 3.0: XAI_MULTI_CALL_MODE=off (default) uses legacy single-call path"
     }
   );
 });
+
+// ── Phase 3.9 — sse_stall auto-retry ────────────────────────────────────────
+//
+// Empirical (Sir Scrubbington, Solo Stove, Twin Eagles 2026-05-11/12):
+// xAI transiently accepts the request and sends zero SSE events.
+// Phase 2.9's stall detector aborts after 60s. Without retry, the
+// canonical degrades to fallback-only at Stub-X% / Partial-X%.
+// Phase 3.9 auto-retries once when the first call met all 4 conditions:
+//   1. upstream_error_code === "sse_stall"
+//   2. tool_calls_counted === 0
+//   3. text_chars === 0
+//   4. elapsed_ms < 90_000
+
+test("Phase 3.9: sse_stall with 0 progress triggers retry; retry success returns canonical result", async () => {
+  let callCount = 0;
+  await withMockLiveSearch(
+    {
+      xaiLiveSearchStreaming: async () => {
+        callCount += 1;
+        if (callCount === 1) {
+          // First call: sse_stall with no progress.
+          return {
+            ok: false,
+            error: "sse_stall",
+            error_code: "sse_stall",
+            diagnostics: { tool_calls_counted: 0 },
+            resp: null,
+          };
+        }
+        // Retry: success.
+        return {
+          ok: true,
+          resp: {
+            text: JSON.stringify({
+              tagline: "Retry succeeded",
+              headquarters_location: "Austin, TX, USA",
+              manufacturing_locations: ["Austin, TX, USA"],
+              industries: ["Specialty Foods"],
+              product_keywords: "jerky",
+              reviews: [],
+            }),
+          },
+          diagnostics: { tool_calls_counted: 5, upstream_http_status: 200 },
+        };
+      },
+    },
+    async (mod) => {
+      const result = await mod.runCanonicalImportCall({
+        company: { company_name: "Acme", url: "https://acme.example.com" },
+        sessionId: "test-3-9-success",
+        budgetMs: 60_000,
+        fieldsToEnrich: ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "reviews"],
+      });
+
+      assert.equal(callCount, 2, "must have made exactly 2 calls (original + retry)");
+      assert.equal(result.ok, true, "retry success should land canonical-success result");
+      assert.equal(result.enriched.tagline.tagline, "Retry succeeded");
+      // Retry telemetry must surface on success-path diagnostics.
+      assert.equal(result.diagnostics.phase39_sse_stall_retry_attempted, true);
+      assert.equal(result.diagnostics.phase39_sse_stall_retry_used, true);
+      assert.equal(result.diagnostics.phase39_first_error_code, "sse_stall");
+      assert.ok(result.diagnostics.phase39_first_elapsed_ms != null);
+    }
+  );
+});
+
+test("Phase 3.9: sse_stall retry that ALSO fails preserves first-call error code", async () => {
+  let callCount = 0;
+  await withMockLiveSearch(
+    {
+      xaiLiveSearchStreaming: async () => {
+        callCount += 1;
+        // Both attempts sse_stall.
+        return {
+          ok: false,
+          error: "sse_stall",
+          error_code: "sse_stall",
+          diagnostics: { tool_calls_counted: 0 },
+          resp: null,
+        };
+      },
+    },
+    async (mod) => {
+      const result = await mod.runCanonicalImportCall({
+        company: { company_name: "Acme", url: "https://acme.example.com" },
+        sessionId: "test-3-9-retry-also-fails",
+        budgetMs: 60_000,
+        fieldsToEnrich: ["tagline"],
+      });
+
+      assert.equal(callCount, 2, "must have made exactly 2 calls before giving up");
+      assert.equal(result.ok, false, "both attempts failed → overall failure");
+      // First error code preserved on failure-path diagnostics.
+      assert.equal(result.diagnostics.phase39_sse_stall_retry_attempted, true);
+      assert.equal(result.diagnostics.phase39_sse_stall_retry_used, false);
+      assert.equal(result.diagnostics.phase39_first_error_code, "sse_stall");
+    }
+  );
+});
+
+test("Phase 3.9: NO retry when first call had tool_calls > 0 (partial progress)", async () => {
+  // If the model fired tool calls before stalling, we have evidence of
+  // engagement — a retry might confuse xAI's session state. Don't retry.
+  let callCount = 0;
+  await withMockLiveSearch(
+    {
+      xaiLiveSearchStreaming: async () => {
+        callCount += 1;
+        return {
+          ok: false,
+          error: "sse_stall",
+          error_code: "sse_stall",
+          // 2 tool calls fired before stall → partial progress → no retry.
+          diagnostics: { tool_calls_counted: 2 },
+          resp: null,
+        };
+      },
+    },
+    async (mod) => {
+      const result = await mod.runCanonicalImportCall({
+        company: { company_name: "Acme", url: "https://acme.example.com" },
+        sessionId: "test-3-9-no-retry-partial",
+        budgetMs: 60_000,
+        fieldsToEnrich: ["tagline"],
+      });
+
+      assert.equal(callCount, 1, "must NOT retry when tool_calls > 0");
+      assert.equal(result.ok, false);
+      assert.equal(result.diagnostics.phase39_sse_stall_retry_attempted, false);
+      assert.equal(result.diagnostics.phase39_sse_stall_retry_used, false);
+    }
+  );
+});
+
+test("Phase 3.9: NO retry for non-sse_stall error codes (upstream_503 etc.)", async () => {
+  let callCount = 0;
+  await withMockLiveSearch(
+    {
+      xaiLiveSearchStreaming: async () => {
+        callCount += 1;
+        return {
+          ok: false,
+          error: "upstream_http_503",
+          error_code: "upstream_http_503",
+          diagnostics: { tool_calls_counted: 0 },
+          resp: null,
+        };
+      },
+    },
+    async (mod) => {
+      const result = await mod.runCanonicalImportCall({
+        company: { company_name: "Acme", url: "https://acme.example.com" },
+        sessionId: "test-3-9-no-retry-503",
+        budgetMs: 60_000,
+        fieldsToEnrich: ["tagline"],
+      });
+
+      assert.equal(callCount, 1, "must NOT retry on non-sse_stall failures");
+      assert.equal(result.diagnostics.phase39_sse_stall_retry_attempted, false);
+    }
+  );
+});

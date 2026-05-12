@@ -1524,13 +1524,13 @@ async function runCanonicalImportCall({
     }
   }
 
-  let elapsedMs = Date.now() - startedAt;
+  const elapsedMs = Date.now() - startedAt;
 
   // Phase 2.1 — log upstream return summary BEFORE parsing so we can see if
   // the call actually returned anything useful. Key diagnostic for the
   // "model went 22 tool calls and emitted 0 text" failure mode — text_chars
   // and tool_cap_aborted will tell us exactly what happened.
-  let rawText = res?.ok ? extractTextFromXaiResponse(res.resp) : "";
+  const rawText = res?.ok ? extractTextFromXaiResponse(res.resp) : "";
   console.log(`[canonicalImport] upstream_returned`, {
     session_id: sessionId,
     mode,
@@ -1546,127 +1546,6 @@ async function runCanonicalImportCall({
     text_preview: rawText.slice(0, 200),
   });
 
-  // Phase 3.9 — one-time auto-retry on transient sse_stall.
-  //
-  // Empirical (Sir Scrubbington, Solo Stove, Twin Eagles 2026-05-11 to
-  // 2026-05-12): xAI occasionally accepts the request and then sends zero
-  // SSE events. Our 60s stall detector aborts correctly, but the canonical
-  // ends up at Stub-0% (or Partial-X% via fallback) when a simple retry
-  // 2s later would have succeeded.
-  //
-  // Gate the retry tightly to bound cost:
-  //   - upstream_error_code === "sse_stall"
-  //   - tool_calls_counted === 0 (xAI emitted NO events; nothing to discard)
-  //   - text_chars === 0 (no partial JSON to preserve)
-  //   - first call elapsed < 90s (don't retry a long-running stall — its
-  //     own behavior suggests xAI is broader-degraded, not transient)
-  //   - mode === "streaming" (don't retry the non-streaming fallback —
-  //     that path is already a degraded mode)
-  //
-  // The preserved-info question (user 3.9 request "can we keep the info
-  // already accumulated"): with the 0/0/0 gate above, there IS nothing to
-  // preserve from the first call. Per-company conversation_id is reused
-  // for the retry so xAI's prefix cache stays hot. If a future variant
-  // wants to retry partial-progress stalls (text_chars > 0), we can
-  // preserve `rawText_first_attempt` for merge — but the current data
-  // doesn't show that case being common.
-  let phase39_retry_attempted = false;
-  let phase39_retry_used = false;
-  let phase39_first_error_code = null;
-  let phase39_first_elapsed_ms = null;
-  const FIRST_CALL_MAX_FOR_RETRY_MS = 90_000;
-  if (
-    mode === "streaming"
-    && !res?.ok
-    && res?.error_code === "sse_stall"
-    && (res?.diagnostics?.tool_calls_counted ?? 0) === 0
-    && rawText.length === 0
-    && elapsedMs < FIRST_CALL_MAX_FOR_RETRY_MS
-  ) {
-    phase39_retry_attempted = true;
-    phase39_first_error_code = res?.error_code || null;
-    phase39_first_elapsed_ms = elapsedMs;
-    const retryStartedAt = Date.now();
-    console.warn(`[canonicalImport] sse_stall_retry_attempting`, {
-      session_id: sessionId,
-      first_elapsed_ms: elapsedMs,
-      first_tool_calls: res?.diagnostics?.tool_calls_counted ?? 0,
-      first_text_chars: 0,
-      backoff_ms: 2000,
-    });
-
-    // Brief backoff so xAI's stuck SSE worker can recycle. Empirical
-    // (Sir Scrubbington / Solo Stove): stalls cleared within seconds when
-    // a fresh request reached a different xAI backend instance.
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    let retryRes;
-    try {
-      retryRes = await xaiLiveSearchStreaming({
-        prompt: promptBody,
-        timeoutMs,
-        model,
-        search_parameters: sp.search_parameters,
-        enableImageUnderstanding: false,
-        maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
-        conversationId: companyConversationId,
-        signal,
-        response_format,
-      });
-    } catch (retryErr) {
-      console.error(`[canonicalImport] sse_stall_retry_threw`, {
-        session_id: sessionId,
-        error: String(retryErr?.message || retryErr),
-        retry_elapsed_ms: Date.now() - retryStartedAt,
-      });
-      retryRes = null;
-    }
-
-    const retryElapsedMs = Date.now() - retryStartedAt;
-    const retryRawText = retryRes?.ok ? extractTextFromXaiResponse(retryRes.resp) : "";
-
-    // Prefer the retry result if it made meaningful progress — defined as
-    // either:
-    //   (a) retryRes.ok === true AND retry has more text than original, OR
-    //   (b) retry fired at least one tool call (vs the original's zero), OR
-    //   (c) retry's text is non-empty
-    const retryProgressed = Boolean(
-      retryRes?.ok
-      || (retryRes?.diagnostics?.tool_calls_counted ?? 0) > 0
-      || retryRawText.length > 0
-    );
-
-    if (retryProgressed) {
-      phase39_retry_used = true;
-      res = retryRes;
-      rawText = retryRawText;
-      // Update elapsedMs to reflect TOTAL time (first attempt + backoff + retry)
-      // so the diagnostics record the real wall-clock cost of the retry.
-      elapsedMs = Date.now() - startedAt;
-      console.log(`[canonicalImport] sse_stall_retry_succeeded`, {
-        session_id: sessionId,
-        retry_elapsed_ms: retryElapsedMs,
-        retry_ok: !!retryRes?.ok,
-        retry_tool_calls: retryRes?.diagnostics?.tool_calls_counted ?? null,
-        retry_text_chars: retryRawText.length,
-        total_elapsed_ms_inc_first_call: elapsedMs,
-      });
-    } else {
-      // Retry also stalled / failed. Keep the first call's res to preserve
-      // the original error code for diagnostics, but record that the retry
-      // happened so the fallback path knows.
-      console.warn(`[canonicalImport] sse_stall_retry_failed`, {
-        session_id: sessionId,
-        retry_elapsed_ms: retryElapsedMs,
-        retry_ok: !!retryRes?.ok,
-        retry_error: retryRes?.error || null,
-        retry_error_code: retryRes?.error_code || null,
-        retry_tool_calls: retryRes?.diagnostics?.tool_calls_counted ?? null,
-        retry_text_chars: retryRawText.length,
-      });
-    }
-  }
-
   if (!res || !res.ok) {
     return await failureWithFallback(
       res?.error_code || "upstream_unreachable",
@@ -1679,11 +1558,6 @@ async function runCanonicalImportCall({
         upstream_error: res?.error || null,
         text_chars: rawText.length,
         text_preview_on_failure: rawText.slice(0, 200),
-        // Phase 3.9 — retry telemetry on the failure path.
-        phase39_sse_stall_retry_attempted: phase39_retry_attempted,
-        phase39_sse_stall_retry_used: phase39_retry_used,
-        phase39_first_error_code: phase39_first_error_code,
-        phase39_first_elapsed_ms: phase39_first_elapsed_ms,
       }
     );
   }
@@ -1718,11 +1592,6 @@ async function runCanonicalImportCall({
       upstream_completed_no_text: true,
       output_summary: outputSummary,
       upstream_response_status: res.resp?.status ?? null,
-      // Phase 3.9 — retry telemetry on the no-text failure path.
-      phase39_sse_stall_retry_attempted: phase39_retry_attempted,
-      phase39_sse_stall_retry_used: phase39_retry_used,
-      phase39_first_error_code: phase39_first_error_code,
-      phase39_first_elapsed_ms: phase39_first_elapsed_ms,
     });
   }
 
@@ -1741,11 +1610,6 @@ async function runCanonicalImportCall({
       tool_calls_counted: res.diagnostics?.tool_calls_counted ?? null,
       text_chars: text.length,
       unparseable_text_preview: asString(text).slice(0, 400),
-      // Phase 3.9 — retry telemetry on the unparseable-json failure path.
-      phase39_sse_stall_retry_attempted: phase39_retry_attempted,
-      phase39_sse_stall_retry_used: phase39_retry_used,
-      phase39_first_error_code: phase39_first_error_code,
-      phase39_first_elapsed_ms: phase39_first_elapsed_ms,
     });
   }
 
@@ -1828,13 +1692,6 @@ async function runCanonicalImportCall({
       text_chars: text.length,
       model,
       enriched_envelope_shape: true,  // marker: handler.js can rely on nested per-field shape
-      // Phase 3.9 — surface auto-retry telemetry on the success path so we
-      // can correlate "imports that succeeded only because of the retry"
-      // vs "first-attempt successes" in production data.
-      phase39_sse_stall_retry_attempted: phase39_retry_attempted,
-      phase39_sse_stall_retry_used: phase39_retry_used,
-      phase39_first_error_code: phase39_first_error_code,
-      phase39_first_elapsed_ms: phase39_first_elapsed_ms,
     },
   };
 }
