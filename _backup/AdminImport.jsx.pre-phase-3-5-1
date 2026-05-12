@@ -219,21 +219,7 @@ export default function AdminImport() {
   const importReportRef = useRef(null);
   activeStatusRef.current = activeStatus;
 
-  // Phase 3.5.1 — succession is "running" as long as EITHER slot is still
-  // working. Pre-3.5.1 only checked the primary slot, so the panel flipped
-  // to "Succession complete: 1 imports processed" the moment Hudson finished,
-  // even while Scrub Daddy was still mid-canonical in the shadow slot.
-  // Empirical (2026-05-11 Hudson + Scrub Daddy): user saw the
-  // misleading "complete" text + missing checkmark while the actual import
-  // ran another 3 minutes in the background.
-  //
-  // The shadow slot becomes -1 when it's exhausted OR finishes its last
-  // company. A shadow session that's still mid-poll has successionShadowIndex
-  // >= 0 AND shadowStatus !== "idle"; checking either correctly captures
-  // both "queued for next dispatch" and "actively running" states.
-  const isPrimaryRunning = successionIndex >= 0;
-  const isShadowRunning = successionShadowIndex >= 0 || (shadowSessionId && shadowStatus !== "idle");
-  const isSuccessionRunning = isPrimaryRunning || isShadowRunning;
+  const isSuccessionRunning = successionIndex >= 0;
   const isSuccessionRunningRef = useRef(false);
   isSuccessionRunningRef.current = isSuccessionRunning;
   const successionTerminalGateRef = useRef(0);
@@ -443,20 +429,8 @@ export default function AdminImport() {
         item.companyName ||
         item.companyUrl ||
         `Company ${i + 1}`;
-      // Phase 3.5.1 — accurate slot detection. Pre-3.5.1 the shadow row was
-      // matched only by `i === successionIndex + 1` which broke when primary
-      // had already advanced (or finished) past the shadow's index. Now we
-      // match each slot's actual current index directly.
-      const isCurrent = isPrimaryRunning && i === successionIndex;
-      const isShadow = SUCCESSION_CONCURRENCY >= 2
-        && shadowSessionId
-        && (
-          (isShadowRunning && successionShadowIndex >= 0 && i === successionShadowIndex)
-          // Edge case: shadow's index has been cleared (-1) but its session
-          // is still being polled. Look up which queue item corresponds to
-          // the shadow session id and badge that row.
-          || (isShadowRunning && successionShadowIndex < 0 && successionResults.every((r) => r.sessionId !== shadowSessionId) && (run?.session_id === shadowSessionId))
-        );
+      const isCurrent = isSuccessionRunning && i === successionIndex;
+      const isShadow = isSuccessionRunning && SUCCESSION_CONCURRENCY >= 2 && i === successionIndex + 1 && shadowSessionId;
       let status = result ? result.status : (isCurrent || isShadow) ? "running" : "pending";
 
       // Phase 3.1.3 — differentiate "actively talking to xAI" from "waiting
@@ -500,18 +474,7 @@ export default function AdminImport() {
         xaiLockWaitMs: run?.resume_worker?.xai_lock_wait_ms ?? null, // Phase 3.1.3
       };
     });
-  }, [
-    showSuccessionPanel,
-    successionQueue,
-    successionResults,
-    successionIndex,
-    runs,
-    isSuccessionRunning,
-    isPrimaryRunning,
-    isShadowRunning,
-    successionShadowIndex,
-    shadowSessionId,
-  ]);
+  }, [showSuccessionPanel, successionQueue, successionResults, successionIndex, runs, isSuccessionRunning]);
 
   useEffect(() => {
     if (!activeRun) return;
@@ -4869,38 +4832,9 @@ export default function AdminImport() {
                     }`}
                   >
                     {isSuccessionRunning
-                      ? (() => {
-                          // Phase 3.5.1 — header text reflects BOTH slots so
-                          // the user can see when the primary has advanced
-                          // but the shadow is still finishing a long-running
-                          // company. Use the lowest active index in either
-                          // slot for the "Importing X" position.
-                          const completedCount = successionResults.length;
-                          const totalCount = successionQueue.length;
-
-                          // Both slots active and pointing at different indices.
-                          if (isPrimaryRunning && isShadowRunning && successionIndex !== successionShadowIndex && successionShadowIndex >= 0) {
-                            const lo = Math.min(successionIndex, successionShadowIndex) + 1;
-                            const hi = Math.max(successionIndex, successionShadowIndex) + 1;
-                            return `Importing ${lo}-${hi} of ${totalCount} companies`;
-                          }
-
-                          // Primary still running.
-                          if (isPrimaryRunning) {
-                            return `Importing ${successionIndex + 1} of ${totalCount} companies`;
-                          }
-
-                          // Only shadow still running — primary already advanced
-                          // off the end. Show "Finishing X of N" to make it
-                          // clear that work continues even though the queue is
-                          // out of new dispatches.
-                          if (isShadowRunning) {
-                            const idx = successionShadowIndex >= 0 ? successionShadowIndex + 1 : completedCount + 1;
-                            return `Finishing ${idx} of ${totalCount} companies (${completedCount} done)`;
-                          }
-
-                          return `Importing ${completedCount + 1} of ${totalCount} companies`;
-                        })()
+                      ? SUCCESSION_CONCURRENCY >= 2 && shadowSessionId && successionIndex + 1 < successionQueue.length
+                        ? `Importing ${successionIndex + 1}-${successionIndex + 2} of ${successionQueue.length} companies`
+                        : `Importing ${successionIndex + 1} of ${successionQueue.length} companies`
                       : `Succession complete: ${successionResults.length} imports processed`}
                   </div>
                   <div className="flex items-center gap-1">
