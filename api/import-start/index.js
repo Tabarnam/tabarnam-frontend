@@ -212,6 +212,7 @@ const {
   geocodeCompanyLocations,
   geocodeHQLocation,
   findExistingCompany,
+  isEnrichmentComplete,
   fetchLogo,
 } = require("./_importStartSaveCompanies");
 
@@ -2953,7 +2954,18 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                 const duplicateOfId = existingRow && existingRow.id ? String(existingRow.id).trim() : "";
 
-                if (duplicateOfId && container) {
+                // Phase 3.4.A — if the existing company is incomplete (per
+                // isEnrichmentComplete, which now recognizes upstream_503 /
+                // sse_stall / etc. as NOT-decided), fall through to the normal
+                // save path with allowUpdateExisting=true so re-enrichment can
+                // run. Without this, the user couldn't re-import HIC Kitchen /
+                // Greater Goods after xAI infrastructure failures on their
+                // first attempt — the dedup gate fired in 4-6 seconds returning
+                // "duplicate_detected" without ever invoking the canonical call.
+                const existingIsComplete = isEnrichmentComplete(existingRow);
+                const shouldShortCircuitDuplicate = duplicateOfId && container && existingIsComplete;
+
+                if (shouldShortCircuitDuplicate) {
                   const existingMissing = Array.isArray(existingRow?.import_missing_fields) ? existingRow.import_missing_fields : [];
 
                   // "Verified" for import-start seed-fallback means the minimum required fields exist
@@ -2999,6 +3011,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   const isExplicitCompanyImport =
                     String(bodyObj?.queryType || "").trim() === "company_url" ||
                     Boolean(String(bodyObj?.company_url_hint || "").trim());
+                  // Phase 3.4.A — if we found an existing duplicate but it's
+                  // INCOMPLETE (e.g. prior xAI 503/sse_stall), force
+                  // allowUpdateExisting=true so saveCompaniesToCosmos re-runs
+                  // enrichment against the existing doc instead of skipping
+                  // it as a duplicate.
+                  const forceUpdateForIncompleteDuplicate = Boolean(duplicateOfId) && !existingIsComplete;
                   const saveResultRaw = await saveCompaniesToCosmos({
                     companies,
                     sessionId,
@@ -3007,7 +3025,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     axiosTimeout: Math.min(timeout, 20_000),
                     saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
                     getRemainingMs,
-                    allowUpdateExisting: isExplicitCompanyImport,
+                    allowUpdateExisting: isExplicitCompanyImport || forceUpdateForIncompleteDuplicate,
                     fieldsToEnrich,
                   });
 
