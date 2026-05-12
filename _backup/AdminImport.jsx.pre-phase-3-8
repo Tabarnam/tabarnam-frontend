@@ -433,28 +433,6 @@ export default function AdminImport() {
 
   const successionRunDetails = useMemo(() => {
     if (!showSuccessionPanel) return [];
-
-    // Phase 3.8 — precompute which session currently holds the xAI lock so
-    // we can fix the gap where multiple slot-B+ companies render with the
-    // same "running" spinner even though XAI_CONCURRENCY=1 means only ONE
-    // can actually be talking to xAI. Pre-3.8 the differentiation only
-    // fired when xai_lock_status was EXPLICITLY "waiting" — but freshly-
-    // spawned workers haven't written xai_lock_status yet (it's null for
-    // the first few seconds after enqueue), so the UI defaulted both
-    // in-flight rows to "running".
-    //
-    // 3.8 logic: a row is truly "running" only if its session is the
-    // lock-holder (xai_lock_status === "held"). Any other in-flight row
-    // when SOMEONE holds the lock is "waiting_for_xai" regardless of
-    // whether its own xai_lock_status has been written yet.
-    const heldByRunId = (() => {
-      for (const r of runs) {
-        const s = r?.resume_worker?.xai_lock_status;
-        if (s === "held") return asString(r.session_id).trim();
-      }
-      return "";
-    })();
-
     return successionQueue.map((item, i) => {
       const result = successionResults.find((r) => r.index === i);
       const run = result?.sessionId ? runs.find((r) => r.session_id === result.sessionId) : null;
@@ -486,25 +464,9 @@ export default function AdminImport() {
       // 3+ companies in flight), multiple companies show stage_beacon=
       // enrichment_queued but only ONE is doing xAI work; others are
       // polling the lock. resume_worker.xai_lock_status tells us which.
-      //
-      // Phase 3.8 — expanded the trigger to also fire when xai_lock_status
-      // is null/undefined but another session DOES hold the lock. Newly-
-      // spawned workers don't write xai_lock_status for the first 1-3
-      // seconds; pre-3.8 they rendered as "running" alongside the actual
-      // lock-holder for that window, making it look like both were
-      // simultaneously talking to xAI.
       const xaiLockStatus = run?.resume_worker?.xai_lock_status || null;
-      const sessionId = asString(run?.session_id).trim();
-      const isLockHolder = Boolean(heldByRunId && sessionId === heldByRunId);
-      const someoneElseHoldsLock = Boolean(heldByRunId) && !isLockHolder;
-      if (status === "running") {
-        if (xaiLockStatus === "waiting") {
-          status = "waiting_for_xai";
-        } else if (xaiLockStatus !== "held" && someoneElseHoldsLock) {
-          // We're in-flight but not the lock-holder, and someone else IS.
-          // We must be queued behind them.
-          status = "waiting_for_xai";
-        }
+      if (status === "running" && xaiLockStatus === "waiting") {
+        status = "waiting_for_xai";
       }
 
       // Timing data from run history
