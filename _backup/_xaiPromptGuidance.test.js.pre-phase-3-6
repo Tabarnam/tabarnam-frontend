@@ -111,12 +111,9 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   assert.ok(prompt.includes("Use USA, not US"), "USA-not-US rule missing");
   // Phase 2.19.4: lowered floor from "8-15" to "3-15" for narrow / single-
   // product brands (e.g. Adams Peanut Butter — only ~4 actual industry tags).
-  // Phase 3.6: tightened ceiling 3-15 → 3-8 to bound enumeration pressure.
-  // Any of the three phrasings acceptable to support transition.
+  // Either phrasing acceptable to support transition.
   assert.ok(
-    prompt.includes("3-8 short noun phrases") ||
-    prompt.includes("3-15 short noun phrases") ||
-    prompt.includes("8-15 short noun phrases"),
+    prompt.includes("3-15 short noun phrases") || prompt.includes("8-15 short noun phrases"),
     "industries count rule missing"
   );
   // Phase 2.4: relaxed from "Find 5 unique, legitimate third-party reviews"
@@ -490,16 +487,15 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 3.6: PROMPT_GUIDANCE_VERSION is 9.1.0-stricter-emission-and-ceilings", () => {
-  // Phase 3.6 — minor version bump from 9.0.0 to 9.1.0 marks the stricter
-  // emission language ("after 12th tool call you MUST emit within 2") and
-  // tightened per-field ceilings (industries 3-8, products 5-12). Goal:
-  // reduce the ~10-15% cap-exhaustion failure rate on rich-product brands
-  // (Fleischmann's, King Arthur, Adams, Camp Chef pattern).
+test("Phase 3.4: PROMPT_GUIDANCE_VERSION is 9.0.0-single-call-budget-18", () => {
+  // Phase 3.4 reverts from Phase 3.0's multi-call architecture back to
+  // single-call with an 18-tool budget (matching grok.com's empirical
+  // 14-15 tool-call usage observed on Amagabeli + Camp Chef 2026-05-11).
+  // Major bump 8.x → 9.x signals the architectural reversion.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.1\.0-stricter-emission-and-ceilings/,
-    "PROMPT_GUIDANCE_VERSION must be 9.1.0-stricter-emission-and-ceilings for Phase 3.6"
+    /^9\.0\.0-single-call-budget-18/,
+    "PROMPT_GUIDANCE_VERSION must be 9.0.0-single-call-budget-18 for Phase 3.4"
   );
 });
 
@@ -540,35 +536,16 @@ test("Phase 3.4: buildCanonicalImportPrompt includes emission mandate + 18-tool 
     /Homepage Context block is your highest-confidence source[^.]*trust it directly/i.test(prompt),
     "prompt must include the 'highest-confidence source — trust it directly' sentence (Grok revision 2)"
   );
-  // (d) Phase 3.6 — stricter numerical deadline for emission. Replaces
-  // Phase 3.4's softer "continue until you have data" wording with a
-  // hard "after your 12th tool call you MUST emit within the next 2".
+  // (d) Reconciled homepage-aware emission language (Grok revision 3)
   assert.ok(
-    /After your 12th tool call you MUST emit within the next 2 calls at latest/i.test(prompt),
-    "prompt must contain the Phase 3.6 numerical-deadline emission language"
+    /every requested field that isn't already (clearly )?present in the Homepage Context block above/i.test(prompt),
+    "prompt must contain the reconciled homepage-aware emission language (Grok revision 3)"
   );
-  assert.ok(
-    /Partial data is REQUIRED and preferred to zero text/i.test(prompt),
-    "prompt must contain the Phase 3.6 'partial data is REQUIRED' language"
-  );
-  // Anti-regression — must NOT contain the unreconciled "verify EVERY field"
-  // wording that would conflict with the homepage-direct-emit optimization.
+  // Anti-regression — must NOT contain the unreconciled "verify EVERY field" wording
+  // that would conflict with the homepage-direct-emit optimization.
   assert.ok(
     !/until you have verified data for EVERY requested field/.test(prompt),
     "prompt must NOT contain the unreconciled emission language that conflicts with homepage-direct-emit"
-  );
-  // Phase 3.6 — per-field ceilings block must be present.
-  assert.ok(
-    /Per-field ceilings \(strict\)/i.test(prompt),
-    "prompt must contain the Phase 3.6 per-field ceilings block header"
-  );
-  assert.ok(
-    /Industries: exactly 5-8/i.test(prompt),
-    "prompt must contain the Phase 3.6 'Industries: exactly 5-8' ceiling"
-  );
-  assert.ok(
-    /Reviews:.*if you have 3\+ solid ones, emit immediately/i.test(prompt),
-    "prompt must contain the Phase 3.6 'reviews 3+ emit immediately' ceiling"
   );
 });
 
@@ -610,19 +587,15 @@ test("Phase 2.19.9: homepage-context block uses concise emit-from-context phrasi
 });
 
 // Phase 2.19.4 narrow-brand floor preservation across version bumps.
-// Phase 3.6 — tightened the floors per Grok recommendation: industries
-// 3-15 → 3-8, products 3-20 → 5-12. The narrow-brand intent is preserved
-// (the "3-X" lower bound still accommodates single-product brands; the
-// upper bound is what was tightened to bound enumeration pressure).
-test("Phase 2.19.4 + 3.6: narrow-brand floors still present in industries / products rules", () => {
+test("Phase 2.19.4: narrow-brand floors still present in industries / products rules", () => {
   const prompt = buildCanonicalImportPrompt({ companyName: "X", websiteUrl: "https://x.example" });
   assert.ok(
-    /3-8 short noun phrases/i.test(prompt),
-    "Industries floor must be 3-8 (Phase 3.6 ceiling, was 3-15 in 2.19.4)"
+    prompt.includes("3-15 short noun phrases"),
+    "Industries floor must remain 3-15 (Phase 2.19.4) through version bumps"
   );
   assert.ok(
-    /5-12 universal product/i.test(prompt),
-    "Products floor must be 5-12 (Phase 3.6 ceiling, was 3-20 in 2.19.4)"
+    /3-20 universal product/i.test(prompt),
+    "Products floor must remain 3-20 (Phase 2.19.4) through version bumps"
   );
 });
 
@@ -667,15 +640,14 @@ test("Phase 2.19.4: Industries / Products rules accommodate narrow / single-prod
     websiteUrl: "https://www.adamspeanutbutter.com",
   });
   // Industries floor must be relaxed to allow short lists for narrow brands.
-  // Phase 3.6 — tightened ceiling 15→8 while preserving the "3-" narrow floor.
   assert.ok(
-    /3-8 short noun phrases/i.test(prompt),
-    "Industries rule must use 3-8 floor (Phase 3.6) for narrow brands"
+    prompt.includes("3-15 short noun phrases"),
+    "Industries rule must use 3-15 floor (relaxed from 8-15) for narrow brands"
   );
-  // Products floor must be tightened similarly per Phase 3.6.
+  // Products floor must be relaxed similarly.
   assert.ok(
-    /5-12 universal product/i.test(prompt),
-    "Products rule must use 5-12 floor (Phase 3.6 ceiling, was 3-20)"
+    /3-20 universal product/i.test(prompt),
+    "Products rule must use 3-20 floor (relaxed from 10-20) for narrow brands"
   );
   // Explicit narrow-brand call-outs must appear in both rules.
   assert.ok(

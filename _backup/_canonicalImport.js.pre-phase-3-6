@@ -262,31 +262,24 @@ function buildFailureResult({ fieldsToEnrich, errorCode, elapsedMs, diagnostics 
 
 /**
  * Phase 2.19.7 — homepage-extraction fallback.
- * Phase 3.6 — extended from 2 fields → 6 fields. The prior version only
- * pulled tagline + HQ, leaving rich-brand cap-exhaustion failures
- * (Fleischmann's, King Arthur, Adams, Camp Chef) at Partial-30% even
- * though the pre-fetched homepage often contains industries, products,
- * manufacturing hints, and even press-mention review-like content. Now
- * the fallback tries to populate all 6 canonical fields from the
- * homepage text alone.
  *
  * When the canonical call fails (model_emitted_no_text, upstream_503,
- * sse_stall, upstream_timeout, unparseable_json, post-cap-abort), the
- * homepage prefetch we already ran often contains visible facts the
- * model can summarize. This helper makes a SHORT, bounded xAI call with
- * NO tools enabled. Pure summarization, no web_search, no tool-loop
- * possible.
+ * sse_stall, upstream_timeout, unparseable_json), the homepage prefetch
+ * we already ran often contains tagline + HQ visible on the page. This
+ * helper makes a SHORT, bounded xAI call with NO tools enabled to extract
+ * just those two fields from the prefetched homepage text. Pure
+ * summarization, no web_search, no tool-loop possible.
  *
- * Empirical (2026-05-09 to 2026-05-11): cap-exhausted brands like
- * Fleischmann's (yeast), King Arthur (baking), Adams (peanut butter)
- * all had non-empty homepage prefetches with multiple field hints in
- * them. Pre-3.6 fallback rescued only tagline + HQ → Partial-30%.
- * Post-3.6 fallback aims for Partial-70-90%.
+ * Empirical (2026-05-09 batch — Santa Cruz Organic / Spread the Love /
+ * MaraNatha / Adams): all four failed canonical calls had non-empty
+ * homepage prefetch contexts (>100 chars) containing the tagline and
+ * city-level HQ. Without this fallback, those fields landed empty and
+ * the row showed Stub-0%. With the fallback, those rows can land
+ * Partial-X% with at minimum tagline + HQ populated.
  *
  * Returns null on any failure (fall through to original buildFailureResult).
- * Otherwise returns an object with keys tagline / headquarters_location /
- * manufacturing_locations / industries / product_keywords / reviews
- * (each may be empty string/array if not findable in the prefetch) plus
+ * Otherwise returns an object with keys tagline / headquarters_location
+ * (either may be empty string if not findable in the prefetch) plus
  * diagnostics about the fallback call.
  */
 async function tryHomepageExtractionFallback({
@@ -302,13 +295,7 @@ async function tryHomepageExtractionFallback({
     return null;  // Nothing useful to extract from
   }
 
-  // Phase 3.6 — expanded extraction prompt covering all 6 canonical fields.
-  // Still tools-disabled: pure summarization of the homepage text. The
-  // explicit "If not visible, emit empty/[]" instruction is key — without
-  // it the model can hallucinate (especially for manufacturing_locations
-  // which is rarely on the homepage). For reviews, we accept on-site
-  // testimonials / press mentions only — no third-party search.
-  const fallbackPrompt = `You are extracting facts from the company's homepage text below. Use ONLY the homepage text provided — do not search the web, do not make up information.
+  const fallbackPrompt = `You are extracting two specific facts from the company's homepage text below. Use ONLY the homepage text provided — do not search, do not make up information.
 
 Company: ${companyName}
 Website: ${websiteUrl}
@@ -316,16 +303,11 @@ Website: ${websiteUrl}
 Homepage text (already fetched):
 ${homepageContext}
 
-Extract these 6 fields. For any field whose information is NOT clearly visible in the homepage text, emit the type-correct empty value (string → "", array → []). Do NOT invent or guess.
+Extract:
+- tagline: the company's tagline, slogan, mission statement, or brand promise as it appears on the homepage. If the homepage has no clear tagline, emit "".
+- headquarters_location: the city, state/province, and country of the company's headquarters if visible in the homepage text (often in a footer, contact section, or about paragraph). Format as "City, ST, USA" or "City, Country". If not visible, emit "".
 
-- tagline: the company's tagline, slogan, mission statement, or brand promise as it appears on the homepage. If absent, emit "".
-- headquarters_location: city + state/province + country of the headquarters if visible (often in footer, contact section, or about paragraph). Format "City, ST, USA" or "City, Country". If absent, emit "".
-- manufacturing_locations: cities/countries where the company manufactures, if explicitly mentioned in the homepage text (e.g., "made in USA", "manufactured in Vermont"). Output as an array of strings. If not mentioned, emit [].
-- industries: 3-8 short noun phrases describing what the company sells, derived ONLY from the homepage text. Format as an array of strings. If the text doesn't make this clear, emit a short list (3-5) based on what IS visible, or [] if truly indeterminate.
-- product_keywords: 5-12 product categories or notable lines mentioned in the homepage text, as a single comma-separated string. If only a handful are visible, list those. If none discernible, emit "".
-- reviews: any testimonials, press mentions, "as seen in" badges, or customer feedback visible in the homepage text. Output as an array of objects with keys source, author, url, title, date, text. If none visible, emit [].
-
-Output ONLY a JSON object with exactly these 6 keys: tagline (string), headquarters_location (string), manufacturing_locations (array), industries (array), product_keywords (string), reviews (array). No markdown, no prose, no extra text.`;
+Output ONLY a JSON object with exactly these two keys: tagline (string), headquarters_location (string). No markdown, no prose, no extra text.`;
 
   // Phase 2.19.10: removed fallbackSchema; switched to response_format
   // { type: "json_object" } below. The shape constraint now lives in the
@@ -392,47 +374,22 @@ Output ONLY a JSON object with exactly these 6 keys: tagline (string), headquart
 
     const tagline = asString(parsed.tagline).trim();
     const hq = asString(parsed.headquarters_location).trim();
-    // Phase 3.6 — extract the additional 4 fields. Defensive: each field
-    // must be the right type; if not, default to empty so downstream code
-    // doesn't choke on a hallucinated shape.
-    const mfg = Array.isArray(parsed.manufacturing_locations)
-      ? parsed.manufacturing_locations.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim())
-      : [];
-    const industries = Array.isArray(parsed.industries)
-      ? parsed.industries.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim())
-      : [];
-    const productKeywords = asString(parsed.product_keywords).trim();
-    const reviews = Array.isArray(parsed.reviews)
-      ? parsed.reviews.filter((r) => r && typeof r === "object")
-      : [];
 
     console.log(`[canonicalImport] fallback_succeeded`, {
       session_id: sessionId,
       elapsed_ms: elapsed,
       tagline_chars: tagline.length,
       hq_chars: hq.length,
-      mfg_count: mfg.length,
-      industries_count: industries.length,
-      product_keywords_chars: productKeywords.length,
-      reviews_count: reviews.length,
     });
 
     return {
       tagline,
       headquarters_location: hq,
-      manufacturing_locations: mfg,
-      industries,
-      product_keywords: productKeywords,
-      reviews,
       _diagnostics: {
         fallback_used: true,
         fallback_elapsed_ms: elapsed,
         fallback_tagline_found: tagline.length > 0,
         fallback_hq_found: hq.length > 0,
-        fallback_mfg_found: mfg.length > 0,
-        fallback_industries_found: industries.length > 0,
-        fallback_product_keywords_found: productKeywords.length > 0,
-        fallback_reviews_found: reviews.length > 0,
       },
     };
   } catch (err) {
@@ -459,23 +416,8 @@ async function buildFailureOrPartialFromFallback({
 }) {
   const fallback = fallbackArgs ? await tryHomepageExtractionFallback(fallbackArgs) : null;
 
-  // Phase 3.6 — fallback now extracts up to 6 fields, not just 2. A
-  // populated value in ANY field triggers the partial-success path so
-  // we land Partial-X% with however much data was on the homepage,
-  // rather than degrading to Stub-0% for rich-brand cap-exhaustion.
-  const fallbackHasAnything = Boolean(
-    fallback && (
-      fallback.tagline
-      || fallback.headquarters_location
-      || (Array.isArray(fallback.manufacturing_locations) && fallback.manufacturing_locations.length)
-      || (Array.isArray(fallback.industries) && fallback.industries.length)
-      || fallback.product_keywords
-      || (Array.isArray(fallback.reviews) && fallback.reviews.length)
-    )
-  );
-
-  if (fallbackHasAnything) {
-    // Partial success: at least one canonical field was extractable.
+  if (fallback && (fallback.tagline || fallback.headquarters_location)) {
+    // Partial success: at least tagline or HQ was extractable.
     const fields = Array.isArray(fieldsToEnrich) && fieldsToEnrich.length ? fieldsToEnrich : DEFAULT_CANONICAL_FIELDS;
     const completed = [];
     const failed = [];
@@ -485,14 +427,6 @@ async function buildFailureOrPartialFromFallback({
         completed.push("tagline");
       } else if (f === "headquarters_location" && fallback.headquarters_location) {
         completed.push("headquarters_location");
-      } else if (f === "manufacturing_locations" && Array.isArray(fallback.manufacturing_locations) && fallback.manufacturing_locations.length) {
-        completed.push("manufacturing_locations");
-      } else if (f === "industries" && Array.isArray(fallback.industries) && fallback.industries.length) {
-        completed.push("industries");
-      } else if (f === "product_keywords" && fallback.product_keywords) {
-        completed.push("product_keywords");
-      } else if (f === "reviews" && Array.isArray(fallback.reviews) && fallback.reviews.length) {
-        completed.push("reviews");
       } else {
         failed.push(f);
         errors[f] = errorCode;
@@ -500,12 +434,12 @@ async function buildFailureOrPartialFromFallback({
     }
 
     const flatEnriched = {
-      tagline: fallback.tagline || "",
-      headquarters_location: fallback.headquarters_location || "",
-      manufacturing_locations: Array.isArray(fallback.manufacturing_locations) ? fallback.manufacturing_locations : [],
-      industries: Array.isArray(fallback.industries) ? fallback.industries : [],
-      product_keywords: fallback.product_keywords || "",
-      reviews: Array.isArray(fallback.reviews) ? fallback.reviews : [],
+      tagline: fallback.tagline,
+      headquarters_location: fallback.headquarters_location,
+      manufacturing_locations: [],
+      industries: [],
+      product_keywords: "",
+      reviews: [],
       location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
       red_flag: false,
     };
