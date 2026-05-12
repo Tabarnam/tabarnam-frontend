@@ -434,62 +434,25 @@ export default function AdminImport() {
   const successionRunDetails = useMemo(() => {
     if (!showSuccessionPanel) return [];
 
-    // Phase 3.8 — precompute which session currently holds the xAI lock.
+    // Phase 3.8 — precompute which session currently holds the xAI lock so
+    // we can fix the gap where multiple slot-B+ companies render with the
+    // same "running" spinner even though XAI_CONCURRENCY=1 means only ONE
+    // can actually be talking to xAI. Pre-3.8 the differentiation only
+    // fired when xai_lock_status was EXPLICITLY "waiting" — but freshly-
+    // spawned workers haven't written xai_lock_status yet (it's null for
+    // the first few seconds after enqueue), so the UI defaulted both
+    // in-flight rows to "running".
     //
-    // Phase 3.8.1 — prefer canonical-timestamp detection over xai_lock_status.
-    // Both signals are written via bestEffortPatchSessionDoc (async fire-and-
-    // forget). The "held" status patch can lag the actual lock acquisition
-    // by seconds because:
-    //   - "waiting" is overwritten every backoff cycle while waiting (~2-5s)
-    //   - "held" is written ONCE when acquired
-    //   - Cosmos write latency means a session can briefly show stale "waiting"
-    //     while it's actually holding the lock.
-    // Empirical (Artisan Grills + Hestan 2026-05-12): UI showed BOTH rows
-    // with amber hourglass simultaneously, even though XAI_CONCURRENCY=1
-    // means exactly one of them must hold the lock at any moment.
-    //
-    // Fix: use `xai_canonical_started_at` (Phase 3.5.2) as primary signal —
-    // it's written ONCE when canonical call starts (after lock acquired)
-    // and only cleared when canonical finishes. A row in that state IS the
-    // lock-holder by definition. Fall back to xai_lock_status only when
-    // the canonical timestamps aren't available yet.
+    // 3.8 logic: a row is truly "running" only if its session is the
+    // lock-holder (xai_lock_status === "held"). Any other in-flight row
+    // when SOMEONE holds the lock is "waiting_for_xai" regardless of
+    // whether its own xai_lock_status has been written yet.
     const heldByRunId = (() => {
-      // Primary: a row whose canonical has STARTED but not FINISHED is
-      // actively in canonical = holds the lock.
-      for (const r of runs) {
-        const startedAt = r?.resume_worker?.xai_canonical_started_at;
-        const finishedAt = r?.resume_worker?.xai_canonical_finished_at;
-        if (startedAt && !finishedAt) return asString(r.session_id).trim();
-      }
-      // Fallback: explicit "held" status when canonical timestamps aren't
-      // yet available (pre-canonical-startup window).
       for (const r of runs) {
         const s = r?.resume_worker?.xai_lock_status;
         if (s === "held") return asString(r.session_id).trim();
       }
-      // Last-resort heuristic: if there are multiple in-flight rows but no
-      // signal yet identifies the lock-holder, pick the one with the
-      // EARLIEST xai_lock_wait_started_at (it's been waiting longest, so
-      // most likely the next to acquire OR the current holder). If even
-      // that's missing, take the earliest startedAt.
-      const candidates = runs
-        .map((r) => ({
-          sessionId: asString(r?.session_id).trim(),
-          waitStartedAt: Date.parse(r?.resume_worker?.xai_lock_wait_started_at || "") || 0,
-          startedAt: Date.parse(r?.startedAt || "") || 0,
-          completed: Boolean(r?.completed || r?.stopped || r?.timedOut),
-        }))
-        .filter((c) => c.sessionId && !c.completed);
-      if (candidates.length === 0) return "";
-      candidates.sort((a, b) => {
-        // Prefer earliest wait_started (most likely current holder or
-        // imminent holder). Tie-break on overall start time.
-        if (a.waitStartedAt && b.waitStartedAt && a.waitStartedAt !== b.waitStartedAt) {
-          return a.waitStartedAt - b.waitStartedAt;
-        }
-        return a.startedAt - b.startedAt;
-      });
-      return candidates[0].sessionId;
+      return "";
     })();
 
     return successionQueue.map((item, i) => {
@@ -525,26 +488,23 @@ export default function AdminImport() {
       // polling the lock. resume_worker.xai_lock_status tells us which.
       //
       // Phase 3.8 — expanded the trigger to also fire when xai_lock_status
-      // is null/undefined but another session DOES hold the lock.
-      //
-      // Phase 3.8.1 — STRICT lock-holder rule. With heldByRunId now based
-      // on canonical timestamps (Phase 3.5.2) instead of the laggy
-      // xai_lock_status patch, we can trust it. So: a row is "running"
-      // ONLY if it IS the lock-holder. Any other in-flight row is
-      // "waiting_for_xai". This eliminates the case where two rows show
-      // amber hourglass simultaneously because both had stale "waiting"
-      // status — heldByRunId is now derived from a reliable signal.
+      // is null/undefined but another session DOES hold the lock. Newly-
+      // spawned workers don't write xai_lock_status for the first 1-3
+      // seconds; pre-3.8 they rendered as "running" alongside the actual
+      // lock-holder for that window, making it look like both were
+      // simultaneously talking to xAI.
       const xaiLockStatus = run?.resume_worker?.xai_lock_status || null;
       const sessionId = asString(run?.session_id).trim();
       const isLockHolder = Boolean(heldByRunId && sessionId === heldByRunId);
-      if (status === "running" && heldByRunId && !isLockHolder) {
-        // Someone else IS the lock-holder (positive identification via
-        // canonical timestamp). We're queued.
-        status = "waiting_for_xai";
-      } else if (status === "running" && xaiLockStatus === "waiting" && !isLockHolder) {
-        // Explicit "waiting" status (and we're not the lock-holder per the
-        // primary signal). Fallback for pre-canonical-startup window.
-        status = "waiting_for_xai";
+      const someoneElseHoldsLock = Boolean(heldByRunId) && !isLockHolder;
+      if (status === "running") {
+        if (xaiLockStatus === "waiting") {
+          status = "waiting_for_xai";
+        } else if (xaiLockStatus !== "held" && someoneElseHoldsLock) {
+          // We're in-flight but not the lock-holder, and someone else IS.
+          // We must be queued behind them.
+          status = "waiting_for_xai";
+        }
       }
 
       // Timing data from run history
