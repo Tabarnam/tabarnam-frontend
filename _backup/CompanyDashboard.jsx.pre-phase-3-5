@@ -107,17 +107,6 @@ import {
   MERGEABLE_ARRAY_FIELDS,
 } from "./company-dashboard/dashboardUtils";
 
-// Phase 3.5 — active-imports tracking. AdminImport writes to this store on
-// every poll; we read it to render an "Importing…" badge on rows currently
-// being processed by the resume-worker and to switch to fast polling.
-import {
-  getActiveImports,
-  isRowActivelyImporting,
-  hasActiveImports,
-  markImportInactive,
-  IMPORT_PROGRESS_EVENT,
-} from "@/lib/activeImports";
-
 import MergeableArrayDiff from "./company-dashboard/MergeableArrayDiff";
 import ReviewsImportPanel from "./company-dashboard/ReviewsImportPanel";
 import ImportedReviewsPanel from "./company-dashboard/ImportedReviewsPanel";
@@ -853,33 +842,6 @@ export default function CompanyDashboard() {
         // override a previously valid count.
         if (body?.totalCount > 0) setTotalCount(body.totalCount);
         setItems(nextItems);
-
-        // Phase 3.5 — auto-graduate rows out of the active-imports map.
-        // When the list refetches and a row that WAS marked "importing" now
-        // has canonical fields populated (Complete-95%+), drop its entry so
-        // the badge clears immediately even if AdminImport never fired
-        // markImportInactive (e.g., the dispatcher timed out the slot).
-        try {
-          const active = getActiveImports();
-          if (active && Object.keys(active).length > 0) {
-            for (const row of nextItems) {
-              const id = String(row?.id || row?.company_id || "").trim();
-              const sid = String(row?.import_session_id || "").trim();
-              if (!id && !sid) continue;
-              if (!active[id] && !active[sid]) continue;
-              const missing = Array.isArray(row?.enrichment_health?.missing_fields)
-                ? row.enrichment_health.missing_fields.filter(Boolean)
-                : [];
-              const canonicalMissing = missing.some((f) =>
-                ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords", "keywords", "reviews", "curated_reviews"].includes(f)
-              );
-              if (!canonicalMissing) {
-                // Canonical fields all populated → import is effectively done.
-                markImportInactive({ session_id: sid || null, company_id: id || null });
-              }
-            }
-          }
-        } catch { /* never break the list update on telemetry */ }
         setRowErrors((prev) => {
           if (!prev || typeof prev !== "object") return {};
           const ids = new Set(nextItems.map((c) => getCompanyId(c)).filter(Boolean));
@@ -940,45 +902,6 @@ export default function CompanyDashboard() {
   //
   // Both triggers go through the same `loadCompanies` path used by manual
   // Refresh, so they share its abort + dedupe semantics.
-  // Phase 3.5 — track active imports so we can render an "Importing…" badge
-  // and switch polling to a fast cadence while imports are in flight.
-  const [activeImportsMap, setActiveImportsMap] = useState(() => getActiveImports());
-
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-
-    const syncFromStorage = () => {
-      try {
-        setActiveImportsMap(getActiveImports());
-      } catch { /* ignore */ }
-    };
-
-    // Same-tab events: dispatched by AdminImport via window.dispatchEvent.
-    const progressHandler = () => syncFromStorage();
-    window.addEventListener(IMPORT_PROGRESS_EVENT, progressHandler);
-
-    // Cross-tab: localStorage write in another tab fires a storage event here.
-    const storageHandler = (e) => {
-      if (e && e.key && !e.key.startsWith("tabarnam_active_imports")) return;
-      syncFromStorage();
-    };
-    window.addEventListener("storage", storageHandler);
-
-    // Also re-sync on a slow interval to drop entries whose TTL has expired
-    // without an explicit inactive event (e.g., AdminImport crashed mid-import).
-    const ttlPrune = window.setInterval(syncFromStorage, 30_000);
-
-    return () => {
-      window.removeEventListener(IMPORT_PROGRESS_EVENT, progressHandler);
-      window.removeEventListener("storage", storageHandler);
-      window.clearInterval(ttlPrune);
-    };
-  }, []);
-
-  // Phase 3.5 — fast-poll mode: when there are active imports, refetch the
-  // companies list every 10s so the just-finished row "graduates" from
-  // Importing→Stub→Partial→Complete with minimal latency. Reverts to the
-  // existing 60s cadence as soon as the active-imports map is empty.
   useEffect(() => {
     if (typeof document === "undefined" || !document.addEventListener) return undefined;
 
@@ -997,14 +920,7 @@ export default function CompanyDashboard() {
     };
 
     document.addEventListener("visibilitychange", visibilityHandler);
-
-    // Phase 3.5 — pick interval based on active-imports presence. The map is
-    // read live (not via the React state snapshot) so the cadence picks up
-    // mid-cycle additions/removals without waiting for the next render.
-    const fastInterval = 10_000;
-    const slowInterval = 60_000;
-    const intervalMs = hasActiveImports() ? fastInterval : slowInterval;
-    const interval = window.setInterval(refetchIfVisible, intervalMs);
+    const interval = window.setInterval(refetchIfVisible, 60_000);
 
     // Phase 2.19.8 — listen for import-complete events dispatched by
     // AdminImport.jsx when a session reaches terminal state. Refresh the
@@ -1024,9 +940,7 @@ export default function CompanyDashboard() {
       window.removeEventListener("tabarnam:import-complete", importCompleteHandler);
       window.clearInterval(interval);
     };
-    // Re-create the interval when activeImportsMap changes so we switch
-    // between fast / slow cadences without a stale closure.
-  }, [loadCompanies, search, take, activeImportsMap]);
+  }, [loadCompanies, search, take]);
 
   useEffect(() => {
     return () => {
@@ -3625,23 +3539,6 @@ export default function CompanyDashboard() {
         right: true,
         width: "130px",
         cell: (row) => {
-          // Phase 3.5 — "Importing…" badge takes precedence over Stub/Partial
-          // when the row has an active import session in flight. Avoids the
-          // misleading Stub-0% rendering while the resume-worker is still
-          // running canonical for this company.
-          const isImporting = isRowActivelyImporting(row, activeImportsMap);
-          if (isImporting) {
-            return (
-              <span
-                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-600 dark:bg-sky-950/40 dark:text-sky-300"
-                title="An import session for this company is still running"
-              >
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Importing…
-              </span>
-            );
-          }
-
           const score = getProfileCompleteness(row);
           const label = getProfileCompletenessLabel(score);
           const gaps = getProfileGaps(row);
