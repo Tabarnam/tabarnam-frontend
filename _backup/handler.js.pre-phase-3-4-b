@@ -1643,33 +1643,12 @@ async function resumeWorkerHandler(req, context) {
     // If the resume doc says resume_worker + in_progress but the heartbeat is stale
     // (>90s old), the prior worker was killed (host recycle, OOM, etc.) without
     // cleaning up.  Clear the state so this safety-net invocation can proceed.
-    //
-    // Phase 3.4.B — fresh-worker guard. Empirical (2026-05-11 Scrub Daddy
-    // session ba13cfce): the prior condition `heartbeatAgeMs >= enrichmentStaleMs`
-    // was TRUE for every newly-entered worker because heartbeatAt=0 makes
-    // heartbeatAgeMs=Infinity. When a redundant HTTP self-invocation fired 3s
-    // after the queue-triggered worker had set status=in_progress (but hadn't
-    // written its first heartbeat yet — they're throttled to 30s), the
-    // self-invocation declared "stale" and clobbered the active worker's
-    // state. The active worker then ran in a corrupted state and the user-
-    // facing UI showed Stub-0%. Fix: require enrichment to have actually been
-    // running for >= enrichmentStaleMs before any "stale" declaration. A
-    // fresh worker (enrichmentAgeMs < 60s) can't be stale by definition.
     if (resumeInvocationMode === "resume_worker" && resumeStatus === "in_progress") {
       const heartbeatAt = Date.parse(String(resumeDoc?.resume_worker_heartbeat_at || "")) || 0;
       const heartbeatAgeMs = heartbeatAt ? Date.now() - heartbeatAt : Infinity;
       const enrichmentStaleMs = 60_000; // 60s = 2× heartbeat interval (30s); fast recovery from dead workers
 
-      // Phase 3.4.B — gate the stale-detection on enrichment having actually
-      // been running long enough. Two acceptable paths to "stale":
-      //   1. Enrichment ≥60s old AND heartbeat ≥60s stale → normal stale case
-      //   2. Enrichment ≥7min old AND no heartbeat ever written → dead-on-start
-      // A fresh worker (enrichmentAgeMs < 60s) is never stale.
-      const enrichmentOldEnoughToStale = enrichmentAgeMs >= enrichmentStaleMs;
-      const heartbeatStale = enrichmentOldEnoughToStale && heartbeatAgeMs >= enrichmentStaleMs;
-      const heartbeatNeverWrittenAfterLongRun = enrichmentAgeMs >= 420_000 && !heartbeatAt;
-
-      if (heartbeatStale || heartbeatNeverWrittenAfterLongRun) {
+      if (heartbeatAgeMs >= enrichmentStaleMs || (enrichmentAgeMs >= 420_000 && !heartbeatAt)) {
         console.warn(`[resume-worker] stale resume_worker detected for session=${sessionId}`
           + ` (heartbeat_age=${heartbeatAt ? Math.round(heartbeatAgeMs / 1000) + "s" : "never"}`
           + `, enrichment_age=${Math.round(enrichmentAgeMs / 1000)}s), clearing in_progress state`);
