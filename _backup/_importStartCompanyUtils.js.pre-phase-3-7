@@ -313,54 +313,13 @@ function computeReviewDedupeKey(review) {
   }
 }
 
-// Phase 3.7 — normalize a single review object to the canonical schema
-// `{ source, author, url, title, date, text }`. The legacy editorial-reviews
-// path (fetchEditorialReviews) emits `source_name` + `excerpt`/`abstract`/
-// `content` instead. Empirical (Slap Ya Mama + Simple Mills imports
-// 2026-05-11): mixed schemas coexisted in curated_reviews, breaking
-// downstream code that reads `review.source` (returned undefined for the
-// legacy half) or `review.text` (returned undefined for the new half).
-//
-// Normalization picks the FIRST non-empty value among the schema variants
-// for each canonical key, and prunes the alias keys so the output is a
-// single clean shape. _dedupe_key is preserved when present.
-function normalizeCuratedReviewSchema(review) {
-  if (!review || typeof review !== "object") return null;
-  const pick = (...vals) => {
-    for (const v of vals) {
-      const s = typeof v === "string" ? v.trim() : v;
-      if (s != null && s !== "") return v;
-    }
-    return "";
-  };
-  const normalized = {
-    source: pick(review.source, review.source_name, review.publication, review.channel),
-    author: pick(review.author, review.reviewer, review.byline),
-    url: pick(review.url, review.source_url, review.link),
-    title: pick(review.title, review.headline, review.review_title),
-    date: pick(review.date, review.published_at, review.reviewed_at),
-    text: pick(review.text, review.excerpt, review.abstract, review.content, review.summary, review.body),
-  };
-  // Preserve dedupe key + any non-schema metadata the caller may have set.
-  if (review._dedupe_key) normalized._dedupe_key = review._dedupe_key;
-  if (review.rating != null) normalized.rating = review.rating;
-  return normalized;
-}
-
 function dedupeCuratedReviews(reviews) {
   const list = Array.isArray(reviews) ? reviews : [];
   const out = [];
   const seen = new Set();
 
-  for (const raw of list) {
-    if (!raw || typeof raw !== "object") continue;
-    // Phase 3.7 — normalize schema first so the dedupe key is computed
-    // against the canonical shape regardless of which import path produced
-    // the entry. Without this, the same review surfaced by two different
-    // paths would have different keys (one with `source`, one with
-    // `source_name`) and dedupe wouldn't catch the duplicate.
-    const r = normalizeCuratedReviewSchema(raw);
-    if (!r) continue;
+  for (const r of list) {
+    if (!r || typeof r !== "object") continue;
     const k = String(r._dedupe_key || "").trim() || computeReviewDedupeKey(r);
     if (!k) continue;
     if (seen.has(k)) continue;
@@ -500,7 +459,6 @@ module.exports = {
   normalizeUrlForCompare,
   computeReviewDedupeKey,
   dedupeCuratedReviews,
-  normalizeCuratedReviewSchema,  // Phase 3.7
   buildReviewCursor,
 
   // Seed validation

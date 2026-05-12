@@ -116,105 +116,6 @@ function stripLabel(value) {
   return value.replace(KNOWN_PROMPT_LABEL_PREFIX, "").trim();
 }
 
-// Phase 3.7 — strip JSON unicode escape sequences that leak through as
-// literal text. Empirical (Slap Ya Mama import, 2026-05-11): model emitted
-// `industries: ["Cajun Seasonings ⚡"]` — the website uses emoji
-// decoration (⚡) in industry labels; the model preserved the JSON-escaped
-// form (`⚡`) as literal 6-character text rather than rendering the
-// codepoint. Same for accented-character escapes.
-//
-// Two cases handled:
-//   1. Genuine escapes that JSON.parse already decoded → trailing emoji
-//      character left in place: trim Unicode-class control / non-printable
-//      noise from the end of strings.
-//   2. Literal `\uXXXX` text that survived parsing → decode or strip.
-const UNICODE_ESCAPE_LITERAL = /\\u([0-9a-fA-F]{4})/g;
-function stripUnicodeEscapeLeaks(value) {
-  if (typeof value !== "string") return value;
-  let v = value;
-  // Decode literal `\uXXXX` sequences. If the resulting char is a printable
-  // emoji or letter, keep it; otherwise strip the escape entirely.
-  v = v.replace(UNICODE_ESCAPE_LITERAL, (_, hex) => {
-    try {
-      const code = parseInt(hex, 16);
-      if (!Number.isFinite(code)) return "";
-      const ch = String.fromCharCode(code);
-      // Strip emoji / symbol decorations that clutter category labels:
-      // Misc Symbols & Pictographs / Emoji / Dingbats / Geometric Shapes
-      // / Misc Technical / Arrows / Currency / etc. Keep letters,
-      // numbers, common punctuation, and Latin-1 accented chars.
-      if (code < 0x20) return "";              // control
-      if (code >= 0x2000 && code <= 0x2BFF) return "";  // symbols, arrows, dingbats
-      if (code >= 0x2600 && code <= 0x27BF) return "";  // misc symbols + dingbats (⚡ = U+26A1)
-      if (code >= 0xE000 && code <= 0xF8FF) return "";  // private use
-      if (code >= 0x1F300) return "";          // beyond BMP emoji ranges (handled at char level if surrogate pair survives)
-      return ch;
-    } catch {
-      return "";
-    }
-  });
-  // Strip trailing whitespace + commas + decorative chars left behind.
-  v = v.replace(/[\s,\-–—•·]+$/u, "").trim();
-  return v;
-}
-
-// Phase 3.7 — filter low-quality industry/keyword entries:
-//   - Drop bare lowercase one-word entries that look truncated
-//     (e.g. "baking" from Simple Mills — partial bleed of the JSON
-//     "baking mixes" key into the array)
-//   - Drop entries that are <= 2 chars (almost always garbage)
-//   - Drop entries that contain only punctuation/symbols
-const VALID_NOUN_PHRASE = /[A-Za-z]/;
-function isQualityNounPhraseEntry(value, { allowLowercaseSingleWord = false } = {}) {
-  if (typeof value !== "string") return false;
-  const v = value.trim();
-  if (v.length < 3) return false;
-  if (!VALID_NOUN_PHRASE.test(v)) return false;
-  // Lowercase single-word entries (e.g. "baking", "cookware") are usually
-  // truncated bleed — real industry labels are Title Case or multi-word.
-  // Allow them only when the caller explicitly opts in (product_keywords,
-  // where lowercase single-word entries are normal).
-  if (!allowLowercaseSingleWord) {
-    const tokens = v.split(/\s+/);
-    if (tokens.length === 1 && v === v.toLowerCase()) return false;
-  }
-  return true;
-}
-
-function cleanNounPhraseArray(arr, opts = {}) {
-  if (!Array.isArray(arr)) return [];
-  const out = [];
-  const seen = new Set();
-  for (const raw of arr) {
-    const v = stripUnicodeEscapeLeaks(asString(raw));
-    if (!isQualityNounPhraseEntry(v, opts)) continue;
-    const key = v.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(v);
-  }
-  return out;
-}
-
-function cleanProductKeywordsString(value) {
-  if (typeof value !== "string") return value;
-  // product_keywords is a single comma-separated string. Split, clean each
-  // token, rejoin. Lowercase single-word entries are valid here ("hot sauce",
-  // "fish fry") — only filter out garbage and decorative escapes.
-  const tokens = value.split(",");
-  const cleaned = [];
-  const seen = new Set();
-  for (const raw of tokens) {
-    const v = stripUnicodeEscapeLeaks(raw.trim());
-    if (!isQualityNounPhraseEntry(v, { allowLowercaseSingleWord: true })) continue;
-    const key = v.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    cleaned.push(v);
-  }
-  return cleaned.join(", ");
-}
-
 /**
  * Map a parsed canonical JSON object (already conforming to
  * CANONICAL_IMPORT_JSON_SCHEMA) into the enriched-result shape that
@@ -224,18 +125,12 @@ function cleanProductKeywordsString(value) {
  * (e.g. "HQ: ") into string field values.
  */
 function shapeEnrichedFromParsed(parsed) {
-  // Phase 3.7 — clean string fields through the unicode-escape + label
-  // stripper, and run array fields (industries) through the noun-phrase
-  // quality filter (drops emoji-decorated entries, single lowercase words
-  // like "baking", entries < 3 chars). product_keywords runs through a
-  // dedicated cleaner that allows lowercase single-word entries (legitimate
-  // for product names like "hot sauce").
   return {
-    tagline: stripUnicodeEscapeLeaks(stripLabel(asString(parsed?.tagline))),
-    headquarters_location: stripUnicodeEscapeLeaks(stripLabel(asString(parsed?.headquarters_location))),
-    manufacturing_locations: cleanNounPhraseArray(parsed?.manufacturing_locations, { allowLowercaseSingleWord: true }),
-    industries: cleanNounPhraseArray(parsed?.industries),
-    product_keywords: cleanProductKeywordsString(stripLabel(asString(parsed?.product_keywords))),
+    tagline: stripLabel(asString(parsed?.tagline)),
+    headquarters_location: stripLabel(asString(parsed?.headquarters_location)),
+    manufacturing_locations: Array.isArray(parsed?.manufacturing_locations) ? parsed.manufacturing_locations : [],
+    industries: Array.isArray(parsed?.industries) ? parsed.industries : [],
+    product_keywords: stripLabel(asString(parsed?.product_keywords)),
     reviews: Array.isArray(parsed?.reviews) ? parsed.reviews : [],
     location_source_urls:
       parsed?.location_source_urls && typeof parsed.location_source_urls === "object"
@@ -823,15 +718,16 @@ function mergeMultiCallResults({ coreResult, locationsResult, reviewsResult }) {
   const loc = locationsResult?.ok ? locationsResult.parsed : {};
   const rev = reviewsResult?.ok ? reviewsResult.parsed : {};
 
-  // Phase 3.7 — multi-call merge also applies the data-cleanup helpers
-  // so dormant XAI_MULTI_CALL_MODE=on path stays parity with the
-  // single-call's cleanup.
   return {
-    tagline: stripUnicodeEscapeLeaks(stripLabel(asString(core?.tagline))),
-    headquarters_location: stripUnicodeEscapeLeaks(stripLabel(asString(loc?.headquarters_location))),
-    manufacturing_locations: cleanNounPhraseArray(loc?.manufacturing_locations, { allowLowercaseSingleWord: true }),
-    industries: cleanNounPhraseArray(core?.industries),
-    product_keywords: cleanProductKeywordsString(stripLabel(asString(core?.product_keywords))),
+    tagline: stripLabel(asString(core?.tagline)),
+    headquarters_location: stripLabel(asString(loc?.headquarters_location)),
+    manufacturing_locations: Array.isArray(loc?.manufacturing_locations)
+      ? loc.manufacturing_locations.map((s) => asString(s)).filter(Boolean)
+      : [],
+    industries: Array.isArray(core?.industries)
+      ? core.industries.map((s) => asString(s)).filter(Boolean)
+      : [],
+    product_keywords: asString(core?.product_keywords),
     reviews: Array.isArray(rev?.reviews) ? rev.reviews : [],
     location_source_urls: loc?.location_source_urls && typeof loc.location_source_urls === "object"
       ? {
@@ -1709,9 +1605,4 @@ module.exports = {
   // Phase 3.0: multi-call parallel canonical
   runMultiCallCanonical,
   mergeMultiCallResults,
-  // Phase 3.7: data-cleanup helpers
-  stripUnicodeEscapeLeaks,
-  isQualityNounPhraseEntry,
-  cleanNounPhraseArray,
-  cleanProductKeywordsString,
 };
