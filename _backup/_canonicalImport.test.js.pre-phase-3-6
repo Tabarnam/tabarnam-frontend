@@ -1833,7 +1833,7 @@ test("Phase 3.0: runMultiCallCanonical — Call 2 (locations) failure flips ok t
           };
         }
         // Homepage-extraction fallback (tools-disabled summarization)
-        if (/Extract these 6 fields\.|Extract:\s*- tagline/i.test(promptText)) {
+        if (/Extract:\s*- tagline/i.test(promptText)) {
           fallbackCalled = true;
           return {
             ok: true,
@@ -1901,7 +1901,7 @@ test("Phase 3.0.2: all-503 sub-call failures set infrastructure_failure_all_call
         }
         // Homepage-extraction fallback — should NOT be invoked when
         // infrastructure_failure_all_calls is true.
-        if (/Extract these 6 fields\.|Extract:\s*- tagline/i.test(promptText)) {
+        if (/Extract:\s*- tagline/i.test(promptText)) {
           throw new Error("FALLBACK SHOULD NOT FIRE when all calls had infrastructure failures");
         }
         return { ok: false, error: "unknown_prompt" };
@@ -1972,7 +1972,7 @@ test("Phase 3.0.2: mixed failure (1 infrastructure + 2 model failures) does NOT 
           return { ok: false, error: "upstream_timeout", error_code: "upstream_timeout", diagnostics: { tool_calls_counted: 5 } };
         }
         // Homepage-extraction fallback — SHOULD fire because not all infra failures
-        if (/Extract these 6 fields\.|Extract:\s*- tagline/i.test(promptText)) {
+        if (/Extract:\s*- tagline/i.test(promptText)) {
           fallbackInvoked = true;
           return {
             ok: true,
