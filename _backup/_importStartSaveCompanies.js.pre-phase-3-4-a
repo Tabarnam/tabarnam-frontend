@@ -168,39 +168,14 @@ function isEnrichmentComplete(doc) {
   // having been attempted (import_attempts[f] > 0) or by having a non-placeholder
   // reason.  Placeholder reasons ("missing", "pending", etc.) are set at seed time
   // and indicate the field was never enriched — these must NOT block re-enrichment.
-  //
-  // Phase 3.4.A — infrastructure failures must NOT count as "decided" even when
-  // import_attempts[f] >= 1. Empirical (2026-05-11 HIC Kitchen + Greater Goods):
-  // xAI returned 503 / silent SSE-stall, the canonical call wrote
-  // import_missing_reason = "upstream_503" / "sse_stall" for every field, AND
-  // it incremented import_attempts.tagline etc. by 1. The prior Tier 2 logic
-  // saw attempts >= 1 and returned "decided", which blocked the user from
-  // re-importing the company via the bulk paste flow (the dedup gate fired
-  // instantly with "Skipping duplicate company"). Infrastructure failures are
-  // retryable by definition; the field IS still unenriched, the retry is
-  // legitimate. Listing the reasons here surfaces them to the dedup logic.
   const attempts = doc.import_attempts && typeof doc.import_attempts === "object" ? doc.import_attempts : {};
   const PLACEHOLDER_REASONS = new Set(["missing", "pending", "incomplete", "not_disclosed_pending"]);
-  const INFRA_FAILURE_REASONS = new Set([
-    "upstream_503",
-    "upstream_http_503",
-    "upstream_timeout",            // (without _terminal — those ARE decided per isTerminal())
-    "sse_stall",
-    "model_emitted_no_text",
-    "infrastructure_failure_all_calls",
-    "unparseable_json",
-    "transport_error",
-    "abort",
-  ]);
 
   const allAccountedFor = missing.every((f) => {
-    const reason = String(reasons[f] || "").trim();
-    // Phase 3.4.A — infrastructure-failure reasons override the "attempted = decided"
-    // shortcut. The field is NOT decided; re-import should be allowed.
-    if (reason && INFRA_FAILURE_REASONS.has(reason)) return false;
     // Field was explicitly attempted → decided
     if (Number(attempts[f] || 0) > 0) return true;
-    // Field has a non-placeholder reason → decided (e.g. "not_found")
+    // Field has a non-placeholder reason → decided (e.g. "not_found", "upstream_timeout")
+    const reason = String(reasons[f] || "").trim();
     return reason && !PLACEHOLDER_REASONS.has(reason);
   });
   return allAccountedFor;
@@ -1449,7 +1424,6 @@ module.exports = {
   geocodeCompanyLocations,
   geocodeHQLocation,
   findExistingCompany,
-  isEnrichmentComplete,
   fetchLogo,
   requireImportCompanyLogo,
 };
