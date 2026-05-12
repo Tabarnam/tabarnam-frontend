@@ -91,6 +91,17 @@ jobs:
               print("SOFT-PASS: external upstream issue, not a tabarnam regression.")
               sys.exit(0)
 
+          # SOFT-PASS: upstream xAI took longer than the diag endpoint's 12s
+          # smoke-test timeout to first-byte. Same class of "xAI's fault, not
+          # ours" as 5xx. Added 2026-05-12 after Phase 4.0 / 4.1 deploys saw
+          # repeated upstream_call_failed timeouts on otherwise-healthy deploys.
+          message = smoke.get("message", "")
+          if detail == "upstream_call_failed" and "timeout" in message.lower():
+              print(f"::warning::Upstream xAI call timed out ({message}). "
+                    f"Tabarnam diag endpoint is responding correctly; xAI is slow/overloaded.")
+              print("SOFT-PASS: external upstream timeout, not a tabarnam regression.")
+              sys.exit(0)
+
           # HARD-FAIL: real regression — config missing, route broken, payload malformed.
           print(f"FAIL: diag/xai-v2 smoke returned unexpected payload.")
           print(f"  ok={j.get('ok')}, smoke.ok={smoke.get('ok')}, status={status}, detail={detail}")

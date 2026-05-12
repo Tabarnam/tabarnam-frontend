@@ -149,6 +149,19 @@ jobs:
               print("SOFT-PASS: marking smoke as warning, not failure (upstream-only issue).")
               sys.exit(0)
 
+          # SOFT-PASS: upstream xAI took longer than the diag endpoint's 12s
+          # smoke-test timeout to respond. Same class of "xAI's fault, not
+          # ours" as 5xx — the diag endpoint correctly tagged the failure as
+          # detail=upstream_call_failed with a timeout message. Treat as a
+          # workflow warning, not a hard failure. Observed during the 2026-05-12
+          # Phase 4.0 / 4.1 deploys when xAI was slow to first-byte.
+          message = smoke.get("message", "")
+          if detail == "upstream_call_failed" and "timeout" in message.lower():
+              print(f"::warning::Upstream xAI call timed out ({message}). "
+                    f"Tabarnam deploy is fine; xAI is slow/overloaded.")
+              print("SOFT-PASS: marking smoke as warning, not failure (upstream timeout).")
+              sys.exit(0)
+
           # HARD-FAIL: anything else — config missing, route broken, response
           # malformed, etc. These are real regressions that need attention.
           print(f"FAIL: diag/xai-v2 smoke returned an unexpected payload.")
