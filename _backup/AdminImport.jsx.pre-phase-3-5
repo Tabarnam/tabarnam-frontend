@@ -77,10 +77,6 @@ import {
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
 
-// Phase 3.5 — shared active-imports state so the Companies dashboard can
-// render an "Importing…" badge on rows that are currently being processed.
-import { markImportActive, markImportInactive } from "@/lib/activeImports";
-
 async function apiFetchWithFallback(paths, init) {
   const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
   if (list.length === 0) throw new Error("apiFetchWithFallback: missing paths");
@@ -937,28 +933,6 @@ export default function AdminImport() {
             };
           })
         );
-
-        // Phase 3.5 — mark this session as actively importing (or release it
-        // when terminal). The Companies dashboard reads this state to render
-        // an "Importing…" badge on rows that are currently being processed,
-        // distinguishing them from rows that are genuinely Stub-0%.
-        try {
-          const verifiedId = Array.isArray(body?.saved_company_ids_verified) && body.saved_company_ids_verified.length > 0
-            ? asString(body.saved_company_ids_verified[0]).trim()
-            : Array.isArray(body?.saved_company_ids) && body.saved_company_ids.length > 0
-              ? asString(body.saved_company_ids[0]).trim()
-              : "";
-
-          if (isTerminalError || (isTerminalComplete && !shouldBackoffForResume)) {
-            markImportInactive({ session_id, company_id: verifiedId });
-          } else {
-            markImportActive({
-              session_id,
-              company_id: verifiedId,
-              status: shouldBackoffForResume ? "enriching" : (isTerminalComplete ? "complete_pending_resume" : "running"),
-            });
-          }
-        } catch { /* never break the polling loop on telemetry errors */ }
 
         // Succession early advance: company is saved + enrichment partial + resume-worker is
         // filling in remaining fields.  Advance the queue so the next company can start importing
@@ -4140,16 +4114,6 @@ export default function AdminImport() {
       }));
     } catch { /* ignore in non-browser env */ }
 
-    // Phase 3.5 — clear active-imports state so the Companies dashboard
-    // immediately drops the "Importing…" badge on this row.
-    try {
-      const completedRun = runs.find((r) => asString(r?.session_id).trim() === asString(activeSessionId).trim());
-      const completedVerifiedId = Array.isArray(completedRun?.saved_company_ids_verified) && completedRun.saved_company_ids_verified.length > 0
-        ? asString(completedRun.saved_company_ids_verified[0]).trim()
-        : "";
-      markImportInactive({ session_id: activeSessionId, company_id: completedVerifiedId });
-    } catch { /* never break the dispatcher on telemetry errors */ }
-
     // Atomically claim next index from the shared counter. Refs update
     // synchronously, so even if shadow's effect fires in the same tick
     // they can't both grab the same index.
@@ -4197,15 +4161,6 @@ export default function AdminImport() {
         detail: { sessionId: shadowSessionId, status: shadowStatus === "done" ? "done" : "error", slot: "shadow" },
       }));
     } catch { /* ignore in non-browser env */ }
-
-    // Phase 3.5 — clear active-imports state for the shadow slot's session.
-    try {
-      const completedRun = runs.find((r) => asString(r?.session_id).trim() === asString(shadowSessionId).trim());
-      const completedVerifiedId = Array.isArray(completedRun?.saved_company_ids_verified) && completedRun.saved_company_ids_verified.length > 0
-        ? asString(completedRun.saved_company_ids_verified[0]).trim()
-        : "";
-      markImportInactive({ session_id: shadowSessionId, company_id: completedVerifiedId });
-    } catch { /* never break the dispatcher on telemetry errors */ }
 
     // Reset shadow state before re-starting
     stopShadowPolling();
