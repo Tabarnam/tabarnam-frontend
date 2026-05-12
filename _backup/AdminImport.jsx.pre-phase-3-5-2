@@ -473,41 +473,16 @@ export default function AdminImport() {
       let startedAt = null;
       let updatedAt = null;
       let trt = null;
-      let trtSource = null;        // Phase 3.5.2 — track which signal we used
-      let lockWaitMs = null;       // Phase 3.5.2 — surface for tooltip
       if (run) {
         startedAt = run.startedAt ? new Date(run.startedAt) : null;
         updatedAt = run.updatedAt ? new Date(run.updatedAt) : null;
-
-        // Phase 3.5.2 — TRT priority chain. Highest signal wins:
-        //   1. resume_worker.xai_canonical_elapsed_ms — the precise xAI
-        //      call duration (start of runCanonicalImportCall → end). This
-        //      is the "real" backend work for THIS company. Pre-3.5.2 the
-        //      UI used (updatedAt - startedAt) which conflated lock-wait
-        //      with canonical work — Solo Stove showed TRT 5:09 when its
-        //      actual canonical was only 1:54 (3:15 lock-wait + 1:54 work).
-        //   2. run.elapsed_ms — backend session elapsed (includes lock-wait
-        //      for resume-worker mode; still better than wall-clock).
-        //   3. (updatedAt - startedAt) — frontend wall-clock fallback.
-        const canonicalElapsedMs = Number(run?.resume_worker?.xai_canonical_elapsed_ms);
-        lockWaitMs = Number.isFinite(Number(run?.resume_worker?.xai_lock_wait_ms))
-          ? Number(run.resume_worker.xai_lock_wait_ms)
-          : null;
-
-        if (canonicalElapsedMs > 0) {
-          const totalSec = Math.round(canonicalElapsedMs / 1000);
-          const m = Math.floor(totalSec / 60);
-          const s = totalSec % 60;
-          trt = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-          trtSource = "canonical";
-        } else if (startedAt && updatedAt && (run.completed || run.stopped || run.timedOut)) {
+        if (startedAt && updatedAt && (run.completed || run.stopped || run.timedOut)) {
           const ms = (run.elapsed_ms > 0 ? run.elapsed_ms : null) ?? (updatedAt - startedAt);
           if (ms > 0) {
             const totalSec = Math.round(ms / 1000);
             const m = Math.floor(totalSec / 60);
             const s = totalSec % 60;
             trt = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-            trtSource = run.elapsed_ms > 0 ? "session" : "wallclock";
           }
         }
       }
@@ -521,8 +496,6 @@ export default function AdminImport() {
         startedAt,
         updatedAt,
         trt,
-        trtSource,                                                   // Phase 3.5.2
-        lockWaitMs,                                                  // Phase 3.5.2
         xaiLockStatus,                                              // Phase 3.1.3
         xaiLockWaitMs: run?.resume_worker?.xai_lock_wait_ms ?? null, // Phase 3.1.3
       };
@@ -5056,35 +5029,7 @@ export default function AdminImport() {
                             {item.startedAt.toLocaleTimeString()}
                             {" \u2192 "}
                             {item.updatedAt.toLocaleTimeString()}
-                            <span
-                              className="ml-1.5 font-mono text-emerald-600 dark:text-emerald-400"
-                              title={(() => {
-                                // Phase 3.5.2 \u2014 tooltip shows what the TRT is
-                                // measuring + lock-wait context when present.
-                                if (item.trtSource === "canonical") {
-                                  const lockSec = Number.isFinite(item.lockWaitMs) && item.lockWaitMs > 0
-                                    ? Math.round(item.lockWaitMs / 1000)
-                                    : 0;
-                                  if (lockSec > 0) {
-                                    const m = Math.floor(lockSec / 60);
-                                    const s = lockSec % 60;
-                                    return `xAI canonical call duration. Also waited ${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")} for the xAI lock before this call started.`;
-                                  }
-                                  return "xAI canonical call duration (from start of runCanonicalImportCall to end).";
-                                }
-                                if (item.trtSource === "session") {
-                                  return "Backend session elapsed (includes lock-wait + canonical + post-processing).";
-                                }
-                                return "Wall-clock from import-start to last status update.";
-                              })()}
-                            >
-                              TRT: {item.trt}
-                              {item.trtSource === "canonical" && Number.isFinite(item.lockWaitMs) && item.lockWaitMs >= 5000 ? (
-                                <span className="ml-1 text-amber-600 dark:text-amber-400">
-                                  {" "}(+{Math.floor(item.lockWaitMs / 60000)}:{String(Math.floor((item.lockWaitMs % 60000) / 1000)).padStart(2, "0")} lock-wait)
-                                </span>
-                              ) : null}
-                            </span>
+                            <span className="ml-1.5 font-mono text-emerald-600 dark:text-emerald-400">TRT: {item.trt}</span>
                           </span>
                         ) : null}
                       </div>
