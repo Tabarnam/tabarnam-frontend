@@ -14,6 +14,8 @@ try {
 }
 
 const { checkUrlHealthAndFetchText } = require("../_reviewQuality");
+// Phase 4.0 — centralized default xAI model.
+const { DEFAULT_XAI_MODEL } = require("../_shared");
 const {
   fetchTagline: fetchTaglineGrok,
   fetchIndustries: fetchIndustriesGrok,
@@ -102,7 +104,7 @@ Output JSON only:
 { "keywords": ["...", "..."] }`;
 
   const payload = {
-    model: "grok-4-latest",
+    model: DEFAULT_XAI_MODEL,
     messages: [
       { role: "system", content: XAI_SYSTEM_PROMPT },
       { role: "user", content: prompt },
@@ -175,7 +177,7 @@ Output JSON only:
 { "industries": ["..."] }`;
 
   const payload = {
-    model: "grok-4-latest",
+    model: DEFAULT_XAI_MODEL,
     messages: [
       { role: "system", content: XAI_SYSTEM_PROMPT },
       { role: "user", content: prompt },
@@ -374,7 +376,7 @@ async function ensureCompanyKeywords(company, enrichCtx) {
     );
 
     try {
-      const grok = await fetchTaglineGrok({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey, model: "grok-4-latest" });
+      const grok = await fetchTaglineGrok({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey, model: DEFAULT_XAI_MODEL });
       if (String(grok?.tagline_status || "").trim() === "ok" && String(grok?.tagline || "").trim()) {
         company.tagline = String(grok.tagline).trim();
       }
@@ -419,7 +421,7 @@ async function ensureCompanyKeywords(company, enrichCtx) {
 
     try {
       const grok = await fetchProductKeywordsGrok({
-        companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey, model: "grok-4-latest",
+        companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey, model: DEFAULT_XAI_MODEL,
       });
 
       const listRaw = Array.isArray(grok?.keywords) ? grok.keywords : [];
@@ -470,7 +472,7 @@ async function ensureCompanyKeywords(company, enrichCtx) {
 
     try {
       const grok = await fetchIndustriesGrok({
-        companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey, model: "grok-4-latest",
+        companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey, model: DEFAULT_XAI_MODEL,
       });
       const list = Array.isArray(grok?.industries) ? grok.industries : [];
       const sanitized = sanitizeIndustries(list);

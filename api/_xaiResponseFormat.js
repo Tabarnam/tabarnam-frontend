@@ -12,6 +12,9 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+// Phase 4.0 — centralized default xAI model (grok-4.3 per xAI's May 15 migration).
+const { DEFAULT_XAI_MODEL } = require("./_shared");
+
 /**
  * Detect if URL is /v1/responses endpoint (new format) vs /v1/chat/completions (legacy)
  * @param {string} rawUrl - The xAI API URL
@@ -41,7 +44,7 @@ function convertToResponsesPayload(chatPayload, options = {}) {
     : [];
 
   const payload = {
-    model: asString(model) || "grok-4-latest",
+    model: asString(model) || DEFAULT_XAI_MODEL,
     input,
   };
 
@@ -61,7 +64,7 @@ function convertToResponsesPayload(chatPayload, options = {}) {
  */
 function buildXaiPayload({ url, model, prompt, systemPrompt, maxTokens = 900, search = true }) {
   const useResponsesFormat = isResponsesEndpoint(url);
-  const resolvedModel = asString(model) || "grok-4-latest";
+  const resolvedModel = asString(model) || DEFAULT_XAI_MODEL;
 
   if (useResponsesFormat) {
     // /v1/responses format

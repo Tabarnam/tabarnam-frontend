@@ -14,7 +14,7 @@ try {
 
 const { createHash, randomUUID } = require("node:crypto");
 
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel, DEFAULT_XAI_MODEL } = require("./_shared");
 const { getBuildInfo } = require("./_buildInfo");
 const { loadCompanyById, toNormalizedDomain } = require("./_adminRefreshCompany");
 const { normalizeUrl, validateCuratedReviewCandidate } = require("./_reviewQuality");
@@ -43,7 +43,7 @@ function buildReviewsUpstreamPayload({ prompt, companyWebsiteHost, model } = {})
 
   const payload = {
     messages: [{ role: "user", content: promptWithSpill }],
-    model: asString(model).trim() || "grok-4-latest",
+    model: asString(model).trim() || DEFAULT_XAI_MODEL,
     search_parameters: searchBuild.search_parameters,
     temperature: 0.2,
     stream: false,
@@ -639,7 +639,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
 
     stage = "init_xai";
     const xaiEndpointRaw = asString(deps.xaiUrl || getXAIEndpoint()).trim();
-    const xaiModel = "grok-4-latest";
+    const xaiModel = asString(process.env.XAI_MODEL).trim() || DEFAULT_XAI_MODEL;
 
     const resolvedUpstreamUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
     const xaiUrl = resolveAbsoluteUrl(resolvedUpstreamUrl, req?.url);

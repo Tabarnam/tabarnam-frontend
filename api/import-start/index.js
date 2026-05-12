@@ -24,7 +24,7 @@ const {
   buildPartitionKeyCandidates,
   getValueAtPath,
 } = require("../_cosmosPartitionKey");
-const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta } = require("../_shared");
+const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta, DEFAULT_XAI_MODEL } = require("../_shared");
 const { startBudget } = require("../_budget");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
@@ -2006,7 +2006,10 @@ const importStartHandlerInner = async (req, context) => {
         // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)
         const xaiEndpointRaw = getXAIEndpoint();
         const xaiKey = getXAIKey();
-        const xaiModel = "grok-4-latest";
+        // Phase 4.0 — pinned to grok-4.3 (replacement for retiring grok-4
+        // family per xAI's May 15 2026 deprecation). Honors env override.
+        // Use plain String() since `asString` isn't in scope here.
+        const xaiModel = String(process.env.XAI_MODEL || "").trim() || DEFAULT_XAI_MODEL;
         const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
         const xaiUrlForLog = toHostPathOnlyForLog(xaiUrl);
 
@@ -4582,7 +4585,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   ),
                   xaiUrl,
                   xaiKey,
-                  model: "grok-4-latest",
+                  model: DEFAULT_XAI_MODEL,
                 });
 
                 const reviewsStageStatus =
@@ -6218,7 +6221,7 @@ Return ONLY the JSON array, no other text.`,
               };
 
               const expansionPayload = {
-                model: "grok-4-latest",
+                model: DEFAULT_XAI_MODEL,
                 messages: [
                   { role: "system", content: XAI_SYSTEM_PROMPT },
                   expansionMessage,

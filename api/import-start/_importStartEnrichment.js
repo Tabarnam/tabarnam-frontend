@@ -6,6 +6,8 @@ const {
 } = require("../_reviewQuality");
 
 const { runDirectEnrichment, applyEnrichmentToCompany } = require("../_directEnrichment");
+// Phase 4.0 — centralized default xAI model.
+const { DEFAULT_XAI_MODEL } = require("../_shared");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
 const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
@@ -60,7 +62,7 @@ function buildReviewsUpstreamPayloadForImportStart({ reviewMessage, companyWebsi
   };
 
   const reviewPayload = {
-    model: "grok-4-latest",
+    model: DEFAULT_XAI_MODEL,
     messages: [
       { role: "system", content: XAI_SYSTEM_PROMPT },
       messageWithSpill,

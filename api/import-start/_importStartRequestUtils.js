@@ -7,6 +7,9 @@ try {
   createHash = null;
 }
 
+// Phase 4.0 — centralized default xAI model.
+const { DEFAULT_XAI_MODEL } = require("../_shared");
+
 const XAI_SYSTEM_PROMPT =
   "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
 
@@ -35,7 +38,7 @@ function convertToResponsesPayload(chatPayload) {
   if (!Array.isArray(messages)) return chatPayload;
 
   const responsesPayload = {
-    model: chatPayload.model || "grok-4-latest",
+    model: chatPayload.model || DEFAULT_XAI_MODEL,
     input: messages.map(m => ({
       role: m.role,
       content: typeof m.content === "string" ? m.content : String(m.content || ""),

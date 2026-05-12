@@ -17,6 +17,7 @@ const {
   getXAIKey,
   getResolvedUpstreamMeta,
   resolveXaiEndpointForModel,
+  DEFAULT_XAI_MODEL,
 } = require("./_shared");
 const {
   getContainerPartitionKeyPath,
@@ -54,7 +55,7 @@ function convertToResponsesPayload(chatPayload) {
   if (!Array.isArray(messages)) return chatPayload;
 
   const responsesPayload = {
-    model: chatPayload.model || "grok-4-latest",
+    model: chatPayload.model || DEFAULT_XAI_MODEL,
     input: messages.map(m => ({
       role: m.role,
       content: typeof m.content === "string" ? m.content : String(m.content || ""),
@@ -613,7 +614,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     XAI_EXTERNAL_KEY_SET: Boolean(
       asString(process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || process.env.XAI_API_KEY).trim()
     ),
-    XAI_MODEL: asString(process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || "grok-4-latest").trim(),
+    XAI_MODEL: asString(process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || DEFAULT_XAI_MODEL).trim(),
   };
 
   try {
@@ -863,7 +864,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     const xaiEndpointRaw = asString(deps.xaiUrl || externalBase || legacyBase).trim();
     const xaiKey = asString(deps.xaiKey || getXAIKey()).trim();
-    const xaiModel = asString(deps.xaiModel || process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || "grok-4-latest").trim();
+    const xaiModel = asString(deps.xaiModel || process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || DEFAULT_XAI_MODEL).trim();
     const xaiUrl = asString(deps.resolvedXaiUrl || resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel)).trim();
 
     const xai_config_source = externalBase ? "external" : legacyBase ? "legacy" : "external";

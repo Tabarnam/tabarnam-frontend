@@ -5,7 +5,7 @@ const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
-const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta, resolveXaiEndpointForModel } = require("../_shared");
+const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta, resolveXaiEndpointForModel, DEFAULT_XAI_MODEL } = require("../_shared");
 const {
   extractUpstreamRequestId,
   extractContentType,
@@ -432,7 +432,7 @@ async function patchCompanyById(companiesContainer, companyId, docForCandidates,
 function extractXaiConfig(overrides) {
   const o = overrides && typeof overrides === "object" ? overrides : {};
 
-  const model = asString(o.model).trim() || "grok-4-latest";
+  const model = asString(o.model).trim() || DEFAULT_XAI_MODEL;
 
   const externalBase = asString(getXAIEndpoint()).trim();
   const legacyBase = asString(process.env.XAI_BASE_URL).trim();

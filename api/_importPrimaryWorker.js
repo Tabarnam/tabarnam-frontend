@@ -1,4 +1,4 @@
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel, DEFAULT_XAI_MODEL } = require("./_shared");
 const { getJob, tryClaimJob, patchJob } = require("./_importPrimaryJobStore");
 
 function nowIso() {
@@ -142,7 +142,7 @@ function buildFallbackOutboundBodyFromJob(job, xaiUrl) {
     "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
 
   const model =
-    typeof job?.xai_model === "string" && job.xai_model.trim() ? job.xai_model.trim() : "grok-4-latest";
+    typeof job?.xai_model === "string" && job.xai_model.trim() ? job.xai_model.trim() : DEFAULT_XAI_MODEL;
 
   // Detect if using /v1/responses endpoint (newer xAI API) vs /v1/chat/completions
   const url = String(xaiUrl || "").toLowerCase();
@@ -622,7 +622,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
   };
 
   const xaiModel =
-    typeof job?.xai_model === "string" && job.xai_model.trim() ? job.xai_model.trim() : "grok-4-latest";
+    typeof job?.xai_model === "string" && job.xai_model.trim() ? job.xai_model.trim() : DEFAULT_XAI_MODEL;
 
   const xaiEndpointRaw = getXAIEndpoint();
   const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);

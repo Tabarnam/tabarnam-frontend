@@ -17,6 +17,8 @@ const {
   setLatestEgressSnapshot,
   isDebugAuthorized,
 } = require("../_debugSnapshots");
+// Phase 4.0 — centralized default xAI model.
+const { DEFAULT_XAI_MODEL } = require("../_shared");
 
 function withCors(headers) {
   return {
@@ -84,7 +86,7 @@ function convertToResponsesPayload(chatPayload) {
   if (!Array.isArray(messages)) return chatPayload;
 
   const responsesPayload = {
-    model: chatPayload.model || "grok-4-latest",
+    model: chatPayload.model || DEFAULT_XAI_MODEL,
     input: messages.map(m => ({
       role: m.role,
       content: typeof m.content === "string" ? m.content : String(m.content || ""),
@@ -123,7 +125,7 @@ function convertToChatCompletionsResponse(responsesData) {
     id: responsesData.id || `chatcmpl-${Date.now()}`,
     object: "chat.completion",
     created: responsesData.created || Math.floor(Date.now() / 1000),
-    model: responsesData.model || "grok-4-latest",
+    model: responsesData.model || DEFAULT_XAI_MODEL,
     choices: [{
       index: 0,
       message: {

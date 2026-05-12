@@ -12,7 +12,7 @@ try {
   CosmosClient = null;
 }
 
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel, DEFAULT_XAI_MODEL } = require("./_shared");
 const { getBuildInfo } = require("./_buildInfo");
 const {
   fetchTagline,
@@ -111,7 +111,7 @@ async function processAdminRefresh(queueMessage, context) {
   // Get XAI configuration
   const xaiEndpointRaw = asString(job.xai_config?.xai_url || getXAIEndpoint()).trim();
   const xaiKey = asString(getXAIKey()).trim();
-  const xaiModel = asString(job.xai_config?.xai_model || process.env.XAI_MODEL || "grok-4-latest").trim();
+  const xaiModel = asString(job.xai_config?.xai_model || process.env.XAI_MODEL || DEFAULT_XAI_MODEL).trim();
   const xaiUrl = xaiEndpointRaw || resolveXaiEndpointForModel(getXAIEndpoint(), xaiModel);
 
   const companyName = asString(job.company_name).trim();

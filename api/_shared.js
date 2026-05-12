@@ -224,6 +224,23 @@ function tryLoadSharp() {
   }
 }
 
+// Phase 4.0 — centralized default xAI model.
+//
+// xAI is retiring the entire grok-4 family (grok-4-0709, grok-4-fast,
+// grok-4-1-fast, grok-3, grok-code-fast-1, grok-imagine-image-pro) on
+// May 15, 2026 at 12:00pm PT. xAI's migration guide explicitly
+// recommends grok-4.3 as the replacement target for all of them.
+//
+// Pricing improvement: grok-4.3 is $1.25/M input + $2.50/M output (vs
+// grok-4-latest's ~$3/$15) — a 58-83% reduction per call. Expected
+// per-import cost drop: ~$0.06 → ~$0.02.
+//
+// Operator override via XAI_MODEL env var always wins. To revert
+// instantly without redeploy:
+//   az functionapp config appsettings set --name tabarnam-xai-dedicated \
+//     --resource-group tabarnam-mvp-rg --settings XAI_MODEL=grok-4-latest
+const DEFAULT_XAI_MODEL = "grok-4.3";
+
 module.exports = {
   getXAIEndpoint,
   getXAIKey,
@@ -232,4 +249,6 @@ module.exports = {
   resolveXaiEndpointForModel,
   json,
   tryLoadSharp,
+  // Phase 4.0
+  DEFAULT_XAI_MODEL,
 };
