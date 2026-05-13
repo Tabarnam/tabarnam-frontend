@@ -17,6 +17,9 @@ const {
   classifyFields,
   buildResponseFormat,
   stripLabel,
+  isFillerValue,
+  stripFillerString,
+  stripFillerArray,
 } = require("./_canonicalImport");
 
 test("shapeEnrichedFromParsed returns canonical defaults for null/undefined input", () => {
@@ -2226,4 +2229,148 @@ test("Phase 3.9: NO retry for non-sse_stall error codes (upstream_503 etc.)", as
       assert.equal(result.diagnostics.phase39_sse_stall_retry_attempted, false);
     }
   );
+});
+
+// ── Phase 4.4.B: filler-pattern sanitizer ─────────────────────────────────────
+// Defensive parse-time stripping for grok-4.3's "rationale instead of empty"
+// emissions. Observed 2026-05-13 on GRILLART + Grillight after the Phase 4.3
+// deploy: model emitted "(no specific cities identified in sources; U.S.
+// branded products with likely overseas production common for category)" as
+// a manufacturing_locations value, and "(no specific city or state identified
+// in sources; U.S. brand under Weetiee)" as headquarters_location. These
+// pass the existing length/letter quality filter (multi-word, has letters,
+// >2 chars) so isQualityNounPhraseEntry alone wouldn't catch them. The
+// sanitizer below detects the high-confidence Grok-4.3 filler patterns and
+// converts to type-correct empty values, with logging for monitoring.
+
+test("Phase 4.4.B: isFillerValue detects 'no specific X identified in sources' pattern", () => {
+  // The most common form observed in production
+  assert.ok(isFillerValue("(no specific city or state identified in sources; U.S. brand under Weetiee)"));
+  assert.ok(isFillerValue("(no specific cities or factories identified in sources)"));
+  assert.ok(isFillerValue("(no specific cities, states, or countries identified in official site or multiple independent sources)"));
+  // Variant — different opening word but same shape
+  assert.ok(isFillerValue("(no factories disclosed)"));
+  assert.ok(isFillerValue("(no manufacturing disclosed in sources)"));
+});
+
+test("Phase 4.4.B: isFillerValue detects tail-of-split filler (common for category, likely overseas)", () => {
+  // When the semicolon-split parser breaks "(... ; ... common for category)"
+  // the second half lands as its own "location" — also filler.
+  assert.ok(isFillerValue("U.S. branded products with likely overseas production common for category)"));
+  assert.ok(isFillerValue("common for category)"));
+  assert.ok(isFillerValue("U.S. brand under Weetiee"));
+  assert.ok(isFillerValue("U.S. branded products with likely overseas production"));
+});
+
+test("Phase 4.4.B: isFillerValue rejects real values (no false positives)", () => {
+  // Real city/country values — must NOT match filler patterns
+  assert.equal(isFillerValue("Newport Beach, CA, USA"), false);
+  assert.equal(isFillerValue("Linz am Rhein, Rhineland-Palatinate, Germany"), false);
+  assert.equal(isFillerValue("Vietnam"), false);
+  assert.equal(isFillerValue("Made in the USA"), false);
+  assert.equal(isFillerValue("China"), false);
+  // Real parenthetical clarification — must NOT match (no "no specific" or
+  // "identified in sources" content)
+  assert.equal(isFillerValue("Linz am Rhein (formerly West Germany)"), false);
+  assert.equal(isFillerValue("Newport Beach, CA, USA (Pacific HQ)"), false);
+  // Empty / whitespace
+  assert.equal(isFillerValue(""), false);
+  assert.equal(isFillerValue("   "), false);
+  // Non-string
+  assert.equal(isFillerValue(null), false);
+  assert.equal(isFillerValue(undefined), false);
+  assert.equal(isFillerValue(123), false);
+});
+
+test("Phase 4.4.B: stripFillerString converts filler to empty string", () => {
+  assert.equal(
+    stripFillerString("(no specific city or state identified in sources; U.S. brand under Weetiee)"),
+    ""
+  );
+  assert.equal(
+    stripFillerString("(no specific cities, states, or countries identified in official site or multiple independent sources)"),
+    ""
+  );
+  // Real value passes through unchanged
+  assert.equal(stripFillerString("Newport Beach, CA, USA"), "Newport Beach, CA, USA");
+  // Empty passes through unchanged
+  assert.equal(stripFillerString(""), "");
+});
+
+test("Phase 4.4.B: stripFillerArray drops filler entries, keeps real ones", () => {
+  // Pure filler array → empty array
+  assert.deepEqual(
+    stripFillerArray(["(no specific cities or factories identified in sources)"]),
+    []
+  );
+  // Mixed array — real entries kept, filler dropped
+  assert.deepEqual(
+    stripFillerArray([
+      "China",
+      "Vietnam",
+      "(no specific cities identified in sources)",
+      "USA",
+    ]),
+    ["China", "Vietnam", "USA"]
+  );
+  // GRILLART-style semicolon-split case where BOTH halves are filler
+  assert.deepEqual(
+    stripFillerArray([
+      "(no specific cities or factories identified in sources",
+      "U.S. branded products with likely overseas production common for category)",
+    ]),
+    []
+  );
+  // Empty array passes through
+  assert.deepEqual(stripFillerArray([]), []);
+  // Non-array passes through unchanged
+  assert.deepEqual(stripFillerArray(null), null);
+  assert.deepEqual(stripFillerArray("not an array"), "not an array");
+});
+
+test("Phase 4.4.B: shapeEnrichedFromParsed strips filler from tagline + HQ + manufacturing + industries", () => {
+  // Simulate the GRILLART case — model emits filler for HQ + manufacturing
+  const input = {
+    tagline: "Game. Changing.",  // real
+    headquarters_location: "(no specific city or state identified in sources; U.S. brand under Weetiee)",
+    manufacturing_locations: ["(no specific cities or factories identified in sources)", "U.S. branded products with likely overseas production common for category)"],
+    industries: ["Grill Tools", "(no specific industries identified in sources)", "LED Grill Lights"],
+    product_keywords: "grill brushes, (no specific named lines identified in sources), grill mats",
+    reviews: [],
+    red_flag: false,
+  };
+  const out = shapeEnrichedFromParsed(input);
+  // Real values preserved
+  assert.equal(out.tagline, "Game. Changing.");
+  // HQ filler → empty string
+  assert.equal(out.headquarters_location, "");
+  // Manufacturing filler array → empty
+  assert.deepEqual(out.manufacturing_locations, []);
+  // Industries: filler entry stripped, real entries kept
+  assert.deepEqual(out.industries, ["Grill Tools", "LED Grill Lights"]);
+  // Product keywords: filler token stripped from comma-separated string
+  assert.ok(out.product_keywords.includes("grill brushes"));
+  assert.ok(out.product_keywords.includes("grill mats"));
+  assert.ok(!out.product_keywords.includes("no specific named lines"));
+});
+
+test("Phase 4.4.B: shapeEnrichedFromParsed preserves real parenthetical clarifications", () => {
+  // Anti-regression — must NOT strip legitimate parenthetical content
+  const input = {
+    tagline: "Premium tools (since 1995)",
+    headquarters_location: "Linz am Rhein, Rhineland-Palatinate, Germany (formerly West Germany)",
+    manufacturing_locations: ["Vietnam (multiple facilities)", "China"],
+    industries: ["Footwear", "Cork Footbed Sandals"],
+    product_keywords: "boots, sandals (leather), clogs",
+    reviews: [],
+    red_flag: false,
+  };
+  const out = shapeEnrichedFromParsed(input);
+  assert.equal(out.tagline, "Premium tools (since 1995)");
+  assert.equal(out.headquarters_location, "Linz am Rhein, Rhineland-Palatinate, Germany (formerly West Germany)");
+  assert.deepEqual(out.manufacturing_locations, ["Vietnam (multiple facilities)", "China"]);
+  assert.deepEqual(out.industries, ["Footwear", "Cork Footbed Sandals"]);
+  // product_keywords cleaner may reorder/dedupe but real tokens should survive
+  assert.ok(out.product_keywords.includes("boots"));
+  assert.ok(out.product_keywords.includes("clogs"));
 });
