@@ -172,7 +172,6 @@ export async function readJsonOrText(res: Response): Promise<unknown> {
 
   const contentType = normalizeHeaderValue(cloned.headers?.get?.("content-type")).toLowerCase();
   const isJson = contentType.includes("application/json") || contentType.includes("+json");
-  const isHtml = contentType.includes("text/html") || contentType.includes("application/xhtml");
 
   const text = await cloned.text().catch(() => "");
   if (text) {
@@ -182,28 +181,6 @@ export async function readJsonOrText(res: Response): Promise<unknown> {
 
   if (isJson) {
     return text ? { error: "Invalid JSON", text } : { error: "Invalid JSON" };
-  }
-
-  // Phase 4.4 — detect HTML responses (typically 502/503/504 gateway pages
-  // returned by Azure Front Door, App Service, or any intermediate proxy
-  // when the backend Function App is restarting / scaling / cold-starting).
-  // We were previously returning `{ text: "<!DOCTYPE html>..." }` which
-  // bled raw HTML into UI status panels (observed 2026-05-12 during a
-  // Phase 4.3 deploy when Azure restarted the Function App). Detect both
-  // the content-type header AND a sniff of the body, and return a soft
-  // gateway-error object instead. Preserves status code for callers that
-  // want to surface a custom retry message.
-  const looksLikeHtml = isHtml || /^\s*<(?:!doctype|html|head|body)/i.test(text);
-  if (looksLikeHtml) {
-    const status = typeof cloned.status === "number" ? cloned.status : 0;
-    return {
-      error: "gateway_html_response",
-      status,
-      message:
-        status >= 500 && status < 600
-          ? "Backend temporarily unavailable (gateway returned HTML)."
-          : "Unexpected HTML response from backend.",
-    };
   }
 
   return text ? { text } : {};
