@@ -495,52 +495,43 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.2: PROMPT_GUIDANCE_VERSION is 9.3.0-unconditional-effort-floor", () => {
-  // Phase 4.2 — minor version bump from 9.2.0 to 9.3.0 marks the
-  // unconditional-effort-floor fix. Phase 4.1's effort floor had a logical
-  // escape clause ("unless Homepage Context covers EVERY requested field")
-  // that grok-4.3 exploited by emitting JSON with 0 tool calls (smoking
-  // gun: Char-Broil 15.9s 0-tool-call, Char-Griller 17.5s 0-tool-call,
-  // both with empty manufacturing/products). Phase 4.2 removes the escape
-  // clause: minimum 5 tool calls UNCONDITIONAL, Homepage Context does NOT
-  // count toward the floor, explicit failure-mode framing. Per-field rules
-  // strengthened on Manufacturing (must verify even when context mentions
-  // country), Products (ALWAYS browse /products), Reviews (ALWAYS search).
+test("Phase 4.1: PROMPT_GUIDANCE_VERSION is 9.2.0-effort-floor-and-mandatory-search", () => {
+  // Phase 4.1 — minor version bump from 9.1.0 to 9.2.0 marks the
+  // Grok-4.3-targeted prompt tuning: tool-call effort floor (minimum 5
+  // calls), mandatory-search lead paragraphs on Manufacturing and Products
+  // per-field rules, and named-product-lines guidance with grill-brand
+  // examples. Goal: recover the ~35-point completeness drop observed in the
+  // 2026-05-12 grok-4.3 production batch (Phase 4.0) by forcing the model
+  // to do the deeper searches grok.com runs internally.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.3\.0-unconditional-effort-floor/,
-    "PROMPT_GUIDANCE_VERSION must be 9.3.0-unconditional-effort-floor for Phase 4.2"
+    /^9\.2\.0-effort-floor-and-mandatory-search/,
+    "PROMPT_GUIDANCE_VERSION must be 9.2.0-effort-floor-and-mandatory-search for Phase 4.1"
   );
 });
 
-test("Phase 4.2: buildCanonicalImportPrompt includes unconditional effort floor + per-field always-search anchors", () => {
-  // Phase 4.2 — Grok-reviewed prompt rewrite to fix the 0-tool-call
-  // failure pattern observed in Phase 4.1 production logs (Char-Broil
-  // and Char-Griller both emitted JSON in <18s with tool_calls: 0,
-  // empty manufacturing_locations, empty product_keywords). Root cause:
-  // Phase 4.1's effort floor had an escape clause ("unless Homepage
-  // Context covers EVERY requested field") that grok-4.3 interpreted
-  // permissively. Fix: make the floor UNCONDITIONAL; Homepage Context
-  // does NOT count toward it; explicit failure-mode framing.
+test("Phase 4.1: buildCanonicalImportPrompt includes effort-floor + mandatory-search + named-product-lines anchors", () => {
+  // Phase 4.1 — Grok-reviewed 3-revision prompt tuning targeted at
+  // grok-4.3's "stops researching too early" failure pattern. The three
+  // changes are:
+  //   1. Top block adds a tool-call effort floor (minimum 5 calls unless
+  //      every field is in the Homepage Context already) — pushes model
+  //      past its shallow-search default.
+  //   2. Manufacturing rule prepends a mandatory-search lead paragraph
+  //      with explicit search-pattern examples (Wikipedia, parent 10-K).
+  //   3. Products rule rewritten to mandate browsing /products /shop
+  //      /collections and to prefer specific named product lines
+  //      ("Coyote Pellet Grill") over generic categories ("Pellet Grills").
   //
-  // Per-field rules strengthened:
-  //   - Manufacturing: must verify even when Homepage Context mentions
-  //     a country
-  //   - Products: ALWAYS browse /products /shop /collections; never rely
-  //     solely on Homepage Context
-  //   - Reviews: ALWAYS perform at least 1 web_search; Homepage Context
-  //     never contains third-party reviews
-  //
-  // Also removed the Phase 4.1 "highest-confidence source — trust it
-  // directly and do NOT re-verify" sentence — it was contributing to the
-  // satisfice pattern by signaling the homepage was sufficient.
+  // This test locks down the final Grok-approved wording for all three.
   const prompt = buildCanonicalImportPrompt({
     companyName: "Acme Corp",
     websiteUrl: "https://acme.example",
     homepageContext: "Title: Acme Corp\nAbout: makers of widgets",
   });
 
-  // ── (a) Top emission mandate (carries from Phase 4.1, unchanged) ─────────
+  // ── (a) Top emission mandate — survives Phase 4.1 (text slightly softer:
+  // "critical failure mode" without "we have observed and must avoid") ────
   assert.ok(
     /you MUST emit the final JSON object as your response/i.test(prompt),
     "prompt must include 'you MUST emit the final JSON object as your response'"
@@ -558,41 +549,21 @@ test("Phase 4.2: buildCanonicalImportPrompt includes unconditional effort floor 
     "prompt must include 'complete JSON object... partial or unknown'"
   );
 
-  // ── (b) Phase 4.2 UNCONDITIONAL effort floor — the headline change ──────
+  // ── (b) Phase 4.1 effort floor — the headline change ─────────────────────
   assert.ok(
-    /You MUST execute a minimum of 5 tool calls \(web_search or browse_page\) BEFORE you are allowed to emit your final JSON/i.test(prompt),
-    "prompt must contain the Phase 4.2 UNCONDITIONAL effort floor ('MUST execute a minimum of 5 tool calls BEFORE')"
+    /Tool-call effort floor: You are required to make at least 5 tool calls/i.test(prompt),
+    "prompt must contain the Phase 4.1 'effort floor: at least 5 tool calls' instruction"
   );
   assert.ok(
-    /The Homepage Context block does NOT count toward this minimum/i.test(prompt),
-    "prompt must explicitly state Homepage Context does NOT count toward the floor"
+    /unless the Homepage Context block above already contains verifiable data for EVERY requested field/i.test(prompt),
+    "prompt must contain the Phase 4.1 effort-floor escape clause (homepage covers EVERY field)"
   );
   assert.ok(
-    /required to perform real searches even when some fields appear in the homepage text/i.test(prompt),
-    "prompt must mandate real searches even when homepage has relevant text"
-  );
-
-  // ── (c) Per-field always-search reinforcement at the top ────────────────
-  assert.ok(
-    /You MUST search for manufacturing_locations, third-party reviews, and specific named product lines/i.test(prompt),
-    "prompt must include the top-level 'MUST search for manufacturing, reviews, named product lines' mandate"
-  );
-  assert.ok(
-    /almost never fully covered by the homepage/i.test(prompt),
-    "prompt must include 'almost never fully covered by the homepage' rationale"
+    /manufacturing locations, third-party reviews, and specific named product lines are rarely on the homepage/i.test(prompt),
+    "prompt must contain the Phase 4.1 rationale for the effort floor"
   );
 
-  // ── (d) Failure-mode framing — 0-tool-calls is failure ──────────────────
-  assert.ok(
-    /Emitting JSON with 0 tool calls is a failure/i.test(prompt),
-    "prompt must explicitly label 0-tool-call emission as a failure"
-  );
-  assert.ok(
-    /Emitting with fewer than 3 tool calls and ANY empty manufacturing_locations or product_keywords field is also a failure/i.test(prompt),
-    "prompt must label <3-tool-call emission with empty manufacturing/products as a failure"
-  );
-
-  // ── (e) Tool budget + numerical deadline (carried over) ─────────────────
+  // ── (c) Tool budget + numerical deadline (carried over from 3.4/3.6) ─────
   assert.ok(
     /tool budget:\s*up to 18 web_search/i.test(prompt),
     "prompt must include 'tool budget: up to 18 web_search'"
@@ -602,65 +573,48 @@ test("Phase 4.2: buildCanonicalImportPrompt includes unconditional effort floor 
     "prompt must contain the numerical-deadline emission language"
   );
   assert.ok(
-    /Partial but researched data is strongly preferred to early emission with missing fields/i.test(prompt),
-    "prompt must contain the Phase 4.2 'partial but researched data preferred' language"
+    /Partial data is REQUIRED and preferred to zero text/i.test(prompt),
+    "prompt must contain 'partial data is REQUIRED' language"
+  );
+  assert.ok(
+    /Homepage Context block is your highest-confidence source[^.]*trust it directly/i.test(prompt),
+    "prompt must include the 'highest-confidence source — trust it directly' sentence"
   );
 
-  // ── (f) Phase 4.2 Manufacturing — must verify even when context mentions ─
+  // ── (d) Phase 4.1 Manufacturing mandatory-search lead paragraph ──────────
   assert.ok(
-    /Before emitting manufacturing_locations \(including \[\] or any country\), you MUST perform at least 2 targeted web_search calls/i.test(prompt),
-    "prompt must contain Phase 4.2 Manufacturing 'MUST perform at least 2 targeted searches' mandate"
+    /Before emitting manufacturing_locations as \[\] or "unknown", you MUST issue at least 2 targeted searches/i.test(prompt),
+    "prompt must contain the Phase 4.1 Manufacturing 'MUST issue at least 2 targeted searches' mandate"
   );
   assert.ok(
-    /Even if the Homepage Context mentions a country, you MUST verify it with at least 1 search/i.test(prompt),
-    "prompt must contain Phase 4.2 Manufacturing 'verify even when context mentions country' mandate"
+    /\[Brand\] manufactured in/i.test(prompt) && /\[Brand\] factory location/i.test(prompt),
+    "prompt must contain Phase 4.1 example search patterns ('[Brand] manufactured in', '[Brand] factory location')"
   );
   assert.ok(
-    /\[Brand\] manufactured in/i.test(prompt) && /\[Brand\] Wikipedia/i.test(prompt),
-    "prompt must contain Phase 4.2 Manufacturing example search patterns"
+    /\[Brand\] Wikipedia/i.test(prompt),
+    "prompt must contain Phase 4.1 Wikipedia search-pattern example"
   );
   assert.ok(
     /parent 10-K filings/i.test(prompt),
-    "prompt must contain 'parent 10-K filings' guidance"
+    "prompt must contain Phase 4.1 'parent 10-K filings' guidance"
   );
 
-  // ── (g) Phase 4.2 Products — ALWAYS browse, never rely solely on context ─
+  // ── (e) Phase 4.1 Products rule — named lines + browse /products ─────────
   assert.ok(
-    /ALWAYS browse the brand's \/products, \/shop, or \/collections page before emitting product_keywords/i.test(prompt),
-    "prompt must contain the Phase 4.2 Products 'ALWAYS browse /products /shop /collections' mandate"
-  );
-  assert.ok(
-    /Never rely solely on the Homepage Context for product_keywords/i.test(prompt),
-    "prompt must contain Phase 4.2 Products 'never rely solely on Homepage Context' mandate"
+    /Before emitting product_keywords, browse the brand's \/products, \/shop, or \/collections page/i.test(prompt),
+    "prompt must contain the Phase 4.1 Products 'browse /products /shop /collections' mandate"
   );
   assert.ok(
     /Coyote Pellet Grill/.test(prompt) && /Duomo Pizza Oven/.test(prompt),
-    "prompt must retain the named-product-lines examples (Coyote Pellet Grill, Duomo Pizza Oven)"
+    "prompt must contain the Phase 4.1 named-product-lines examples (Coyote Pellet Grill, Duomo Pizza Oven)"
+  );
+  assert.ok(
+    /Prefer specific named product lines/i.test(prompt),
+    "prompt must contain the Phase 4.1 'prefer specific named product lines' wording"
   );
 
-  // ── (h) Phase 4.2 Reviews — ALWAYS perform at least 1 search ────────────
-  assert.ok(
-    /ALWAYS perform at least 1 web_search for third-party reviews before emitting/i.test(prompt),
-    "prompt must contain Phase 4.2 Reviews 'ALWAYS perform at least 1 web_search' mandate"
-  );
-  assert.ok(
-    /The Homepage Context block never contains third-party reviews/i.test(prompt),
-    "prompt must state 'Homepage Context never contains third-party reviews'"
-  );
-
-  // ── (i) Anti-regression — Phase 4.1 escape clause must be GONE ──────────
-  assert.ok(
-    !/unless the Homepage Context block above already contains verifiable data for EVERY requested field/.test(prompt),
-    "Phase 4.1 escape clause 'unless Homepage Context contains EVERY field' must be removed (was the satisfice loophole)"
-  );
-  // Phase 4.1 had a "trust it directly and do NOT re-verify" sentence that
-  // contributed to the satisfice pattern. Phase 4.2 removes it — the new
-  // anti-satisfice framing supersedes it.
-  assert.ok(
-    !/Homepage Context block is your highest-confidence source[^.]*trust it directly/i.test(prompt),
-    "Phase 4.1 'highest-confidence source — trust it directly and do NOT re-verify' sentence must be removed (contributed to satisfice)"
-  );
-  // Anti-regression — unreconciled "verify EVERY field" wording (also stays out)
+  // ── (f) Anti-regression — unreconciled "verify EVERY field" wording ─────
+  // (Stays out — would conflict with the homepage-direct-emit optimization.)
   assert.ok(
     !/until you have verified data for EVERY requested field/.test(prompt),
     "prompt must NOT contain the unreconciled emission language that conflicts with homepage-direct-emit"
