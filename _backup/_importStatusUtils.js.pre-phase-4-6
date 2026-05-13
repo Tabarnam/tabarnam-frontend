@@ -5,72 +5,9 @@
 
 const {
   computeEnrichmentHealth: computeEnrichmentHealthContract,
-  computeMissingFields,
   deriveMissingReason,
   isTerminalMissingField,
 } = require("../_requiredFields");
-
-/**
- * Phase 4.6 — defensive recompute of `import_missing_fields` against the
- * doc's actual field values. The seed-from-URL save stage in import-start
- * sets `import_missing_fields` to the full 6-field list at create time.
- * Post-enrichment, `applyEnrichmentToCompany` recomputes and the
- * resume-worker upserts the cleared list. BUT if import-status reads a doc
- * snapshot during a race window (or if any code path writes stale values),
- * the raw `import_missing_fields` can lag behind the actual field state.
- *
- * Observed 2026-05-13 on Schmidt Brothers: doc had tagline + HQ + manufacturing
- * + industries + products + reviews all populated AND `enrichment_health.
- * missing_fields: []`, but `import_missing_fields` showed the full stale list.
- *
- * This helper is READ-ONLY — it does NOT write back to Cosmos. It returns a
- * shallow clone of the doc with refreshed `import_missing_fields` and a pruned
- * `import_missing_reason` so any read-time response (import-status JSON,
- * dashboard list view feeding off saved_companies) sees the consistent
- * post-enrichment state.
- */
-function refreshDocMissingFieldsView(doc, { fieldsToEnrich } = {}) {
-  if (!doc || typeof doc !== "object") return doc;
-  let freshMissing;
-  try {
-    freshMissing = computeMissingFields(doc, { fieldsToEnrich });
-  } catch {
-    return doc; // fall back to raw doc if computeMissingFields throws
-  }
-  const freshSet = new Set(Array.isArray(freshMissing) ? freshMissing : []);
-  const prevMissing = Array.isArray(doc.import_missing_fields) ? doc.import_missing_fields : [];
-
-  const refreshedReason = {};
-  if (doc.import_missing_reason && typeof doc.import_missing_reason === "object" && !Array.isArray(doc.import_missing_reason)) {
-    // Keep reasons for fields STILL missing; drop entries for fields that are now populated.
-    for (const [k, v] of Object.entries(doc.import_missing_reason)) {
-      if (freshSet.has(k)) refreshedReason[k] = v;
-    }
-  }
-
-  // Also prune import_warnings entries for fields that are no longer missing.
-  const refreshedWarnings = Array.isArray(doc.import_warnings)
-    ? doc.import_warnings.filter((w) => w && typeof w === "object" && freshSet.has(w.field))
-    : doc.import_warnings;
-
-  // Only clone if anything actually changed — saves allocations when the
-  // tracker was already fresh.
-  const missingChanged =
-    prevMissing.length !== freshSet.size ||
-    prevMissing.some((f) => !freshSet.has(f));
-  const warningsChanged =
-    Array.isArray(doc.import_warnings) &&
-    Array.isArray(refreshedWarnings) &&
-    refreshedWarnings.length !== doc.import_warnings.length;
-  if (!missingChanged && !warningsChanged) return doc;
-
-  return {
-    ...doc,
-    import_missing_fields: Array.from(freshSet),
-    import_missing_reason: refreshedReason,
-    import_warnings: refreshedWarnings,
-  };
-}
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -735,15 +672,9 @@ function summarizeEnrichmentHealth(saved_companies) {
 function toSavedCompanies(docs, { fieldsToEnrich } = {}) {
   const list = Array.isArray(docs) ? docs : [];
   return list
-    .map((rawDoc) => {
-      const companyId = String(rawDoc?.id || rawDoc?.company_id || "").trim();
+    .map((doc) => {
+      const companyId = String(doc?.id || doc?.company_id || "").trim();
       if (!companyId) return null;
-
-      // Phase 4.6 — refresh the doc's missing-fields view against actual
-      // field values. The raw doc's `import_missing_fields` can be stale
-      // (set at seed time and not always cleared on every code path). This
-      // is a read-only refresh — no Cosmos write.
-      const doc = refreshDocMissingFieldsView(rawDoc, { fieldsToEnrich });
 
       const canonicalUrl = String(doc?.canonical_url || "").trim();
       const websiteUrl = String(doc?.website_url || doc?.url || "").trim();
@@ -879,8 +810,6 @@ module.exports = {
   summarizeEnrichmentHealth,
   toSavedCompanies,
   inferReconcileStrategy,
-  // Phase 4.6 — defensive missing-fields refresh (read-only)
-  refreshDocMissingFieldsView,
 
   // Primary job progress
   getHeartbeatTimestamp,

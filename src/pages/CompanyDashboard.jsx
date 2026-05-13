@@ -3551,10 +3551,17 @@ export default function CompanyDashboard() {
           if (items.length === 0) return null;
           const visible = items.slice(0, 2);
           const hasMore = items.length > 2;
+          // Phase 4.6 — title attribute provides a copy-friendly, screen-reader-
+          // accessible string with explicit separator. Visual layout (one entry
+          // per <div> block) is preserved. Without this, copying the cell text
+          // produces concatenated content like "Solingen, GermanyChina" because
+          // browsers strip visual line breaks from adjacent block elements
+          // during text extraction.
+          const titleText = items.join("; ");
           return (
-            <div className="py-1 text-xs">
+            <div className="py-1 text-xs space-y-0.5" title={titleText}>
               {visible.map((loc, i) => (
-                <div key={i}>{loc}</div>
+                <div key={i} className="block">{loc}</div>
               ))}
               {hasMore && <div className="opacity-50">+{items.length - 2} more…</div>}
             </div>
@@ -3586,10 +3593,17 @@ export default function CompanyDashboard() {
           if (items.length === 0) return null;
           const visible = items.slice(0, 2);
           const hasMore = items.length > 2;
+          // Phase 4.6 — title attribute provides a copy-friendly, screen-reader-
+          // accessible string with explicit separator. Visual layout (one entry
+          // per <div> block) is preserved. Without this, copying the cell text
+          // produces concatenated content like "Solingen, GermanyChina" because
+          // browsers strip visual line breaks from adjacent block elements
+          // during text extraction.
+          const titleText = items.join("; ");
           return (
-            <div className="py-1 text-xs">
+            <div className="py-1 text-xs space-y-0.5" title={titleText}>
               {visible.map((loc, i) => (
-                <div key={i}>{loc}</div>
+                <div key={i} className="block">{loc}</div>
               ))}
               {hasMore && <div className="opacity-50">+{items.length - 2} more…</div>}
             </div>
