@@ -59,7 +59,6 @@ const {
   summarizeEnrichmentHealth,
   toSavedCompanies,
   inferReconcileStrategy,
-  refreshDocMissingFieldsView,
   getHeartbeatTimestamp,
   getJobCreatedTimestamp,
   computePrimaryProgress,
@@ -1725,16 +1724,6 @@ async function handler(req, context) {
         }
         items = Array.from(byId.values());
       }
-    }
-
-    // Phase 4.6 — refresh each item's `import_missing_fields` view against
-    // actual field values. Read-only; no Cosmos write. The doc's raw tracker
-    // can lag behind enrichment writes (seed-from-URL stage sets it to all 6
-    // fields, post-enrichment recompute should clear, but races and certain
-    // code paths leave it stale). This guarantees the response shape is
-    // internally consistent with `enrichment_health.missing_fields`.
-    if (Array.isArray(items) && items.length > 0) {
-      items = items.map((d) => refreshDocMissingFieldsView(d, { fieldsToEnrich: fieldsToEnrich2 }));
     }
 
     const reconciledLowQualityCount = reconcileLowQualityDocs(savedDocs, stageBeaconValues);
