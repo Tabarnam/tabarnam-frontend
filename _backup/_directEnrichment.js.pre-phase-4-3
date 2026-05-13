@@ -777,16 +777,7 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
     manufacturing_locations_status: updated.manufacturing_locations_status || "(none)",
     industries: updated.industries || [],
     industries_status: updated.industries_status || "(none)",
-    // Phase 4.3 — count both array and comma-separated string shapes. The
-    // canonical pipeline writes product_keywords as a comma-separated string
-    // per the JSON schema (`type: "string"`), but legacy code paths may write
-    // an array. Without the string branch this always logged 0, masking
-    // populated product lists in production diagnostics.
-    product_keywords_count: typeof updated.product_keywords === "string"
-      ? updated.product_keywords.split(",").filter((s) => s.trim()).length
-      : Array.isArray(updated.product_keywords)
-        ? updated.product_keywords.length
-        : 0,
+    product_keywords_count: Array.isArray(updated.product_keywords) ? updated.product_keywords.length : 0,
     product_keywords_status: updated.product_keywords_status || "(none)",
     logo_url: updated.logo_url ? updated.logo_url.slice(0, 120) : "(empty)",
     logo_source: updated.logo_source || "(none)",
