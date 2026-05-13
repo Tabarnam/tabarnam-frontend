@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "9.5.0-anti-filler-empty-only";
+const PROMPT_GUIDANCE_VERSION = "9.4.0-products-150-and-manufacturing-pdp-fallback";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -401,13 +401,6 @@ Emit tagline and HQ directly from this context if visible — do NOT run verific
 For the Company: ${name} / ${url}
 ${homepageContextBlock}You MUST emit the final JSON object as your response. Never finish with only tool calls and zero text — that is a critical failure mode. Always emit a complete JSON object even if some fields are partial or unknown.
 
-CRITICAL RULE — EMPTY VALUES ONLY: When you cannot determine a value after required searches, emit the type-correct empty value ONLY:
-- tagline / headquarters_location: ""
-- manufacturing_locations / industries / reviews: []
-- product_keywords: ""
-- location_source_urls: {"hq_source_urls": [], "mfg_source_urls": []}
-Never emit explanations, parentheticals, "no specific...", "identified in sources", "likely...", "common for category", or ANY rationale text inside any field value. Emitting filler text instead of empty is a critical failure that breaks downstream systems. Examples of forbidden values: "(no specific city identified in sources)", "(U.S. brand under X)", "(likely overseas production common for category)". If you don't know, emit "" or [] — never a sentence explaining why.
-
 Tool-call effort floor: You MUST execute a minimum of 5 tool calls (web_search or browse_page) BEFORE you are allowed to emit your final JSON. The Homepage Context block does NOT count toward this minimum — it is only background information. You are required to perform real searches even when some fields appear in the homepage text.
 
 You MUST search for manufacturing_locations, third-party reviews, and specific named product lines. These fields are almost never fully covered by the homepage.
@@ -422,9 +415,9 @@ Per-field rules:
 
 Tagline: Provide the company's tagline, slogan, or motto. Format as described below.
 
-HQ: Identify the HQ location from the company's official website (About / Contact pages or footer). If the official site is unclear, do one additional web_search to a credible source like LinkedIn, Crunchbase, or a recent press article. Use initials for state or province (e.g., City, ST, Country). Use USA, not US. No explanatory info — just the location string. If multiple HQ locations, separate with semicolons. Examples: "Linz am Rhein, Rhineland-Palatinate, Germany" or "Newport Beach, CA, USA". Do NOT include the label "HQ:" in the value — emit only the location content. If no verifiable HQ location is found after all required searches, emit exactly "" (empty string) — never any explanatory text, parenthetical rationale, or "no specific X identified" phrasing.
+HQ: Identify the HQ location from the company's official website (About / Contact pages or footer). If the official site is unclear, do one additional web_search to a credible source like LinkedIn, Crunchbase, or a recent press article. Use initials for state or province (e.g., City, ST, Country). Use USA, not US. No explanatory info — just the location string. If multiple HQ locations, separate with semicolons. Examples: "Linz am Rhein, Rhineland-Palatinate, Germany" or "Newport Beach, CA, USA". Do NOT include the label "HQ:" in the value — emit only the location content.
 
-Manufacturing: Before emitting manufacturing_locations (including [] or any country), you MUST perform at least 2 targeted web_search calls. Even if the Homepage Context mentions a country, you MUST verify it with at least 1 search before emitting that country. Effective queries: "[Brand] manufactured in", "[Brand] factory", "[Brand] made in China/Vietnam/Mexico/USA", "[Brand] Wikipedia", "[Parent company] supplier list", or "[Brand] sustainability report". Many brands disclose this only in parent 10-K filings, trade articles, or Wikipedia. If brand-level searches do not yield disclosure after 2 attempts, try a site-specific search: site:[brand-domain] "Made in" OR "manufactured in" OR "made in USA". If still not found, browse one product-detail page (e.g. /products/[first-product-slug]) and look for "Made in [country]" labels printed on the product page. Country-level granularity is acceptable. Only emit [] if you have genuinely searched (brand-level → site:domain → one PDP) and found no information. If no verifiable manufacturing location is found after all required searches, emit exactly [] (empty array) — never any explanatory text, parenthetical rationale, "no specific X identified", "likely overseas production", "common for category", or similar filler phrases inside the array.
+Manufacturing: Before emitting manufacturing_locations (including [] or any country), you MUST perform at least 2 targeted web_search calls. Even if the Homepage Context mentions a country, you MUST verify it with at least 1 search before emitting that country. Effective queries: "[Brand] manufactured in", "[Brand] factory", "[Brand] made in China/Vietnam/Mexico/USA", "[Brand] Wikipedia", "[Parent company] supplier list", or "[Brand] sustainability report". Many brands disclose this only in parent 10-K filings, trade articles, or Wikipedia. If brand-level searches do not yield disclosure after 2 attempts, try a site-specific search: site:[brand-domain] "Made in" OR "manufactured in" OR "made in USA". If still not found, browse one product-detail page (e.g. /products/[first-product-slug]) and look for "Made in [country]" labels printed on the product page. Country-level granularity is acceptable. Only emit [] if you have genuinely searched (brand-level → site:domain → one PDP) and found no information.
 
 List the company's known manufacturing locations. Many consumer brands DO NOT disclose manufacturing on their public-facing About/Press pages — for these, you MUST do additional searches before concluding "no manufacturing found." Search strategy (try in this order, up to 3 searches):
   1. Official website's About / Press / Sustainability / Supply Chain pages.

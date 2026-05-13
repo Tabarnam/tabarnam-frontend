@@ -497,80 +497,25 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.4.A: PROMPT_GUIDANCE_VERSION is 9.5.0-anti-filler-empty-only", () => {
-  // Phase 4.4.A — minor version bump from 9.4.0 to 9.5.0 marks the
-  // anti-filler emission mandate. Grok-4.3 occasionally emits explanatory
-  // rationale text inside field values instead of empty strings/arrays
-  // (e.g. "(no specific city identified in sources; U.S. brand under X)"
-  // for headquarters_location). The user verified grok.com Expert mode
-  // also produces this filler, confirming it's a model-level behavior.
-  // Phase 4.4.B already shipped a defensive parse-time sanitizer
-  // (FILLER_PATTERNS in _canonicalImport.js); Phase 4.4.A adds the
-  // prompt-side belt to the suspenders by inserting a "CRITICAL RULE —
-  // EMPTY VALUES ONLY" block at the top with explicit forbidden
-  // examples, plus reinforcing the rule in the HQ and Manufacturing
-  // per-field rules with "emit exactly [] or ""."
+test("Phase 4.3: PROMPT_GUIDANCE_VERSION is 9.4.0-products-150-and-manufacturing-pdp-fallback", () => {
+  // Phase 4.3 — minor version bump from 9.3.0 to 9.4.0 marks two changes:
+  //   1. Products ceiling raised 5-12 → up to 150 (user override of Grok's
+  //      5-20 recommendation). Users want import depth to match the refresh
+  //      pipeline's depth on brands with many named product lines (Mercer
+  //      Culinary, BBQ Butler refresh-vs-import gap motivated this).
+  //   2. Manufacturing rule adds a tiered fallback after the Phase 4.2
+  //      mandate: brand-level web_search → site:[brand-domain] "Made in"
+  //      site-specific search → browse one product-detail page (PDP).
+  //      Cave Tools missed manufacturing on Phase 4.2 because PDPs disclose
+  //      "Made in USA" but homepage and brand-level searches don't.
+  // Anti-padding language explicitly preserves "a smaller accurate list is
+  // always better than a padded list" so the 150 ceiling doesn't trigger
+  // fabrication. The effort-floor + per-field always-search anchors from
+  // Phase 4.2 are unchanged.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.5\.0-anti-filler-empty-only/,
-    "PROMPT_GUIDANCE_VERSION must be 9.5.0-anti-filler-empty-only for Phase 4.4.A"
-  );
-});
-
-test("Phase 4.4.A: buildCanonicalImportPrompt contains CRITICAL RULE — EMPTY VALUES ONLY block + per-field anti-filler anchors", () => {
-  // Phase 4.4.A — Grok-4-approved anti-filler prompt block. Targets
-  // Grok-4.3's tendency to emit explanatory rationale inside field values
-  // ("(no specific city identified in sources)") instead of empty
-  // strings/arrays. Top-of-prompt block lists the forbidden patterns
-  // explicitly and ties them to "critical failure that breaks downstream
-  // systems." Per-field rules (HQ, Manufacturing) reinforce with
-  // "emit exactly [] or '' — never any explanatory text."
-  const prompt = buildCanonicalImportPrompt({
-    companyName: "Acme Corp",
-    websiteUrl: "https://acme.example",
-    homepageContext: "",
-  });
-
-  // (a) Top-of-prompt CRITICAL RULE block
-  assert.ok(
-    /CRITICAL RULE\s*—\s*EMPTY VALUES ONLY/i.test(prompt),
-    "prompt must contain the 'CRITICAL RULE — EMPTY VALUES ONLY' heading"
-  );
-  assert.ok(
-    /Never emit explanations, parentheticals/i.test(prompt),
-    "prompt must explicitly forbid explanations and parentheticals in field values"
-  );
-  assert.ok(
-    /"no specific\.\.\."/i.test(prompt) && /"identified in sources"/i.test(prompt),
-    "prompt must list the specific forbidden phrases ('no specific...', 'identified in sources')"
-  );
-  assert.ok(
-    /"likely\.\.\."/i.test(prompt) && /"common for category"/i.test(prompt),
-    "prompt must list 'likely...' and 'common for category' as forbidden filler phrases"
-  );
-  assert.ok(
-    /Emitting filler text instead of empty is a critical failure/i.test(prompt),
-    "prompt must label filler emission as a critical failure tied to downstream breakage"
-  );
-  assert.ok(
-    /If you don't know, emit "" or \[\]/i.test(prompt),
-    "prompt must include the punch-line 'If you don't know, emit \"\" or []' rule"
-  );
-
-  // (b) HQ rule reinforcement
-  assert.ok(
-    /If no verifiable HQ location is found after all required searches, emit exactly ""/i.test(prompt),
-    "HQ rule must contain the 'emit exactly \"\"' anti-filler reinforcement"
-  );
-
-  // (c) Manufacturing rule reinforcement
-  assert.ok(
-    /If no verifiable manufacturing location is found after all required searches, emit exactly \[\]/i.test(prompt),
-    "Manufacturing rule must contain the 'emit exactly []' anti-filler reinforcement"
-  );
-  assert.ok(
-    /never any explanatory text, parenthetical rationale, "no specific X identified", "likely overseas production", "common for category"/i.test(prompt),
-    "Manufacturing rule must enumerate the specific filler phrases that are forbidden"
+    /^9\.4\.0-products-150-and-manufacturing-pdp-fallback/,
+    "PROMPT_GUIDANCE_VERSION must be 9.4.0-products-150-and-manufacturing-pdp-fallback for Phase 4.3"
   );
 });
 
