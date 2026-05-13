@@ -257,10 +257,8 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
     "'Exhaustive, complete list of all products' wording must be removed"
   );
   assert.ok(
-    /Do NOT enumerate every SKU/i.test(prompt) ||
-    /A small accurate list of real SKUs\/lines is far better than a padded generic list/i.test(prompt) ||
-    /A smaller accurate list is always better than a padded list/i.test(prompt),
-    "Products rule must forbid SKU enumeration (Phase 2.4) OR prefer accurate named lines (Phase 4.1/4.3)"
+    /Do NOT enumerate every SKU/i.test(prompt) || /A small accurate list of real SKUs\/lines is far better than a padded generic list/i.test(prompt),
+    "Products rule must forbid SKU enumeration (Phase 2.4) OR prefer accurate named lines (Phase 4.1)"
   );
   // Concrete examples nudge the model toward the right style.
   assert.ok(
@@ -497,25 +495,21 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.3: PROMPT_GUIDANCE_VERSION is 9.4.0-products-150-and-manufacturing-pdp-fallback", () => {
-  // Phase 4.3 — minor version bump from 9.3.0 to 9.4.0 marks two changes:
-  //   1. Products ceiling raised 5-12 → up to 150 (user override of Grok's
-  //      5-20 recommendation). Users want import depth to match the refresh
-  //      pipeline's depth on brands with many named product lines (Mercer
-  //      Culinary, BBQ Butler refresh-vs-import gap motivated this).
-  //   2. Manufacturing rule adds a tiered fallback after the Phase 4.2
-  //      mandate: brand-level web_search → site:[brand-domain] "Made in"
-  //      site-specific search → browse one product-detail page (PDP).
-  //      Cave Tools missed manufacturing on Phase 4.2 because PDPs disclose
-  //      "Made in USA" but homepage and brand-level searches don't.
-  // Anti-padding language explicitly preserves "a smaller accurate list is
-  // always better than a padded list" so the 150 ceiling doesn't trigger
-  // fabrication. The effort-floor + per-field always-search anchors from
-  // Phase 4.2 are unchanged.
+test("Phase 4.2: PROMPT_GUIDANCE_VERSION is 9.3.0-unconditional-effort-floor", () => {
+  // Phase 4.2 — minor version bump from 9.2.0 to 9.3.0 marks the
+  // unconditional-effort-floor fix. Phase 4.1's effort floor had a logical
+  // escape clause ("unless Homepage Context covers EVERY requested field")
+  // that grok-4.3 exploited by emitting JSON with 0 tool calls (smoking
+  // gun: Char-Broil 15.9s 0-tool-call, Char-Griller 17.5s 0-tool-call,
+  // both with empty manufacturing/products). Phase 4.2 removes the escape
+  // clause: minimum 5 tool calls UNCONDITIONAL, Homepage Context does NOT
+  // count toward the floor, explicit failure-mode framing. Per-field rules
+  // strengthened on Manufacturing (must verify even when context mentions
+  // country), Products (ALWAYS browse /products), Reviews (ALWAYS search).
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.4\.0-products-150-and-manufacturing-pdp-fallback/,
-    "PROMPT_GUIDANCE_VERSION must be 9.4.0-products-150-and-manufacturing-pdp-fallback for Phase 4.3"
+    /^9\.3\.0-unconditional-effort-floor/,
+    "PROMPT_GUIDANCE_VERSION must be 9.3.0-unconditional-effort-floor for Phase 4.2"
   );
 });
 
@@ -630,23 +624,7 @@ test("Phase 4.2: buildCanonicalImportPrompt includes unconditional effort floor 
     "prompt must contain 'parent 10-K filings' guidance"
   );
 
-  // ── (f.2) Phase 4.3 Manufacturing — site-search + PDP fallback escalation ─
-  // After 2 brand-level searches, model must try site:[brand-domain]
-  // "Made in" — catches small-brand PDP-only disclosures (Cave Tools case).
-  assert.ok(
-    /site:\[brand-domain\]\s+"Made in"\s+OR\s+"manufactured in"\s+OR\s+"made in USA"/i.test(prompt),
-    "Phase 4.3 — Manufacturing rule must contain the site:[brand-domain] escalation query"
-  );
-  assert.ok(
-    /browse one product-detail page \(e\.g\. \/products\/\[first-product-slug\]\)/i.test(prompt),
-    "Phase 4.3 — Manufacturing rule must contain the PDP fallback ('/products/[first-product-slug]')"
-  );
-  assert.ok(
-    /Made in \[country\]" labels printed on the product page/i.test(prompt),
-    "Phase 4.3 — Manufacturing rule must mention 'Made in [country]' product-page labels"
-  );
-
-  // ── (g) Phase 4.2 / 4.3 Products — ALWAYS browse + 150 ceiling + anti-pad ─
+  // ── (g) Phase 4.2 Products — ALWAYS browse, never rely solely on context ─
   assert.ok(
     /ALWAYS browse the brand's \/products, \/shop, or \/collections page before emitting product_keywords/i.test(prompt),
     "prompt must contain the Phase 4.2 Products 'ALWAYS browse /products /shop /collections' mandate"
@@ -658,23 +636,6 @@ test("Phase 4.2: buildCanonicalImportPrompt includes unconditional effort floor 
   assert.ok(
     /Coyote Pellet Grill/.test(prompt) && /Duomo Pizza Oven/.test(prompt),
     "prompt must retain the named-product-lines examples (Coyote Pellet Grill, Duomo Pizza Oven)"
-  );
-  // Phase 4.3 ceiling raise (5-12 → up to 150) + anti-padding mandate
-  assert.ok(
-    /up to 150 entries/i.test(prompt),
-    "Phase 4.3 — Products rule must contain 'up to 150 entries' ceiling"
-  );
-  assert.ok(
-    /Browse paginated catalog pages if needed/i.test(prompt),
-    "Phase 4.3 — Products rule must instruct paginated catalog browsing"
-  );
-  assert.ok(
-    /do not fabricate, do not pad with generic terms, do not invent products/i.test(prompt),
-    "Phase 4.3 — Products rule must contain the anti-padding triple-negation"
-  );
-  assert.ok(
-    /A smaller accurate list is always better than a padded list/i.test(prompt),
-    "Phase 4.3 — Products rule must contain the 'smaller accurate list is always better' anchor"
   );
 
   // ── (h) Phase 4.2 Reviews — ALWAYS perform at least 1 search ────────────
@@ -748,21 +709,18 @@ test("Phase 2.19.9: homepage-context block uses concise emit-from-context phrasi
 // 3-15 → 3-8, products 3-20 → 5-12. The narrow-brand intent is preserved
 // (the "3-X" lower bound still accommodates single-product brands; the
 // upper bound is what was tightened to bound enumeration pressure).
-test("Phase 2.19.4 + 3.6 + 4.1 + 4.3: narrow-brand floors still present in industries / products rules", () => {
+test("Phase 2.19.4 + 3.6 + 4.1: narrow-brand floors still present in industries / products rules", () => {
   const prompt = buildCanonicalImportPrompt({ companyName: "X", websiteUrl: "https://x.example" });
   assert.ok(
     /3-8 short noun phrases/i.test(prompt),
     "Industries floor must be 3-8 (Phase 3.6 ceiling, was 3-15 in 2.19.4)"
   );
-  // Phase 4.3 raised the Products ceiling from 5-12 (Phase 4.1) to up to
-  // 150. The "smaller accurate list" anti-padding language preserves the
-  // narrow-brand intent — model is explicitly told to list only what
-  // exists. Accept any of the historical forms during the transition window.
+  // Phase 4.1 rewrote the Products rule. The "5-12" ceiling is preserved
+  // but the phrasing changed from "5-12 universal product categories" to
+  // "Use 5-12 entries" (named-product-lines focus). Accept either form.
   assert.ok(
-    /5-12 universal product/i.test(prompt) ||
-    /Use 5-12 entries/i.test(prompt) ||
-    /up to 150 entries/i.test(prompt),
-    "Products ceiling must be 5-12 (Phase 3.6 / 4.1) OR up to 150 (Phase 4.3)"
+    /5-12 universal product/i.test(prompt) || /Use 5-12 entries/i.test(prompt),
+    "Products floor must be 5-12 (Phase 3.6 / 4.1 ceiling, was 3-20 in 2.19.4)"
   );
 });
 
@@ -813,13 +771,10 @@ test("Phase 2.19.4: Industries / Products rules accommodate narrow / single-prod
     "Industries rule must use 3-8 floor (Phase 3.6) for narrow brands"
   );
   // Products floor must be tightened similarly per Phase 3.6.
-  // Phase 4.1 rewrote the rule to "Use 5-12 entries" and Phase 4.3 raised
-  // to "up to 150 entries" with anti-padding language — accept any.
+  // Phase 4.1 rewrote the rule to "Use 5-12 entries" — accept either form.
   assert.ok(
-    /5-12 universal product/i.test(prompt) ||
-    /Use 5-12 entries/i.test(prompt) ||
-    /up to 150 entries/i.test(prompt),
-    "Products ceiling must be 5-12 (Phase 3.6 / 4.1) OR up to 150 (Phase 4.3)"
+    /5-12 universal product/i.test(prompt) || /Use 5-12 entries/i.test(prompt),
+    "Products rule must use 5-12 floor (Phase 3.6 / 4.1 ceiling, was 3-20)"
   );
   // Explicit narrow-brand call-outs must appear in both rules.
   assert.ok(
