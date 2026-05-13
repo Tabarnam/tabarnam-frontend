@@ -614,23 +614,7 @@ async function xaiLiveSearchStreaming({
   // Legacy `disablePostCapAbort` parameter still honored: true → tolerance=∞.
   postCapToolCallTolerance = 0,
   disablePostCapAbort = false,  // legacy, translates to tolerance=∞
-  // Phase 4.7 — `reasoning.effort` parameter for grok-4.3+. Pushes the
-  // model to spend more internal reasoning tokens before tool decisions,
-  // which Grok-4 explicitly identified as the highest-impact lever
-  // against the 7-9-tool-call satisficing pattern observed in production
-  // (5/13 batch: Grillbadger, Grillaholics, HorsePower, Mr. Bar-B-Q,
-  // Schmidt Brothers all exited well under the 18-tool budget). Default
-  // "high" — counter the model's built-in efficiency bias. Operator
-  // override via XAI_REASONING_EFFORT env var ("high" | "medium" |
-  // "low" | "off" to disable). When off, no `reasoning` key is sent.
-  reasoningEffort,
 } = {}) {
-  const _resolvedReasoningEffort = (() => {
-    const raw = String(reasoningEffort ?? process.env.XAI_REASONING_EFFORT ?? "high").trim().toLowerCase();
-    if (raw === "off" || raw === "none" || raw === "" || raw === "false") return null;
-    if (raw === "high" || raw === "medium" || raw === "low") return raw;
-    return "high"; // unrecognized value defaults to high
-  })();
   // Phase 3.3 — reconcile legacy + new param.
   const _effectiveTolerance = disablePostCapAbort
     ? Number.POSITIVE_INFINITY
@@ -743,12 +727,6 @@ async function xaiLiveSearchStreaming({
       stream: true,
       ...(resolvedConversationId ? { conversation_id: resolvedConversationId } : {}),
       ...(response_format && typeof response_format === "object" ? { response_format } : {}),
-      // Phase 4.7 — `reasoning.effort` on grok-4.3+. Grok-4 review (5/13)
-      // identified this as the highest-impact lever against the 7-9-tool
-      // satisficing pattern. Pushes the model to spend more internal
-      // reasoning tokens before tool decisions → deeper / more persistent
-      // tool use. Default "high" via `reasoningEffort` resolver above.
-      ...(_resolvedReasoningEffort ? { reasoning: { effort: _resolvedReasoningEffort } } : {}),
     };
 
     // Phase 2.1 — log payload summary so we can verify what's being sent on
@@ -766,7 +744,6 @@ async function xaiLiveSearchStreaming({
       has_conversation_id: !!payload.conversation_id,
       max_tool_calls: maxToolCalls,
       timeout_ms: timeoutUsedMs,
-      reasoning_effort: _resolvedReasoningEffort || "off",
     });
 
     // Phase 2.19.6 — single-retry on 503.
