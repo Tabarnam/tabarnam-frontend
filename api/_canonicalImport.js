@@ -118,6 +118,88 @@ function stripLabel(value) {
   return value.replace(KNOWN_PROMPT_LABEL_PREFIX, "").trim();
 }
 
+// Phase 4.4.B — defensive parse-time sanitizer for "filler rationale" values.
+// Empirical (user-reported 2026-05-13, GRILLART + Grillight on grok-4.3):
+// the model occasionally emits parenthetical explanations INSIDE a field
+// value instead of returning the type-correct empty value. Examples we've
+// observed (verified by user against grok.com Expert mode):
+//
+//   headquarters_location: "(no specific city or state identified in
+//     sources; U.S. brand under Weetiee)"
+//   manufacturing_locations: ["(no specific cities or factories identified
+//     in sources; U.S. branded products with likely overseas production
+//     common for category)"]
+//
+// These are catastrophic for two reasons:
+//   1. Admin Issues column flags empty/missing — filler text passes as
+//      non-empty and slips into production unchecked.
+//   2. Downstream semicolon-split parsing turns the explanation into
+//      multiple "locations" (e.g. "(no X" + "Y)" → 2 chips).
+//
+// This sanitizer detects the most common Grok-4.3 filler patterns and
+// converts them to the type-correct empty value. Conservative — only
+// strips values that match HIGH-CONFIDENCE filler patterns (starts with
+// "(" + contains a known rationale phrase like "no specific", "identified
+// in sources", "common for category"). Real parenthetical clarifications
+// (e.g. "Linz am Rhein (formerly West Germany)") are preserved.
+const FILLER_PATTERNS = [
+  // Most common Grok-4.3 form: "(no specific X identified ...)"
+  /^\s*\(\s*no\s+specific\b.*?\bidentified\b/i,
+  // Variant: "(no X identified in sources)"
+  /^\s*\(\s*no\s+\w+(?:\s+\w+){0,3}\s+identified\s+in\s+sources/i,
+  // "(... common for category)" — typically the tail half of a semicolon split
+  /\bcommon\s+for\s+category\s*\)?\s*$/i,
+  // "(... likely overseas production ...)"
+  /\blikely\s+overseas\s+production\b/i,
+  // "(U.S. brand under X)" — bare-brand-pedigree filler (the tail of a split)
+  /^\s*[Uu]\.?[Ss]\.?\s+(?:brand|branded\s+products?)\s+(?:under|with)\b/,
+  // "(no factories disclosed)" / "(no manufacturing disclosed)"
+  /^\s*\(\s*no\s+(?:factories|manufacturing|facilities|locations?)\s+(?:disclosed|found|listed|known)/i,
+];
+
+function isFillerValue(value) {
+  if (typeof value !== "string") return false;
+  const v = value.trim();
+  if (!v) return false;
+  for (const pat of FILLER_PATTERNS) {
+    if (pat.test(v)) return true;
+  }
+  return false;
+}
+
+function stripFillerString(value, fieldName = "") {
+  if (typeof value !== "string") return value;
+  if (isFillerValue(value)) {
+    // Log so we can monitor occurrences in production
+    try {
+      console.log("[canonicalImport] filler_stripped", {
+        field: fieldName || "(unknown)",
+        original_preview: value.slice(0, 120),
+      });
+    } catch { /* logging is best-effort */ }
+    return "";
+  }
+  return value;
+}
+
+function stripFillerArray(arr, fieldName = "") {
+  if (!Array.isArray(arr)) return arr;
+  const cleaned = [];
+  for (const item of arr) {
+    if (typeof item === "string" && isFillerValue(item)) {
+      try {
+        console.log("[canonicalImport] filler_stripped", {
+          field: fieldName || "(unknown)",
+          original_preview: item.slice(0, 120),
+        });
+      } catch { /* best-effort */ }
+      continue; // drop the filler entry from the array
+    }
+    cleaned.push(item);
+  }
+  return cleaned;
+}
+
 // Phase 3.7 — strip JSON unicode escape sequences that leak through as
 // literal text. Empirical (Slap Ya Mama import, 2026-05-11): model emitted
 // `industries: ["Cajun Seasonings ⚡"]` — the website uses emoji
@@ -203,12 +285,25 @@ function cleanProductKeywordsString(value) {
   // product_keywords is a single comma-separated string. Split, clean each
   // token, rejoin. Lowercase single-word entries are valid here ("hot sauce",
   // "fish fry") — only filter out garbage and decorative escapes.
+  //
+  // Phase 4.4.B — also filter individual filler tokens like "(no specific
+  // named lines identified in sources)" that the model may emit alongside
+  // real product lines.
   const tokens = value.split(",");
   const cleaned = [];
   const seen = new Set();
   for (const raw of tokens) {
     const v = stripUnicodeEscapeLeaks(raw.trim());
     if (!isQualityNounPhraseEntry(v, { allowLowercaseSingleWord: true })) continue;
+    if (isFillerValue(v)) {
+      try {
+        console.log("[canonicalImport] filler_stripped", {
+          field: "product_keywords",
+          original_preview: v.slice(0, 120),
+        });
+      } catch { /* best-effort */ }
+      continue;
+    }
     const key = v.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -232,11 +327,30 @@ function shapeEnrichedFromParsed(parsed) {
   // like "baking", entries < 3 chars). product_keywords runs through a
   // dedicated cleaner that allows lowercase single-word entries (legitimate
   // for product names like "hot sauce").
+  //
+  // Phase 4.4.B — additionally strip "filler rationale" values that
+  // Grok-4.3 occasionally emits in place of empty strings/arrays (e.g.
+  // "(no specific cities identified in sources; ... common for category)").
+  // Filler strings on tagline/HQ become empty string "". Filler entries in
+  // arrays (manufacturing_locations) get dropped. See stripFillerString /
+  // stripFillerArray + FILLER_PATTERNS above for the detection rules.
   return {
-    tagline: stripUnicodeEscapeLeaks(stripLabel(asString(parsed?.tagline))),
-    headquarters_location: stripUnicodeEscapeLeaks(stripLabel(asString(parsed?.headquarters_location))),
-    manufacturing_locations: cleanNounPhraseArray(parsed?.manufacturing_locations, { allowLowercaseSingleWord: true }),
-    industries: cleanNounPhraseArray(parsed?.industries),
+    tagline: stripFillerString(
+      stripUnicodeEscapeLeaks(stripLabel(asString(parsed?.tagline))),
+      "tagline",
+    ),
+    headquarters_location: stripFillerString(
+      stripUnicodeEscapeLeaks(stripLabel(asString(parsed?.headquarters_location))),
+      "headquarters_location",
+    ),
+    manufacturing_locations: stripFillerArray(
+      cleanNounPhraseArray(parsed?.manufacturing_locations, { allowLowercaseSingleWord: true }),
+      "manufacturing_locations",
+    ),
+    industries: stripFillerArray(
+      cleanNounPhraseArray(parsed?.industries),
+      "industries",
+    ),
     product_keywords: cleanProductKeywordsString(stripLabel(asString(parsed?.product_keywords))),
     reviews: Array.isArray(parsed?.reviews) ? parsed.reviews : [],
     location_source_urls:
@@ -828,11 +942,21 @@ function mergeMultiCallResults({ coreResult, locationsResult, reviewsResult }) {
   // Phase 3.7 — multi-call merge also applies the data-cleanup helpers
   // so dormant XAI_MULTI_CALL_MODE=on path stays parity with the
   // single-call's cleanup.
+  // Phase 4.4.B — same filler-strip parity for the multi-call path.
   return {
-    tagline: stripUnicodeEscapeLeaks(stripLabel(asString(core?.tagline))),
-    headquarters_location: stripUnicodeEscapeLeaks(stripLabel(asString(loc?.headquarters_location))),
-    manufacturing_locations: cleanNounPhraseArray(loc?.manufacturing_locations, { allowLowercaseSingleWord: true }),
-    industries: cleanNounPhraseArray(core?.industries),
+    tagline: stripFillerString(
+      stripUnicodeEscapeLeaks(stripLabel(asString(core?.tagline))),
+      "tagline",
+    ),
+    headquarters_location: stripFillerString(
+      stripUnicodeEscapeLeaks(stripLabel(asString(loc?.headquarters_location))),
+      "headquarters_location",
+    ),
+    manufacturing_locations: stripFillerArray(
+      cleanNounPhraseArray(loc?.manufacturing_locations, { allowLowercaseSingleWord: true }),
+      "manufacturing_locations",
+    ),
+    industries: stripFillerArray(cleanNounPhraseArray(core?.industries), "industries"),
     product_keywords: cleanProductKeywordsString(stripLabel(asString(core?.product_keywords))),
     reviews: Array.isArray(rev?.reviews) ? rev.reviews : [],
     location_source_urls: loc?.location_source_urls && typeof loc.location_source_urls === "object"
@@ -1859,4 +1983,9 @@ module.exports = {
   isQualityNounPhraseEntry,
   cleanNounPhraseArray,
   cleanProductKeywordsString,
+  // Phase 4.4.B: filler-pattern sanitizer
+  isFillerValue,
+  stripFillerString,
+  stripFillerArray,
+  FILLER_PATTERNS,
 };
