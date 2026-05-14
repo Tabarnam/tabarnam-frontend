@@ -20,11 +20,6 @@ const {
   isFillerValue,
   stripFillerString,
   stripFillerArray,
-  // Phase 4.12 — strict geographic location validator
-  stripParentheticals,
-  isValidLocationEntry,
-  sanitizeLocationString,
-  sanitizeLocationArray,
 } = require("./_canonicalImport");
 
 test("shapeEnrichedFromParsed returns canonical defaults for null/undefined input", () => {
@@ -2359,18 +2354,8 @@ test("Phase 4.4.B: shapeEnrichedFromParsed strips filler from tagline + HQ + man
   assert.ok(!out.product_keywords.includes("no specific named lines"));
 });
 
-test("Phase 4.4.B + 4.12: shapeEnrichedFromParsed strips ALL parentheticals from location fields (superseded by Phase 4.12)", () => {
-  // Phase 4.4.B originally preserved "legitimate" parenthetical clarifications
-  // on location fields (e.g. "Vietnam (multiple facilities)"). Phase 4.12
-  // supersedes this — Tabarnam's proximity-based discovery requires clean
-  // geocodable strings regardless of whether the parenthetical is
-  // "legitimate". The geocoder doesn't care about clarifications; it just
-  // needs a place name. Per user requirement (2026-05-14): "No explanation
-  // and parenthesis."
-  //
-  // Non-location fields (tagline, industries, product_keywords) STILL
-  // preserve their parentheticals — Phase 4.12 only hardens HQ +
-  // manufacturing_locations.
+test("Phase 4.4.B: shapeEnrichedFromParsed preserves real parenthetical clarifications", () => {
+  // Anti-regression — must NOT strip legitimate parenthetical content
   const input = {
     tagline: "Premium tools (since 1995)",
     headquarters_location: "Linz am Rhein, Rhineland-Palatinate, Germany (formerly West Germany)",
@@ -2381,219 +2366,11 @@ test("Phase 4.4.B + 4.12: shapeEnrichedFromParsed strips ALL parentheticals from
     red_flag: false,
   };
   const out = shapeEnrichedFromParsed(input);
-  // Tagline still preserves "(since 1995)" — non-location field
   assert.equal(out.tagline, "Premium tools (since 1995)");
-  // Phase 4.12: HQ parenthetical IS stripped (geocodability over decoration)
-  assert.equal(out.headquarters_location, "Linz am Rhein, Rhineland-Palatinate, Germany");
-  // Phase 4.12: Manufacturing parentheticals stripped on each entry
-  assert.deepEqual(out.manufacturing_locations, ["Vietnam", "China"]);
-  // Non-location array still preserves entries that happen to contain
-  // parens (none in this case, but the rule is "only locations get stripped")
+  assert.equal(out.headquarters_location, "Linz am Rhein, Rhineland-Palatinate, Germany (formerly West Germany)");
+  assert.deepEqual(out.manufacturing_locations, ["Vietnam (multiple facilities)", "China"]);
   assert.deepEqual(out.industries, ["Footwear", "Cork Footbed Sandals"]);
   // product_keywords cleaner may reorder/dedupe but real tokens should survive
   assert.ok(out.product_keywords.includes("boots"));
   assert.ok(out.product_keywords.includes("clogs"));
-});
-
-// ── Phase 4.12: strict geographic location validator ────────────────────────
-// Defensive parse-time stripping for grok-4.3's "describe the supply chain"
-// emissions where location values contain parenthetical descriptions or
-// narrative prose. Tabarnam's proximity-based discovery feature requires
-// clean geocodable City/Region/Country strings.
-//
-// Empirical (2026-05-13 Harbour Outdoor + Harmonia Living):
-//   - "Pelham, AL, USA (tailored made in the US with marine-grade wood...)"
-//   - "US-based production for luxury outdoor furniture"
-//   - "Various global locations with handcrafted designs..."
-//   - "USA (cushions and some components)"
-
-test("Phase 4.12: stripParentheticals removes single-level parentheticals", () => {
-  assert.equal(
-    stripParentheticals("Pelham, AL, USA (tailored made in the US with marine-grade wood)"),
-    "Pelham, AL, USA"
-  );
-  assert.equal(
-    stripParentheticals("USA (cushions and some components)"),
-    "USA"
-  );
-  assert.equal(
-    stripParentheticals("Newport Beach, CA, USA (headquartered since 2010)"),
-    "Newport Beach, CA, USA"
-  );
-});
-
-test("Phase 4.12: stripParentheticals handles nested-shallow parentheticals", () => {
-  assert.equal(
-    stripParentheticals("Pelham, AL, USA (made (since 1976) in workshop)"),
-    "Pelham, AL, USA"
-  );
-});
-
-test("Phase 4.12: stripParentheticals leaves clean strings unchanged", () => {
-  assert.equal(stripParentheticals("Pelham, AL, USA"), "Pelham, AL, USA");
-  assert.equal(stripParentheticals("USA"), "USA");
-  assert.equal(stripParentheticals("Sydney, Australia"), "Sydney, Australia");
-  assert.equal(stripParentheticals(""), "");
-});
-
-test("Phase 4.12: isValidLocationEntry accepts canonical shapes", () => {
-  assert.ok(isValidLocationEntry("Pelham, AL, USA"));
-  assert.ok(isValidLocationEntry("Sydney, Australia"));
-  assert.ok(isValidLocationEntry("Newport Beach, CA, USA"));
-  assert.ok(isValidLocationEntry("San Marcos, CA, USA"));
-  assert.ok(isValidLocationEntry("USA"));
-  assert.ok(isValidLocationEntry("Vietnam"));
-  assert.ok(isValidLocationEntry("Linz am Rhein, Rhineland-Palatinate, Germany"));
-  assert.ok(isValidLocationEntry("Hai Duong, Vietnam"));
-});
-
-test("Phase 4.12: isValidLocationEntry rejects narrative entries", () => {
-  // Production/manufacturing/sourcing keywords
-  assert.equal(isValidLocationEntry("US-based production for luxury outdoor furniture"), false);
-  assert.equal(isValidLocationEntry("Various global locations with handcrafted designs"), false);
-  assert.equal(isValidLocationEntry("various global locations for frames and sustainable materials"), false);
-
-  // "with" / "for" / "using" red flags
-  assert.equal(isValidLocationEntry("USA with assembly in multiple states"), false);
-  assert.equal(isValidLocationEntry("Vietnam for footwear sourcing"), false);
-  assert.equal(isValidLocationEntry("China using premium teak"), false);
-
-  // headquartered / corporate office
-  assert.equal(isValidLocationEntry("Newport Beach headquartered since 2010"), false);
-  assert.equal(isValidLocationEntry("USA corporate office"), false);
-
-  // Length cap (over 80 chars)
-  const longString = "City, ST, USA, with multiple manufacturing partners across the entire global supply network";
-  assert.equal(isValidLocationEntry(longString), false);
-});
-
-test("Phase 4.12: isValidLocationEntry rejects malformed entries", () => {
-  assert.equal(isValidLocationEntry(""), false);
-  assert.equal(isValidLocationEntry("   "), false);
-  assert.equal(isValidLocationEntry(null), false);
-  assert.equal(isValidLocationEntry(undefined), false);
-  assert.equal(isValidLocationEntry(123), false);
-  // Lowercase start (real place names start with capital)
-  assert.equal(isValidLocationEntry("various global locations"), false);
-  assert.equal(isValidLocationEntry("usa"), false);
-});
-
-test("Phase 4.12: sanitizeLocationString strips parenthetical then validates", () => {
-  // Valid location + parenthetical → cleaned to valid location
-  assert.equal(
-    sanitizeLocationString("Pelham, AL, USA (tailored made in the US with marine-grade wood)"),
-    "Pelham, AL, USA"
-  );
-  // Country + parenthetical → cleaned to country
-  assert.equal(
-    sanitizeLocationString("USA (cushions and some components)"),
-    "USA"
-  );
-  // Pure narrative → empty string
-  assert.equal(
-    sanitizeLocationString("US-based production for luxury outdoor furniture"),
-    ""
-  );
-  assert.equal(
-    sanitizeLocationString("Various global locations with handcrafted designs"),
-    ""
-  );
-  // Clean valid input passes through
-  assert.equal(
-    sanitizeLocationString("Sydney, Australia"),
-    "Sydney, Australia"
-  );
-});
-
-test("Phase 4.12: sanitizeLocationArray cleans + splits on semicolons + drops narrative", () => {
-  // Multi-location semicolon string within one entry → split, sanitize each
-  assert.deepEqual(
-    sanitizeLocationArray(["San Marcos, CA, USA; San Diego, CA, USA"]),
-    ["San Marcos, CA, USA", "San Diego, CA, USA"]
-  );
-  // Mixed: real location + parenthetical-laden + narrative
-  assert.deepEqual(
-    sanitizeLocationArray([
-      "Pelham, AL, USA (tailored made with marine-grade wood)",
-      "US-based production for luxury outdoor furniture",
-      "Sydney, Australia",
-    ]),
-    ["Pelham, AL, USA", "Sydney, Australia"]
-  );
-  // All-narrative array → empty array
-  assert.deepEqual(
-    sanitizeLocationArray([
-      "Various global locations with handcrafted designs",
-      "various global locations for frames and sustainable materials",
-    ]),
-    []
-  );
-  // Empty array passes through
-  assert.deepEqual(sanitizeLocationArray([]), []);
-  // Non-array passes through
-  assert.deepEqual(sanitizeLocationArray(null), null);
-});
-
-test("Phase 4.12: shapeEnrichedFromParsed end-to-end sanitizes HQ + manufacturing", () => {
-  // Simulate the Harbour Outdoor case — model emits parenthetical-laden
-  // values + pure narrative entries.
-  const input = {
-    tagline: "Marine-grade outdoor furniture",
-    headquarters_location: "Pelham, AL, USA (tailored made in the US with marine-grade wood)",
-    manufacturing_locations: [
-      "Pelham, AL, USA (tailored made in the US with marine-grade wood)",
-      "US-based production for luxury outdoor furniture",
-      "Various global locations with handcrafted designs",
-    ],
-    industries: ["Outdoor Furniture"],
-    product_keywords: "sofas, chairs",
-    reviews: [],
-    red_flag: false,
-  };
-  const out = shapeEnrichedFromParsed(input);
-  // HQ parenthetical stripped, value clean
-  assert.equal(out.headquarters_location, "Pelham, AL, USA");
-  // Manufacturing: parenthetical stripped on first entry, narrative entries dropped
-  assert.deepEqual(out.manufacturing_locations, ["Pelham, AL, USA"]);
-});
-
-test("Phase 4.12: shapeEnrichedFromParsed end-to-end handles Harmonia Living case", () => {
-  // Harmonia Living: USA + parenthetical scope qualifier + narrative
-  const input = {
-    tagline: "Reimagined outdoor living",
-    headquarters_location: "San Marcos, CA, USA; San Diego, CA, USA",
-    manufacturing_locations: [
-      "USA (cushions and some components)",
-      "various global locations for frames and sustainable materials (no specific additional cities identified)",
-    ],
-    industries: ["Outdoor Furniture"],
-    product_keywords: "outdoor sofas",
-    reviews: [],
-    red_flag: false,
-  };
-  const out = shapeEnrichedFromParsed(input);
-  // HQ: semicolon split, both valid US cities kept
-  assert.equal(out.headquarters_location, "San Marcos, CA, USA; San Diego, CA, USA");
-  // Manufacturing: parenthetical stripped on "USA (...)" → "USA"; narrative dropped
-  assert.deepEqual(out.manufacturing_locations, ["USA"]);
-});
-
-test("Phase 4.12: shapeEnrichedFromParsed preserves real multi-location HQ + manufacturing", () => {
-  // Anti-regression — must NOT strip legitimate values
-  const input = {
-    tagline: "Premium",
-    headquarters_location: "Linz am Rhein, Rhineland-Palatinate, Germany",
-    manufacturing_locations: [
-      "Görlitz, Germany",
-      "Vietnam",
-      "Hai Duong, Vietnam",
-    ],
-    industries: ["Footwear"],
-    product_keywords: "sandals",
-    reviews: [],
-    red_flag: false,
-  };
-  const out = shapeEnrichedFromParsed(input);
-  assert.equal(out.headquarters_location, "Linz am Rhein, Rhineland-Palatinate, Germany");
-  assert.deepEqual(out.manufacturing_locations, ["Görlitz, Germany", "Vietnam", "Hai Duong, Vietnam"]);
 });

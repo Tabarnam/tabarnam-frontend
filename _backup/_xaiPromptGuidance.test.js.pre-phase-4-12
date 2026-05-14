@@ -107,21 +107,8 @@ test("buildCanonicalImportPrompt full-field prompt contains canonical structural
   assert.ok(/^Reviews:/m.test(prompt), "missing Reviews section");
 
   // Specific verbatim grok.com phrases (production-refined wording)
-  // Phase 4.12 replaced "Use initials for states or provinces" with
-  // "2-letter state" inside the strict format block bullet examples.
-  // Accept either form during transition.
-  assert.ok(
-    prompt.includes("Use initials for states or provinces") ||
-    prompt.includes("2-letter state"),
-    "HQ format rule missing — must specify 2-letter state codes via either phrasing"
-  );
-  // Phase 4.12 dropped the standalone "Use USA, not US" line — it's now
-  // implicit in the "City, ST, USA" canonical shape examples. Accept
-  // either form.
-  assert.ok(
-    prompt.includes("Use USA, not US") || prompt.includes("USA not US") || prompt.includes(", USA\""),
-    "USA convention rule missing — must specify USA over US"
-  );
+  assert.ok(prompt.includes("Use initials for states or provinces"), "HQ format rule missing");
+  assert.ok(prompt.includes("Use USA, not US"), "USA-not-US rule missing");
   // Phase 2.19.4: lowered floor from "8-15" to "3-15" for narrow / single-
   // product brands (e.g. Adams Peanut Butter — only ~4 actual industry tags).
   // Phase 3.6: tightened ceiling 3-15 → 3-8 to bound enumeration pressure.
@@ -510,24 +497,28 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.12: PROMPT_GUIDANCE_VERSION is 9.8.0-location-format-strict", () => {
-  // Phase 4.12 — Grok-4 approved 3-layer fix for manufacturing/HQ location
-  // format pollution observed in 2026-05-13 batch (Harbour Outdoor,
-  // Harmonia Living). Model emitted values like "Pelham, AL, USA (tailored
-  // made in the US with marine-grade wood...)" and "US-based production
-  // for luxury outdoor furniture" — parenthetical descriptions and
-  // narrative prose where clean geocodable strings are required for
-  // Tabarnam's proximity-based discovery feature.
+test("Phase 4.11: PROMPT_GUIDANCE_VERSION is 9.7.0-products-categories-mandate", () => {
+  // Phase 4.11 — Grok-4 approved 3-change combination to fix the 17x
+  // product depth variance observed in the 2026-05-13 9-company batch
+  // (Eloquii 12 items / 185 chars; Evereve 85+ items / 2296 chars; same
+  // prompt, same model, same reasoning.effort=high, same XAI_CONCURRENCY=1).
   //
-  // Layer 1 (this phase): prompt-side strict format block on Manufacturing
-  // AND HQ rules with explicit forbidden/correct examples.
-  // Layer 2 (this phase): code-side stripParentheticals + narrative-flag
-  // validator with 80-char length cap (see _canonicalImport.js).
-  // Layer 3 (Phase 4.13 candidate): geocoder-feedback drop signal.
+  // Root cause: Phase 4.7's "Prefer specific named product lines over
+  // generic categories" rule BIASED the model AWAY from category labels.
+  // When a brand's catalog shows category cards (Eloquii, Torrid, Jockey),
+  // the rule made the model skip them, producing 12-item maxes.
+  //
+  // Three changes:
+  //   1. Products rule rewritten: "Include BOTH named lines AND categories"
+  //      — the richest output mixes them (matches grok.com Expert style)
+  //   2. Multi-page sub-page browsing for category-card brands — browse
+  //      top 2-3 visible category/collection sub-pages
+  //   3. product_keywords 5-entry floor in CRITICAL RULE block — explicit
+  //      minimum, categories valid as fillers (no fabrication)
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.8\.0-location-format-strict/,
-    "PROMPT_GUIDANCE_VERSION must be 9.8.0-location-format-strict for Phase 4.12"
+    /^9\.7\.0-products-categories-mandate/,
+    "PROMPT_GUIDANCE_VERSION must be 9.7.0-products-categories-mandate for Phase 4.11"
   );
 });
 
@@ -622,89 +613,6 @@ test("Phase 4.7: buildCanonicalImportPrompt contains per-field minimums + supply
   assert.ok(
     /do not stop at the first collection page/i.test(prompt),
     "Products rule must explicitly forbid stopping at the first collection page"
-  );
-});
-
-test("Phase 4.12: buildCanonicalImportPrompt contains strict location format block on Manufacturing and HQ rules", () => {
-  // Phase 4.12 — Grok-4 approved strict format rule on both Manufacturing
-  // and HQ. Removes parenthetical descriptions and narrative prose from
-  // location entries. Tabarnam's proximity-based discovery feature requires
-  // clean geocodable strings.
-  const prompt = buildCanonicalImportPrompt({
-    companyName: "Acme Corp",
-    websiteUrl: "https://acme.example",
-    homepageContext: "",
-  });
-
-  // Strict format block headers should appear (once for HQ, once for Manufacturing)
-  const formatRuleMatches = prompt.match(/Format rule \(strict — must be followed exactly[^)]*\):/g) || [];
-  assert.ok(
-    formatRuleMatches.length >= 2,
-    `prompt must contain the strict format rule header at least twice (HQ + Manufacturing); found ${formatRuleMatches.length}`,
-  );
-
-  // The strict shape examples must be present
-  assert.ok(
-    /"City, ST, USA"\s+\(US city \+ 2-letter state \+ USA\)/i.test(prompt),
-    "prompt must specify the 'City, ST, USA' canonical shape"
-  );
-  assert.ok(
-    /"City, Region, Country"\s+\(international city/i.test(prompt),
-    "prompt must specify the 'City, Region, Country' international canonical shape"
-  );
-  assert.ok(
-    /"Country"\s+\(country-only is acceptable/i.test(prompt),
-    "prompt must specify country-only acceptability"
-  );
-
-  // Forbidden examples must include the specific Phase 4.12-motivating cases
-  assert.ok(
-    /Pelham, AL, USA \(tailored made in the US with marine-grade wood/i.test(prompt),
-    "prompt must include the Harbour Outdoor parenthetical forbidden example"
-  );
-  assert.ok(
-    /US-based production for luxury outdoor furniture/i.test(prompt),
-    "prompt must include the 'US-based production' narrative forbidden example"
-  );
-  assert.ok(
-    /Various global locations with handcrafted designs/i.test(prompt),
-    "prompt must include the 'Various global locations' narrative forbidden example"
-  );
-  assert.ok(
-    /USA \(cushions and some components\)/i.test(prompt),
-    "prompt must include the Harmonia 'USA (cushions...)' forbidden example"
-  );
-
-  // Correct examples
-  assert.ok(
-    /"Pelham, AL, USA"/.test(prompt) && /"Sydney, Australia"/.test(prompt) && /"San Marcos, CA, USA"/.test(prompt),
-    "prompt must include CORRECT example values (Pelham AL, Sydney AU, San Marcos CA)"
-  );
-
-  // The "OMIT it entirely" / "Each entry must be a single geocodable point on a map" guards
-  assert.ok(
-    /If a manufacturing fact requires explanation, OMIT it entirely/i.test(prompt),
-    "Manufacturing rule must instruct 'OMIT explanation entirely'"
-  );
-  assert.ok(
-    /Each entry must be a single geocodable point on a map/i.test(prompt),
-    "prompt must include 'geocodable point on a map' standard"
-  );
-
-  // HQ-specific forbidden examples
-  assert.ok(
-    /Newport Beach, CA, USA \(headquartered since 2010\)/i.test(prompt),
-    "HQ rule must include the 'Newport Beach (headquartered since...)' forbidden example"
-  );
-
-  // No "parentheses inside" rule
-  assert.ok(
-    /NO parentheses inside any entry/i.test(prompt),
-    "Manufacturing rule must explicitly forbid parentheses inside entries"
-  );
-  assert.ok(
-    /NO parentheses inside the value/i.test(prompt),
-    "HQ rule must explicitly forbid parentheses inside the value"
   );
 });
 
