@@ -497,28 +497,39 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.11: PROMPT_GUIDANCE_VERSION is 9.7.0-products-categories-mandate", () => {
-  // Phase 4.11 — Grok-4 approved 3-change combination to fix the 17x
-  // product depth variance observed in the 2026-05-13 9-company batch
-  // (Eloquii 12 items / 185 chars; Evereve 85+ items / 2296 chars; same
-  // prompt, same model, same reasoning.effort=high, same XAI_CONCURRENCY=1).
+test("Phase 4.7: PROMPT_GUIDANCE_VERSION is 9.6.0-per-field-minimums-and-brand-prefix", () => {
+  // Phase 4.7 — minor version bump from 9.5.0 to 9.6.0 marks Grok-4's
+  // recommended fixes for the 7-9 tool-call satisficing pattern observed in
+  // production batches (Grillbadger, Grillaholics, HorsePower, Mr. Bar-B-Q,
+  // Schmidt Brothers all exited well under the 18-tool budget):
   //
-  // Root cause: Phase 4.7's "Prefer specific named product lines over
-  // generic categories" rule BIASED the model AWAY from category labels.
-  // When a brand's catalog shows category cards (Eloquii, Torrid, Jockey),
-  // the rule made the model skip them, producing 12-item maxes.
+  //   1. Per-field minimum research requirements (binding) — minimum 1
+  //      web_search for HQ, 2 for manufacturing, 1 for reviews. Separate
+  //      from the overall 5-call floor. Pushes the model past "good
+  //      enough" satisficing on small brands.
+  //   2. Supply-chain investigation language in the Manufacturing rule —
+  //      "Made in USA" labels are often marketing for assembly/import;
+  //      investigate parent-company / trade-press / supplier-list sources.
+  //   3. Multi-country manufacturing emission — emit ALL primary and
+  //      secondary manufacturing/sourcing countries when evidence shows
+  //      multiple (premium lines in one country, accessories in another).
+  //   4. Brand-prefix mandate in Products — mirror the brand's own
+  //      product naming convention ("Grillaholics Stuffed Burger Press"
+  //      not "STUFFED BURGER PRESS"). Improves admin clarity and
+  //      cross-company search.
+  //   5. Multi-collection browsing in Products — browse paginated catalog
+  //      pages 2 and 3, plus separate top-level collections (e.g.
+  //      /collections/all). Schmidt Brothers depth gap was driven by
+  //      single-collection-page browsing.
   //
-  // Three changes:
-  //   1. Products rule rewritten: "Include BOTH named lines AND categories"
-  //      — the richest output mixes them (matches grok.com Expert style)
-  //   2. Multi-page sub-page browsing for category-card brands — browse
-  //      top 2-3 visible category/collection sub-pages
-  //   3. product_keywords 5-entry floor in CRITICAL RULE block — explicit
-  //      minimum, categories valid as fillers (no fabrication)
+  // Companion change in _xaiLiveSearch.js: added reasoning.effort: "high"
+  // to all /v1/responses payloads — counter the model's built-in
+  // efficiency bias at the API-parameter level (env var
+  // XAI_REASONING_EFFORT for operator override).
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.7\.0-products-categories-mandate/,
-    "PROMPT_GUIDANCE_VERSION must be 9.7.0-products-categories-mandate for Phase 4.11"
+    /^9\.6\.0-per-field-minimums-and-brand-prefix/,
+    "PROMPT_GUIDANCE_VERSION must be 9.6.0-per-field-minimums-and-brand-prefix for Phase 4.7"
   );
 });
 
@@ -593,12 +604,9 @@ test("Phase 4.7: buildCanonicalImportPrompt contains per-field minimums + supply
     /Include the brand name as a prefix when the brand uses one/i.test(prompt),
     "Products rule must mandate brand-name prefix when brand uses one"
   );
-  // Phase 4.11 swapped one Grillaholics example for a Schmidt Brothers
-  // example to demonstrate brand-prefix variety. Accept either form.
   assert.ok(
-    /Grillaholics Stuffed Burger Press/i.test(prompt) &&
-    (/Grillaholics Grill Basket/i.test(prompt) || /Schmidt Brothers Artisan Series/i.test(prompt)),
-    "Products rule must include brand-prefix examples (Grillaholics + Grillaholics Grill Basket OR Schmidt Brothers Artisan Series)"
+    /Grillaholics Stuffed Burger Press/i.test(prompt) && /Grillaholics Grill Basket/i.test(prompt),
+    "Products rule must include the Grillaholics brand-prefix examples"
   );
 
   // (5) Multi-collection browsing
@@ -613,74 +621,6 @@ test("Phase 4.7: buildCanonicalImportPrompt contains per-field minimums + supply
   assert.ok(
     /do not stop at the first collection page/i.test(prompt),
     "Products rule must explicitly forbid stopping at the first collection page"
-  );
-});
-
-test("Phase 4.11: buildCanonicalImportPrompt contains BOTH-categories + sub-page browsing + 5-entry floor anchors", () => {
-  // Phase 4.11 — Grok-4 approved 3-change combination to fix the 17x
-  // product depth variance (2026-05-13 batch). Replaces Phase 4.7's
-  // "Prefer named over categories" bias with "Include BOTH". Adds
-  // category sub-page browsing for category-card sites (Eloquii style).
-  // Adds product_keywords 5-entry floor with categories valid as
-  // fillers (no fabrication).
-  const prompt = buildCanonicalImportPrompt({
-    companyName: "Acme Corp",
-    websiteUrl: "https://acme.example",
-    homepageContext: "",
-  });
-
-  // (1) Products rule "Include BOTH" mandate
-  assert.ok(
-    /Include BOTH specific named product lines AND product\/collection categories/i.test(prompt),
-    "Products rule must mandate BOTH named lines AND categories"
-  );
-  assert.ok(
-    /The richest, most useful output mixes them/i.test(prompt),
-    "Products rule must include 'richest output mixes them' framing"
-  );
-  assert.ok(
-    /Never skip visible categories just because they appear "generic"/i.test(prompt),
-    "Products rule must explicitly forbid skipping categories as 'generic'"
-  );
-
-  // (2) Category sub-page browsing instruction
-  assert.ok(
-    /browse the top 2-3 visible category or collection pages/i.test(prompt),
-    "Products rule must instruct browsing top 2-3 category sub-pages"
-  );
-  assert.ok(
-    /\/collections\/dresses, \/shop\/category, main nav links/i.test(prompt),
-    "Products rule must include concrete category sub-page examples"
-  );
-
-  // (3) Category examples are listed as VALID product_keywords entries
-  assert.ok(
-    /Plus Size Dresses/.test(prompt) && /Sports Bras/.test(prompt),
-    "Products rule must include concrete category examples (Plus Size Dresses, Sports Bras)"
-  );
-
-  // (4) 5-entry floor in CRITICAL RULE area
-  assert.ok(
-    /product_keywords MUST contain at least 5 entries/i.test(prompt),
-    "prompt must contain product_keywords 5-entry minimum floor"
-  );
-  assert.ok(
-    /emit the visible CATEGORY LABELS to reach the floor/i.test(prompt),
-    "5-entry floor must allow categories as valid fillers"
-  );
-  assert.ok(
-    /categories are valid product_keywords entries/i.test(prompt),
-    "prompt must clarify categories are valid product_keywords entries"
-  );
-  assert.ok(
-    /Never fabricate entries/i.test(prompt),
-    "5-entry floor must explicitly forbid fabrication"
-  );
-
-  // (5) Anti-regression — Phase 4.7's "Prefer X over Y" bias must be GONE
-  assert.ok(
-    !/Prefer specific named product lines.*over generic categories/i.test(prompt),
-    "Phase 4.7 'Prefer named over categories' bias must be removed (was suppressing categories)"
   );
 });
 
@@ -883,7 +823,7 @@ test("Phase 4.2: buildCanonicalImportPrompt includes unconditional effort floor 
   );
   // Phase 4.3 ceiling raise (5-12 → up to 150) + anti-padding mandate
   assert.ok(
-    /up to 150(?:\s+total)?\s+entries/i.test(prompt),
+    /up to 150 entries/i.test(prompt),
     "Phase 4.3 — Products rule must contain 'up to 150 entries' ceiling"
   );
   // Phase 4.7 rewrote the pagination instruction with more specifics
@@ -986,7 +926,7 @@ test("Phase 2.19.4 + 3.6 + 4.1 + 4.3: narrow-brand floors still present in indus
   assert.ok(
     /5-12 universal product/i.test(prompt) ||
     /Use 5-12 entries/i.test(prompt) ||
-    /up to 150(?:\s+total)?\s+entries/i.test(prompt),
+    /up to 150 entries/i.test(prompt),
     "Products ceiling must be 5-12 (Phase 3.6 / 4.1) OR up to 150 (Phase 4.3)"
   );
 });
@@ -1043,7 +983,7 @@ test("Phase 2.19.4: Industries / Products rules accommodate narrow / single-prod
   assert.ok(
     /5-12 universal product/i.test(prompt) ||
     /Use 5-12 entries/i.test(prompt) ||
-    /up to 150(?:\s+total)?\s+entries/i.test(prompt),
+    /up to 150 entries/i.test(prompt),
     "Products ceiling must be 5-12 (Phase 3.6 / 4.1) OR up to 150 (Phase 4.3)"
   );
   // Explicit narrow-brand call-outs must appear in both rules.
