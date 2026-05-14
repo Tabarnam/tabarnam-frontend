@@ -2550,27 +2550,6 @@ export default function AdminImport() {
           });
         } catch {}
 
-        // Phase 4.10 — pre-send breadcrumb. Logs the EXACT moment the frontend
-        // attempts to fire an import-start fetch. Pairs with the backend's
-        // [import-start] entry log. When a slot stalls (Asics-style: no backend
-        // log at all), this breadcrumb tells us whether the frontend tried to
-        // send the request. Three diagnostic outcomes possible next time:
-        //   1. Breadcrumb present + backend log present → request landed
-        //   2. Breadcrumb present + backend log absent → request lost in transit
-        //      (network, CORS preflight, Azure routing)
-        //   3. Breadcrumb absent → frontend never reached this code path
-        //      (early validation failure, async deadlock, dispatcher bug)
-        try {
-          console.info("[admin-import] fetch_start_attempt", {
-            slot: "primary",
-            sid: canonicalSessionId,
-            query: payload.query,
-            url_hint: payload.company_url_hint || null,
-            stage: stage || null,
-            ts: new Date().toISOString(),
-          });
-        } catch { /* console may be unavailable in some test envs */ }
-
         const { res, usedPath } = await apiFetchWithFallback(paths, {
           method: "POST",
           body: payload,
@@ -3147,38 +3126,14 @@ export default function AdminImport() {
       }
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
-      // Phase 4.10 — surface AbortError to the console for diagnostics. Pre-4.10
-      // primary slot set status=idle on AbortError, which prevented the bulk
-      // dispatcher (which advances on done/error) from picking up the next
-      // company. In succession mode this stalled the slot until Phase 4.9's
-      // watchdog timed it out 5 minutes later. Now we log the abort and set
-      // status=error so the dispatcher advances immediately.
-      if (e?.name === "AbortError") {
-        try {
-          console.warn("[admin-import] fetch_aborted", {
-            slot: "primary",
-            // eslint-disable-next-line no-undef -- canonicalSessionId is defined in the try block above
-            sid: canonicalSessionId,
-            abort_reason: e?.message || "AbortError (no message)",
-            ts: new Date().toISOString(),
-          });
-        } catch { /* console may be unavailable in some test envs */ }
-      }
       // eslint-disable-next-line no-undef -- canonicalSessionId is defined in the try block above (line ~1614)
-      setRuns((prev) => prev.map((r) => (r.session_id === canonicalSessionId ? {
-        ...r,
-        start_error: msg,
-        ...(e?.name === "AbortError"
-          ? { start_error_details: { phase: "4.10", reason: "request_aborted", abort_message: e?.message || null, slot: "primary" } }
-          : {}),
-      } : r)));
-      // Phase 4.10 — AbortError now flips to "error" instead of "idle", so the
-      // succession dispatcher's Phase 2.18.A2 slot-advance gate fires
-      // (`primaryDone = activeStatus === "error" || ...`). For standalone
-      // (non-batch) imports, the error display is informative ("Import aborted")
-      // rather than misleadingly silent.
-      setActiveStatus("error");
-      if (e?.name !== "AbortError") toast.error(msg);
+      setRuns((prev) => prev.map((r) => (r.session_id === canonicalSessionId ? { ...r, start_error: msg } : r)));
+      if (e?.name === "AbortError") {
+        setActiveStatus("idle");
+      } else {
+        setActiveStatus("error");
+        toast.error(msg);
+      }
     } finally {
       // Keep polling alive long enough to capture saved counts/report from /import/status.
     }
@@ -3286,18 +3241,6 @@ export default function AdminImport() {
         prev.map((r) => (r.session_id === sid ? { ...r, start_request_payload: requestPayload } : r))
       );
 
-      // Phase 4.10 — pre-send breadcrumb (shadow slot). See primary-slot
-      // breadcrumb above for the diagnostic rationale.
-      try {
-        console.info("[admin-import] fetch_start_attempt", {
-          slot: "shadow",
-          sid,
-          query: shadowCompanyName,
-          url_hint: urlHint || null,
-          ts: new Date().toISOString(),
-        });
-      } catch { /* console may be unavailable in some test envs */ }
-
       const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
         method: "POST",
         body: requestPayload,
@@ -3339,36 +3282,7 @@ export default function AdminImport() {
       shadowPollBackoffRef.current.delete(canonicalSid);
       scheduleShadowPoll({ session_id: canonicalSid, delayMs: 3000 });
     } catch (e) {
-      // Phase 4.10 — surface AbortError to the console for diagnostics. Pre-4.10
-      // the shadow slot returned silently on AbortError, leaving shadowStatus
-      // stuck at "running" forever. The bulk dispatcher (Phase 2.17) only
-      // advances slots on done/error, so the slot would hang until Phase 4.9's
-      // watchdog timed it out 5 minutes later. Now we log + flip to error so
-      // the dispatcher advances immediately.
-      if (e?.name === "AbortError") {
-        try {
-          console.warn("[admin-import] fetch_aborted", {
-            slot: "shadow",
-            sid,
-            abort_reason: e?.message || "AbortError (no message)",
-            ts: new Date().toISOString(),
-          });
-        } catch { /* console may be unavailable in some test envs */ }
-        setRuns((prev) =>
-          prev.map((r) => (r.session_id === sid ? {
-            ...r,
-            start_error: "Import aborted",
-            start_error_details: {
-              phase: "4.10",
-              reason: "request_aborted",
-              abort_message: e?.message || null,
-              slot: "shadow",
-            },
-          } : r))
-        );
-        setShadowStatus("error");
-        return;
-      }
+      if (e?.name === "AbortError") return;
       const msg = toErrorString(e) || "Shadow import failed";
       setRuns((prev) =>
         prev.map((r) => (r.session_id === sid ? { ...r, start_error: msg } : r))
