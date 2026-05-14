@@ -479,9 +479,10 @@ export function getContractMissingFields(company) {
   }
 
   // Data-wins-over-flag: drop "industries" / "industry" when populated.
+  // Use .some(non-empty) so arrays of just empty strings still count as missing.
   const hasIndustries =
-    (Array.isArray(company?.industries) && company.industries.length > 0) ||
-    (Array.isArray(company?.industry) && company.industry.length > 0) ||
+    (Array.isArray(company?.industries) && company.industries.some((v) => asString(v).trim())) ||
+    (Array.isArray(company?.industry) && company.industry.some((v) => asString(v).trim())) ||
     Boolean(asString(company?.industry).trim());
   if (hasIndustries) {
     for (let i = fields.length - 1; i >= 0; i--) {
@@ -490,9 +491,10 @@ export function getContractMissingFields(company) {
   }
 
   // Data-wins-over-flag: drop "keywords" / "product_keywords" when populated.
+  // Use .some(non-empty) so arrays of just empty strings still count as missing.
   const hasKeywords =
-    (Array.isArray(company?.keywords) && company.keywords.length > 0) ||
-    (Array.isArray(company?.product_keywords) && company.product_keywords.length > 0) ||
+    (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
+    (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
     Boolean(asString(company?.product_keywords).trim()) ||
     Boolean(asString(company?.keywords).trim());
   if (hasKeywords) {
@@ -568,19 +570,21 @@ export function getContractMissingFields(company) {
     fields.push("tagline");
   }
 
-  // Check for missing industries (client-side, in case backend didn't flag it)
+  // Check for missing industries (client-side, in case backend didn't flag it).
+  // Use .some(non-empty) so arrays of just empty strings count as missing.
   const hasIndustriesData =
-    (Array.isArray(company?.industries) && company.industries.length > 0) ||
-    (Array.isArray(company?.industry) && company.industry.length > 0) ||
+    (Array.isArray(company?.industries) && company.industries.some((v) => asString(v).trim())) ||
+    (Array.isArray(company?.industry) && company.industry.some((v) => asString(v).trim())) ||
     Boolean(asString(company?.industry).trim());
   if (!hasIndustriesData && !fields.includes("industries") && !fields.includes("industry")) {
     fields.push("industries");
   }
 
-  // Check for missing keywords / products (client-side, in case backend didn't flag it)
+  // Check for missing keywords / products (client-side, in case backend didn't flag it).
+  // Use .some(non-empty) so arrays of just empty strings count as missing.
   const hasKeywordsData =
-    (Array.isArray(company?.keywords) && company.keywords.length > 0) ||
-    (Array.isArray(company?.product_keywords) && company.product_keywords.length > 0) ||
+    (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
+    (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
     Boolean(asString(company?.product_keywords).trim()) ||
     Boolean(asString(company?.keywords).trim());
   if (!hasKeywordsData && !fields.includes("keywords") && !fields.includes("product_keywords")) {
