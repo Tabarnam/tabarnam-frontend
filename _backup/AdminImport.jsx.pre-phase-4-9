@@ -159,36 +159,6 @@ export default function AdminImport() {
   const lastProcessedPrimaryIndexRef = useRef(-1);
   const lastProcessedShadowIndexRef = useRef(-1);
 
-  // Phase 4.9 — bulk-dispatcher graceful failure watchdog.
-  //
-  // Observed 2026-05-13 batch (session 0d66a460-f2dd-48ed-9312-baaa85f10d11):
-  // 10-company batch with Asics as the 2nd row. Eloquii (row 1) and the 8
-  // others (rows 3-10) all completed normally. Asics's `import-start` HTTP
-  // request never reached the backend (no log entries, no Cosmos doc).
-  // The shadow slot stayed in "running" state indefinitely, the dispatcher
-  // never advanced past Asics, and the UI showed "Finishing 2 of 10
-  // companies (9 done)" with Asics's row missing checkmark and timestamps.
-  // User had no way to clear the stuck slot short of manual intervention.
-  //
-  // Cause: `beginImportShadow`/`beginImport` await `apiFetchWithFallback`
-  // which throws on network errors (caught and sets status="error" → slot
-  // advances correctly). BUT if the request "succeeds" with a malformed
-  // body OR if some other in-flight state leaves the slot in "running"
-  // without ever transitioning to "done"/"error", the dispatcher stalls
-  // forever.
-  //
-  // Phase 4.9 watchdog: track when each slot started its current company.
-  // If a slot has been "running" longer than BULK_DISPATCH_TIMEOUT_MS
-  // (default 5 minutes — well above the 60-90s per-company expected with
-  // Phase 4.7's reasoning.effort=high), force the slot to error state,
-  // tag the run with `timedOut: true` + `start_error: "dispatcher_timeout"`,
-  // and let the existing slot-advance dispatcher pick up the next company.
-  //
-  // Operator override: VITE_BULK_DISPATCH_TIMEOUT_MS env var (milliseconds).
-  // Set to 0 or empty to disable the watchdog entirely (debug only).
-  const primarySlotStartedAtRef = useRef(null);
-  const shadowSlotStartedAtRef = useRef(null);
-
   // Preflight duplicate check state
   const [preflightResults, setPreflightResults] = useState(null);
   const [preflightLoading, setPreflightLoading] = useState(false);
@@ -654,11 +624,6 @@ export default function AdminImport() {
         lockWaitMs,                                                  // Phase 3.5.2
         xaiLockStatus,                                              // Phase 3.1.3
         xaiLockWaitMs: run?.resume_worker?.xai_lock_wait_ms ?? null, // Phase 3.1.3
-        // Phase 4.9 — surface start_error / dispatcher-timeout details so
-        // the error-row tooltip can show "running 312s, cap 300s" etc.
-        startError: run?.start_error || null,
-        startErrorDetails: run?.start_error_details || null,
-        timedOut: Boolean(run?.timedOut),
       };
     });
   }, [
@@ -4424,115 +4389,6 @@ export default function AdminImport() {
     setTimeout(() => beginImportShadow(next.companyName, next.companyUrl), 1000);
   }, [shadowStatus, successionShadowIndex, successionQueue, shadowSessionId, beginImportShadow, stopShadowPolling, verifyEnrichment, isRunStrictlyComplete]);
 
-  // Phase 4.9 — slot-startedAt tracker. When a slot transitions to "running"
-  // OR its session id changes while still "running", record Date.now() so
-  // the watchdog can compare elapsed time against the timeout threshold.
-  // Cleared when slot transitions to a terminal state (done/error/idle).
-  useEffect(() => {
-    if (activeStatus === "running") {
-      primarySlotStartedAtRef.current = Date.now();
-    } else {
-      primarySlotStartedAtRef.current = null;
-    }
-  }, [activeStatus, activeSessionId]);
-
-  useEffect(() => {
-    if (shadowStatus === "running") {
-      shadowSlotStartedAtRef.current = Date.now();
-    } else {
-      shadowSlotStartedAtRef.current = null;
-    }
-  }, [shadowStatus, shadowSessionId]);
-
-  // Phase 4.9 — watchdog. Polls every 30s. Forces error state on any slot
-  // that has been "running" longer than the configured timeout. The
-  // existing slot-advance dispatcher effect picks up the error and
-  // claims the next company from the queue. Net effect: a stuck slot
-  // unblocks the batch within ~30s of crossing the timeout threshold.
-  useEffect(() => {
-    const rawTimeout = Number(import.meta.env?.VITE_BULK_DISPATCH_TIMEOUT_MS);
-    const TIMEOUT_MS = Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : 300_000; // 5 min default
-    // VITE_BULK_DISPATCH_TIMEOUT_MS=0 disables the watchdog (debug only)
-    if (rawTimeout === 0) return;
-
-    const interval = setInterval(() => {
-      const now = Date.now();
-
-      // Primary slot timeout
-      if (activeStatus === "running" && primarySlotStartedAtRef.current) {
-        const elapsed = now - primarySlotStartedAtRef.current;
-        if (elapsed > TIMEOUT_MS) {
-          // eslint-disable-next-line no-console
-          console.warn("[bulk-dispatcher] Phase 4.9 — primary slot timeout, forcing error to unblock batch", {
-            session_id: activeSessionId,
-            elapsed_ms: elapsed,
-            timeout_ms: TIMEOUT_MS,
-          });
-          const sid = activeSessionId;
-          setRuns((prev) =>
-            prev.map((r) =>
-              asString(r?.session_id).trim() === asString(sid).trim()
-                ? {
-                    ...r,
-                    timedOut: true,
-                    start_error: r.start_error || "dispatcher_timeout",
-                    start_error_details: r.start_error_details || {
-                      phase: "4.9",
-                      reason: "dispatcher_timeout",
-                      elapsed_ms: elapsed,
-                      timeout_ms: TIMEOUT_MS,
-                      slot: "primary",
-                    },
-                  }
-                : r
-            )
-          );
-          setActiveStatus("error");
-          primarySlotStartedAtRef.current = null;
-          // Abort any in-flight start request for this slot
-          startFetchAbortRef.current?.abort?.();
-        }
-      }
-
-      // Shadow slot timeout
-      if (shadowStatus === "running" && shadowSlotStartedAtRef.current) {
-        const elapsed = now - shadowSlotStartedAtRef.current;
-        if (elapsed > TIMEOUT_MS) {
-          // eslint-disable-next-line no-console
-          console.warn("[bulk-dispatcher] Phase 4.9 — shadow slot timeout, forcing error to unblock batch", {
-            session_id: shadowSessionId,
-            elapsed_ms: elapsed,
-            timeout_ms: TIMEOUT_MS,
-          });
-          const sid = shadowSessionId;
-          setRuns((prev) =>
-            prev.map((r) =>
-              asString(r?.session_id).trim() === asString(sid).trim()
-                ? {
-                    ...r,
-                    timedOut: true,
-                    start_error: r.start_error || "dispatcher_timeout",
-                    start_error_details: r.start_error_details || {
-                      phase: "4.9",
-                      reason: "dispatcher_timeout",
-                      elapsed_ms: elapsed,
-                      timeout_ms: TIMEOUT_MS,
-                      slot: "shadow",
-                    },
-                  }
-                : r
-            )
-          );
-          setShadowStatus("error");
-          shadowSlotStartedAtRef.current = null;
-          shadowAbortRef.current?.abort?.();
-        }
-      }
-    }, 30_000); // check every 30s
-
-    return () => clearInterval(interval);
-  }, [activeStatus, shadowStatus, activeSessionId, shadowSessionId]);
-
   // Completion detector — fires the success toast once when both slots
   // have idled (sentinel -1) and the queue is exhausted. Decoupled from
   // either slot's advance effect so the toast doesn't double-fire.
@@ -5253,21 +5109,7 @@ export default function AdminImport() {
                         {item.status === "done" ? (
                           <span className="text-emerald-600 dark:text-emerald-400">&#10003;</span>
                         ) : item.status === "error" ? (
-                          <span
-                            className="text-red-600 dark:text-red-400"
-                            title={(() => {
-                              // Phase 4.9 — surface the error reason in a tooltip
-                              // so admins can distinguish dispatcher_timeout from
-                              // start_request_failed / other transport errors.
-                              const reason = item.startError || item.startErrorDetails?.reason || "";
-                              if (reason === "dispatcher_timeout") {
-                                const elapsedSec = Math.round((item.startErrorDetails?.elapsed_ms || 0) / 1000);
-                                const timeoutSec = Math.round((item.startErrorDetails?.timeout_ms || 0) / 1000);
-                                return `Import failed: dispatcher timed out (running ${elapsedSec}s, cap ${timeoutSec}s)`;
-                              }
-                              return reason ? `Import failed: ${reason}` : "Import failed";
-                            })()}
-                          >&#10007;</span>
+                          <span className="text-red-600 dark:text-red-400">&#10007;</span>
                         ) : item.status === "running" ? (
                           <Loader2 className="inline h-3.5 w-3.5 animate-spin text-blue-600 dark:text-blue-400" />
                         ) : item.status === "waiting_for_xai" ? (
