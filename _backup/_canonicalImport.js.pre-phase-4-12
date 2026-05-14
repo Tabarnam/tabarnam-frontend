@@ -200,132 +200,6 @@ function stripFillerArray(arr, fieldName = "") {
   return cleaned;
 }
 
-// ─── Phase 4.12 — strict geographic location validator ─────────────────────
-//
-// Empirical (2026-05-13 batch, Harbour Outdoor + Harmonia Living):
-// grok-4.3 occasionally emits manufacturing_locations / headquarters_location
-// values that are NOT clean geographic strings:
-//   - "Pelham, AL, USA (tailored made in the US with marine-grade wood...)"
-//     — valid location prefix + parenthetical description
-//   - "US-based production for luxury outdoor furniture"
-//     — narrative description, no actual location
-//   - "Various global locations with handcrafted designs..."
-//     — meta-statement, no location
-//   - "USA (cushions and some components)"
-//     — country + scope qualifier
-//
-// Tabarnam's core feature is proximity-based discovery (user → manufacturer
-// distance on a map). This requires clean geocodable strings: "City, ST,
-// USA" / "City, Region, Country" / "City, Country" / "Country". Any noise
-// breaks the geocoder and pollutes the map UI.
-//
-// Two-step defense (Grok-4 approved, 2026-05-14):
-//   1. stripParentheticals — remove "(...)" content from any location
-//      string. "Pelham, AL, USA (tailored made in the US...)" → "Pelham,
-//      AL, USA". Single + nested-shallow handling.
-//   2. isValidLocationEntry — reject entries that look like narrative
-//      rather than location. Red-flag words ("production", "various",
-//      "with", "using"), length cap (80 chars max), capital-letter start.
-//      Country-only strings ("USA", "Vietnam") pass cleanly.
-//
-// Run BOTH on every manufacturing_locations[] entry AND on headquarters_
-// location. For HQ, split on ";" first (multiple locations can be
-// semicolon-separated per the prompt rule).
-//
-// Phase 4.13 candidate (not yet shipped): geocoder feedback loop —
-// drop entries that fail downstream geocoding as the final safety net.
-
-function stripParentheticals(value) {
-  if (typeof value !== "string") return value;
-  // Repeat once to handle single-level nesting like "X (Y (Z))".
-  let v = value.replace(/\s*\([^()]*\)\s*/g, " ");
-  v = v.replace(/\s*\([^()]*\)\s*/g, " ");
-  // Collapse repeated whitespace, strip trailing punctuation that comes
-  // from removing a trailing parenthetical (e.g. "USA," when input was
-  // "USA, (cushions and some components)").
-  v = v.replace(/\s+/g, " ").trim();
-  v = v.replace(/[\s,;]+$/g, "").trim();
-  return v;
-}
-
-// Red-flag words that strongly indicate narrative/marketing prose rather
-// than a clean geographic string. Each entry is checked case-insensitively.
-const LOCATION_NARRATIVE_RED_FLAGS = [
-  /\b(production|manufacturing|sourcing|operations|distribution|design|assembly|headquartered|headquarters)\b/i,
-  /\b(luxury|premium|handcrafted|handmade|using|featuring|including)\b/i,
-  /\bwith\s+/i,
-  /\bfor\s+/i,
-  /\bvarious\b/i,
-  /\bglobal\s+locations\b/i,
-  /\boutdoor\s+furniture\b/i,
-  /\bsustainable\s+materials\b/i,
-  /\bcorporate\s+office\b/i,
-  /\bsince\b/i,        // "headquartered since 2010"
-  /\bsome\b/i,         // "some components"
-];
-
-function isValidLocationEntry(value) {
-  if (typeof value !== "string") return false;
-  const v = value.trim();
-  if (!v) return false;
-  // Real locations are short. Longest realistic legitimate string:
-  // "Linz am Rhein, Rhineland-Palatinate, Germany" = 44 chars. 80 is
-  // generous; narrative entries are typically 60-150 chars.
-  if (v.length > 80) return false;
-  // Reject anything matching narrative red flags.
-  for (const pat of LOCATION_NARRATIVE_RED_FLAGS) {
-    if (pat.test(v)) return false;
-  }
-  // Require capital letter start (real place names start with a capital).
-  if (!/^[A-Z]/.test(v)) return false;
-  return true;
-}
-
-function sanitizeLocationString(value, fieldName = "") {
-  if (typeof value !== "string") return value;
-  const original = value;
-  const stripped = stripParentheticals(value);
-  if (stripped !== original) {
-    try {
-      console.log("[canonicalImport] parenthetical_stripped", {
-        field: fieldName || "(unknown)",
-        original_preview: original.slice(0, 120),
-        cleaned: stripped.slice(0, 120),
-      });
-    } catch { /* best-effort */ }
-  }
-  if (!isValidLocationEntry(stripped)) {
-    try {
-      console.log("[canonicalImport] narrative_dropped", {
-        field: fieldName || "(unknown)",
-        original_preview: original.slice(0, 120),
-        after_strip: stripped.slice(0, 120),
-      });
-    } catch { /* best-effort */ }
-    return "";
-  }
-  return stripped;
-}
-
-function sanitizeLocationArray(arr, fieldName = "") {
-  if (!Array.isArray(arr)) return arr;
-  const cleaned = [];
-  for (const item of arr) {
-    if (typeof item !== "string") continue;
-    // Split on semicolons first — model is instructed to use ; as a
-    // separator for multi-location entries. After Phase 4.4.B filler
-    // stripping, semicolons can still be present inside legitimate
-    // multi-location strings like "Sydney, Australia; Melbourne, Australia".
-    // Each token gets its own strip + validate.
-    const tokens = item.includes(";") ? item.split(";") : [item];
-    for (const token of tokens) {
-      const sanitized = sanitizeLocationString(token, fieldName);
-      if (sanitized) cleaned.push(sanitized);
-    }
-  }
-  return cleaned;
-}
-
 // Phase 3.7 — strip JSON unicode escape sequences that leak through as
 // literal text. Empirical (Slap Ya Mama import, 2026-05-11): model emitted
 // `industries: ["Cajun Seasonings ⚡"]` — the website uses emoji
@@ -465,30 +339,12 @@ function shapeEnrichedFromParsed(parsed) {
       stripUnicodeEscapeLeaks(stripLabel(asString(parsed?.tagline))),
       "tagline",
     ),
-    // Phase 4.12 — strict geographic location validator. HQ can contain
-    // multiple semicolon-separated locations. After Phase 4.4.A filler
-    // strip + Phase 4.12 parenthetical strip + narrative validator, HQ is
-    // re-joined with "; " if multiple tokens survived, or single string if
-    // one survived, or "" if none did.
-    headquarters_location: (() => {
-      const initial = stripFillerString(
-        stripUnicodeEscapeLeaks(stripLabel(asString(parsed?.headquarters_location))),
-        "headquarters_location",
-      );
-      if (!initial) return "";
-      const tokens = initial.includes(";") ? initial.split(";") : [initial];
-      const cleaned = [];
-      for (const token of tokens) {
-        const sanitized = sanitizeLocationString(token, "headquarters_location");
-        if (sanitized) cleaned.push(sanitized);
-      }
-      return cleaned.join("; ");
-    })(),
-    manufacturing_locations: sanitizeLocationArray(
-      stripFillerArray(
-        cleanNounPhraseArray(parsed?.manufacturing_locations, { allowLowercaseSingleWord: true }),
-        "manufacturing_locations",
-      ),
+    headquarters_location: stripFillerString(
+      stripUnicodeEscapeLeaks(stripLabel(asString(parsed?.headquarters_location))),
+      "headquarters_location",
+    ),
+    manufacturing_locations: stripFillerArray(
+      cleanNounPhraseArray(parsed?.manufacturing_locations, { allowLowercaseSingleWord: true }),
       "manufacturing_locations",
     ),
     industries: stripFillerArray(
@@ -1087,34 +943,17 @@ function mergeMultiCallResults({ coreResult, locationsResult, reviewsResult }) {
   // so dormant XAI_MULTI_CALL_MODE=on path stays parity with the
   // single-call's cleanup.
   // Phase 4.4.B — same filler-strip parity for the multi-call path.
-  // Phase 4.12 — same strict location validator parity for the multi-call
-  // path. Even though it's dormant (XAI_MULTI_CALL_MODE=off), keep behavior
-  // identical so re-enabling multi-call doesn't reintroduce the parenthetical
-  // / narrative location bugs Phase 4.12 fixes.
   return {
     tagline: stripFillerString(
       stripUnicodeEscapeLeaks(stripLabel(asString(core?.tagline))),
       "tagline",
     ),
-    headquarters_location: (() => {
-      const initial = stripFillerString(
-        stripUnicodeEscapeLeaks(stripLabel(asString(loc?.headquarters_location))),
-        "headquarters_location",
-      );
-      if (!initial) return "";
-      const tokens = initial.includes(";") ? initial.split(";") : [initial];
-      const cleaned = [];
-      for (const token of tokens) {
-        const sanitized = sanitizeLocationString(token, "headquarters_location");
-        if (sanitized) cleaned.push(sanitized);
-      }
-      return cleaned.join("; ");
-    })(),
-    manufacturing_locations: sanitizeLocationArray(
-      stripFillerArray(
-        cleanNounPhraseArray(loc?.manufacturing_locations, { allowLowercaseSingleWord: true }),
-        "manufacturing_locations",
-      ),
+    headquarters_location: stripFillerString(
+      stripUnicodeEscapeLeaks(stripLabel(asString(loc?.headquarters_location))),
+      "headquarters_location",
+    ),
+    manufacturing_locations: stripFillerArray(
+      cleanNounPhraseArray(loc?.manufacturing_locations, { allowLowercaseSingleWord: true }),
       "manufacturing_locations",
     ),
     industries: stripFillerArray(cleanNounPhraseArray(core?.industries), "industries"),
@@ -2149,10 +1988,4 @@ module.exports = {
   stripFillerString,
   stripFillerArray,
   FILLER_PATTERNS,
-  // Phase 4.12: strict geographic location validator
-  stripParentheticals,
-  isValidLocationEntry,
-  sanitizeLocationString,
-  sanitizeLocationArray,
-  LOCATION_NARRATIVE_RED_FLAGS,
 };

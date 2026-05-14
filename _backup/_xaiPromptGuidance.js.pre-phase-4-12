@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "9.8.0-location-format-strict";
+const PROMPT_GUIDANCE_VERSION = "9.7.0-products-categories-mandate";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -430,32 +430,7 @@ Per-field rules:
 
 Tagline: Provide the company's tagline, slogan, or motto. Format as described below.
 
-HQ: Identify the HQ location from the company's official website (About / Contact pages or footer). If the official site is unclear, do one additional web_search to a credible source like LinkedIn, Crunchbase, or a recent press article. If multiple HQ locations, separate with semicolons.
-
-Format rule (strict — must be followed exactly, same as Manufacturing):
-Output ONLY clean geographic location strings in this exact shape:
-- "City, ST, USA"          (US city + 2-letter state + USA)
-- "City, Region, Country"  (international city + region/state + country)
-- "City, Country"          (city + country, no state/region)
-- "Country"                (country-only is acceptable when no city is disclosed)
-
-NO parentheses inside the value.
-NO descriptive suffixes, NO narrative phrases, NO scope qualifiers, NO "with...", NO "for...", NO "headquartered in" prose.
-Examples of FORBIDDEN values:
-- "Newport Beach, CA, USA (headquartered since 2010)"
-- "U.S.-based headquarters for luxury fashion"
-- "Various global locations"
-- "USA (corporate office)"
-
-Examples of CORRECT values:
-- "Linz am Rhein, Rhineland-Palatinate, Germany"
-- "Newport Beach, CA, USA"
-- "Pelham, AL, USA"
-- "Sydney, Australia"
-
-If a fact requires explanation, OMIT it entirely. Emit only the clean location string or "" (empty string). Each entry must be a single geocodable point on a map.
-
-Do NOT include the label "HQ:" in the value — emit only the location content. If no verifiable HQ location is found after all required searches, emit exactly "" — never any explanatory text, parenthetical rationale, or "no specific X identified" phrasing.
+HQ: Identify the HQ location from the company's official website (About / Contact pages or footer). If the official site is unclear, do one additional web_search to a credible source like LinkedIn, Crunchbase, or a recent press article. Use initials for state or province (e.g., City, ST, Country). Use USA, not US. No explanatory info — just the location string. If multiple HQ locations, separate with semicolons. Examples: "Linz am Rhein, Rhineland-Palatinate, Germany" or "Newport Beach, CA, USA". Do NOT include the label "HQ:" in the value — emit only the location content. If no verifiable HQ location is found after all required searches, emit exactly "" (empty string) — never any explanatory text, parenthetical rationale, or "no specific X identified" phrasing.
 
 Manufacturing: Before emitting manufacturing_locations (including [] or any country), you MUST perform at least 2 targeted web_search calls. Even if the Homepage Context mentions a country, you MUST verify it with at least 1 search before emitting that country. Effective queries: "[Brand] manufactured in", "[Brand] factory", "[Brand] made in China/Vietnam/Mexico/USA", "[Brand] Wikipedia", "[Parent company] supplier list", or "[Brand] sustainability report". Many brands disclose this only in parent 10-K filings, trade articles, or Wikipedia. If brand-level searches do not yield disclosure after 2 attempts, try a site-specific search: site:[brand-domain] "Made in" OR "manufactured in" OR "made in USA". If still not found, browse one product-detail page (e.g. /products/[first-product-slug]) and look for "Made in [country]" labels printed on the product page. Country-level granularity is acceptable. Only emit [] if you have genuinely searched (brand-level → site:domain → one PDP) and found no information. If no verifiable manufacturing location is found after all required searches, emit exactly [] (empty array) — never any explanatory text, parenthetical rationale, "no specific X identified", "likely overseas production", "common for category", or similar filler phrases inside the array.
 
@@ -464,32 +439,7 @@ List the company's known manufacturing locations. Many consumer brands DO NOT di
   2. If brand is part of a larger portfolio (e.g., Sanuk → Deckers Brands; Sperry → Wolverine Worldwide; Reef → Rockport; The North Face → VF Corporation), search the parent company's sustainability report, supplier list, or 10-K filing — manufacturing disclosures are often only at the parent-company level.
   3. Targeted web_search queries: "[Brand] manufacturing locations", "[Brand] supplier list", "[Brand] factory", "[Brand] made in [country]", "[Parent company] sustainability report".
   4. Industry sources: Fair Labor Association reports, WRAP-certified factories list, Footwear News / industry trade press.
-Format rule (strict — must be followed exactly):
-Output ONLY clean geographic location strings in this exact shape:
-- "City, ST, USA"          (US city + 2-letter state + USA)
-- "City, Region, Country"  (international city + region/state + country)
-- "City, Country"          (city + country, no state/region)
-- "Country"                (country-only is acceptable when no city is disclosed)
-
-NO parentheses inside any entry.
-NO descriptive suffixes, NO narrative phrases, NO supply-chain commentary, NO "with...", NO "for...", NO "using...", NO scope qualifiers.
-Examples of FORBIDDEN values:
-- "Pelham, AL, USA (tailored made in the US with marine-grade wood...)"
-- "US-based production for luxury outdoor furniture"
-- "Various global locations with handcrafted designs..."
-- "USA (cushions and some components)"
-- "various global locations for frames and sustainable materials (no specific additional cities identified)"
-
-Examples of CORRECT values:
-- "Pelham, AL, USA"
-- "Sydney, Australia"
-- "San Marcos, CA, USA"
-- "Vietnam"
-- "Hai Duong, Vietnam"
-
-If a manufacturing fact requires explanation, OMIT it entirely. Emit only the clean location string or []. Each entry must be a single geocodable point on a map.
-
-Output as a JSON array of strings, e.g. ["Görlitz, Germany", "Vietnam", "Hai Duong, Vietnam"]. If after the searches above you genuinely cannot find any manufacturing disclosure, emit [] — but only AFTER attempting the parent-company / supplier-list searches above. For retailer-curators that resell branded products from many suppliers (e.g., a Japanese-stationery curator; a multi-brand boutique), list the supplier countries — country-level granularity is the goal here. Only emit [] if the company is a pure marketplace platform (e.g., Amazon, eBay) where listing supplier countries is genuinely not meaningful. Do NOT include the label "Manufacturing:" in any value.
+Format each as City, State or Region, Country. Use initials for states or provinces. Use USA, not US. Country-level granularity IS ACCEPTABLE — "Vietnam" alone is valid if specific cities are not disclosed; do not omit a known country just because the city is missing. Output as a JSON array of strings, e.g. ["Görlitz, Germany", "Vietnam", "Hai Duong, Vietnam"]. If after the searches above you genuinely cannot find any manufacturing disclosure, emit [] — but only AFTER attempting the parent-company / supplier-list searches above. For retailer-curators that resell branded products from many suppliers (e.g., a Japanese-stationery curator selling notebooks, pens, and watercolors from multiple makers; a multi-brand boutique), list the supplier countries — country-level granularity is the goal here. Only emit [] if the company is a pure marketplace platform (e.g., Amazon, eBay) where listing supplier countries is genuinely not meaningful. Do NOT include the label "Manufacturing:" in any value.
 
 Investigate the full supply chain. "Made in USA" on packaging or a single product page is often marketing for final assembly or import labeling — the actual manufacturing origin may be different. When multiple sources conflict or only partial disclosure exists, emit the most accurate primary manufacturing locations based on the weight of evidence across searches. Prefer verified importer/distributor records, parent-company supplier lists, or trade-press supply-chain reporting over single-product "Made in" labels when they conflict. When evidence shows multiple primary manufacturing or sourcing countries (e.g. premium lines in one country, accessories/imports in another), emit ALL of them. Do not emit [] if any verifiable locations were found, even if the picture is incomplete.
 
