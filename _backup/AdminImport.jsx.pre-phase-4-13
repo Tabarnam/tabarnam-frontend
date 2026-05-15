@@ -4622,23 +4622,6 @@ export default function AdminImport() {
   // Completion detector — fires the success toast once when both slots
   // have idled (sentinel -1) and the queue is exhausted. Decoupled from
   // either slot's advance effect so the toast doesn't double-fire.
-  //
-  // Phase 4.13 — relaxed the result-accounting gate. Pre-4.13 required
-  // `successionResults.length === successionQueue.length` (i.e. every
-  // queued company has a recorded result). Empirical (2026-05-15, 128-
-  // company batch): the batch completed all the canonical work, both
-  // slots reached idle, queue was exhausted, but 10 companies were lost
-  // between dispatch and final_state (3 never dispatched + 7 lost in
-  // flight). Those 10 never pushed to successionResults, so the gate
-  // returned early and the toast never fired. UI hung at "Importing 56
-  // of 128 companies" indefinitely until the user reloaded the page.
-  //
-  // Both-slots-idle AND queue-exhausted IS terminal regardless of
-  // accounting completeness — the work is finished. Surface unaccounted
-  // count in the toast so admins can see if any imports vanished.
-  // Phase 4.9's watchdog already converts most stuck slots into recorded
-  // errors; this fix handles the residual cases where the result never
-  // got pushed.
   const successionToastFiredRef = useRef(false);
   useEffect(() => {
     if (successionIndex >= 0) return;             // primary still running
@@ -4646,31 +4629,10 @@ export default function AdminImport() {
     if (successionResults.length === 0) return;    // nothing started yet
     if (successionToastFiredRef.current) return;   // already toasted
     if (nextDispatchIndexRef.current < successionQueue.length) return; // still queued
-    // Phase 4.13: removed `successionResults.length < successionQueue.length`
-    // gate. Both slots idle + queue exhausted is sufficient.
+    if (successionResults.length < successionQueue.length) return;     // not all recorded yet
     successionToastFiredRef.current = true;
-    const completedCount = successionResults.length;
-    const queueLength = successionQueue.length;
-    const unaccountedCount = Math.max(0, queueLength - completedCount);
-    const errorCount = successionResults.filter((r) => r?.status === "error").length;
-    const doneCount = successionResults.filter((r) => r?.status === "done").length;
-    if (unaccountedCount > 0) {
-      // Some companies finished work without producing a recorded result
-      // (lost between dispatch and final_state). Surface the gap so the
-      // user knows the batch terminated but some imports may need manual
-      // attention.
-      toast.warning(
-        `Succession import complete: ${doneCount} done${errorCount > 0 ? `, ${errorCount} error` : ""}, ${unaccountedCount} unaccounted (of ${queueLength} queued)`,
-        { duration: 12000 }, // longer dwell so admins notice the unaccounted count
-      );
-    } else if (errorCount > 0) {
-      toast.success(
-        `Succession import complete: ${doneCount} done, ${errorCount} error (of ${queueLength} queued)`,
-      );
-    } else {
-      toast.success(`Succession import complete: ${completedCount} imports processed`);
-    }
-  }, [successionIndex, successionShadowIndex, successionResults, successionQueue.length]);
+    toast.success(`Succession import complete: ${successionResults.length} imports processed`);
+  }, [successionIndex, successionShadowIndex, successionResults.length, successionQueue.length]);
 
   // Reset toast-fired flag when a new succession kicks off (so the next
   // batch can fire its own completion toast).
