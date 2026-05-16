@@ -167,14 +167,16 @@ test("convertToResponsesPayload omits filters when no excluded hosts found", () 
   assert.equal(result.tools[0].filters, undefined, "filters should be omitted when there are no excluded domains");
 });
 
-test("convertToResponsesPayload passes through response_format for JSON-schema enforcement", () => {
+test("Phase 4.16 — convertToResponsesPayload translates response_format → text.format for /v1/responses", () => {
   const schema = { type: "object", properties: { foo: { type: "string" } } };
   const rf = { type: "json_schema", json_schema: { name: "test", schema, strict: true } };
   const result = convertToResponsesPayload({
     messages: [{ role: "user", content: "x" }],
     response_format: rf,
   });
-  assert.deepEqual(result.response_format, rf);
+  // xAI's /v1/responses rejects `response_format` and requires `text.format`.
+  assert.equal(result.response_format, undefined, "legacy response_format must NOT appear on /v1/responses payload");
+  assert.deepEqual(result.text, { format: rf }, "translated payload must place the format under text.format");
 });
 
 test("convertToResponsesPayload passes through conversation_id for prefix caching", () => {
