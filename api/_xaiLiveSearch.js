@@ -403,7 +403,12 @@ async function xaiLiveSearch({
           input: [{ role: "user", content: asString(prompt) }],
           ...(shouldEnableTools ? { tools: buildToolsArray(search_parameters, { enableImageUnderstanding }) } : {}),
           ...(resolvedConversationId ? { conversation_id: resolvedConversationId } : {}),
-          ...(response_format && typeof response_format === "object" ? { response_format } : {}),
+          // Phase 4.16 — xAI moved response_format → text.format on /v1/responses.
+          // Empirical (2026-05-16 bisection): /v1/responses now returns 400 with
+          // "'response_format' is not supported on /v1/responses — use 'text.format'".
+          // We accept the caller's legacy `response_format: { type: "json_object" }`
+          // shape and translate it on the wire.
+          ...(response_format && typeof response_format === "object" ? { text: { format: response_format } } : {}),
         }
       : {
           // /v1/chat/completions format
@@ -742,7 +747,12 @@ async function xaiLiveSearchStreaming({
       ...(toolsEnabled ? { tools: buildToolsArray(search_parameters, { enableImageUnderstanding }) } : {}),
       stream: true,
       ...(resolvedConversationId ? { conversation_id: resolvedConversationId } : {}),
-      ...(response_format && typeof response_format === "object" ? { response_format } : {}),
+      // Phase 4.16 — xAI moved response_format → text.format on /v1/responses.
+      // Empirical (2026-05-16 bisection): /v1/responses now returns 400 with
+      // "'response_format' is not supported on /v1/responses — use 'text.format'".
+      // We accept the caller's legacy `response_format: { type: "json_object" }`
+      // shape and translate it on the wire. Streaming canonical-call path.
+      ...(response_format && typeof response_format === "object" ? { text: { format: response_format } } : {}),
       // Phase 4.7 — `reasoning.effort` on grok-4.3+. Grok-4 review (5/13)
       // identified this as the highest-impact lever against the 7-9-tool
       // satisficing pattern. Pushes the model to spend more internal
@@ -760,9 +770,11 @@ async function xaiLiveSearchStreaming({
       prompt_chars: asString(prompt).length,
       tools_count: payload.tools?.length || 0,
       tool_excluded_domains_count: payload.tools?.[0]?.filters?.excluded_domains?.length || 0,
-      has_response_format: !!payload.response_format,
-      response_format_strict: !!payload.response_format?.json_schema?.strict,
-      response_format_schema_required_count: payload.response_format?.json_schema?.schema?.required?.length || 0,
+      // Phase 4.16 — payload field is now text.format (was response_format).
+      has_response_format: !!payload.text?.format,
+      response_format_type: payload.text?.format?.type || null,
+      response_format_strict: !!payload.text?.format?.json_schema?.strict,
+      response_format_schema_required_count: payload.text?.format?.json_schema?.schema?.required?.length || 0,
       has_conversation_id: !!payload.conversation_id,
       max_tool_calls: maxToolCalls,
       timeout_ms: timeoutUsedMs,

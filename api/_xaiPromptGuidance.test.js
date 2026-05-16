@@ -489,18 +489,23 @@ test("_xaiLiveSearch.js exports xaiLiveSearch and xaiLiveSearchStreaming", () =>
   assert.equal(typeof ls.xaiLiveSearchStreaming, "function");
 });
 
-test("_xaiLiveSearch source declares response_format parameter on both functions", () => {
-  // Hard guarantee that Phase 1's response_format passthrough is present.
-  // If this fails, the single-call worker (Phase 2) cannot enforce json_schema.
+test("Phase 4.16 — _xaiLiveSearch translates response_format → text.format on /v1/responses", () => {
+  // Phase 1 added the response_format passthrough; Phase 4.16 changed the
+  // wire shape because xAI moved the field to text.format on /v1/responses.
+  // Caller API surface (parameter name) stays the same; only the payload
+  // assembly translates.
   const fs = require("node:fs");
   const path = require("node:path");
   const src = fs.readFileSync(path.join(__dirname, "_xaiLiveSearch.js"), "utf8");
-  // Both function signatures must declare the parameter.
+  // Both function signatures must still declare the parameter.
   const matches = src.match(/response_format,\s*\/\//g) || [];
   assert.ok(matches.length >= 2, "response_format must be declared on both xaiLiveSearch and xaiLiveSearchStreaming");
-  // Both payload builders must spread response_format conditionally.
-  const passthroughMatches = src.match(/response_format && typeof response_format === "object" \? \{ response_format \}/g) || [];
-  assert.ok(passthroughMatches.length >= 2, "response_format must flow into both payload builders");
+  // Both /v1/responses payload builders (non-streaming + streaming) must
+  // translate to text.format. The /chat/completions branch legitimately
+  // keeps the legacy `response_format` shape because xAI's error message
+  // (2026-05-15) confirmed it's still supported on that endpoint.
+  const translateMatches = src.match(/response_format && typeof response_format === "object" \? \{ text: \{ format: response_format \} \}/g) || [];
+  assert.ok(translateMatches.length >= 2, "response_format must translate to text.format in both /v1/responses payload builders (Phase 4.16)");
 });
 
 // ── Phase 2.6 — mandatory emission + minimum tool-call floor ────────────────

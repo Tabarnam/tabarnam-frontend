@@ -45,9 +45,13 @@ function convertToResponsesPayload(chatPayload) {
     })),
   };
 
-  // Pass through response_format (json_schema enforcement) when callers set it.
+  // Phase 4.16 — xAI moved response_format → text.format on /v1/responses.
+  // Empirical (2026-05-16 bisection): /v1/responses now returns 400 with
+  // "'response_format' is not supported on /v1/responses — use 'text.format'".
+  // Accept the legacy `response_format` shape on the chat payload and translate
+  // it on the wire to /v1/responses.
   if (chatPayload.response_format && typeof chatPayload.response_format === "object") {
-    responsesPayload.response_format = chatPayload.response_format;
+    responsesPayload.text = { format: chatPayload.response_format };
   }
 
   // Pass through conversation_id for prefix caching when callers set it.
