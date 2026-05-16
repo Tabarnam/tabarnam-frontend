@@ -810,47 +810,6 @@ async function xaiLiveSearchStreaming({
     }
 
     if (!res.ok) {
-      // Phase 4.15 — capture the xAI 4xx/5xx response body so we can
-      // diagnose WHY xAI rejected the request. Pre-4.15 we logged
-      // `upstream_status: 400` with `text_preview: ''` — no insight into
-      // the rejection reason. Empirical (2026-05-16): all canonical calls
-      // returning HTTP 400 with zero diagnostic visibility. xAI's 4xx
-      // responses typically contain a JSON body like:
-      //   {"error": {"code": "invalid_request_error", "message": "..."}}
-      // Reading it lets us tell the difference between rate limit,
-      // payload contract change, billing flag, or transient service issue.
-      //
-      // Best-effort: cap body at 2KB to bound log spam if the response
-      // is unexpectedly large (e.g. HTML error page from a fronting proxy).
-      // Non-fatal: if reading fails, fall back to empty body and continue
-      // returning the same failure shape as before.
-      let errorBodyPreview = "";
-      let errorBodyContentType = "";
-      try {
-        errorBodyContentType = String(res.headers?.get?.("content-type") || "").toLowerCase();
-        // Streaming body may already be partially consumed (it shouldn't be
-        // for a non-OK response, but be defensive). Use a small timeout to
-        // avoid hanging on a slow body read.
-        const readPromise = res.text().catch(() => "");
-        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(""), 3_000));
-        const bodyText = await Promise.race([readPromise, timeoutPromise]);
-        errorBodyPreview = String(bodyText || "").slice(0, 2048);
-      } catch { /* best-effort */ }
-
-      // Surface the body in a dedicated log line so it's easy to find in
-      // production logs. The diagnostics field on the failResult also
-      // includes a truncated preview for callers that record diagnostics
-      // (resume-worker → enrich_result_summary).
-      try {
-        console.warn("[xaiLiveSearchStreaming] upstream_4xx_or_5xx_body_captured", {
-          upstream_http_status: res.status,
-          content_type: errorBodyContentType || "(none)",
-          body_chars: errorBodyPreview.length,
-          body_preview: errorBodyPreview.slice(0, 800),
-          elapsed_ms: Date.now() - startedAt,
-        });
-      } catch { /* console may be unavailable in test envs */ }
-
       const failResult = {
         ok: false,
         error: `upstream_http_${res.status}`,
@@ -858,8 +817,6 @@ async function xaiLiveSearchStreaming({
           elapsed_ms: Date.now() - startedAt,
           upstream_http_status: res.status,
           streaming: true,
-          upstream_error_body_preview: errorBodyPreview.slice(0, 400),
-          upstream_error_content_type: errorBodyContentType || null,
         },
       };
       _recordXaiResultLazy(failResult);
