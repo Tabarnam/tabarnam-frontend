@@ -510,30 +510,24 @@ test("_xaiLiveSearch source declares response_format parameter on both functions
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.14: PROMPT_GUIDANCE_VERSION is 9.9.0-emission-required-and-lineage-fallback", () => {
-  // Phase 4.14 — Grok-4 approved five-question fix for the 14% tagline +
-  // 20% manufacturing empty rates observed in 2026-05-15 128-company batch.
+test("Phase 4.12: PROMPT_GUIDANCE_VERSION is 9.8.0-location-format-strict", () => {
+  // Phase 4.12 — Grok-4 approved 3-layer fix for manufacturing/HQ location
+  // format pollution observed in 2026-05-13 batch (Harbour Outdoor,
+  // Harmonia Living). Model emitted values like "Pelham, AL, USA (tailored
+  // made in the US with marine-grade wood...)" and "US-based production
+  // for luxury outdoor furniture" — parenthetical descriptions and
+  // narrative prose where clean geocodable strings are required for
+  // Tabarnam's proximity-based discovery feature.
   //
-  //   Q1: Tagline fallback priority order (homepage headline → meta
-  //       description → about-first-sentence → synthesized phrase)
-  //   Q2: Parent/lineage manufacturing fallback emission (Rokinon →
-  //       Samyang Korea; OConnor → ARRI Germany; B+W → Schneider Bad
-  //       Kreuznach; X-Rite → Pantone Grand Rapids; etc.)
-  //   Q3: Country-only is REQUIRED (not just acceptable) when verifiable
-  //       evidence of country exists but no specific city
-  //   Q4: CRITICAL EMISSION MANDATE — after 5+ tool calls, MUST emit
-  //       JSON even with empty fields (fixes Oben-style "10 tool calls,
-  //       zero text emitted")
-  //   Q5: Rebrand/OEM/distributor-lineage search patterns (parent
-  //       company, owned by, subsidiary of, private label, Wikipedia)
-  //
-  // Q6 (auto-fallback second call) and Q7 (hybrid model routing)
-  // deferred to Phase 4.15+ if Q1-Q5 prompt-only changes don't reach
-  // <5% empty rates on the next batch.
+  // Layer 1 (this phase): prompt-side strict format block on Manufacturing
+  // AND HQ rules with explicit forbidden/correct examples.
+  // Layer 2 (this phase): code-side stripParentheticals + narrative-flag
+  // validator with 80-char length cap (see _canonicalImport.js).
+  // Layer 3 (Phase 4.13 candidate): geocoder-feedback drop signal.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.9\.0-emission-required-and-lineage-fallback/,
-    "PROMPT_GUIDANCE_VERSION must be 9.9.0-emission-required-and-lineage-fallback for Phase 4.14"
+    /^9\.8\.0-location-format-strict/,
+    "PROMPT_GUIDANCE_VERSION must be 9.8.0-location-format-strict for Phase 4.12"
   );
 });
 
@@ -628,130 +622,6 @@ test("Phase 4.7: buildCanonicalImportPrompt contains per-field minimums + supply
   assert.ok(
     /do not stop at the first collection page/i.test(prompt),
     "Products rule must explicitly forbid stopping at the first collection page"
-  );
-});
-
-test("Phase 4.14: buildCanonicalImportPrompt contains emission mandate + lineage fallback + tagline fallback + rebrand searches", () => {
-  // Phase 4.14 — Grok-4 approved 5-question fix for sporadic empty
-  // tagline (14%) + manufacturing (20%) observed in 2026-05-15 batch.
-  // Targets small/specialty/rebrand/OEM/distributor brands where the
-  // data exists publicly (grok.com Expert finds it) but our prompt was
-  // over-conservative after Phases 4.4.A + 4.12.
-  const prompt = buildCanonicalImportPrompt({
-    companyName: "Acme Corp",
-    websiteUrl: "https://acme.example",
-    homepageContext: "",
-  });
-
-  // ── Q4: CRITICAL EMISSION MANDATE — must emit after 5+ tool calls ────────
-  assert.ok(
-    /CRITICAL EMISSION MANDATE/i.test(prompt),
-    "prompt must contain the 'CRITICAL EMISSION MANDATE' heading"
-  );
-  assert.ok(
-    /If you have performed 5 or more tool calls, you MUST emit a complete JSON object/i.test(prompt),
-    "emission mandate must require JSON output after 5+ tool calls"
-  );
-  assert.ok(
-    /Empty entire emission after using tool budget is a critical failure/i.test(prompt),
-    "emission mandate must explicitly label empty-after-budget as critical failure"
-  );
-  assert.ok(
-    /Observed \(Oben, 2026-05-15\)/i.test(prompt),
-    "emission mandate must reference the Oben failure pattern for context"
-  );
-
-  // ── Q3: country-only REQUIRED when city unknown ──────────────────────────
-  assert.ok(
-    /Country-only is REQUIRED when you have verifiable evidence of the country/i.test(prompt),
-    "Manufacturing rule must mandate country-only when evidence exists but city unknown"
-  );
-  assert.ok(
-    /emit "China" if owned by a Chinese parent/i.test(prompt) &&
-    /emit "South Korea" if multiple sources point to Korea/i.test(prompt),
-    "Manufacturing rule must include country-only emission examples"
-  );
-  assert.ok(
-    /Empty array \[\] is reserved ONLY for cases with ZERO verifiable evidence/i.test(prompt),
-    "Manufacturing rule must restrict [] to cases with zero evidence"
-  );
-  assert.ok(
-    /Lean toward emitting a verifiable country rather than empty when evidence exists/i.test(prompt),
-    "Manufacturing rule must include the 'lean toward emitting' guidance"
-  );
-
-  // ── Q5: rebrand/OEM/distributor-lineage search patterns ──────────────────
-  assert.ok(
-    /Rebrand \/ OEM \/ distributor lineage searches/i.test(prompt),
-    "Manufacturing rule must contain the 'Rebrand / OEM / distributor lineage searches' heading"
-  );
-  assert.ok(
-    /"\[Brand\] parent company"/i.test(prompt) &&
-    /"\[Brand\] owned by"/i.test(prompt) &&
-    /"\[Brand\] subsidiary of"/i.test(prompt) &&
-    /"\[Brand\] private label"/i.test(prompt),
-    "Manufacturing rule must list the four lineage search patterns"
-  );
-  assert.ok(
-    /Check Wikipedia for corporate lineage/i.test(prompt),
-    "Manufacturing rule must instruct Wikipedia lineage checks"
-  );
-
-  // ── Q2: parent / lineage fallback emission ───────────────────────────────
-  assert.ok(
-    /Parent \/ lineage fallback emission/i.test(prompt),
-    "Manufacturing rule must contain the 'Parent / lineage fallback emission' heading"
-  );
-  assert.ok(
-    /Rokinon \(Samyang's US arm\)\s*→\s*emit "South Korea"/i.test(prompt),
-    "Manufacturing rule must include the Rokinon → South Korea example"
-  );
-  assert.ok(
-    /OConnor \(ARRI subsidiary\)\s*→\s*emit "Germany"/i.test(prompt),
-    "Manufacturing rule must include the OConnor → Germany example"
-  );
-  assert.ok(
-    /B\+W \(Schneider Kreuznach subsidiary\)\s*→\s*emit "Bad Kreuznach, Germany"/i.test(prompt),
-    "Manufacturing rule must include the B+W → Schneider example"
-  );
-  assert.ok(
-    /This is REQUIRED when lineage is verified/i.test(prompt),
-    "Manufacturing rule must mark parent-location emission as REQUIRED when lineage verified"
-  );
-  assert.ok(
-    /The parent's location is the brand's location/i.test(prompt),
-    "Manufacturing rule must include the 'parent's location is the brand's location' principle"
-  );
-
-  // ── Q1: Tagline fallback priority order ──────────────────────────────────
-  assert.ok(
-    /Tagline: Provide the company's tagline, slogan, or motto\. If the brand has no explicit marketing tagline or slogan, use ONE of the following in priority order/i.test(prompt),
-    "Tagline rule must include the 'use ONE of the following in priority order' fallback opener"
-  );
-  assert.ok(
-    /\(a\) the homepage hero headline or main heading/i.test(prompt),
-    "Tagline rule must include fallback (a) — homepage hero headline"
-  );
-  assert.ok(
-    /\(b\) the primary meta-description phrase/i.test(prompt),
-    "Tagline rule must include fallback (b) — meta-description"
-  );
-  assert.ok(
-    /\(c\) the first substantive sentence of the About page/i.test(prompt),
-    "Tagline rule must include fallback (c) — about-page first sentence"
-  );
-  assert.ok(
-    /\(d\) a concise 2-7 word phrase describing what the company sells/i.test(prompt),
-    "Tagline rule must include fallback (d) — synthesized phrase"
-  );
-  assert.ok(
-    /Always emit a tagline — never leave it empty unless the brand has zero visible web presence/i.test(prompt),
-    "Tagline rule must mandate 'always emit, never empty unless zero web presence'"
-  );
-  assert.ok(
-    /"Professional Photography Equipment"/.test(prompt) ||
-    /"Photographic Lighting & Accessories Since 1972"/.test(prompt),
-    "Tagline rule must include concrete fallback examples"
   );
 });
 

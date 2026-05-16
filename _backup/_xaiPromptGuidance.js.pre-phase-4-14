@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "9.9.0-emission-required-and-lineage-fallback";
+const PROMPT_GUIDANCE_VERSION = "9.8.0-location-format-strict";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -414,8 +414,6 @@ You MUST search for manufacturing_locations, third-party reviews, and specific n
 
 Emitting JSON with 0 tool calls is a failure. Emitting with fewer than 3 tool calls and ANY empty manufacturing_locations or product_keywords field is also a failure.
 
-CRITICAL EMISSION MANDATE (Phase 4.14): If you have performed 5 or more tool calls, you MUST emit a complete JSON object with the requested fields — even if some fields are partial or empty. Never finish with only tool calls and zero text after spending tool budget. Partial output with empty fields is required. Empty entire emission after using tool budget is a critical failure. Observed (Oben, 2026-05-15): 10 tool calls spent, zero text emitted — that pattern is forbidden. After 5+ tool calls, ALWAYS emit JSON with whatever fields you have, leaving the rest as the type-correct empty value.
-
 Tool budget: up to 18 web_search + browse_page calls. After your 12th tool call you MUST emit within the next 2 calls at latest. Partial but researched data is strongly preferred to early emission with missing fields.
 
 Per-field minimum research requirements (binding):
@@ -430,7 +428,7 @@ Fields to populate: ${fieldList}
 
 Per-field rules:
 
-Tagline: Provide the company's tagline, slogan, or motto. If the brand has no explicit marketing tagline or slogan, use ONE of the following in priority order: (a) the homepage hero headline or main heading, (b) the primary meta-description phrase, (c) the first substantive sentence of the About page, (d) a concise 2-7 word phrase describing what the company sells. Always emit a tagline — never leave it empty unless the brand has zero visible web presence. Examples of good fallbacks for brands without marketing taglines: "Professional Photography Equipment", "Photographic Lighting & Accessories Since 1972", "Innovative Cinema Equipment", "Handcrafted Cookware Since 1850". Format as described below.
+Tagline: Provide the company's tagline, slogan, or motto. Format as described below.
 
 HQ: Identify the HQ location from the company's official website (About / Contact pages or footer). If the official site is unclear, do one additional web_search to a credible source like LinkedIn, Crunchbase, or a recent press article. If multiple HQ locations, separate with semicolons.
 
@@ -491,15 +489,9 @@ Examples of CORRECT values:
 
 If a manufacturing fact requires explanation, OMIT it entirely. Emit only the clean location string or []. Each entry must be a single geocodable point on a map.
 
-Country-only is REQUIRED when you have verifiable evidence of the country (via parent company, import records, Wikipedia, press, or multiple sources) but no specific city. Examples: emit "China" if owned by a Chinese parent; emit "South Korea" if multiple sources point to Korea; emit "Germany" if the brand is a subsidiary of a German parent. Empty array [] is reserved ONLY for cases with ZERO verifiable evidence of any country or location after all required searches. Lean toward emitting a verifiable country rather than empty when evidence exists.
-
 Output as a JSON array of strings, e.g. ["Görlitz, Germany", "Vietnam", "Hai Duong, Vietnam"]. If after the searches above you genuinely cannot find any manufacturing disclosure, emit [] — but only AFTER attempting the parent-company / supplier-list searches above. For retailer-curators that resell branded products from many suppliers (e.g., a Japanese-stationery curator; a multi-brand boutique), list the supplier countries — country-level granularity is the goal here. Only emit [] if the company is a pure marketplace platform (e.g., Amazon, eBay) where listing supplier countries is genuinely not meaningful. Do NOT include the label "Manufacturing:" in any value.
 
 Investigate the full supply chain. "Made in USA" on packaging or a single product page is often marketing for final assembly or import labeling — the actual manufacturing origin may be different. When multiple sources conflict or only partial disclosure exists, emit the most accurate primary manufacturing locations based on the weight of evidence across searches. Prefer verified importer/distributor records, parent-company supplier lists, or trade-press supply-chain reporting over single-product "Made in" labels when they conflict. When evidence shows multiple primary manufacturing or sourcing countries (e.g. premium lines in one country, accessories/imports in another), emit ALL of them. Do not emit [] if any verifiable locations were found, even if the picture is incomplete.
-
-Rebrand / OEM / distributor lineage searches (Phase 4.14, required for any brand that appears small, specialty, or distributor-heavy): in addition to normal queries, ALWAYS perform these searches: "[Brand] parent company", "[Brand] owned by", "[Brand] subsidiary of", "[Brand] private label". Check Wikipedia for corporate lineage — Wikipedia entries frequently disclose manufacturing locations even when the brand's own site does not. Parent-company press releases and 10-K filings often disclose manufacturing locations at the corporate level. Small/specialty/distributor-style brands are usually owned by larger entities whose locations ARE public.
-
-Parent / lineage fallback emission (Phase 4.14, required when lineage is confirmed): if during research you discover that [Brand] is a re-brand, subsidiary, private label, distribution arm, or OEM version of a parent company, emit the parent's known manufacturing or operations location as a valid entry. Examples: Rokinon (Samyang's US arm) → emit "South Korea"; OConnor (ARRI subsidiary) → emit "Germany"; B+W (Schneider Kreuznach subsidiary) → emit "Bad Kreuznach, Germany"; X-Rite (Pantone/Danaher) → emit "Grand Rapids, MI, USA"; Datacolor (independent Swiss company) → emit "Lucerne, Switzerland"; Cokin (French heritage brand) → emit "France". This is REQUIRED when lineage is verified — do not emit [] just because the child brand doesn't separately publish its manufacturing. The parent's location is the brand's location.
 
 Industries: Provide 3-8 short noun phrases (1-3 words each) that read like real user search terms for what the company sells. Aim for 5-8 for diversified brands (multi-product); for narrow / single-product brands (e.g., a peanut-butter-only brand, a single-flavor jerky, a one-product startup), 3-5 entries is correct and sufficient — DO NOT keep searching to pad the list. Mix broad categories and specific sub-types where applicable. The Phase 3.6 ceiling for this field is 8, regardless of how many sub-categories the brand has. Examples for footwear (Birkenstock-style): "Cork Footbed Sandals", "Leather Sandals", "EVA Sandals", "Orthopedic Footwear", "Casual Slides", "Kids Sandals". Examples for snacks: "Beef Jerky", "Dried Meats", "Snack Sticks", "Hawaiian Foods". Examples for a single-product peanut butter brand: "Natural Peanut Butter", "Creamy Peanut Butter", "Crunchy Peanut Butter", "No-Stir Peanut Butter". Use normalized, common-search-term language. Include meaningful distinctions ("organic", "leather", "stainless steel") but avoid narrative adjectives ("artisan", "premium", "hand-crafted"). Avoid generic umbrella terms ("Footwear", "Consumer Goods", "Food and Beverage", "Retail", "E-Commerce"). Output as a JSON array of strings. Do NOT prefix values with "Industries:".
 
