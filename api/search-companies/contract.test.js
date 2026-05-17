@@ -1020,6 +1020,96 @@ test("fuzzy fallback does NOT fire for queries shorter than 4 chars", async () =
   assert.equal(fuzzyQueriesIssued, 0, "fuzzy fallback must not fire for queries < 4 chars even with zero results");
 });
 
+// ── industryBonus partial-match ────────────────────────────────────────
+
+test("industryBonus fires when industry contains query (peppercorn → Peppercorns)", () => {
+  // A specialty peppercorn seller whose canonical industry tag is the plural
+  // "Peppercorns" should still earn the +30 industry bonus when the user
+  // searches the singular "peppercorn". Before this fix, the bonus required
+  // strict equality and a butcher-shop with peppercorn-crusted products
+  // would outrank the specialist on pure keyword frequency.
+  const specialist = {
+    company_name: "Pepper House",
+    keywords: ["peppercorn", "tellicherry peppercorn"],
+    industries: ["Peppercorns", "Spices"],
+    search_text_norm: " pepper house peppercorn tellicherry peppercorn peppercorns spices ",
+  };
+  const scoresWith = _test.computeRelevanceScore(
+    specialist, "peppercorn", "peppercorn", "peppercorn", []
+  );
+
+  // Same company but industry renamed to something unrelated — bonus should not fire.
+  const specialistNoIndustry = { ...specialist, industries: ["Meat"] };
+  const scoresWithout = _test.computeRelevanceScore(
+    specialistNoIndustry, "peppercorn", "peppercorn", "peppercorn", []
+  );
+
+  // Direction-only assertion (the precise delta also includes a small
+  // keywordScore variance because checkField iterates the industries
+  // array as part of keyword matching — but the industryBonus is by far
+  // the dominant contributor here).
+  assert.ok(
+    scoresWith._relevanceScore > scoresWithout._relevanceScore + 25,
+    `industry-aligned should score substantially higher: with=${scoresWith._relevanceScore}, without=${scoresWithout._relevanceScore}`
+  );
+});
+
+test("industryBonus fires when query contains industry (seafood query matches Food industry)", () => {
+  // A query that's a superstring of an industry name (e.g. "seafood" containing "food").
+  // Prevents the fix from being one-directional.
+  const company = {
+    company_name: "Generic Co",
+    keywords: ["seafood platter"],
+    industries: ["Food"],
+    search_text_norm: " generic co seafood platter food ",
+  };
+  const scores = _test.computeRelevanceScore(
+    company, "seafood", "seafood", "seafood", []
+  );
+  const noIndustry = _test.computeRelevanceScore(
+    { ...company, industries: [] }, "seafood", "seafood", "seafood", []
+  );
+  // industryBonus is +30; small keyword-score variance can shift the delta a
+  // few points, so we assert it's substantially higher rather than exactly 30.
+  assert.ok(
+    scores._relevanceScore >= noIndustry._relevanceScore + 25,
+    `with-industry should score substantially higher: with=${scores._relevanceScore}, without=${noIndustry._relevanceScore}`
+  );
+});
+
+test("peppercorn-specialist outranks butcher-with-peppercorn-products on the tiered sort", () => {
+  // End-to-end check: specialty company in 'Peppercorns' industry vs butcher
+  // shop whose keywords mention peppercorn but whose industry is unrelated.
+  // The specialist should land in a higher relevance tier even when their
+  // keyword frequency is lower — that's the whole point of the partial-match
+  // fix.
+  const specialist = {
+    company_name: "Pepper House",
+    keywords: ["peppercorn", "tellicherry peppercorn"],
+    industries: ["Peppercorns"],
+    search_text_norm: " pepper house peppercorn tellicherry peppercorn peppercorns ",
+  };
+  const butcher = {
+    company_name: "Bowmans Butcher Shop",
+    keywords: [
+      "peppercorn ribeye", "peppercorn steak", "peppercorn marinade",
+      "peppercorn rub", "peppercorn-crusted prime rib",
+    ],
+    industries: ["Butcher Shop", "Meat"],
+    search_text_norm:
+      " bowmans butcher shop peppercorn ribeye peppercorn steak peppercorn marinade " +
+      "peppercorn rub peppercorn crusted prime rib butcher shop meat ",
+  };
+
+  const specScore = _test.computeRelevanceScore(specialist, "peppercorn", "peppercorn", "peppercorn", []);
+  const butcherScore = _test.computeRelevanceScore(butcher, "peppercorn", "peppercorn", "peppercorn", []);
+
+  assert.ok(
+    specScore._relevanceScore > butcherScore._relevanceScore,
+    `specialist should outrank butcher: spec=${specScore._relevanceScore}, butcher=${butcherScore._relevanceScore}`
+  );
+});
+
 // ── Pass 3: broadening — multi-word OR retrieval surfaces related companies ──
 
 test("broadening pass: 'Hobbs Pickles' surfaces other pickle companies below the brand match", async () => {

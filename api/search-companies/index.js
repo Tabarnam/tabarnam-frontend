@@ -551,10 +551,30 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndust
   const keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
   const nameBonus = nameScore >= 60 ? 20 : 0;
 
-  // Industry exact match bonus: company categorized under the search term
+  // Industry match bonus — fires when the query appears in any of the
+  // company's industry tags. Previously this required *exact* equality
+  // ("peppercorn" only matched an industry literally called "peppercorn"),
+  // which meant a niche peppercorn specialist with industry "Peppercorns"
+  // or "Specialty Peppercorns" missed the bonus entirely. A butcher shop
+  // with peppercorn-crusted steaks in its product list could then outrank
+  // the specialist on pure keyword frequency. The bonus now fires on:
+  //   - exact match: industry === query
+  //   - industry contains query as substring/word: "peppercorns" / "spices — peppercorn"
+  //   - query contains industry as substring: "seafood" query matching "food"
+  // The set of industries per company is small (typically 1-5 tags), so the
+  // includes() check is cheap. Combined with the relevance tier sort, this
+  // promotes specialty companies into tier 0 — where they should be when
+  // the user is searching for their specific product category.
   const industries = normalizeStringArray(company.industries).map((s) => asString(s).toLowerCase().trim());
   const qLower = (q_norm || "").toLowerCase().trim();
-  const industryBonus = qLower && industries.some((ind) => ind === qLower) ? 30 : 0;
+  const industryBonus =
+    qLower && industries.some((ind) =>
+      ind === qLower ||
+      ind.includes(qLower) ||
+      qLower.includes(ind)
+    )
+      ? 30
+      : 0;
 
   // Industry-affinity bonus — the list of "expected" industries for this query
   // is derived from the data-driven inverted index (see _industryAffinityIndex.js)
