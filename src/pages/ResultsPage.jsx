@@ -572,46 +572,6 @@ export default function ResultsPage() {
       const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;
       const fullPromise = searchCompanies(commonOpts);
 
-      // Count request runs in parallel with the page fetch, not after it, so
-      // first paint of the page indicator can include "Page 1 of N" instead
-      // of flashing "Page 1" then updating to "Page 1 of N" once the count
-      // lands. Only re-fire when the search key actually changes — page
-      // navigation within the same query reuses the cached totalPages.
-      //
-      // IMPORTANT: country/state/city are intentionally passed as empty
-      // strings so the count operates over the same filter scope as the
-      // paginated request (see commonOpts above, where cityFilter /
-      // stateFilter / countryFilter are all ""). Location is a ranking
-      // signal only — it shapes results via lat/lng, never excludes rows.
-      // Sending the URL's strict location filters to the count would shrink
-      // totalCount to "companies whose stored city matches the URL city",
-      // producing contradictions like "Page 1 of 1" while the paginated
-      // request reports hasMore=true. hqCountry / mfgCountry are exempt
-      // because the user explicitly opted into them as strict filters.
-      if (!append && isNewSearchKey && q) {
-        lastCountedKeyRef.current = searchKey;
-        getSearchCount({
-          q,
-          sort,
-          country: "",
-          state: "",
-          city: "",
-          amazon,
-          hqCountry,
-          mfgCountry,
-          take: PAGE_SIZE,
-          lat: effectiveLocation?.lat,
-          lng: effectiveLocation?.lng,
-        })
-          .then((r) => {
-            // Stale check — if the user has navigated to a new query, ignore
-            // a count from the old one.
-            if (gen !== searchGenRef.current) return;
-            if (r && Number.isFinite(r.totalPages)) setTotalPages(r.totalPages);
-          })
-          .catch(() => {});
-      }
-
       // Show quick results as soon as they arrive
       if (quickPromise) {
         const quickResult = await quickPromise;
@@ -689,12 +649,50 @@ export default function ResultsPage() {
       loadReviewsDeferred(withDistances);
       setHasMore(apiHasMore === true);
 
-      // Cheap totalPages shortcut — when this page came back with no further
-      // results AND we're on the first page, we know the total without an
-      // extra count request. Skip the parallel count entirely in that case.
+      // Page-count resolution. Two paths:
+      //
+      // 1) If the full response says there are no further pages on this query
+      //    (hasMore=false on page 1), we already know the total — items.length
+      //    IS the total — and skip the countOnly Cosmos round-trip entirely.
+      //    This is the common case for specific-brand searches and saves
+      //    ~30-50ms on every such request.
+      //
+      // 2) Otherwise (hasMore=true OR we're on page 2+ with no cached
+      //    totalPages for this query), fire the countOnly request now,
+      //    sequentially after the full response. Adds a brief lag for
+      //    "Page X of N" first paint on large-result queries — the page itself
+      //    still renders immediately; only the "of N" appears a moment later.
+      //
+      // IMPORTANT: country/state/city pass as "" so the count operates over
+      // the same filter scope as the paginated request (see commonOpts at the
+      // top of this function). hqCountry / mfgCountry are user-opt-in strict
+      // filters and pass through.
+      const needCount = !append && q && lastCountedKeyRef.current !== searchKey;
       if (!apiHasMore && skip === 0) {
         setTotalPages(1);
         lastCountedKeyRef.current = searchKey;
+      } else if (needCount) {
+        lastCountedKeyRef.current = searchKey;
+        getSearchCount({
+          q,
+          sort,
+          country: "",
+          state: "",
+          city: "",
+          amazon,
+          hqCountry,
+          mfgCountry,
+          take: PAGE_SIZE,
+          lat: effectiveLocation?.lat,
+          lng: effectiveLocation?.lng,
+        })
+          .then((r) => {
+            // Stale check — if the user has navigated to a new query, ignore
+            // a count from the old one.
+            if (gen !== searchGenRef.current) return;
+            if (r && Number.isFinite(r.totalPages)) setTotalPages(r.totalPages);
+          })
+          .catch(() => {});
       }
 
       if (meta?.usingStubData) {
