@@ -1620,10 +1620,19 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const hasLocationFilter = !!(country || state || city || hqCountry || mfgCountry);
   const isLocationOnly = hasLocationFilter && !q_norm;
   const needsManuProximity = sort === "manu" && user_location;
+  // QuickMode's only job is to paint above-the-fold companies as fast as
+  // possible — the frontend already fires it in parallel with the full
+  // request and replaces results when the full pipeline finishes. So we
+  // don't need 500 candidates to choose from in quick mode: ~50 is plenty
+  // for page 1 and cuts Cosmos retrieval time roughly 10×. Quick mode also
+  // skips synonym expansion (line 1653) and Passes 2/3/4 + fuzzy fallback,
+  // so the small pool composes cleanly into a fast first-paint path.
   const limit = countOnly
     ? 500
     : isLocationOnly
     ? 500
+    : quickMode
+    ? clamp(skip + take + 1, 1, 51) // above-the-fold preview only
     : q_norm
     ? 500 // text-search: broad retrieval matches countOnly so totals and pages align
     : needsManuProximity
