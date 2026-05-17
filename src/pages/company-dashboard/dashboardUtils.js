@@ -491,12 +491,20 @@ export function getContractMissingFields(company) {
   }
 
   // Data-wins-over-flag: drop "keywords" / "product_keywords" when populated.
-  // Use .some(non-empty) so arrays of just empty strings still count as missing.
-  const hasKeywords =
-    (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
-    (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
-    Boolean(asString(company?.product_keywords).trim()) ||
-    Boolean(asString(company?.keywords).trim());
+  // Backend caches _kwRelevantCount (meaningful keyword count after stub/sentinel
+  // sanitization) — when defined, it's authoritative. Otherwise fall back to
+  // .some(non-empty) so arrays of just empty/whitespace strings count as missing.
+  const kwRelevantCount = typeof company?._kwRelevantCount === "number"
+    ? company._kwRelevantCount
+    : null;
+  const hasKeywords = kwRelevantCount != null
+    ? kwRelevantCount >= 1
+    : (
+        (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
+        (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
+        Boolean(asString(company?.product_keywords).trim()) ||
+        Boolean(asString(company?.keywords).trim())
+      );
   if (hasKeywords) {
     for (let i = fields.length - 1; i >= 0; i--) {
       if (fields[i] === "keywords" || fields[i] === "product_keywords") fields.splice(i, 1);
@@ -581,12 +589,19 @@ export function getContractMissingFields(company) {
   }
 
   // Check for missing keywords / products (client-side, in case backend didn't flag it).
-  // Use .some(non-empty) so arrays of just empty strings count as missing.
-  const hasKeywordsData =
-    (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
-    (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
-    Boolean(asString(company?.product_keywords).trim()) ||
-    Boolean(asString(company?.keywords).trim());
+  // Prefer the backend's cached _kwRelevantCount which counts meaningful keywords
+  // after stub/sentinel sanitization. Without it, fall back to the heuristic.
+  const kwRelevantCountForCheck = typeof company?._kwRelevantCount === "number"
+    ? company._kwRelevantCount
+    : null;
+  const hasKeywordsData = kwRelevantCountForCheck != null
+    ? kwRelevantCountForCheck >= 1
+    : (
+        (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
+        (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
+        Boolean(asString(company?.product_keywords).trim()) ||
+        Boolean(asString(company?.keywords).trim())
+      );
   if (!hasKeywordsData && !fields.includes("keywords") && !fields.includes("product_keywords")) {
     fields.push("keywords");
   }
