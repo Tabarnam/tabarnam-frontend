@@ -2193,6 +2193,25 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // Attach relevance scores so the frontend can prioritise strong matches
       if (q_norm) {
         for (const company of deduped) {
+          if (company._industryRelated) {
+            // Pass 4 surfaced this company because it shares industry tags
+            // with the primary brand match — not because it matches the
+            // query directly. Without a fixed score it would fall through
+            // to computeRelevanceScore which gives it 0 (no name match,
+            // no keyword match for "nordstrom"), then the synonym-only
+            // penalty zeroes it out completely, and MIN_RELEVANCE drops it
+            // from results — leaving the user with just the brand and no
+            // comps. Assign a small fixed relevance so they survive the
+            // filter and appear in a clearly-below-tier-2 position. They
+            // already rank below every genuine keyword/name match because
+            // those score 30+ by construction.
+            company._nameMatchScore = 0;
+            company._keywordMatchScore = 0;
+            company._relevanceScore = 20;
+            company._matchType = "industry_related";
+            delete company._industryRelated;
+            continue;
+          }
           if (company._fuzzyMatch) {
             // The user typo'd the company name. Score this company AS IF they
             // had typed the corrected name (the closest candidate name) so
