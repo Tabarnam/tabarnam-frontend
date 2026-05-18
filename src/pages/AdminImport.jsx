@@ -4345,9 +4345,21 @@ export default function AdminImport() {
   // queued but the worker never picked up.
   const verifyEnrichment = useCallback((sessionId) => {
     if (!sessionId) return;
-    const statusUrl = join(API_BASE, `/import-status?session_id=${encodeURIComponent(sessionId)}`);
-    apiFetch(statusUrl).then(() => {}).catch(() => {});
-    setTimeout(() => { apiFetch(statusUrl).then(() => {}).catch(() => {}); }, 15_000);
+    // Phase 4.20 — two bugs corrected (regression caused stuck-batch pattern
+    // observed 2026-05-18: `/api/api/import-status` 404 every poll).
+    //
+    //   1. The path was `/import-status` (hyphen), but the actual Function
+    //      route binding in api/import-status/function.json is `import/status`
+    //      (slash). The hyphen variant doesn't exist — always 404.
+    //   2. `apiFetch` internally calls `join(API_BASE, path)` (api.ts:569).
+    //      The previous code ALSO called `join(API_BASE, ...)` here, so
+    //      `/api` was prepended twice → `/api/api/import-status?...`.
+    //
+    // Fix: pass the path WITHOUT prepending API_BASE (apiFetch does it), and
+    // use the slash form to match the real route.
+    const statusPath = `/import/status?session_id=${encodeURIComponent(sessionId)}`;
+    apiFetch(statusPath).then(() => {}).catch(() => {});
+    setTimeout(() => { apiFetch(statusPath).then(() => {}).catch(() => {}); }, 15_000);
   }, []);
 
   // Phase 2.18.A2 — strict completion check helper.
