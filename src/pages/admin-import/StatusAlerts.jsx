@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Volume2 } from "lucide-react";
+import { AlertTriangle, Volume2, VolumeX } from "lucide-react";
 import {
   asString,
   toEnglishImportStage,
@@ -12,6 +12,11 @@ export default function StatusAlerts({
   API_BASE,
   replayNotification,
   lastPlayed,
+  // Phase 4.19 — persistent mute toggle for the import notification sound.
+  // `notificationMuted` is the current state; `onToggleNotificationMuted`
+  // flips it (and persists to localStorage via the hook).
+  notificationMuted = false,
+  onToggleNotificationMuted,
 }) {
   return (
     <>
@@ -103,11 +108,21 @@ export default function StatusAlerts({
           <button
             type="button"
             onClick={replayNotification}
-            className="shrink-0 rounded-md p-1.5 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors flex items-center gap-1.5"
-            title="Replay notification sound"
+            disabled={notificationMuted}
+            className={`shrink-0 rounded-md p-1.5 text-blue-600 dark:text-blue-300 transition-colors flex items-center gap-1.5 ${notificationMuted ? "opacity-40 cursor-not-allowed" : "hover:bg-blue-100 dark:hover:bg-blue-900/50"}`}
+            title={notificationMuted ? "Sound is muted" : "Replay notification sound"}
           >
             <Volume2 className="h-4 w-4 shrink-0" />
             {lastPlayed && <span className="text-xs line-clamp-3 max-w-[200px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
+          </button>
+          <button
+            type="button"
+            onClick={onToggleNotificationMuted}
+            className="shrink-0 rounded-md p-1.5 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+            title={notificationMuted ? "Unmute notification sound" : "Mute notification sound"}
+            aria-pressed={notificationMuted}
+          >
+            {notificationMuted ? <VolumeX className="h-4 w-4 shrink-0" /> : <Volume2 className="h-4 w-4 shrink-0" />}
           </button>
         </div>
       ) : null}
@@ -201,11 +216,21 @@ export default function StatusAlerts({
             <button
               type="button"
               onClick={replayNotification}
-              className={`shrink-0 rounded-md p-1.5 ${useGreen ? "text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50" : "text-amber-600 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50"} transition-colors flex items-center gap-1.5`}
-              title="Replay notification sound"
+              disabled={notificationMuted}
+              className={`shrink-0 rounded-md p-1.5 ${useGreen ? "text-emerald-600 dark:text-emerald-300" : "text-amber-600 dark:text-amber-300"} transition-colors flex items-center gap-1.5 ${notificationMuted ? "opacity-40 cursor-not-allowed" : (useGreen ? "hover:bg-emerald-100 dark:hover:bg-emerald-900/50" : "hover:bg-amber-100 dark:hover:bg-amber-900/50")}`}
+              title={notificationMuted ? "Sound is muted" : "Replay notification sound"}
             >
               <Volume2 className="h-4 w-4 shrink-0" />
               {lastPlayed && <span className="text-xs line-clamp-3 max-w-[200px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
+            </button>
+            <button
+              type="button"
+              onClick={onToggleNotificationMuted}
+              className={`shrink-0 rounded-md p-1.5 ${useGreen ? "text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50" : "text-amber-600 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50"} transition-colors`}
+              title={notificationMuted ? "Unmute notification sound" : "Mute notification sound"}
+              aria-pressed={notificationMuted}
+            >
+              {notificationMuted ? <VolumeX className="h-4 w-4 shrink-0" /> : <Volume2 className="h-4 w-4 shrink-0" />}
             </button>
           </div>
         );

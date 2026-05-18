@@ -1,4 +1,28 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+// Phase 4.19 — persistent mute toggle (localStorage-backed).
+// Stored as a JSON boolean. Default unmuted on first visit.
+const MUTE_STORAGE_KEY = "tabarnam.import.notification_muted";
+
+function readMutedFromStorage() {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return false;
+    const raw = window.localStorage.getItem(MUTE_STORAGE_KEY);
+    if (raw === null || raw === undefined) return false;
+    return raw === "true" || raw === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeMutedToStorage(muted) {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(MUTE_STORAGE_KEY, muted ? "true" : "false");
+  } catch {
+    /* storage unavailable — silently ignore */
+  }
+}
 
 /**
  * Hook that plays a random notification sound from /sounds/notifications/.
@@ -93,8 +117,27 @@ export default function useNotificationSound() {
   const playingRef = useRef(false);
   const [lastPlayed, setLastPlayed] = useState(null);
 
+  // Phase 4.19 — persistent mute toggle. Initial value from localStorage so
+  // the preference survives reloads. `mutedRef` mirrors state so the play /
+  // replay callbacks can read the latest value without being recreated.
+  const [muted, setMutedState] = useState(readMutedFromStorage);
+  const mutedRef = useRef(muted);
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
+
+  const setMuted = useCallback((next) => {
+    const resolved = typeof next === "function" ? next(mutedRef.current) : Boolean(next);
+    mutedRef.current = resolved;
+    writeMutedToStorage(resolved);
+    setMutedState(resolved);
+  }, []);
+
+  const toggleMuted = useCallback(() => {
+    setMuted((prev) => !prev);
+  }, [setMuted]);
+
   const play = useCallback(async () => {
     if (playingRef.current) return;
+    if (mutedRef.current) return; // Phase 4.19 — short-circuit when muted
 
     try {
       const files = await fetchManifest();
@@ -118,6 +161,7 @@ export default function useNotificationSound() {
 
   const replay = useCallback(async () => {
     if (playingRef.current) return;
+    if (mutedRef.current) return; // Phase 4.19 — replay is silent when muted
     if (!lastPlayedFile) {
       console.warn("[notification-sound] nothing to replay yet");
       return;
@@ -134,5 +178,5 @@ export default function useNotificationSound() {
     }
   }, []);
 
-  return { play, replay, lastPlayed };
+  return { play, replay, lastPlayed, muted, setMuted, toggleMuted };
 }
