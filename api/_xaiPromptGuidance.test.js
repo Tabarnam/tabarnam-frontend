@@ -515,30 +515,38 @@ test("Phase 4.16 — _xaiLiveSearch translates response_format → text.format o
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.14: PROMPT_GUIDANCE_VERSION is 9.9.0-emission-required-and-lineage-fallback", () => {
-  // Phase 4.14 — Grok-4 approved five-question fix for the 14% tagline +
-  // 20% manufacturing empty rates observed in 2026-05-15 128-company batch.
+test("Phase 4.17: PROMPT_GUIDANCE_VERSION is 9.10.0-products-no-duplicates", () => {
+  // Phase 4.17 — Products rule augmented with explicit anti-duplicate
+  // guidance after MANNKITCHEN import (2026-05-16) showed the model
+  // emitted 36 product entries with 18 duplicates (deduped post-hoc by
+  // sanitizeKeywords). Telling the model not to re-list items it's
+  // already accumulated saves part of the tool budget.
   //
-  //   Q1: Tagline fallback priority order (homepage headline → meta
-  //       description → about-first-sentence → synthesized phrase)
-  //   Q2: Parent/lineage manufacturing fallback emission (Rokinon →
-  //       Samyang Korea; OConnor → ARRI Germany; B+W → Schneider Bad
-  //       Kreuznach; X-Rite → Pantone Grand Rapids; etc.)
-  //   Q3: Country-only is REQUIRED (not just acceptable) when verifiable
-  //       evidence of country exists but no specific city
-  //   Q4: CRITICAL EMISSION MANDATE — after 5+ tool calls, MUST emit
-  //       JSON even with empty fields (fixes Oben-style "10 tool calls,
-  //       zero text emitted")
-  //   Q5: Rebrand/OEM/distributor-lineage search patterns (parent
-  //       company, owned by, subsidiary of, private label, Wikipedia)
-  //
-  // Q6 (auto-fallback second call) and Q7 (hybrid model routing)
-  // deferred to Phase 4.15+ if Q1-Q5 prompt-only changes don't reach
-  // <5% empty rates on the next batch.
+  // Phase 4.14 anchors (Q1-Q5) still present in the prompt; only the
+  // Products rule changed in 4.17.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.9\.0-emission-required-and-lineage-fallback/,
-    "PROMPT_GUIDANCE_VERSION must be 9.9.0-emission-required-and-lineage-fallback for Phase 4.14"
+    /^9\.10\.0-products-no-duplicates/,
+    "PROMPT_GUIDANCE_VERSION must be 9.10.0-products-no-duplicates for Phase 4.17"
+  );
+});
+
+test("Phase 4.17: Products rule contains anti-duplicate guidance", () => {
+  // After 4.17 the Products rule should explicitly tell the model not
+  // to re-emit the same product across paginated /products or
+  // /collections page browses. Anti-regression anchor.
+  const { buildCanonicalImportPrompt } = require("./_xaiPromptGuidance");
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "TestCo",
+    websiteUrl: "https://testco.example.com",
+  });
+  assert.ok(
+    /Do not list the same product or category twice/i.test(prompt),
+    "Products rule must contain anti-duplicate guidance (Phase 4.17)"
+  );
+  assert.ok(
+    /already appears in your accumulated list/i.test(prompt),
+    "Products rule must instruct model to skip already-accumulated items (Phase 4.17)"
   );
 });
 

@@ -277,16 +277,6 @@ const KEYWORD_DISALLOW_TERMS = [
   "press",
   "wholesale",
 
-  // Generic glue words / content scaffolding
-  "free",
-  "matters",
-  "product",
-  "products",
-  "why",
-  "because",
-  "what",
-  "leave",
-
   // HTML/CSS/JS junk
   "svg",
   "path",
@@ -299,11 +289,16 @@ const KEYWORD_DISALLOW_TERMS = [
   "react",
 ];
 
-// Terms that are junk when they ARE the entire keyword (nav labels like "Bundles")
-// but valid as part of a multi-word product name (e.g. "Fireplace Bundle", "Gift Set").
-// Checked via exact match, not substring.
+// Phase 4.17 — Generic glue words that are junk ALONE but valid as part of a
+// multi-word product or category name. Substring-matching them rejected legit
+// entries like "Coconut Products" (observed for Kalustyan's), "Gluten-Free
+// Pasta", "Skincare Products", etc. Exact-match-only keeps the bare-word
+// rejection without poisoning multi-word categories.
 const KEYWORD_EXACT_DISALLOW = new Set([
+  // Nav labels (Phase pre-4.17)
   "bundle", "bundles", "gift", "gifts", "new", "collection", "collections",
+  // Generic glue words / content scaffolding (Phase 4.17 — moved from substring list)
+  "free", "matters", "product", "products", "why", "because", "what", "leave",
 ]);
 
 function splitKeywordString(value) {
