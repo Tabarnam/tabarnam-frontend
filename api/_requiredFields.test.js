@@ -45,6 +45,63 @@ test("sanitizeKeywords keeps SKU-like ALL CAPS tokens that contain digits", () =
   assert.deepEqual(stats.sanitized, ["SKU 123"]);
 });
 
+// ── Phase 4.17: glue-word substring rejection bug fix ───────────────────────
+//
+// Prior to Phase 4.17 the sanitizer's KEYWORD_DISALLOW_TERMS list contained
+// "product", "products", "free", "why", "because", "what", "leave", "matters"
+// and matched them via substring. That rejected legit category entries like
+// "Coconut Products" (observed on Kalustyan's), "Skincare Products",
+// "Gluten-Free Pasta", etc. Phase 4.17 moves these to KEYWORD_EXACT_DISALLOW
+// so the bare words are still rejected but multi-word categories pass.
+
+test("Phase 4.17: 'X Products' multi-word category keywords are preserved", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: "Coconut Products, Skincare Products, Cleaning Products, Bath Products",
+    keywords: [],
+  });
+  assert.deepEqual(
+    stats.sanitized,
+    ["Coconut Products", "Skincare Products", "Cleaning Products", "Bath Products"],
+    "multi-word categories ending in 'Products' must not be rejected"
+  );
+});
+
+test("Phase 4.17: bare 'products' keyword is still rejected (exact-match)", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: "products, Coconut Products",
+    keywords: [],
+  });
+  assert.deepEqual(
+    stats.sanitized,
+    ["Coconut Products"],
+    "bare 'products' is junk; 'Coconut Products' is legit"
+  );
+});
+
+test("Phase 4.17: 'Free' as part of multi-word product names is preserved", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: "Gluten-Free Pasta, Sugar-Free Granola, Tariff-Free Bundle",
+    keywords: [],
+  });
+  assert.deepEqual(
+    stats.sanitized,
+    ["Gluten-Free Pasta", "Sugar-Free Granola", "Tariff-Free Bundle"],
+    "multi-word product names containing 'Free' must not be rejected"
+  );
+});
+
+test("Phase 4.17: bare 'free' / 'why' / 'because' are still rejected (exact-match)", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: "free, why, because, what, leave, matters",
+    keywords: [],
+  });
+  assert.deepEqual(
+    stats.sanitized,
+    [],
+    "all bare glue words must be rejected as standalone keywords"
+  );
+});
+
 // ── isRealValue: data-wins-over-flag for HQ ──────────────────────────────────
 
 test("isRealValue hq returns true for real location string even with hq_unknown=true", () => {

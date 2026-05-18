@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2, Volume2, Tags } from "lucide-react";
+import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2, Volume2, Tags, Check } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import useNotificationSound from "@/hooks/useNotificationSound";
@@ -4930,6 +4930,17 @@ export default function AdminImport() {
                 ) : null}
                 {successionRows.map((row, i) => {
                   const pfResult = preflightResults?.find((r) => r.index === i) || null;
+                  // Phase 4.18 — once a row has been imported by THIS session,
+                  // show "Imported ✓" instead of the dup-check status. After
+                  // import completes, the company exists in Cosmos so the
+                  // dup-check correctly returns "exact_match" — but that
+                  // looks like a warning when it's actually a success.
+                  // Override only when the row finished cleanly in this
+                  // session (status === "done"); errored rows keep their
+                  // dup-check context visible so the admin sees what hit.
+                  const completedInSession = successionResults.some(
+                    (r) => r.index === i && r.status === "done"
+                  );
                   return (
                     <div key={i} className="grid grid-cols-[2rem_2fr_1fr_auto] gap-2 items-end">
                       <div className="text-xs text-slate-500 dark:text-muted-foreground text-right pb-2">{i + 1}.</div>
@@ -4952,7 +4963,12 @@ export default function AdminImport() {
                         />
                       </div>
                       <div className="flex items-end pb-0.5 min-w-[140px]">
-                        {pfResult ? (
+                        {completedInSession ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                            <Check className="h-3 w-3" />
+                            Imported
+                          </span>
+                        ) : pfResult ? (
                           pfResult.status === "no_match" ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
                               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />

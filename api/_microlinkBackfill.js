@@ -201,6 +201,11 @@ async function persistLogoOnDoc(company, payload, ctx) {
       doc.logo_url = payload.logo_url;
       doc.logo_source_url = payload.logo_source_url || null;
       doc.logo_source_type = "microlink_backfill";
+      // Phase 4.17 — mirror to the legacy `logo_source` field so diagnostic
+      // logs (enrichment_final_state, resume-worker logo_status) and any
+      // downstream consumers that read `logo_source` see the actual source
+      // instead of `(none)`. Backward-compatible with legacy logo writers.
+      doc.logo_source = "microlink_backfill";
       doc.logo_status = "imported";
       doc.logo_import_status = "imported";
       doc.logo_stage_status = "imported";
