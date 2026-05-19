@@ -22,7 +22,7 @@ const SiteHeader = () => {
             />
             <sup
               aria-hidden="true"
-              className="absolute top-1 right-[5%] text-[7px] font-semibold text-primary leading-none select-none"
+              className="absolute top-[30%] right-[28%] text-[7px] font-semibold text-primary leading-none select-none"
             >
               TM
             </sup>
