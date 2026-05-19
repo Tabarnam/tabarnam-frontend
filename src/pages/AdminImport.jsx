@@ -5294,36 +5294,45 @@ export default function AdminImport() {
                   >
                     {isSuccessionRunning
                       ? (() => {
-                          // Phase 3.5.1 — header text reflects BOTH slots so
-                          // the user can see when the primary has advanced
-                          // but the shadow is still finishing a long-running
-                          // company. Use the lowest active index in either
-                          // slot for the "Importing X" position.
+                          // Phase 4.21 — header text reflects ACTUAL
+                          // completion count, not dispatched-slot index.
+                          //
+                          // Pre-4.21 we displayed `successionIndex + 1`
+                          // (the row Slot A is parked on), but with two
+                          // parallel slots Slot B routinely advances past
+                          // Slot A while Slot A is stuck on a slow row.
+                          // Empirical (2026-05-19): batch of 17 showed
+                          // "Importing 9 of 17" while 16 rows already had
+                          // green ✓ — Slot A was hung on Ban.do (row 9)
+                          // and Slot B had completed positions 10-17.
+                          //
+                          // New rule: "Imported X of N" uses the
+                          // ground-truth `successionResults.length`.
+                          // A parenthetical lists what's currently
+                          // in-flight by company name so the user can
+                          // see at a glance which rows are still working.
                           const completedCount = successionResults.length;
                           const totalCount = successionQueue.length;
 
-                          // Both slots active and pointing at different indices.
-                          if (isPrimaryRunning && isShadowRunning && successionIndex !== successionShadowIndex && successionShadowIndex >= 0) {
-                            const lo = Math.min(successionIndex, successionShadowIndex) + 1;
-                            const hi = Math.max(successionIndex, successionShadowIndex) + 1;
-                            return `Importing ${lo}-${hi} of ${totalCount} companies`;
-                          }
+                          const activeNames = [];
+                          const seenIndices = new Set();
+                          const pushActive = (idx, runFlag) => {
+                            if (!runFlag) return;
+                            if (typeof idx !== "number" || idx < 0 || idx >= totalCount) return;
+                            if (seenIndices.has(idx)) return;
+                            seenIndices.add(idx);
+                            const item = successionQueue[idx] || {};
+                            const name = item.companyName || item.companyUrl || `row ${idx + 1}`;
+                            activeNames.push(name);
+                          };
+                          pushActive(successionIndex, isPrimaryRunning);
+                          pushActive(successionShadowIndex, isShadowRunning);
 
-                          // Primary still running.
-                          if (isPrimaryRunning) {
-                            return `Importing ${successionIndex + 1} of ${totalCount} companies`;
-                          }
+                          const activeSuffix = activeNames.length > 0
+                            ? ` — currently ${activeNames.join(", ")}`
+                            : "";
 
-                          // Only shadow still running — primary already advanced
-                          // off the end. Show "Finishing X of N" to make it
-                          // clear that work continues even though the queue is
-                          // out of new dispatches.
-                          if (isShadowRunning) {
-                            const idx = successionShadowIndex >= 0 ? successionShadowIndex + 1 : completedCount + 1;
-                            return `Finishing ${idx} of ${totalCount} companies (${completedCount} done)`;
-                          }
-
-                          return `Importing ${completedCount + 1} of ${totalCount} companies`;
+                          return `Imported ${completedCount} of ${totalCount} companies${activeSuffix}`;
                         })()
                       : `Succession complete: ${successionResults.length} imports processed`}
                   </div>
