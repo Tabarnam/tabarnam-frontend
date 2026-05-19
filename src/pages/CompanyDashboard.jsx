@@ -3779,10 +3779,26 @@ export default function CompanyDashboard() {
                             const dupDomains = Number(bodyJson?.duplicate_domains ?? 0);
                             if (processed > 0) {
                               toast.success(`Merged ${dupCount} duplicate(s) for ${domain}`);
-                              loadCompanies({ search: search.trim(), take });
+                              // Optimistically clear the badge on this row so the UI
+                              // updates instantly (Cosmos eventual consistency can
+                              // delay the dedup recomputation on next refresh).
+                              const rowId = getCompanyId(row);
+                              if (rowId) {
+                                updateCompanyInState(rowId, { _duplicates_count: 0, _duplicate_ids: [] });
+                              }
+                              // Also refresh from the server after a brief delay so
+                              // Cosmos has a moment to propagate the soft-delete.
+                              setTimeout(() => loadCompanies({ search: search.trim(), take }), 1500);
                             } else if (dupDomains === 0) {
-                              const msg = bodyJson?.message || `No mergeable duplicates found in Cosmos for ${domain} (matched_docs=${matchedDocs})`;
-                              toast.warning(msg);
+                              // Backend reports no dupes in Cosmos but our admin row
+                              // still has _duplicates_count. The cache is stale —
+                              // clear it locally so the badge goes away.
+                              const rowId = getCompanyId(row);
+                              if (rowId) {
+                                updateCompanyInState(rowId, { _duplicates_count: 0, _duplicate_ids: [] });
+                              }
+                              const msg = bodyJson?.message || `No duplicates found in Cosmos for ${domain} — clearing stale badge`;
+                              toast.info(msg);
                             } else {
                               toast.warning(`No domains processed (matched_docs=${matchedDocs}, dup_domains=${dupDomains})`);
                             }
