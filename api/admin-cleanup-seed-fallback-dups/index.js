@@ -446,7 +446,10 @@ async function cleanupHandler(req, context) {
 }
 
 app.http("admin-cleanup-seed-fallback-dups", {
-  route: "admin/cleanup-seed-fallback-dups",
+  // Use xadmin-api-* prefix instead of admin/* to avoid SWA route collision.
+  // The static-web-app config has SPA routes for /admin and /admin/* that
+  // intercept /api/admin/* requests before they reach the Function App.
+  route: "xadmin-api-cleanup-seed-fallback-dups",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: cleanupHandler,

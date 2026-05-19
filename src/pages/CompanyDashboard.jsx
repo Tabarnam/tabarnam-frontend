@@ -3752,7 +3752,7 @@ export default function CompanyDashboard() {
                       }
                       const idList = dupIds.length > 0 ? `\n\nDuplicate IDs:\n${dupIds.join("\n")}` : "";
                       if (!window.confirm(`Merge ${dupCount} duplicate(s) for ${domain} into this record?${idList}`)) return;
-                      apiFetch("/admin/cleanup-seed-fallback-dups", {
+                      apiFetch("/xadmin-api-cleanup-seed-fallback-dups", {
                         method: "POST",
                         body: { normalized_domain: domain, dry_run: false },
                       })
