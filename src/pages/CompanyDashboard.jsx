@@ -3731,37 +3731,47 @@ export default function CompanyDashboard() {
 
           return (
             <div className="flex flex-wrap gap-[6px]">
-              {dupCount > 0 && (
-                <span
-                  title={`${dupCount} duplicate record${dupCount === 1 ? "" : "s"} with same domain`}
-                  className="rounded-full bg-red-50 border border-red-300 px-2 py-0.5 text-[11px] text-red-800 cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const domain = asString(row?.normalized_domain).trim();
-                    if (!domain || domain === "unknown") {
-                      toast.error("No domain to merge");
-                      return;
-                    }
-                    if (!window.confirm(`Merge ${dupCount} duplicate(s) for ${domain} into this record?`)) return;
-                    apiFetch("/admin/cleanup-seed-fallback-dups", {
-                      method: "POST",
-                      body: { normalized_domain: domain, dry_run: false },
-                    })
-                      .then((r) => r.json().catch(() => ({})))
-                      .then((data) => {
-                        if (data?.ok) {
-                          toast.success(`Merged ${dupCount} duplicate(s) for ${domain}`);
-                          loadCompanies({ search: search.trim(), take });
-                        } else {
-                          toast.error(`Merge failed: ${data?.error || "unknown error"}`);
-                        }
+              {dupCount > 0 && (() => {
+                const dupIds = Array.isArray(row?._duplicate_ids) ? row._duplicate_ids.filter(Boolean) : [];
+                const domain = asString(row?.normalized_domain).trim();
+                const tooltipLines = [
+                  `${dupCount} duplicate record${dupCount === 1 ? "" : "s"} with normalized_domain="${domain}"`,
+                  ...(dupIds.length > 0 ? ["", "Duplicate IDs:", ...dupIds] : []),
+                  "",
+                  "Click to merge duplicates into this record.",
+                ];
+                return (
+                  <span
+                    title={tooltipLines.join("\n")}
+                    className="rounded-full bg-red-50 border border-red-300 px-2 py-0.5 text-[11px] text-red-800 cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!domain || domain === "unknown") {
+                        toast.error("No domain to merge");
+                        return;
+                      }
+                      const idList = dupIds.length > 0 ? `\n\nDuplicate IDs:\n${dupIds.join("\n")}` : "";
+                      if (!window.confirm(`Merge ${dupCount} duplicate(s) for ${domain} into this record?${idList}`)) return;
+                      apiFetch("/admin/cleanup-seed-fallback-dups", {
+                        method: "POST",
+                        body: { normalized_domain: domain, dry_run: false },
                       })
-                      .catch((err) => toast.error(`Merge failed: ${err?.message || "unknown"}`));
-                  }}
-                >
-                  {dupCount} dup{dupCount === 1 ? "" : "s"}
-                </span>
-              )}
+                        .then((r) => r.json().catch(() => ({})))
+                        .then((data) => {
+                          if (data?.ok) {
+                            toast.success(`Merged ${dupCount} duplicate(s) for ${domain}`);
+                            loadCompanies({ search: search.trim(), take });
+                          } else {
+                            toast.error(`Merge failed: ${data?.error || "unknown error"}`);
+                          }
+                        })
+                        .catch((err) => toast.error(`Merge failed: ${err?.message || "unknown"}`));
+                    }}
+                  >
+                    {dupCount} dup{dupCount === 1 ? "" : "s"}
+                  </span>
+                );
+              })()}
               {tags.map((t, idx) => {
                 const label = formatContractMissingField(t);
                 const key = `${t}-${idx}`;
