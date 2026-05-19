@@ -3756,16 +3756,50 @@ export default function CompanyDashboard() {
                         method: "POST",
                         body: { normalized_domain: domain, dry_run: false },
                       })
-                        .then((r) => r.json().catch(() => ({})))
-                        .then((data) => {
-                          if (data?.ok) {
-                            toast.success(`Merged ${dupCount} duplicate(s) for ${domain}`);
-                            loadCompanies({ search: search.trim(), take });
-                          } else {
-                            toast.error(`Merge failed: ${data?.error || "unknown error"}`);
+                        .then(async (r) => {
+                          // Try JSON first, fall back to text so we surface the real error.
+                          const ct = r.headers?.get?.("content-type") || "";
+                          let bodyJson = null;
+                          let bodyText = "";
+                          try {
+                            if (ct.includes("application/json")) {
+                              bodyJson = await r.json();
+                            } else {
+                              bodyText = await r.text();
+                            }
+                          } catch (e) {
+                            try { bodyText = await r.text(); } catch { /* ignore */ }
                           }
+                          return { status: r.status, ok: r.ok, bodyJson, bodyText };
                         })
-                        .catch((err) => toast.error(`Merge failed: ${err?.message || "unknown"}`));
+                        .then(({ status, ok, bodyJson, bodyText }) => {
+                          if (ok && bodyJson?.ok) {
+                            const processed = Number(bodyJson?.processed_domains ?? 0);
+                            const matchedDocs = Number(bodyJson?.matched_docs ?? 0);
+                            const dupDomains = Number(bodyJson?.duplicate_domains ?? 0);
+                            if (processed > 0) {
+                              toast.success(`Merged ${dupCount} duplicate(s) for ${domain}`);
+                              loadCompanies({ search: search.trim(), take });
+                            } else if (dupDomains === 0) {
+                              const msg = bodyJson?.message || `No mergeable duplicates found in Cosmos for ${domain} (matched_docs=${matchedDocs})`;
+                              toast.warning(msg);
+                            } else {
+                              toast.warning(`No domains processed (matched_docs=${matchedDocs}, dup_domains=${dupDomains})`);
+                            }
+                            return;
+                          }
+                          const detail = bodyJson?.error
+                            ? bodyJson.error + (bodyJson?.details ? ` — ${JSON.stringify(bodyJson.details)}` : "")
+                            : (bodyText?.slice(0, 200) || "no body");
+                          toast.error(`Merge failed (HTTP ${status}): ${detail}`);
+                          // eslint-disable-next-line no-console
+                          console.error("[merge-dups] failed", { status, bodyJson, bodyText });
+                        })
+                        .catch((err) => {
+                          toast.error(`Merge request failed: ${err?.message || "unknown"}`);
+                          // eslint-disable-next-line no-console
+                          console.error("[merge-dups] request error", err);
+                        });
                     }}
                   >
                     {dupCount} dup{dupCount === 1 ? "" : "s"}
