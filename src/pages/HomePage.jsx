@@ -16,11 +16,19 @@ export default function HomePage() {
       <main className="min-h-[calc(100vh-2rem)] flex flex-col items-center pt-12 pb-16 px-4">
         {/* Upper 1/3 logo */}
         <Link to="/" className="mb-8 inline-block">
-          <img
-            src="/tabarnam.png"
-            alt="Tabarnam™"
-            className="h-16 sm:h-20 md:h-24 transition-transform duration-150 hover:scale-[1.04] dark:brightness-110"
-          />
+          <span className="relative inline-block transition-transform duration-150 hover:scale-[1.04]">
+            <img
+              src="/tabarnam.png"
+              alt="Tabarnam™"
+              className="h-16 sm:h-20 md:h-24 dark:brightness-110"
+            />
+            <sup
+              aria-hidden="true"
+              className="absolute top-0 -right-5 sm:-right-6 md:-right-7 text-sm sm:text-base md:text-lg font-semibold text-foreground/80 select-none"
+            >
+              TM
+            </sup>
+          </span>
         </Link>
 
         {/* Tagline */}

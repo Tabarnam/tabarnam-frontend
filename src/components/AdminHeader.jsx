@@ -141,7 +141,15 @@ export default function AdminHeader() {
       <div className="p-4 flex items-end justify-between gap-4">
         <div className="flex items-end gap-4">
           <Link to="/" className="flex items-end" aria-label="Tabarnam home">
-            <img src="/tabarnam.png" alt="Tabarnam" className="h-[5rem] w-auto" />
+            <span className="relative inline-block">
+              <img src="/tabarnam.png" alt="Tabarnam™" className="h-[5rem] w-auto" />
+              <sup
+                aria-hidden="true"
+                className="absolute top-1 -right-4 text-xs font-semibold text-white/80 select-none"
+              >
+                TM
+              </sup>
+            </span>
           </Link>
           <div className="flex flex-col gap-2">
             <span className="text-2xl font-bold text-white">Admin</span>

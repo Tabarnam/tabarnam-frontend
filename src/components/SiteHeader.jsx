@@ -14,11 +14,19 @@ const SiteHeader = () => {
     <header className="sticky top-0 z-40 bg-background/70 backdrop-blur border-b border-border">
       <div className="max-w-6xl mx-auto flex items-center justify-between p-3">
         <Link to="/" className="inline-block" aria-label="Tabarnam home">
-          <img
-            src="/tabarnam.png"
-            alt="Tabarnam"
-            className="h-10 transition-transform duration-150 ease-out hover:scale-[1.04] dark:brightness-110"
-          />
+          <span className="relative inline-block transition-transform duration-150 ease-out hover:scale-[1.04]">
+            <img
+              src="/tabarnam.png"
+              alt="Tabarnam™"
+              className="h-10 dark:brightness-110"
+            />
+            <sup
+              aria-hidden="true"
+              className="absolute -top-0.5 -right-3 text-[10px] font-semibold text-foreground/80 select-none"
+            >
+              TM
+            </sup>
+          </span>
         </Link>
       </div>
     </header>
