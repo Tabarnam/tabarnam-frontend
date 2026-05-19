@@ -628,8 +628,21 @@ export default function ResultsPage() {
       // manufacturing distance; sort=hq ranks by nearest HQ distance. Same
       // comparator, just a different distance field. Stars / recent /
       // relevance sorts keep API order.
+      //
+      // EXACT-NAME ANCHOR: when the user typed a specific brand name and
+      // exactly one (or a few) companies match the name exactly, those
+      // companies must rank above all distance-sorted results regardless of
+      // how far their HQ or manufacturing is. Otherwise a search for "Mad
+      // Cave Studios" with "Nearest Headquarters" sort buries the actual
+      // Mad Cave Studios behind every closer-by company that has even a
+      // weak keyword overlap. nameScore >= 100 = exact match (computed by
+      // the backend's computeNameMatchScore); anything below that respects
+      // the user's chosen proximity sort.
       const withDistances = (sort === "manu" || sort === "hq")
         ? distanced.slice().sort((a, b) => {
+            const exactA = (a._nameMatchScore || 0) >= 100 ? 1 : 0;
+            const exactB = (b._nameMatchScore || 0) >= 100 ? 1 : 0;
+            if (exactA !== exactB) return exactB - exactA;
             const distA = sort === "manu" ? (a._nearestManuDist ?? Infinity) : (a._hqDist ?? Infinity);
             const distB = sort === "manu" ? (b._nearestManuDist ?? Infinity) : (b._hqDist ?? Infinity);
             return distA - distB;
@@ -768,6 +781,15 @@ export default function ResultsPage() {
 
     const arr = [...results];
     arr.sort((a, b) => {
+      // Exact-name anchor (same rule as the backend-response sort above):
+      // when the user typed a specific brand and a company exactly matches
+      // the name (nameScore >= 100), that company outranks every other
+      // result regardless of which column the user is sorting by. They
+      // typed the name — they want that company on top, full stop.
+      const exactA = (a._nameMatchScore || 0) >= 100 ? 1 : 0;
+      const exactB = (b._nameMatchScore || 0) >= 100 ? 1 : 0;
+      if (exactA !== exactB) return exactB - exactA;
+
       let primary;
       if (sortBy === "stars") {
         primary = (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity);
