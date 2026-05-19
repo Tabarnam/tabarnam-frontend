@@ -344,7 +344,13 @@ export function buildCompanyDraft(company) {
     ),
     manufacturing_locations: normalizeStructuredLocationList(manuBase),
     industries: normalizeStringList(baseCompany?.industries),
-    keywords: normalizeStringList(baseCompany?.keywords || baseCompany?.product_keywords),
+    keywords: (() => {
+      // [] is truthy in JS so `keywords || product_keywords` short-circuits
+      // when keywords is empty. Explicitly fall through when the array yields
+      // no entries so we read product_keywords (string form) instead.
+      const fromArr = normalizeStringList(baseCompany?.keywords);
+      return fromArr.length > 0 ? fromArr : normalizeStringList(baseCompany?.product_keywords);
+    })(),
     amazon_url: asString(baseCompany?.amazon_url).trim(),
     amazon_store_url: asString(baseCompany?.amazon_store_url).trim(),
     affiliate_link_urls: normalizeStringList(baseCompany?.affiliate_link_urls),
