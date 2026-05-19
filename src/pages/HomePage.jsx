@@ -24,7 +24,7 @@ export default function HomePage() {
             />
             <sup
               aria-hidden="true"
-              className="absolute top-0 -right-5 sm:-right-6 md:-right-7 text-sm sm:text-base md:text-lg font-semibold text-foreground/80 select-none"
+              className="absolute top-1 right-0 text-[10px] sm:text-xs md:text-sm font-semibold text-primary leading-none select-none"
             >
               TM
             </sup>

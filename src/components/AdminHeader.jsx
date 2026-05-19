@@ -145,7 +145,7 @@ export default function AdminHeader() {
               <img src="/tabarnam.png" alt="Tabarnam™" className="h-[5rem] w-auto" />
               <sup
                 aria-hidden="true"
-                className="absolute top-1 -right-4 text-xs font-semibold text-white/80 select-none"
+                className="absolute top-2 right-0 text-[9px] font-semibold text-primary leading-none select-none"
               >
                 TM
               </sup>
