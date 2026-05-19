@@ -5583,7 +5583,23 @@ export default function AdminImport() {
                   }
                   stopImport();
                 }}
-                disabled={!activeSessionId || !activeRun?.session_id_confirmed || (activeStatus !== "running" && activeStatus !== "stopping" && !activeRun?.resume_needed)}
+                disabled={
+                  // Phase 4.22 — succession mode must always allow Stop while
+                  // the batch is running. Pre-4.22 the disable check looked
+                  // only at the single-session activeRun, so when Slot A's
+                  // session got stuck without session_id_confirmed (e.g. status
+                  // poll 404 from the pre-4.20 verifyEnrichment regression),
+                  // the Stop button greyed out and the user had no escape
+                  // hatch despite a running batch with rows still in flight.
+                  // Succession mode bypasses the single-session gate — the
+                  // onClick handler (above) already does the right thing for
+                  // both modes.
+                  !isSuccessionRunning && (
+                    !activeSessionId ||
+                    !activeRun?.session_id_confirmed ||
+                    (activeStatus !== "running" && activeStatus !== "stopping" && !activeRun?.resume_needed)
+                  )
+                }
               >
                 {activeStatus === "stopping" ? (
                   <>
