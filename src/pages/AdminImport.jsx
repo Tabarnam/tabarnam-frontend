@@ -4549,7 +4549,26 @@ export default function AdminImport() {
   // unblocks the batch within ~30s of crossing the timeout threshold.
   useEffect(() => {
     const rawTimeout = Number(import.meta.env?.VITE_BULK_DISPATCH_TIMEOUT_MS);
-    const TIMEOUT_MS = Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : 300_000; // 5 min default
+    // Phase 4.23 — default raised 300_000 (5 min) -> 660_000 (11 min).
+    //
+    // The pre-4.23 5-min cap was SHORTER than the backend's own per-company
+    // enrichment budget (effectiveDeadlineMs = 510_000 = 8.5 min, handler
+    // hard cap ~9.5 min). Any company that legitimately took 5-9.5 min got
+    // force-marked timedOut/error by this watchdog — a red ✗ in the UI —
+    // while the backend went on to finish it successfully a minute or two
+    // later. Empirical (2026-05-20 batch): Storied Folk finished on the
+    // backend at 5.85 min with all 6 fields populated, Undo Hairware at
+    // 6.7 min with 5/6 — both showed ✗ in the UI because the 5-min
+    // watchdog fired first.
+    //
+    // 11 min sits comfortably past the backend's 9.5-min handler hard cap,
+    // so the backend ALWAYS writes a terminal status (success or failure)
+    // before this watchdog can fire. The watchdog is now a true
+    // last-resort for genuinely dead slots, not a premature killer of
+    // slow-but-working imports. Speed is not a batch constraint, so the
+    // longer worst-case unblock time is an acceptable trade for accurate
+    // success/failure reporting.
+    const TIMEOUT_MS = Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : 660_000; // 11 min default
     // VITE_BULK_DISPATCH_TIMEOUT_MS=0 disables the watchdog (debug only)
     if (rawTimeout === 0) return;
 
