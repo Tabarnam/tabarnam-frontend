@@ -503,14 +503,35 @@ export default function AdminImport() {
     //
     // If there are NO in-flight rows (all completed), heldByRunId is "".
     const heldByRunId = (() => {
+      // Phase 4.24 — Signals 1-3 must exclude completed runs.
+      //
+      // Pre-4.24 these three loops iterated ALL runs with no completed
+      // check. A finished company whose closing telemetry patch never
+      // landed (xai_canonical_finished_at / xai_lock_released_at — common
+      // when a status poll is missed) keeps a dangling "started but not
+      // finished" marker. Signal 1 then returns that ghost session
+      // forever. Because the ghost isn't one of the in-flight rows,
+      // NEITHER visible row is the lock-holder → both flip to
+      // waiting_for_xai and no blue spinner ever shows. Observed
+      // 2026-05-20: a 39-company batch where every in-flight pair
+      // rendered the amber throbbing logo.
+      //
+      // A run that is completed / stopped / timed-out CANNOT hold the
+      // lock regardless of what stale markers it carries. Signals 4-5
+      // (candidates array below) already filter !completed; Signals 1-3
+      // now do too.
+      const isRunDone = (r) => Boolean(r?.completed || r?.stopped || r?.timedOut);
+
       // Signal 1: canonical in progress.
       for (const r of runs) {
+        if (isRunDone(r)) continue;
         const startedAt = r?.resume_worker?.xai_canonical_started_at;
         const finishedAt = r?.resume_worker?.xai_canonical_finished_at;
         if (startedAt && !finishedAt) return asString(r.session_id).trim();
       }
       // Signal 2: lock acquired but not released.
       for (const r of runs) {
+        if (isRunDone(r)) continue;
         const acquiredAt = Date.parse(r?.resume_worker?.xai_lock_acquired_at || "") || 0;
         const releasedAt = Date.parse(r?.resume_worker?.xai_lock_released_at || "") || 0;
         if (acquiredAt && (!releasedAt || acquiredAt > releasedAt)) {
@@ -519,6 +540,7 @@ export default function AdminImport() {
       }
       // Signal 3: explicit "held" status string (laggy fallback).
       for (const r of runs) {
+        if (isRunDone(r)) continue;
         const s = r?.resume_worker?.xai_lock_status;
         if (s === "held") return asString(r.session_id).trim();
       }
