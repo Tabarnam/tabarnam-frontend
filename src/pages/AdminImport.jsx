@@ -503,35 +503,49 @@ export default function AdminImport() {
     //
     // If there are NO in-flight rows (all completed), heldByRunId is "".
     const heldByRunId = (() => {
-      // Phase 4.24 — Signals 1-3 must exclude completed runs.
+      // Phase 4.25 — scope the lock-holder election to ONLY the two
+      // currently in-flight slot sessions (primary + shadow).
       //
-      // Pre-4.24 these three loops iterated ALL runs with no completed
-      // check. A finished company whose closing telemetry patch never
-      // landed (xai_canonical_finished_at / xai_lock_released_at — common
-      // when a status poll is missed) keeps a dangling "started but not
-      // finished" marker. Signal 1 then returns that ghost session
-      // forever. Because the ghost isn't one of the in-flight rows,
-      // NEITHER visible row is the lock-holder → both flip to
-      // waiting_for_xai and no blue spinner ever shows. Observed
-      // 2026-05-20: a 39-company batch where every in-flight pair
-      // rendered the amber throbbing logo.
+      // Pre-4.25 the election scanned the entire `runs` array. `runs`
+      // accumulates EVERY session across EVERY batch in the page session
+      // (setRuns prepends; it's never cleared between batches). A stuck
+      // or un-terminated run from a PRIOR batch — one that never got
+      // completed/stopped/timedOut set — stays "in-flight" forever from
+      // the election's point of view. It wins Signal 1 (dangling
+      // canonical marker) or Signal 5 (earliest startedAt, since a prior
+      // batch started earlier), so heldByRunId points at a session that
+      // isn't even in the current batch. Neither visible row matches →
+      // both flip to waiting_for_xai → both render the amber throbbing
+      // logo, no blue spinner. Observed 2026-05-20 on a fresh 6-company
+      // batch (Stila / Kulfi Beauty) right after a 39-company batch.
       //
-      // A run that is completed / stopped / timed-out CANNOT hold the
-      // lock regardless of what stale markers it carries. Signals 4-5
-      // (candidates array below) already filter !completed; Signals 1-3
-      // now do too.
+      // Phase 4.24 added completed-run guards to Signals 1-3, but a
+      // *stuck* prior-batch run isn't "completed" — so it still leaked
+      // through. The correct scope is structural: with XAI_CONCURRENCY=1
+      // the lock holder is, by definition, one of the two live slot
+      // sessions. Restrict the entire election to that set.
       const isRunDone = (r) => Boolean(r?.completed || r?.stopped || r?.timedOut);
 
+      const inFlightIds = new Set();
+      const primaryId = asString(activeSessionId).trim();
+      const shadowId = asString(shadowSessionId).trim();
+      if (isPrimaryRunning && primaryId) inFlightIds.add(primaryId);
+      if (isShadowRunning && shadowId) inFlightIds.add(shadowId);
+
+      const inFlightRuns = runs.filter(
+        (r) => inFlightIds.has(asString(r?.session_id).trim()) && !isRunDone(r)
+      );
+      if (inFlightRuns.length === 0) return "";
+      if (inFlightRuns.length === 1) return asString(inFlightRuns[0].session_id).trim();
+
       // Signal 1: canonical in progress.
-      for (const r of runs) {
-        if (isRunDone(r)) continue;
+      for (const r of inFlightRuns) {
         const startedAt = r?.resume_worker?.xai_canonical_started_at;
         const finishedAt = r?.resume_worker?.xai_canonical_finished_at;
         if (startedAt && !finishedAt) return asString(r.session_id).trim();
       }
       // Signal 2: lock acquired but not released.
-      for (const r of runs) {
-        if (isRunDone(r)) continue;
+      for (const r of inFlightRuns) {
         const acquiredAt = Date.parse(r?.resume_worker?.xai_lock_acquired_at || "") || 0;
         const releasedAt = Date.parse(r?.resume_worker?.xai_lock_released_at || "") || 0;
         if (acquiredAt && (!releasedAt || acquiredAt > releasedAt)) {
@@ -539,23 +553,20 @@ export default function AdminImport() {
         }
       }
       // Signal 3: explicit "held" status string (laggy fallback).
-      for (const r of runs) {
-        if (isRunDone(r)) continue;
+      for (const r of inFlightRuns) {
         const s = r?.resume_worker?.xai_lock_status;
         if (s === "held") return asString(r.session_id).trim();
       }
-      // Signals 4 + 5: pick the most-likely candidate among in-flight rows.
-      // With XAI_CONCURRENCY=1, ONE of them MUST hold the lock — even if
-      // none of signals 1-3 have surfaced yet (early startup window where
-      // patches haven't landed).
-      const candidates = runs
+      // Signals 4 + 5: pick the most-likely candidate. With
+      // XAI_CONCURRENCY=1, ONE of the in-flight pair MUST hold the lock
+      // even before signals 1-3 surface (early startup window).
+      const candidates = inFlightRuns
         .map((r) => ({
           sessionId: asString(r?.session_id).trim(),
           waitStartedAt: Date.parse(r?.resume_worker?.xai_lock_wait_started_at || "") || 0,
           startedAt: Date.parse(r?.startedAt || "") || 0,
-          completed: Boolean(r?.completed || r?.stopped || r?.timedOut),
         }))
-        .filter((c) => c.sessionId && !c.completed);
+        .filter((c) => c.sessionId);
       if (candidates.length === 0) return "";
       candidates.sort((a, b) => {
         if (a.waitStartedAt && b.waitStartedAt && a.waitStartedAt !== b.waitStartedAt) {
@@ -694,6 +705,7 @@ export default function AdminImport() {
     isShadowRunning,
     successionShadowIndex,
     shadowSessionId,
+    activeSessionId, // Phase 4.25 — lock-holder election scopes to in-flight slot sessions
   ]);
 
   useEffect(() => {
