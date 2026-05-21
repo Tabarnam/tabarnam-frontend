@@ -120,7 +120,9 @@ export default function App() {
               <Route path="/results" element={<ResultsPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/about" element={<AboutPage />} />
-              <Route path="/help" element={<HelpPage />} />
+              <Route path="/how-it-works" element={<HelpPage />} />
+              {/* legacy redirect — /help shipped before the rename */}
+              <Route path="/help" element={<Navigate to="/how-it-works" replace />} />
 
               {/* auth */}
               <Route path="/login" element={<Login />} />

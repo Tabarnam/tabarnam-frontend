@@ -22,7 +22,7 @@ function learnMore(anchor) {
   return {
     text: 'Learn more',
     secondary: true,
-    action() { window.open(`/help${anchor}`, '_blank', 'noopener'); },
+    action() { window.open(`/how-it-works${anchor}`, '_blank', 'noopener'); },
   };
 }
 

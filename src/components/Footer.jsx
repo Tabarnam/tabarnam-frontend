@@ -7,7 +7,7 @@ const Footer = () => {
       <div className="max-w-5xl mx-auto text-center">
         <nav className="flex items-center justify-center gap-4 mb-2 text-xs">
           <Link
-            to="/help"
+            to="/how-it-works"
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
             How it works
