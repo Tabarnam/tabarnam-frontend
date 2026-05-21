@@ -3,7 +3,7 @@ dist/
 .swa/
 # Root index.html must be tracked for Vite build (not deployed; SWA uses dist/)
 # Do NOT ignore it here.
-staticwebapp.config.json  # Keep only in public/ for Vite to copy to dist/
+/staticwebapp.config.json  # Keep only in public/ for Vite to copy to dist/
 
 # === Local env & secrets (never commit) ===
 .env

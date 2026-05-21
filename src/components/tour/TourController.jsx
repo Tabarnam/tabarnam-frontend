@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import Shepherd from 'shepherd.js';
-
-const TOUR_SEEN_KEY = 'tabarnam_tour_v1_seen';
-const TOUR_PROGRESS_KEY = 'tabarnam_tour_v1_progress';
-const CANNED_QUERY = 'organic soap';
-const RESULTS_PATH = '/results';
-const HOME_PATH = '/';
+import {
+  decideTourMode,
+  TOUR_SEEN_KEY,
+  TOUR_PROGRESS_KEY,
+  CANNED_QUERY,
+  RESULTS_PATH,
+} from './decideTourMode';
 
 function safeRead(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -99,7 +99,7 @@ function buildResultsSteps(tour) {
   ];
 }
 
-function makeTour() {
+function makeTour(Shepherd) {
   return new Shepherd.Tour({
     useModalOverlay: true,
     defaultStepOptions: {
@@ -136,19 +136,13 @@ export default function TourController() {
   const tourRef = useRef(null);
 
   useEffect(() => {
-    if (safeRead(TOUR_SEEN_KEY)) return;
-
-    const isHome = pathname === HOME_PATH;
-    const isResults = pathname === RESULTS_PATH;
-    if (!isHome && !isResults) return;
-
-    const progress = safeRead(TOUR_PROGRESS_KEY);
-    const tourParam = new URLSearchParams(search).get('tour') === '1';
-
-    // Home: only start fresh if no progress (avoid restarting after handoff back-nav)
-    if (isHome && progress) return;
-    // Results: only resume if mid-tour (progress) or explicit ?tour=1 deep link
-    if (isResults && !progress && !tourParam) return;
+    const mode = decideTourMode({
+      pathname,
+      search,
+      seen: safeRead(TOUR_SEEN_KEY),
+      progress: safeRead(TOUR_PROGRESS_KEY),
+    });
+    if (!mode) return;
 
     let cancelled = false;
     let isUnmounting = false;
@@ -162,9 +156,9 @@ export default function TourController() {
       tourRef.current = null;
     };
 
-    const startHome = () => {
+    const startHome = (Shepherd) => {
       if (cancelled || tourRef.current) return;
-      const tour = makeTour();
+      const tour = makeTour(Shepherd);
       const onHandoff = () => {
         // Mark progress so the results-mount knows to resume; do not write seen=1.
         safeWrite(TOUR_PROGRESS_KEY, 'results');
@@ -180,7 +174,7 @@ export default function TourController() {
       tour.start();
     };
 
-    const startResults = async () => {
+    const startResults = async (Shepherd) => {
       if (cancelled || tourRef.current) return;
       const ready = await waitForElements(
         ['[data-tour-step="sort-header-qq"]', '[data-tour-step="expandable-row"]'],
@@ -193,7 +187,7 @@ export default function TourController() {
         safeRemove(TOUR_PROGRESS_KEY);
         return;
       }
-      const tour = makeTour();
+      const tour = makeTour(Shepherd);
       buildResultsSteps(tour).forEach((step) => tour.addStep(step));
       tour.on('complete', finalize);
       tour.on('cancel', finalize);
@@ -201,7 +195,16 @@ export default function TourController() {
       tour.start();
     };
 
-    const start = isHome ? startHome : startResults;
+    const start = async () => {
+      if (cancelled) return;
+      // Lazy-load Shepherd so its ~50KB stays out of the main bundle — the
+      // tour only runs for first-time visitors; returning visitors never
+      // download it.
+      const { default: Shepherd } = await import('shepherd.js');
+      if (cancelled) return;
+      if (mode === 'home') startHome(Shepherd);
+      else await startResults(Shepherd);
+    };
 
     if (window.requestIdleCallback) {
       idleHandle = window.requestIdleCallback(start, { timeout: 800 });
