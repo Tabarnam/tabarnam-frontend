@@ -48,6 +48,11 @@
       "rewrite": "/api/{*path}"
     },
     {
+      "route": "/help",
+      "redirect": "/how-it-works",
+      "statusCode": 301
+    },
+    {
       "route": "/admin",
       "allowedRoles": ["anonymous"],
       "headers": { "X-Robots-Tag": "noindex, nofollow" }
