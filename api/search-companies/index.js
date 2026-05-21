@@ -2060,20 +2060,50 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           Array.isArray(primary.industries) &&
           primary.industries.length > 0
         ) {
-          // Cap how many of the primary's industries we look up — most brands
-          // have 1-3 meaningful tags; capping at 5 keeps the SQL bounded.
-          const seedIndustries = primary.industries
-            .map((ind) => String(ind || "").toLowerCase().trim())
-            .filter(Boolean)
-            .slice(0, 5);
-          if (seedIndustries.length > 0) {
+          // Comp retrieval used to require another company's industry tag to
+          // EXACTLY equal one of the primary's. In a catalog with ~21k
+          // near-unique industry labels, a brand like Skindinavia (industry
+          // "Makeup Setting Sprays") shares that exact tag with nobody — so
+          // the comp query returned empty and the user saw only the brand.
+          //
+          // Instead, tokenize the primary's industry tags into significant
+          // words and find companies whose industry tags CONTAIN any of those
+          // words. "Makeup Setting Sprays" → {makeup, setting, spray} →
+          // matches every cosmetics/makeup/spray company. Generic business
+          // filler ("manufacturing", "products", "co", etc.) is dropped so
+          // it doesn't match everything.
+          const INDUSTRY_STOPWORDS = new Set([
+            "and", "the", "of", "for", "with", "in", "on", "to", "by",
+            "a", "an", "or",
+            "manufacturing", "manufacturer", "production", "products",
+            "product", "company", "companies", "retail", "wholesale",
+            "services", "service", "supply", "supplies", "brand", "brands",
+            "goods", "store", "shop", "co", "inc", "llc", "industry",
+            "industries", "general",
+          ]);
+          const industryWords = new Set();
+          for (const ind of primary.industries) {
+            for (const raw of String(ind || "").toLowerCase().split(/\s+/)) {
+              const w = raw.replace(/[^a-z0-9]/g, "");
+              if (w.length < 3 || INDUSTRY_STOPWORDS.has(w)) continue;
+              industryWords.add(w);
+              const stemmed = simpleStem(w);
+              if (stemmed && stemmed !== w && stemmed.length >= 3) {
+                industryWords.add(stemmed);
+              }
+            }
+          }
+          // Cap at 8 distinct words to keep the SQL bounded.
+          const seedWords = [...industryWords].slice(0, 8);
+          if (seedWords.length > 0) {
             const indParams = [{ name: "@indTake", value: 50 }];
-            const indClauses = seedIndustries.map((ind, i) => {
-              const p = `@ind${i}`;
-              indParams.push({ name: p, value: ind });
-              // EXISTS over c.industries with LOWER() so the match is
-              // case-insensitive against however the data was stored.
-              return `EXISTS(SELECT VALUE x FROM x IN c.industries WHERE LOWER(x) = ${p})`;
+            const indClauses = seedWords.map((word, i) => {
+              const p = `@iw${i}`;
+              indParams.push({ name: p, value: word });
+              // CONTAINS over each industry tag (lower-cased) so a company
+              // whose tag merely includes the word — "Cosmetics & Makeup",
+              // "Facial Setting Spray" — counts as a comp.
+              return `EXISTS(SELECT VALUE x FROM x IN c.industries WHERE CONTAINS(LOWER(x), ${p}))`;
             });
             const indSql = `
               SELECT TOP @indTake ${SELECT_FIELDS}
