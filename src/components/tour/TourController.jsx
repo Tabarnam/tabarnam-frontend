@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Shepherd from 'shepherd.js';
-
-const TOUR_SEEN_KEY = 'tabarnam_tour_v1_seen';
-const TOUR_PROGRESS_KEY = 'tabarnam_tour_v1_progress';
-const CANNED_QUERY = 'organic soap';
-const RESULTS_PATH = '/results';
-const HOME_PATH = '/';
+import {
+  decideTourMode,
+  TOUR_SEEN_KEY,
+  TOUR_PROGRESS_KEY,
+  CANNED_QUERY,
+  RESULTS_PATH,
+} from './decideTourMode';
 
 function safeRead(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -136,19 +137,13 @@ export default function TourController() {
   const tourRef = useRef(null);
 
   useEffect(() => {
-    if (safeRead(TOUR_SEEN_KEY)) return;
-
-    const isHome = pathname === HOME_PATH;
-    const isResults = pathname === RESULTS_PATH;
-    if (!isHome && !isResults) return;
-
-    const progress = safeRead(TOUR_PROGRESS_KEY);
-    const tourParam = new URLSearchParams(search).get('tour') === '1';
-
-    // Home: only start fresh if no progress (avoid restarting after handoff back-nav)
-    if (isHome && progress) return;
-    // Results: only resume if mid-tour (progress) or explicit ?tour=1 deep link
-    if (isResults && !progress && !tourParam) return;
+    const mode = decideTourMode({
+      pathname,
+      search,
+      seen: safeRead(TOUR_SEEN_KEY),
+      progress: safeRead(TOUR_PROGRESS_KEY),
+    });
+    if (!mode) return;
 
     let cancelled = false;
     let isUnmounting = false;
@@ -201,7 +196,7 @@ export default function TourController() {
       tour.start();
     };
 
-    const start = isHome ? startHome : startResults;
+    const start = mode === 'home' ? startHome : startResults;
 
     if (window.requestIdleCallback) {
       idleHandle = window.requestIdleCallback(start, { timeout: 800 });

@@ -1,26 +1,8 @@
-import { useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { useLocation } from 'react-router-dom';
 import { Building2 } from 'lucide-react';
 
 export default function AboutPage() {
   const contactEmail = 'duh@tabarnam.com';
-  const { hash } = useLocation();
-
-  useEffect(() => {
-    if (!hash) {
-      // Plain /about arrival — start at top. React Router doesn't reset scroll on SPA nav.
-      try { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch { window.scrollTo(0, 0); }
-      return;
-    }
-    const id = hash.slice(1);
-    const t = setTimeout(() => {
-      try {
-        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } catch {}
-    }, 50);
-    return () => clearTimeout(t);
-  }, [hash]);
   const description =
     'Tabarnam is a product transparency platform and mobile app that helps consumers and businesses discover where products are manufactured, compare headquarters vs. production locations, explore company profiles, reviews, and tags. Search by brand, product, or location for transparent sourcing insights. Est. 2016 | San Dimas, CA.';
 

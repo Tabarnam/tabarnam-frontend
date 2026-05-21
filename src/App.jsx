@@ -37,6 +37,7 @@ import ThemeProvider from "@/components/ThemeProvider";
 import ThemeToggle from "@/components/ThemeToggle";
 import PrivacyBadge from "@/components/PrivacyBadge";
 import TourController from "@/components/tour/TourController";
+import ScrollToHashOrTop from "@/components/ScrollToHashOrTop";
 
 // Main application component with routing, layout management, and error handling
 // Simple error boundary
@@ -112,6 +113,7 @@ export default function App() {
       <ErrorBoundary>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthKeepAlive />
+          <ScrollToHashOrTop />
           <TourController />
           <Layout>
             <Routes>
