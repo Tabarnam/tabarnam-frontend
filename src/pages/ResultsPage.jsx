@@ -189,6 +189,17 @@ export default function ResultsPage() {
   const [loading, setLoading] = useState(
     () => !!(qParam || countryParam || stateParam || cityParam || (latParam && lngParam))
   );
+
+  // Explicit "a search concluded with zero results" flag. The empty-state
+  // ("No companies found") renders ONLY when this is true — never on the
+  // implicit `!loading && results.length === 0`, which had transient frames
+  // (between loading flipping false and results being committed) where the
+  // empty state flashed for a frame before real results painted. Starts true
+  // only when the page mounts with nothing to search; otherwise false so the
+  // skeleton — not the empty state — covers the whole search lifecycle.
+  const [noResults, setNoResults] = useState(
+    () => !(qParam || countryParam || stateParam || cityParam || (latParam && lngParam))
+  );
   const [status, setStatus] = useState("");
   const [hasMore, setHasMore] = useState(false);
   const [totalPages, setTotalPages] = useState(null);
@@ -303,7 +314,10 @@ export default function ResultsPage() {
     {
       const hasCoord = !!(latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam)));
       const willSearch = !!(qParam || cityParam || stateParam || countryParam || hasCoord);
-      if (willSearch) setLoading(true);
+      if (willSearch) {
+        setLoading(true);
+        setNoResults(false); // skeleton, not empty-state, while this search runs
+      }
     }
 
     let cancelled = false;
@@ -405,6 +419,7 @@ export default function ResultsPage() {
         setResults([]);
         setStatus("Please enter a search term, choose a location, or enter a postal/ZIP code.");
         setHasMore(false);
+        setNoResults(true);
       }
     })();
 
@@ -444,7 +459,10 @@ export default function ResultsPage() {
     // Enter loading state immediately — before the geocoding round-trip
     // below — so the results area shows the skeleton, never a stale
     // "No companies found" flash, while the location resolves.
-    if (q || city || state || country) setLoading(true);
+    if (q || city || state || country) {
+      setLoading(true);
+      setNoResults(false);
+    }
 
     // Resolve typed location if present
     let searchLocation = null;
@@ -558,6 +576,7 @@ export default function ResultsPage() {
       setStatus("");
       setResults([]);
       setHasMore(false);
+      setNoResults(false); // the search is running — show skeleton, not empty-state
       // Only invalidate totalPages when the QUERY/FILTERS change — not on
       // page navigation. Walking pages 1 → 2 → 3 within the same query keeps
       // the previously-computed total visible the whole time.
@@ -745,9 +764,20 @@ export default function ResultsPage() {
       } else {
         setStatus("");
       }
+
+      // Only NOW — search fully resolved (including the alternative-query
+      // retry above) — do we know whether there are genuinely zero results.
+      // This flag, not `!loading`, gates the empty-state render. On an
+      // infinite-scroll append we never flip it true (prior pages stay).
+      if (!append) {
+        setNoResults(withDistances.length === 0);
+      }
     } catch (e) {
       if (gen === searchGenRef.current) {
         setStatus(`❌ ${e?.message || "Search failed"}`);
+        // Search failed — surface the empty-state under the error banner
+        // rather than leaving the skeleton spinning forever.
+        setNoResults(true);
       }
     } finally {
       if (gen === searchGenRef.current) {
@@ -865,7 +895,13 @@ export default function ResultsPage() {
     if (page <= 1) next.delete("page");
     else next.set("page", String(page));
     setSearchParams(next, { replace: true });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Instant, not smooth. A smooth scroll animates over ~300-500ms; during
+    // that window doSearch clears the old results and the page height
+    // collapses, which interrupts the animation and leaves the viewport
+    // stranded partway down. An instant jump completes before any layout
+    // change, and top=0 stays valid no matter how the page height shifts as
+    // the new page's results stream in.
+    window.scrollTo({ top: 0, behavior: "instant" });
   }
 
   // Persist search history to sessionStorage
@@ -1089,15 +1125,16 @@ export default function ResultsPage() {
         </div>
       )}
 
-      {/* Results List */}
+      {/* Results List.
+          Render order: real results win whenever we have them; the
+          "No companies found" empty-state shows ONLY when a search has
+          definitively concluded with zero results (noResults flag); every
+          other empty frame — search in flight, loading, transitioning
+          between quick/full responses — shows the skeleton. This is what
+          eliminates the brief "No results found" flash that used to appear
+          between a search starting and its results painting. */}
       <div className="mb-4">
-        {loading && sorted.length === 0 ? (
-          <div className="space-y-0">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <SkeletonRow key={i} />
-            ))}
-          </div>
-        ) : sorted.length > 0 ? (
+        {sorted.length > 0 ? (
           <div className="space-y-0">
             {sorted.map((company) => (
               <ExpandableCompanyRow
@@ -1111,12 +1148,18 @@ export default function ResultsPage() {
               />
             ))}
           </div>
-        ) : (
+        ) : noResults ? (
           <div className="p-8 text-center">
             <div className="text-muted-foreground">
               <p className="text-lg font-medium mb-1">No companies found</p>
               <p className="text-sm">Try adjusting your search terms or filters</p>
             </div>
+          </div>
+        ) : (
+          <div className="space-y-0">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonRow key={i} />
+            ))}
           </div>
         )}
       </div>
