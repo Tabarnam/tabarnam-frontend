@@ -182,7 +182,13 @@ export default function ResultsPage() {
   const debugScores = searchParams.get("debug") === "scores";
 
   const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
+  // Start in loading state when the page mounts with a query/location already
+  // in the URL (e.g. navigation from the home page, or a shared link). The
+  // URL effect runs after the first render, so without this the very first
+  // frame would show "No companies found" before the skeleton appears.
+  const [loading, setLoading] = useState(
+    () => !!(qParam || countryParam || stateParam || cityParam || (latParam && lngParam))
+  );
   const [status, setStatus] = useState("");
   const [hasMore, setHasMore] = useState(false);
   const [totalPages, setTotalPages] = useState(null);
@@ -287,6 +293,19 @@ export default function ResultsPage() {
       skipUrlEffectRef.current = false;
       return;
     }
+
+    // Enter loading state SYNCHRONOUSLY — before the async geocoding below —
+    // whenever this URL change will trigger a search. doSearch sets loading
+    // itself, but only after geocoding resolves (50-300ms later); in that gap
+    // `loading` would be false and `results` empty, so the results area
+    // briefly renders "No companies found" before the skeleton appears. This
+    // pre-set keeps the skeleton up for the whole search lifecycle.
+    {
+      const hasCoord = !!(latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam)));
+      const willSearch = !!(qParam || cityParam || stateParam || countryParam || hasCoord);
+      if (willSearch) setLoading(true);
+    }
+
     let cancelled = false;
 
     (async () => {
@@ -421,6 +440,11 @@ export default function ResultsPage() {
     next.delete("page");
     skipUrlEffectRef.current = true;
     setSearchParams(next);
+
+    // Enter loading state immediately — before the geocoding round-trip
+    // below — so the results area shows the skeleton, never a stale
+    // "No companies found" flash, while the location resolves.
+    if (q || city || state || country) setLoading(true);
 
     // Resolve typed location if present
     let searchLocation = null;
