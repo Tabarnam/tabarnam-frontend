@@ -2066,12 +2066,16 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           // "Makeup Setting Sprays") shares that exact tag with nobody — so
           // the comp query returned empty and the user saw only the brand.
           //
-          // Instead, tokenize the primary's industry tags into significant
-          // words and find companies whose industry tags CONTAIN any of those
-          // words. "Makeup Setting Sprays" → {makeup, setting, spray} →
-          // matches every cosmetics/makeup/spray company. Generic business
-          // filler ("manufacturing", "products", "co", etc.) is dropped so
-          // it doesn't match everything.
+          // We match on PHRASES (consecutive bigrams) extracted from the
+          // primary's industry tags, not loose single words. "Makeup Setting
+          // Sprays" → {"makeup setting", "setting spray"}. The bigram
+          // "setting spray" is the discriminating comp anchor — it matches
+          // every setting-spray company without dragging in unrelated
+          // "spray" (hairspray, sunscreen) or "setting" (table setting)
+          // companies that loose single-word matching would pull in.
+          // Single-word industry tags (e.g. "Cosmetics") fall back to the
+          // bare word. Generic business filler is dropped so a bigram never
+          // collapses to noise.
           const INDUSTRY_STOPWORDS = new Set([
             "and", "the", "of", "for", "with", "in", "on", "to", "by",
             "a", "an", "or",
@@ -2081,28 +2085,37 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             "goods", "store", "shop", "co", "inc", "llc", "industry",
             "industries", "general",
           ]);
-          const industryWords = new Set();
+          const industryTerms = new Set();
           for (const ind of primary.industries) {
-            for (const raw of String(ind || "").toLowerCase().split(/\s+/)) {
-              const w = raw.replace(/[^a-z0-9]/g, "");
-              if (w.length < 3 || INDUSTRY_STOPWORDS.has(w)) continue;
-              industryWords.add(w);
-              const stemmed = simpleStem(w);
-              if (stemmed && stemmed !== w && stemmed.length >= 3) {
-                industryWords.add(stemmed);
+            const words = String(ind || "")
+              .toLowerCase()
+              .split(/\s+/)
+              .map((raw) => raw.replace(/[^a-z0-9]/g, ""))
+              .filter((w) => w.length >= 3 && !INDUSTRY_STOPWORDS.has(w))
+              .map((w) => {
+                const s = simpleStem(w);
+                return s && s.length >= 3 ? s : w;
+              });
+            if (words.length >= 2) {
+              // Consecutive bigrams — the discriminating comp anchors.
+              for (let i = 0; i < words.length - 1; i++) {
+                industryTerms.add(`${words[i]} ${words[i + 1]}`);
               }
+            } else if (words.length === 1) {
+              // Single-word industry tag: use the bare word.
+              industryTerms.add(words[0]);
             }
           }
-          // Cap at 8 distinct words to keep the SQL bounded.
-          const seedWords = [...industryWords].slice(0, 8);
+          // Cap at 8 distinct terms to keep the SQL bounded.
+          const seedWords = [...industryTerms].slice(0, 8);
           if (seedWords.length > 0) {
             const indParams = [{ name: "@indTake", value: 50 }];
-            const indClauses = seedWords.map((word, i) => {
+            const indClauses = seedWords.map((term, i) => {
               const p = `@iw${i}`;
-              indParams.push({ name: p, value: word });
+              indParams.push({ name: p, value: term });
               // CONTAINS over each industry tag (lower-cased) so a company
-              // whose tag merely includes the word — "Cosmetics & Makeup",
-              // "Facial Setting Spray" — counts as a comp.
+              // whose tag merely includes the phrase — "Facial Setting
+              // Spray", "Setting Spray Manufacturing" — counts as a comp.
               return `EXISTS(SELECT VALUE x FROM x IN c.industries WHERE CONTAINS(LOWER(x), ${p}))`;
             });
             const indSql = `
