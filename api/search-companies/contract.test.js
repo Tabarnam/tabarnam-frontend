@@ -1282,3 +1282,67 @@ test("broadening: 'bone broth' doesn't elevate single-word incidental matches", 
     assert.ok(brothIdx < dogIdx, "Dog Toys Inc must rank below Bone Broth Co");
   }
 });
+
+// ── tier-aware manufacturing sort ────────────────────────────────────────
+
+test("manufacturing sort ranks a strong match above a physically nearer weak match", async () => {
+  // A strong (exact-name) match whose factory is far away vs a weak match
+  // whose factory is right next to the user. A pure-distance manu sort would
+  // put the nearby weak match first; the tier-aware sort must put the strong
+  // match first because it's in a higher relevance tier.
+  const widgetBrand = {
+    id: "widget-brand",
+    company_name: "Widget Brand",
+    normalized_domain: "widgetbrand.com",
+    search_text_norm: " widget brand premium widgets ",
+    keywords: ["widgets"],
+    industries: ["Widgets"],
+    manufacturing_locations: ["New York, NY, USA"],
+    manufacturing_geocodes: [{ lat: 40.71, lng: -74.0 }], // ~3900 km from user
+    _ts: 1700000000,
+  };
+  const genericMaker = {
+    id: "generic-maker",
+    company_name: "Generic Maker",
+    normalized_domain: "genericmaker.com",
+    search_text_norm: " generic maker widget gadget ",
+    keywords: ["widget"], // only one of the two query words → weak, tier 3
+    industries: ["Gadgets"],
+    manufacturing_locations: ["Pasadena, CA, USA"],
+    manufacturing_geocodes: [{ lat: 34.1, lng: -118.1 }], // ~15 km from user
+    _ts: 1700000001,
+  };
+
+  const companiesContainer = makeContainer(async (spec) => {
+    const params = spec?.parameters || [];
+    if (params.some((p) => p.name === "@fuzzyTake")) return [];
+    if (params.some((p) => p.name === "@broadenTake")) return [];
+    if (params.some((p) => p.name === "@indTake")) return [];
+    const q = String(spec?.query || "");
+    if (q.includes("ARRAY_LENGTH(c.manufacturing_locations) = 0")) return [];
+    return [widgetBrand, genericMaker];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq(
+      "https://example.test/api/search-companies?raw=Widget+Brand&norm=widget+brand&compact=widgetbrand&sort=manu&lat=34&lng=-118&take=10"
+    ),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  const ids = body.items.map((i) => i.id);
+  assert.equal(
+    ids[0],
+    "widget-brand",
+    `strong match (far factory) must rank above weak match (near factory); got: ${ids.join(", ")}`
+  );
+  const wIdx = ids.indexOf("widget-brand");
+  const gIdx = ids.indexOf("generic-maker");
+  assert.ok(
+    wIdx >= 0 && gIdx >= 0 && wIdx < gIdx,
+    `Widget Brand (idx ${wIdx}) must rank above Generic Maker (idx ${gIdx})`
+  );
+});

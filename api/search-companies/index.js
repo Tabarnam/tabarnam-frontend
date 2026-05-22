@@ -2359,20 +2359,29 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       }
 
-      // Manufacturing proximity sort: when user coordinates are available, sort by
-      // nearest manufacturing distance so the closest factories appear first.
-      // Companies without geocoded manufacturing locations sink to the bottom.
+      // Manufacturing proximity sort: tier-aware. Companies are bucketed by
+      // relevance tier FIRST, then ordered by nearest manufacturing distance
+      // within each tier. A pure-distance sort would let a low-relevance
+      // company with a nearby factory (e.g. a fitness-equipment maker for a
+      // "pre workout" supplement query) leap above genuine matches whose
+      // factories happen to be farther. Tier-first keeps relevance primary
+      // and makes "nearest" mean "nearest among comparably-relevant
+      // companies". This also keeps page composition relevance-meaningful so
+      // the frontend's strong/loosely-related divider divides a sensible set.
       if (sort === "manu" && !sortField && user_location) {
         for (const c of deduped) {
           c._nearestManuDistKm = nearestManuDistKm(c, user_location.lat, user_location.lng);
         }
         deduped.sort((a, b) => {
+          const tierA = relevanceTier(a._relevanceScore || 0, a._nameMatchScore || 0);
+          const tierB = relevanceTier(b._relevanceScore || 0, b._nameMatchScore || 0);
+          if (tierA !== tierB) return tierA - tierB;
           const hasManuA = Array.isArray(a.manufacturing_locations) && a.manufacturing_locations.length > 0;
           const hasManuB = Array.isArray(b.manufacturing_locations) && b.manufacturing_locations.length > 0;
-          // Companies with manufacturing always above those without
+          // Within a tier: companies with manufacturing data above those without
           if (hasManuA && !hasManuB) return -1;
           if (!hasManuA && hasManuB) return 1;
-          // Both have manufacturing: sort by nearest distance
+          // Then by nearest distance
           return (a._nearestManuDistKm || Infinity) - (b._nearestManuDistKm || Infinity);
         });
       }

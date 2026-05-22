@@ -144,6 +144,38 @@ function Pagination({ currentPage, hasMore, totalPages, onPageChange, disabled }
   );
 }
 
+// Relevance tier bucketing — mirrors the backend `relevanceTier` in
+// api/search-companies/index.js. Thresholds MUST stay identical to the
+// backend's. Used to make proximity sorts (manufacturing / HQ) tier-aware:
+// a genuinely-relevant company always ranks above a weak match even if the
+// weak match has a nearer factory. Distance only orders companies *within*
+// a tier.
+//   -1  exact name match (nameScore >= 100) — always first
+//    0  very-relevant non-exact match (R >= 90)
+//    1  strong name or keyword match (R >= 60)
+//    2  moderate match (R >= 30)
+//    3  weak match (R < 30)
+function relevanceTier(score = 0, nameScore = 0) {
+  if (nameScore >= 100) return -1;
+  if (score >= 90) return 0;
+  if (score >= 60) return 1;
+  if (score >= 30) return 2;
+  return 3;
+}
+
+// Companies in tier >= LOOSE_TIER_CUTOFF are "loosely related" — they matched
+// only part of the query (e.g. one word of a two-word search). They stay in
+// the result set but are demoted below the strong band and rendered under a
+// labeled divider so the user knows they're a weaker tier.
+const LOOSE_TIER_CUTOFF = 2;
+
+function isLooselyRelated(company) {
+  return (
+    relevanceTier(company?._relevanceScore || 0, company?._nameMatchScore || 0) >=
+    LOOSE_TIER_CUTOFF
+  );
+}
+
 // Countries that use miles (for distance unit inference)
 const milesCountries = new Set([
   "US","GB","LR","AG","BS","BB","BZ","VG","KY","DM","FK","GD","GU","MS","MP","KN",
@@ -667,25 +699,19 @@ export default function ResultsPage() {
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
       const distanced = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
 
-      // Pure raw distance for proximity sorts. sort=manu ranks by nearest
-      // manufacturing distance; sort=hq ranks by nearest HQ distance. Same
-      // comparator, just a different distance field. Stars / recent /
-      // relevance sorts keep API order.
-      //
-      // EXACT-NAME ANCHOR: when the user typed a specific brand name and
-      // exactly one (or a few) companies match the name exactly, those
-      // companies must rank above all distance-sorted results regardless of
-      // how far their HQ or manufacturing is. Otherwise a search for "Mad
-      // Cave Studios" with "Nearest Headquarters" sort buries the actual
-      // Mad Cave Studios behind every closer-by company that has even a
-      // weak keyword overlap. nameScore >= 100 = exact match (computed by
-      // the backend's computeNameMatchScore); anything below that respects
-      // the user's chosen proximity sort.
+      // Proximity sorts (sort=manu by nearest manufacturing, sort=hq by
+      // nearest HQ) are TIER-AWARE: companies are bucketed by relevance tier
+      // first, and distance only orders companies *within* a tier. Without
+      // this, a low-relevance company with a nearby factory (e.g. Assault
+      // Fitness — fitness equipment — for a "pre workout" supplement search)
+      // leaps to the top while genuine matches with farther factories sink.
+      // Tier -1 (exact name match) subsumes the old exact-name anchor.
+      // Stars / recent / relevance sorts keep API order.
       const withDistances = (sort === "manu" || sort === "hq")
         ? distanced.slice().sort((a, b) => {
-            const exactA = (a._nameMatchScore || 0) >= 100 ? 1 : 0;
-            const exactB = (b._nameMatchScore || 0) >= 100 ? 1 : 0;
-            if (exactA !== exactB) return exactB - exactA;
+            const tierA = relevanceTier(a._relevanceScore || 0, a._nameMatchScore || 0);
+            const tierB = relevanceTier(b._relevanceScore || 0, b._nameMatchScore || 0);
+            if (tierA !== tierB) return tierA - tierB;
             const distA = sort === "manu" ? (a._nearestManuDist ?? Infinity) : (a._hqDist ?? Infinity);
             const distB = sort === "manu" ? (b._nearestManuDist ?? Infinity) : (b._hqDist ?? Infinity);
             return distA - distB;
@@ -835,14 +861,16 @@ export default function ResultsPage() {
 
     const arr = [...results];
     arr.sort((a, b) => {
-      // Exact-name anchor (same rule as the backend-response sort above):
-      // when the user typed a specific brand and a company exactly matches
-      // the name (nameScore >= 100), that company outranks every other
-      // result regardless of which column the user is sorting by. They
-      // typed the name — they want that company on top, full stop.
-      const exactA = (a._nameMatchScore || 0) >= 100 ? 1 : 0;
-      const exactB = (b._nameMatchScore || 0) >= 100 ? 1 : 0;
-      if (exactA !== exactB) return exactB - exactA;
+      // Tier-aware sort: bucket by relevance tier first, then apply the
+      // user's chosen column metric *within* each tier. Tier -1 (exact name
+      // match) subsumes the old exact-name anchor — a company the user typed
+      // by name still wins outright. The point: a low-relevance company with
+      // a nearby factory (or high star rating) can no longer leap above a
+      // genuine match — distance/stars only reorders companies of comparable
+      // relevance.
+      const tierA = relevanceTier(a._relevanceScore || 0, a._nameMatchScore || 0);
+      const tierB = relevanceTier(b._relevanceScore || 0, b._nameMatchScore || 0);
+      if (tierA !== tierB) return tierA - tierB;
 
       let primary;
       if (sortBy === "stars") {
@@ -1136,17 +1164,64 @@ export default function ResultsPage() {
       <div className="mb-4">
         {sorted.length > 0 ? (
           <div className="space-y-0">
-            {sorted.map((company) => (
-              <ExpandableCompanyRow
-                key={company.id || company.company_name}
-                company={company}
-                sortBy={sortBy}
-                unit={unit}
-                onKeywordSearch={handleKeywordSearch}
-                rightColsOrder={rightColsOrder}
-                debugScores={debugScores}
-              />
-            ))}
+            {(() => {
+              // Under a proximity sort, the list is tier-bucketed: strong
+              // matches first, then loosely-related ones. Inject ONE labeled
+              // divider at the strong→loose transition so the user is told
+              // plainly that a weaker tier follows. Only render it when a
+              // query is present, the active sort is a proximity sort, and
+              // the page actually contains the transition (a strong company
+              // followed by a loose one).
+              const proximitySort =
+                sortBy === "manu" ||
+                sortBy === "hq" ||
+                (!sortBy && (sortParam === "manu" || sortParam === "hq"));
+              const rows = [];
+              let dividerEmitted = false;
+              let sawStrong = false;
+              for (const company of sorted) {
+                const loose = isLooselyRelated(company);
+                if (
+                  proximitySort &&
+                  qParam &&
+                  loose &&
+                  sawStrong &&
+                  !dividerEmitted
+                ) {
+                  rows.push(
+                    <div
+                      key="__loose-divider"
+                      className="flex items-center gap-3 px-2 py-3 my-1"
+                    >
+                      <div className="flex-1 h-px bg-border" />
+                      <div className="text-center">
+                        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Loosely related to "{qParam}"
+                        </div>
+                        <div className="text-xs text-muted-foreground/80 mt-0.5">
+                          These companies match only part of your search
+                        </div>
+                      </div>
+                      <div className="flex-1 h-px bg-border" />
+                    </div>
+                  );
+                  dividerEmitted = true;
+                }
+                if (!loose) sawStrong = true;
+                rows.push(
+                  <ExpandableCompanyRow
+                    key={company.id || company.company_name}
+                    company={company}
+                    sortBy={sortBy}
+                    unit={unit}
+                    onKeywordSearch={handleKeywordSearch}
+                    rightColsOrder={rightColsOrder}
+                    debugScores={debugScores}
+                  />
+                );
+              }
+              return rows;
+            })()}
           </div>
         ) : noResults ? (
           <div className="p-8 text-center">
