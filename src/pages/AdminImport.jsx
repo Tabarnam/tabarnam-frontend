@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2, Volume2, Tags, Check } from "lucide-react";
+import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2, Volume2, Tags, Check, X } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import useNotificationSound from "@/hooks/useNotificationSound";
@@ -5037,10 +5037,27 @@ export default function AdminImport() {
                           </span>
                         ) : pfResult ? (
                           pfResult.status === "no_match" ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                              Clear
-                            </span>
+                            // Phase 4.26 — "Clear" rows (no DB match) now get
+                            // a small "x" remove button. Previously only
+                            // exact_match / fuzzy_match rows could be removed;
+                            // a junk row (e.g. a pasted header line) that
+                            // returned no_match had no removal path.
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                Clear
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removeSuccessionRow(i)}
+                                disabled={isSuccessionRunning}
+                                className="shrink-0 flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/40 dark:hover:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Remove this row"
+                                aria-label="Remove row"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           ) : pfResult.status === "exact_match" ? (
                             <div className="flex flex-col gap-0.5 min-w-0">
                               <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400 whitespace-nowrap">
@@ -5091,7 +5108,21 @@ export default function AdminImport() {
                               </button>
                             </div>
                           ) : null
-                        ) : null}
+                        ) : (
+                          // Phase 4.26 — no preflight result yet (dup-check
+                          // unchecked, or check still loading): keep the row
+                          // removable with the same small "x".
+                          <button
+                            type="button"
+                            onClick={() => removeSuccessionRow(i)}
+                            disabled={isSuccessionRunning}
+                            className="shrink-0 flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/40 dark:hover:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Remove this row"
+                            aria-label="Remove row"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
