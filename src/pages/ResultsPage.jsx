@@ -58,7 +58,7 @@ function SkeletonRow() {
 }
 
 /** Numbered page bar: < Previous  [1]  2  3  …  Next > */
-function Pagination({ currentPage, hasMore, totalPages, onPageChange, disabled }) {
+function Pagination({ currentPage, hasMore, totalPages, onPageChange, disabled, compact = false }) {
   // Treat totalPages as known only when it's a positive number AND the current
   // page actually fits inside it. A `totalPages=1` left over from an earlier
   // page-1 search while the user has navigated to page 2 is *stale*, not
@@ -92,19 +92,35 @@ function Pagination({ currentPage, hasMore, totalPages, onPageChange, disabled }
     disabled ||
     (knownTotal ? currentPage >= totalPages : !hasMore);
 
-  const btn = "inline-flex items-center justify-center min-w-[36px] h-9 px-3 text-sm rounded transition-colors select-none";
+  // `compact` renders a smaller, more discrete control — used at the TOP of
+  // the results so the user can paginate without scrolling, while the full
+  // -size control stays at the bottom. Compact drops the "Previous"/"Next"
+  // word labels (chevrons only), shrinks the buttons, and tightens spacing.
+  const btn = compact
+    ? "inline-flex items-center justify-center min-w-[26px] h-7 px-1.5 text-xs rounded transition-colors select-none"
+    : "inline-flex items-center justify-center min-w-[36px] h-9 px-3 text-sm rounded transition-colors select-none";
+  const iconSize = compact ? 13 : 16;
 
   return (
-    <nav aria-label="Pagination" className="mt-6 flex justify-center">
-      <ul className="inline-flex items-center gap-1 border border-border rounded-lg px-2 py-1.5 bg-card">
+    <nav
+      aria-label="Pagination"
+      className={cn("flex justify-center", compact ? "mb-3" : "mt-6")}
+    >
+      <ul
+        className={cn(
+          "inline-flex items-center gap-1 border border-border rounded-lg bg-card",
+          compact ? "px-1.5 py-1" : "px-2 py-1.5"
+        )}
+      >
         <li>
           <button
             type="button"
             disabled={disabled || currentPage <= 1}
             onClick={() => onPageChange(currentPage - 1)}
+            aria-label="Previous page"
             className={cn(btn, "gap-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none")}
           >
-            <ChevronLeft size={16} /> Previous
+            <ChevronLeft size={iconSize} /> {!compact && "Previous"}
           </button>
         </li>
         {items.map((page, idx) =>
@@ -134,9 +150,10 @@ function Pagination({ currentPage, hasMore, totalPages, onPageChange, disabled }
             type="button"
             disabled={nextDisabled}
             onClick={() => onPageChange(currentPage + 1)}
+            aria-label="Next page"
             className={cn(btn, "gap-1 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none")}
           >
-            Next <ChevronRight size={16} />
+            {!compact && "Next"} <ChevronRight size={iconSize} />
           </button>
         </li>
       </ul>
@@ -1152,6 +1169,22 @@ export default function ResultsPage() {
           })}
         </div>
       )}
+
+      {/* Compact pagination at the TOP of the results — lets the user jump
+          pages without scrolling to the bottom. Smaller/quieter than the
+          full control below. Only shown when there are results and more
+          than one page exists. */}
+      {!isLocationOnly && sorted.length > 0 &&
+        (hasMore || pageParam > 1 || (totalPages && totalPages > 1)) && (
+          <Pagination
+            currentPage={pageParam}
+            hasMore={hasMore}
+            totalPages={totalPages}
+            onPageChange={goToPage}
+            disabled={loading}
+            compact
+          />
+        )}
 
       {/* Results List.
           Render order: real results win whenever we have them; the
