@@ -614,7 +614,7 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg mb-4 p-2 bg-card cursor-default"
+        className="border-2 border-tabarnam-blue dark:border-primary rounded-lg p-2 bg-card cursor-default"
       >
         <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 mb-6 pb-6 border-b">
           <div className="col-span-4 lg:col-span-1">
@@ -885,7 +885,7 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer mb-3 transition-colors relative"
+      className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer transition-colors relative"
       data-tour-step="expandable-row"
     >
       <div className="col-span-4 lg:col-span-1">
