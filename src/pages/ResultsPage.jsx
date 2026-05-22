@@ -104,12 +104,14 @@ function Pagination({ currentPage, hasMore, totalPages, onPageChange, disabled, 
   return (
     <nav
       aria-label="Pagination"
-      className={cn("flex justify-center", compact ? "mb-3" : "mt-6")}
+      // compact: an inline-flex element that flows inside the page-info row.
+      // full: a centered block with top margin, used below the results.
+      className={cn(compact ? "inline-flex" : "mt-6 flex justify-center")}
     >
       <ul
         className={cn(
           "inline-flex items-center gap-1 border border-border rounded-lg bg-card",
-          compact ? "px-1.5 py-1" : "px-2 py-1.5"
+          compact ? "px-1 py-0.5" : "px-2 py-1.5"
         )}
       >
         <li>
@@ -1101,22 +1103,37 @@ export default function ResultsPage() {
       {/* Column Headers + page info — same grid as ExpandableCompanyRow */}
       {results.length > 0 && (
         <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 mb-4 px-2 items-center">
-          <div className="col-span-6 lg:col-span-2 text-sm text-muted-foreground flex items-center gap-1">
+          <div className="col-span-6 lg:col-span-2 text-sm text-muted-foreground flex items-center gap-2">
             {qParam && (
               <>
-                <span>
-                  {/* Only show "of N" when the total is known AND the current
-                      page fits inside it. A stale totalPages from an earlier
-                      page-1 fetch must not appear next to a higher pageParam,
-                      otherwise we render contradictions like "Page 2 of 1". */}
-                  {Number.isFinite(totalPages) && totalPages > 0 && pageParam <= totalPages
-                    ? <>Page {pageParam} of {totalPages} for </>
-                    : hasMore || pageParam > 1
-                      ? <>Page {pageParam} for </>
-                      : <>Results for </>
-                  }
-                  <span className="font-medium text-foreground">"{qParam}"</span>
-                </span>
+                {/* Compact page navigator sits in this row, to the left of
+                    'for "<query>"'. The current page is conveyed by the
+                    highlighted page-number button, so the old "Page X of Y"
+                    text is no longer needed. Only rendered when there's more
+                    than one page. */}
+                {(() => {
+                  const showPager =
+                    !isLocationOnly &&
+                    (hasMore || pageParam > 1 || (totalPages && totalPages > 1));
+                  return (
+                    <>
+                      {showPager && (
+                        <Pagination
+                          currentPage={pageParam}
+                          hasMore={hasMore}
+                          totalPages={totalPages}
+                          onPageChange={goToPage}
+                          disabled={loading}
+                          compact
+                        />
+                      )}
+                      <span>
+                        {showPager ? "for " : "Results for "}
+                        <span className="font-medium text-foreground">"{qParam}"</span>
+                      </span>
+                    </>
+                  );
+                })()}
                 <ShareButton
                   title={`Search results for "${qParam}" on Tabarnam`}
                   text={`Search results for "${qParam}" on Tabarnam`}
@@ -1169,22 +1186,6 @@ export default function ResultsPage() {
           })}
         </div>
       )}
-
-      {/* Compact pagination at the TOP of the results — lets the user jump
-          pages without scrolling to the bottom. Smaller/quieter than the
-          full control below. Only shown when there are results and more
-          than one page exists. */}
-      {!isLocationOnly && sorted.length > 0 &&
-        (hasMore || pageParam > 1 || (totalPages && totalPages > 1)) && (
-          <Pagination
-            currentPage={pageParam}
-            hasMore={hasMore}
-            totalPages={totalPages}
-            onPageChange={goToPage}
-            disabled={loading}
-            compact
-          />
-        )}
 
       {/* Results List.
           Render order: real results win whenever we have them; the
