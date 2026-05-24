@@ -1727,14 +1727,18 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // falls back to the hybrid Pass 1 + Pass 2 path the site ran on for
       // the past 57 days. Kill switch: set this back to false and redeploy.
       // Tests can force the fallback path via deps.useFTS = false.
-      // 2026-05-24: REVERTED to false. Flipping to true caused all search
-      // requests to hang for 45s (SWA "Backend call failure"). Worked fine
-      // for ~10 minutes after deploy, then broke for every query — not just
-      // typo/fuzzy paths. Suspect: FTS query path holds a connection or
-      // semaphore that doesn't get released, eventually starving the worker.
-      // Investigating before re-enabling. Hybrid Pass 1 + Pass 2 path (the
-      // path that ran production for the past 57 days) is back in service.
-      const USE_FTS = deps.useFTS !== undefined ? deps.useFTS : false;
+      // Production reads from process.env.USE_FTS so the kill switch is
+      // instant (Azure Portal → Function App → Environment variables) — no
+      // redeploy needed. Default is OFF after the 2026-05-24 regression
+      // where flipping FTS on caused all queries to hang at 45s
+      // (SWA "Backend call failure") after ~10 min of working fine.
+      // Suspected leak in the FTS path's connection/iterator lifecycle.
+      // To re-enable: set USE_FTS=true on the Function App's app settings.
+      // To disable instantly: set USE_FTS=false and the next request picks
+      // up the new value without a redeploy or restart.
+      const USE_FTS = deps.useFTS !== undefined
+        ? deps.useFTS
+        : String(process.env.USE_FTS || "").toLowerCase() === "true";
 
       // Helper: run a Cosmos query with a timeout to prevent hanging when FTS index is building.
       // Uses AbortController to properly cancel the underlying HTTP request on timeout,
@@ -2500,12 +2504,65 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: "Cosmos DB not configured" }, 503, req);
 }
 
+// Per-worker safety nets — defense in depth against a repeat of the
+// 2026-05-24 FTS regression where the worker quietly accumulated leaked
+// state for ~10 minutes of normal traffic, then started returning 45s
+// gateway timeouts on every request. With alwaysReady=1 keeping a fresh
+// worker pre-warmed, eagerly recycling this one costs nothing.
+const _workerStartedAt = Date.now();
+let _requestsServed = 0;
+const MAX_REQUESTS_PER_WORKER = 200;
+const MAX_WORKER_AGE_MS = 20 * 60 * 1000; // 20 minutes
+
+// If the handler blocks past this (e.g. a Cosmos call wedged, an FTS
+// query hanging despite AbortController), return 503 to unblock the
+// response loop. The handler keeps running in the background — we can't
+// truly cancel its in-flight work — but the per-worker recycle limits
+// how many of those zombie requests can accumulate before the worker
+// is replaced.
+const REQUEST_HARD_TIMEOUT_MS = 15000;
+
+function timeoutResponse(req) {
+  return {
+    status: 503,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "Retry-After": "1",
+      "Access-Control-Allow-Origin": "*",
+    },
+    body: JSON.stringify({
+      ok: false,
+      success: false,
+      error: "search timed out — please retry",
+    }),
+  };
+}
+
 app.http("search-companies", {
   route: "search-companies",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
-    return searchCompaniesHandler(req, context);
+    const handlerPromise = searchCompaniesHandler(req, context);
+    const timeoutPromise = new Promise((resolve) =>
+      setTimeout(() => resolve(timeoutResponse(req)), REQUEST_HARD_TIMEOUT_MS)
+    );
+    const response = await Promise.race([handlerPromise, timeoutPromise]);
+
+    // Per-worker auto-recycle. Fires AFTER the response is constructed
+    // but BEFORE it's returned to the host — setImmediate defers the
+    // process.exit until the next tick so the response actually flushes.
+    _requestsServed++;
+    const ageMs = Date.now() - _workerStartedAt;
+    if (_requestsServed >= MAX_REQUESTS_PER_WORKER || ageMs >= MAX_WORKER_AGE_MS) {
+      context.log(
+        `[search-companies] recycling worker: served=${_requestsServed} ageMs=${ageMs}`
+      );
+      setImmediate(() => process.exit(0));
+    }
+
+    return response;
   },
 });
 

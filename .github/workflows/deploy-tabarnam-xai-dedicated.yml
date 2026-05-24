@@ -172,3 +172,66 @@ jobs:
         env:
           TABARNAM_DIAG_XAI_V2_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
           TABARNAM_FUNCTION_KEY: ${{ secrets.TABARNAM_FUNCTION_KEY }}
+
+      - name: Smoke test search-companies endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Three queries chosen to exercise the main code paths:
+          #   candle      — common word, Pass 1 strong-match short-circuit.
+          #   pre%20workout — multi-word, exercises Pass 3 broadening.
+          #   jerkey      — typo, exercises stem-normalized matching / fuzzy fallback.
+          # Existence of this step is what would have caught the 2026-05-24
+          # FTS regression where the xAI diag smoke kept passing while
+          # /api/search-companies hung on every request.
+          QUERIES=("candle" "pre%20workout" "jerkey")
+          BASE_URL="${TABARNAM_SEARCH_SMOKE_URL:-https://tabarnam.com/api/search-companies}"
+
+          fail=0
+          for q in "${QUERIES[@]}"; do
+            url="${BASE_URL}?q=${q}&take=5"
+            echo ""
+            echo "GET $url"
+            # Retry absorbs the first post-deploy request hitting a cold
+            # worker. --max-time 25 keeps total step time bounded.
+            curl -fsS \
+              --max-time 25 \
+              --retry 3 \
+              --retry-delay 5 \
+              --retry-all-errors \
+              -w "HTTP=%{http_code} time=%{time_total}s\n" \
+              "$url" \
+              -o resp.json || { echo "::error::search smoke: curl failed for q=$q"; fail=1; continue; }
+
+            python - "$q" << 'PY'
+          import json, sys
+          q = sys.argv[1]
+          try:
+              j = json.load(open("resp.json"))
+          except Exception as e:
+              print(f"::error::search smoke (q={q}): response was not valid JSON ({e})")
+              sys.exit(1)
+          if not (j.get("ok") is True and isinstance(j.get("items"), list)):
+              print(f"::error::search smoke (q={q}): bad response shape ok={j.get('ok')}")
+              sys.exit(1)
+          items = j["items"]
+          if len(items) == 0:
+              print(f"::warning::search smoke (q={q}): returned 0 items — not a deploy failure, but worth a look")
+          else:
+              meta = j.get("meta", {}) or {}
+              mode = meta.get("_searchMode", "(unknown)")
+              print(f"PASS: q={q}, items={len(items)}, mode={mode}, top={items[0].get('company_name')}")
+          PY
+            if [ $? -ne 0 ]; then fail=1; fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::One or more search smoke queries failed"
+            exit 1
+          fi
+
+          echo ""
+          echo "All search smoke queries passed."
+        env:
+          TABARNAM_SEARCH_SMOKE_URL: ${{ secrets.TABARNAM_SEARCH_SMOKE_URL }}

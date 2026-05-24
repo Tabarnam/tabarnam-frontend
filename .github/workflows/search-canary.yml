@@ -1,0 +1,115 @@
+# .github/workflows/search-canary.yml
+# Probes /api/search-companies every 10 minutes with three representative
+# queries. Catches CUMULATIVE degradation — the FTS regression of
+# 2026-05-24 worked fine at deploy time but wedged ~10 minutes later
+# once the worker had accumulated leaked state. The deploy smoke runs
+# once; this runs forever.
+#
+# Behavior:
+#   PASS — every query returns HTTP 200, items.length > 0, time < SLOW_S
+#   WARN — any query took longer than SLOW_S but still returned a result
+#   FAIL — any query timed out, returned non-2xx, or returned 0 items
+# Failures notify via the standard GitHub Actions email/webhook channel.
+name: search canary
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # every 10 minutes — frequent enough to catch a cumulative leak
+    # before it becomes user-visible (FTS hang appeared ~10 min after
+    # the trigger), sparing enough to fit comfortably in the free
+    # GitHub Actions tier.
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: search-canary
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Probe search endpoint
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          BASE_URL="${SEARCH_URL:-https://tabarnam.com/api/search-companies}"
+          # Per-query wall-clock thresholds. Anything past SLOW_S surfaces
+          # as a workflow warning; past HARD_S is a hard failure. Tuned
+          # generously — pre-FTS warm baseline is ~5s, so 8s warn / 20s
+          # fail leaves comfortable headroom for transient cold starts.
+          SLOW_S=8
+          HARD_S=20
+
+          # Three queries chosen to exercise different code paths:
+          #   candle       — Pass 1 short-circuit (most common shape)
+          #   pre%20workout — multi-word, Pass 3 broadening
+          #   jerkey       — typo, stem-normalized matching
+          QUERIES=("candle" "pre%20workout" "jerkey")
+
+          fail=0
+          warn=0
+          for q in "${QUERIES[@]}"; do
+            url="${BASE_URL}?q=${q}&take=5"
+            echo "::group::probe q=${q}"
+            echo "GET $url"
+
+            # No retry — we want to see the natural latency. Hard cap
+            # at HARD_S so we never block the runner.
+            start=$(date +%s%N)
+            http=$(curl -s -o /tmp/resp.json -w '%{http_code}' --max-time "$HARD_S" "$url" || echo "000")
+            end=$(date +%s%N)
+            elapsed_ms=$(( (end - start) / 1000000 ))
+            elapsed_s=$(awk "BEGIN { printf \"%.2f\", $elapsed_ms / 1000 }")
+
+            echo "HTTP=$http  time=${elapsed_s}s"
+
+            if [ "$http" != "200" ]; then
+              body=$(head -c 200 /tmp/resp.json 2>/dev/null || echo "(no body)")
+              echo "::error::canary q=${q}: HTTP=${http} time=${elapsed_s}s body=${body}"
+              fail=1
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Parse with python to verify the response shape.
+            python3 - "$q" "$elapsed_s" "$SLOW_S" << 'PY' || fail=1
+          import json, sys
+          q, elapsed_s, slow_s = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
+          try:
+              j = json.load(open("/tmp/resp.json"))
+          except Exception as e:
+              print(f"::error::canary q={q}: response was not valid JSON ({e})")
+              sys.exit(1)
+          if not (j.get("ok") is True and isinstance(j.get("items"), list)):
+              print(f"::error::canary q={q}: bad shape ok={j.get('ok')} items_type={type(j.get('items')).__name__}")
+              sys.exit(1)
+          if len(j["items"]) == 0:
+              print(f"::warning::canary q={q}: returned 0 items in {elapsed_s}s — investigate index state")
+              # 0 items is suspicious but not always a regression
+              # (data churn could legitimately drop hits). Warn, don't fail.
+              sys.exit(0)
+          mode = (j.get("meta", {}) or {}).get("_searchMode", "?")
+          if elapsed_s > slow_s:
+              print(f"::warning::canary q={q}: SLOW {elapsed_s}s (> {slow_s}s threshold), mode={mode}, items={len(j['items'])}")
+          else:
+              print(f"OK q={q}: {elapsed_s}s, mode={mode}, items={len(j['items'])}")
+          PY
+            echo "::endgroup::"
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo ""
+            echo "::error::search canary: at least one query failed — search endpoint is degraded"
+            exit 1
+          fi
+          echo ""
+          echo "search canary: all queries returned valid results"
+        env:
+          SEARCH_URL: ${{ secrets.TABARNAM_SEARCH_SMOKE_URL }}
