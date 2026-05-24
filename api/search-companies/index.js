@@ -1713,12 +1713,21 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         ftsPhrases = [q_norm]; // quick mode: original query only
       }
 
-      // TEMPORARY: Disable FTS queries while the full-text index is still building.
-      // Multi-word FTS queries (FullTextContainsAll) hang indefinitely and
-      // the Cosmos SDK silently ignores AbortController/abortSignal.
-      // Set to true once the index is confirmed ready via Azure Portal
-      // (Container → Indexing → Index Transformation Progress = 100%).
-      const USE_FTS = false;
+      // Cosmos full-text index status (verified 2026-05-24):
+      //   - Container indexingPolicy.fullTextIndexes: [{ path: "/search_text_norm" }] ✓
+      //   - fullTextPolicy: { defaultLanguage: en-US, stopWordListKind: extended } ✓
+      //   - Container metadata _ts: 2026-03-28 (57 days old — transformation
+      //     window long since elapsed even for a multi-million-doc container).
+      //   - @azure/cosmos SDK upgraded to 4.9.1 — has proper AbortController
+      //     support, no longer silently ignores abortSignal.
+      // Flipping to true: FTS path uses the BM25-ranked inverted index instead
+      // of the cross-partition CONTAINS scan, which is the largest remaining
+      // win on Pass 1 latency. If FTS misbehaves at runtime (hang, malformed
+      // query), the 5s queryWithTimeout fires and the catch block already
+      // falls back to the hybrid Pass 1 + Pass 2 path the site ran on for
+      // the past 57 days. Kill switch: set this back to false and redeploy.
+      // Tests can force the fallback path via deps.useFTS = false.
+      const USE_FTS = deps.useFTS !== undefined ? deps.useFTS : true;
 
       // Helper: run a Cosmos query with a timeout to prevent hanging when FTS index is building.
       // Uses AbortController to properly cancel the underlying HTTP request on timeout,

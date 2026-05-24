@@ -378,7 +378,7 @@ test("search SQL uses CONTAINS fallback while FTS is disabled", async () => {
   await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=icebreakers&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer }
+    { companiesContainer, useFTS: false }
   );
 
   assert.ok(specs.length > 0, "at least one query should be issued");
@@ -397,7 +397,7 @@ test("CONTAINS fallback includes synonym variant params (company → co)", async
   await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=acme+company&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer }
+    { companiesContainer, useFTS: false }
   );
 
   assert.ok(specs.length > 0, "at least one query should be issued");
@@ -420,7 +420,7 @@ test("CONTAINS fallback includes per-word params for multi-word queries", async 
   await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=monster+beverage&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer }
+    { companiesContainer, useFTS: false }
   );
 
   assert.ok(specs.length > 0, "at least one query should be issued");
@@ -449,7 +449,7 @@ test("search-companies uses word-boundary CONTAINS in Pass 1", async () => {
   await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=robes&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer }
+    { companiesContainer, useFTS: false }
   );
 
   assert.ok(specs.length >= 1, "at least one query should be issued");
@@ -470,7 +470,7 @@ test("search-companies issues Pass 2 substring query to fill remaining slots", a
   await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=robes&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer }
+    { companiesContainer, useFTS: false }
   );
 
   // Should have at least 2 queries: Pass 1 (word-boundary) + Pass 2 (substring)
@@ -507,7 +507,7 @@ test("search-companies short-circuits Pass 2 + Pass 3 when Pass 1 returns enough
   await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=candle&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer }
+    { companiesContainer, useFTS: false }
   );
 
   // Confirm Pass 1 fired.
@@ -552,7 +552,7 @@ test("search-companies still runs Pass 2 + Pass 3 when Pass 1 returns FEW strong
     // Multi-word query so Pass 3 (broadening) is eligible.
     makeReq("https://example.test/api/search-companies?q=candle%20wick&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer }
+    { companiesContainer, useFTS: false }
   );
 
   const pass2Specs = specs.filter((s) => {
@@ -577,7 +577,7 @@ test("search-companies skips word-boundary for short queries (< 3 chars)", async
   await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=3m&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer }
+    { companiesContainer, useFTS: false }
   );
 
   assert.ok(specs.length >= 1, "at least one query should be issued");
