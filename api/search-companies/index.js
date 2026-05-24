@@ -856,6 +856,29 @@ function sanitizeFTSToken(token) {
  * @param {string[]} phrases - Expanded phrase variants (e.g., ["rocky mountain soda company", "rocky mountain soda co"])
  * @returns {{ ftsWhere: string, ftsOrderBy: string }}
  */
+/**
+ * Returns true when every phrase in `phrases` contains exactly one token,
+ * meaning buildFTSQuery will emit only FullTextContains clauses (no
+ * FullTextContainsAll). The multi-token AND form (FullTextContainsAll)
+ * hangs indefinitely on this Cosmos container even with @azure/cosmos
+ * SDK 4.9.1 — reproduced 2026-05-24 with "pre workout". The single-token
+ * FullTextContains path returns sub-second results consistently
+ * (e.g. "skindinavia" returned in 0.77s). Gate the FTS code path on
+ * this predicate so multi-word queries silently fall through to the
+ * proven hybrid Pass 1 + Pass 2 path instead of triggering the hang.
+ */
+function ftsAllSingleToken(phrases) {
+  if (!Array.isArray(phrases) || phrases.length === 0) return false;
+  for (const phrase of phrases) {
+    const tokens = String(phrase || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (tokens.length !== 1) return false;
+  }
+  return true;
+}
+
 function buildFTSQuery(phrases) {
   const allTokens = new Set();
   const phraseGroups = [];
@@ -1770,7 +1793,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
 
         try {
-          if (!USE_FTS && ftsPhrases.length > 0) throw new Error("FTS disabled — index still building");
+          if (!USE_FTS && ftsPhrases.length > 0) throw new Error("FTS disabled via env var");
+          if (USE_FTS && ftsPhrases.length > 0 && !ftsAllSingleToken(ftsPhrases)) {
+            throw new Error("FTS skipped: multi-token phrase triggers FullTextContainsAll hang");
+          }
           const sqlA = `
               SELECT TOP @take ${SELECT_FIELDS}
               FROM c
@@ -1889,7 +1915,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
         if (ftsPhrases.length > 0) {
           try {
-            if (!USE_FTS) throw new Error("FTS disabled — index still building");
+            if (!USE_FTS) throw new Error("FTS disabled via env var");
+            if (!ftsAllSingleToken(ftsPhrases)) {
+              throw new Error("FTS skipped: multi-token phrase triggers FullTextContainsAll hang");
+            }
             const fts = buildFTSQuery(ftsPhrases);
             ftsWhere = fts.ftsWhere;
             ftsOrderBy = fts.ftsOrderBy;
@@ -2578,4 +2607,5 @@ module.exports._test = {
   buildWordBoundaryFilter,
   companyMatchesAllConcepts,
   isSynonymOnlyMatch,
+  ftsAllSingleToken,
 };

@@ -1432,3 +1432,35 @@ test("manufacturing sort ranks a strong match above a physically nearer weak mat
     `Widget Brand (idx ${wIdx}) must rank above Generic Maker (idx ${gIdx})`
   );
 });
+
+// ── ftsAllSingleToken gate ───────────────────────────────────────────────
+// Defends against re-introducing the 2026-05-24 multi-word FTS hang.
+// FullTextContainsAll on Cosmos hangs even with SDK 4.9.1, so the FTS
+// code path MUST refuse to run when any phrase has more than one token.
+
+test("ftsAllSingleToken: returns true for a single single-token phrase", () => {
+  assert.equal(_test.ftsAllSingleToken(["candle"]), true);
+});
+
+test("ftsAllSingleToken: returns true for multiple single-token phrases (synonym expansion)", () => {
+  // expandQueryTermsForFTS may add synonyms like "co" for "company".
+  // Multi-PHRASE is fine — buildFTSQuery joins them with OR. The hang
+  // is specific to multi-TOKEN phrases (FullTextContainsAll).
+  assert.equal(_test.ftsAllSingleToken(["company", "co"]), true);
+});
+
+test("ftsAllSingleToken: returns false when any phrase has more than one token", () => {
+  assert.equal(_test.ftsAllSingleToken(["pre workout"]), false);
+  assert.equal(_test.ftsAllSingleToken(["candle", "scented candle"]), false);
+});
+
+test("ftsAllSingleToken: returns false for empty input (defensive)", () => {
+  assert.equal(_test.ftsAllSingleToken([]), false);
+  assert.equal(_test.ftsAllSingleToken(null), false);
+  assert.equal(_test.ftsAllSingleToken(undefined), false);
+});
+
+test("ftsAllSingleToken: ignores leading/trailing whitespace", () => {
+  assert.equal(_test.ftsAllSingleToken(["  jerky  "]), true);
+  assert.equal(_test.ftsAllSingleToken([" pre  workout "]), false);
+});
