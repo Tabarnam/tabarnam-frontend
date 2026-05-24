@@ -1660,6 +1660,45 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     try {
       let items = [];
 
+      // Short-circuit gate for Passes 2 and 3. Pass 1 (strict word-boundary
+      // matching) is the precision pass — every hit it returns is a real
+      // word-boundary match for the query. If Pass 1 already returns enough
+      // STRONG-TIER (tier ≤ 1) candidates to fill the user's current page
+      // with room to spare for the relevance/distance reranker, Pass 2
+      // (substring fallback) and Pass 3 (per-word broadening) only contribute
+      // weaker matches that would sort BELOW the strong band anyway — they
+      // pay a Cosmos cross-partition roundtrip without changing what the
+      // user sees on this page.
+      //
+      // Threshold = (skip + take + buffer), with a floor. Buffer covers the
+      // reranker's need to see more candidates than will be displayed (so a
+      // far-but-strong match isn't beaten by a near-but-weak one); the floor
+      // prevents pathological short-circuiting on tiny page sizes.
+      // Pass 4 (industry-related peer comps for brand searches) is NOT gated
+      // here — it serves a different purpose (peer discovery for a single
+      // primary brand match) and is already narrowly self-gated on
+      // primaryScore >= 90 and skip === 0.
+      const PASS1_SUFFICIENCY_BUFFER = 25;
+      const PASS1_SUFFICIENCY_MIN = 50;
+      const pass1SufficiencyThreshold = Math.max(
+        skip + take + PASS1_SUFFICIENCY_BUFFER,
+        PASS1_SUFFICIENCY_MIN
+      );
+      let pass1Sufficient = false;
+      function checkPass1Sufficiency(candidates) {
+        if (!q_norm) return false;
+        let strongCount = 0;
+        for (const c of candidates) {
+          const nameScore = computeNameMatchScore(c, q_raw, q_norm, q_compact);
+          const relScore = computeRelevanceScore(c, q_raw, q_norm, q_compact);
+          if (relevanceTier(relScore, nameScore) <= 1) {
+            strongCount++;
+            if (strongCount >= pass1SufficiencyThreshold) return true;
+          }
+        }
+        return false;
+      }
+
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
 
       // Expand query into phrase variants using synonyms + business abbreviations
@@ -1791,12 +1830,15 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             const wbFilter = buildWordBoundaryFilter(q_norm, q_stemmed, q_compact, wbParams);
             const wbWhere = `AND (${wbFilter}) AND ${softDeleteFilter}`;
             items = await runManuQuery(wbWhere, wbParams);
+            pass1Sufficient = checkPass1Sufficiency(items);
           }
 
           // ── Pass 2: Substring matching (broader, fills remaining slots) ──
-          // Skip in quick mode — return word-boundary results only for fastest response
+          // Skip in quick mode — return word-boundary results only for fastest response.
+          // Also skip when Pass 1 returned enough strong-tier matches to fill
+          // the current page with room for the reranker (see pass1Sufficient).
           const manuRemaining = Math.max(0, limit - items.length);
-          if (manuRemaining > 0 && !quickMode) {
+          if (manuRemaining > 0 && !quickMode && !pass1Sufficient) {
             const legacyFilter = q_norm ? buildLegacySearchFilter() : "";
             const legacyParams = [{ name: "@take", value: manuRemaining }];
             if (q_norm) {
@@ -1872,12 +1914,15 @@ async function searchCompaniesHandler(req, context, deps = {}) {
                 .query({ query: wbSql, parameters: wbParams }, { enableCrossPartitionQuery: true })
                 .fetchAll();
               items = wbRes.resources || [];
+              pass1Sufficient = checkPass1Sufficiency(items);
             }
 
             // ── Pass 2: Substring matching (broader, fills remaining slots) ──
-            // Skip in quick mode — return word-boundary results only for fastest response
+            // Skip in quick mode — return word-boundary results only for fastest response.
+            // Also skip when Pass 1 returned enough strong-tier matches to fill
+            // the current page with room for the reranker (see pass1Sufficient).
             const remaining = Math.max(0, limit - items.length);
-            if (remaining > 0 && !quickMode) {
+            if (remaining > 0 && !quickMode && !pass1Sufficient) {
               const legacyFilter = buildLegacySearchFilter();
               const legacyParams = [
                 { name: "@take", value: remaining },
@@ -1934,8 +1979,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // candidates that the existing relevance scoring + industry affinity
       // index then rank correctly. Skipped in quickMode and for single-word
       // queries (Pass 1 already covers the equivalent set). Skipped for
-      // sort=manu where the user explicitly chose a strict view.
-      if (!quickMode && q_norm && sort !== "manu") {
+      // sort=manu where the user explicitly chose a strict view. Also skipped
+      // when Pass 1 already returned enough strong-tier matches — any
+      // per-word OR additions would sort below the strong band anyway.
+      if (!quickMode && !pass1Sufficient && q_norm && sort !== "manu") {
         const broadenWords = q_norm.split(/\s+/).filter((w) => w.length >= 3);
         if (broadenWords.length >= 2) {
           const broadenParams = [{ name: "@broadenTake", value: 500 }];

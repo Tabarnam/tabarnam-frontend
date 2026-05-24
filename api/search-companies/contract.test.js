@@ -481,6 +481,92 @@ test("search-companies issues Pass 2 substring query to fill remaining slots", a
   assert.equal(qParam.value, "robes");
 });
 
+test("search-companies short-circuits Pass 2 + Pass 3 when Pass 1 returns enough strong matches", async () => {
+  // Threshold = max(skip + take + 25, 50). For take=10/skip=0 that's 50.
+  // Build 60 strong-match docs so Pass 1 alone clears the bar.
+  const strongDocs = Array.from({ length: 60 }, (_, i) => ({
+    id: `strong_${i}`,
+    company_name: "candle", // exact name match → nameScore=100 → tier -1
+    normalized_domain: `candle${i}.com`,
+    industries: ["Candles"],
+    _ts: 1700000000 + i,
+  }));
+
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    const sql = String(spec.query || "");
+    // Pass 1 = word-boundary filter, params include @q_wb. Return the strong docs.
+    const params = spec.parameters || [];
+    const isPass1 = params.some((p) => p.name === "@q_wb");
+    if (isPass1) return strongDocs;
+    // Anything else (Pass 2 substring, Pass 3 broadening) — return empty.
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=candle&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  // Confirm Pass 1 fired.
+  const pass1Specs = specs.filter((s) =>
+    (s.parameters || []).some((p) => p.name === "@q_wb")
+  );
+  assert.equal(pass1Specs.length, 1, "Pass 1 should fire exactly once");
+
+  // Pass 2 (substring fallback) is identified by the @q + @q_compact params.
+  const pass2Specs = specs.filter((s) => {
+    const params = s.parameters || [];
+    return params.some((p) => p.name === "@q") && params.some((p) => p.name === "@q_compact");
+  });
+  assert.equal(pass2Specs.length, 0, "Pass 2 should be short-circuited when Pass 1 has enough strong matches");
+
+  // Pass 3 (per-word broadening) is identified by @broadenTake.
+  const pass3Specs = specs.filter((s) =>
+    (s.parameters || []).some((p) => p.name === "@broadenTake")
+  );
+  assert.equal(pass3Specs.length, 0, "Pass 3 should be short-circuited when Pass 1 has enough strong matches");
+});
+
+test("search-companies still runs Pass 2 + Pass 3 when Pass 1 returns FEW strong matches", async () => {
+  // Only 5 strong matches — well below the sufficiency threshold of 50.
+  // The pipeline should still consult Pass 2 / Pass 3 to fill out candidates.
+  const fewStrongDocs = Array.from({ length: 5 }, (_, i) => ({
+    id: `few_${i}`,
+    company_name: "candle wick",
+    normalized_domain: `cw${i}.com`,
+    _ts: 1700000000 + i,
+  }));
+
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    const params = spec.parameters || [];
+    const isPass1 = params.some((p) => p.name === "@q_wb");
+    return isPass1 ? fewStrongDocs : [];
+  });
+
+  await _test.searchCompaniesHandler(
+    // Multi-word query so Pass 3 (broadening) is eligible.
+    makeReq("https://example.test/api/search-companies?q=candle%20wick&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  const pass2Specs = specs.filter((s) => {
+    const params = s.parameters || [];
+    return params.some((p) => p.name === "@q") && params.some((p) => p.name === "@q_compact");
+  });
+  assert.ok(pass2Specs.length >= 1, "Pass 2 should fire when Pass 1 returned few strong matches");
+
+  const pass3Specs = specs.filter((s) =>
+    (s.parameters || []).some((p) => p.name === "@broadenTake")
+  );
+  assert.ok(pass3Specs.length >= 1, "Pass 3 should fire on multi-word query when Pass 1 returned few strong matches");
+});
+
 test("search-companies skips word-boundary for short queries (< 3 chars)", async () => {
   const specs = [];
   const companiesContainer = makeContainer(async (spec) => {
