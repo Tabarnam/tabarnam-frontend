@@ -1500,37 +1500,25 @@ function mapCompanyToPublic(doc) {
     hq_lng: doc.hq_lng,
     _ts: doc._ts,
 
-    // Rating schema fields (for CompanyStarsBlock and future use)
+    // Rating schema fields consumed by the public results page.
+    // Dropped from this response (used only by the admin dashboard, which
+    // hits /api/admin-company directly, or by the now-unused CompanyRow.jsx
+    // table view): rating_icon_type, review_count_approved,
+    // editorial_review_count, star_overrides, admin_manual_extra, star_notes,
+    // star_explanation. Shipping null/empty copies of those on every result
+    // bloats the JSON for no consumer.
     star_rating: doc.star_rating,
     star_score: doc.star_score,
     confidence_score: doc.confidence_score,
     rating: doc.rating,
-    rating_icon_type: doc.rating_icon_type,
-    review_count_approved: doc.review_count_approved,
-    editorial_review_count: doc.editorial_review_count,
-    star_overrides: doc.star_overrides,
-    admin_manual_extra: doc.admin_manual_extra,
-    star_notes: doc.star_notes,
-    star_explanation: doc.star_explanation,
 
-    // Affiliate links used by ExpandableCompanyRow
+    // Affiliate links used by ExpandableCompanyRow — the component reads
+    // the array forms (`affiliate_links` / `affiliate_link_urls`) only.
+    // The 15 flat legacy variants (`affiliate_link_N`, `affiliate_link_N_url`,
+    // `affiliateN_url` for N=1..5) have zero consumers on the public path
+    // (verified by grep across src/). Dropped.
     affiliate_links: doc.affiliate_links,
     affiliate_link_urls: doc.affiliate_link_urls,
-    affiliate_link_1: doc.affiliate_link_1,
-    affiliate_link_2: doc.affiliate_link_2,
-    affiliate_link_3: doc.affiliate_link_3,
-    affiliate_link_4: doc.affiliate_link_4,
-    affiliate_link_5: doc.affiliate_link_5,
-    affiliate_link_1_url: doc.affiliate_link_1_url,
-    affiliate_link_2_url: doc.affiliate_link_2_url,
-    affiliate_link_3_url: doc.affiliate_link_3_url,
-    affiliate_link_4_url: doc.affiliate_link_4_url,
-    affiliate_link_5_url: doc.affiliate_link_5_url,
-    affiliate1_url: doc.affiliate1_url,
-    affiliate2_url: doc.affiliate2_url,
-    affiliate3_url: doc.affiliate3_url,
-    affiliate4_url: doc.affiliate4_url,
-    affiliate5_url: doc.affiliate5_url,
 
     location_sources: doc.location_sources,
     show_location_sources_to_users: doc.show_location_sources_to_users,
