@@ -80,6 +80,16 @@ function json(obj, status = 200, req) {
   };
 }
 
+// Module-scope cache. Every new CosmosClient eats an HTTPS connect + TLS
+// handshake + Cosmos endpoint-discovery roundtrip on first use — easily
+// 80-200ms per cold call. Functions reuses the worker process across
+// requests, so caching the client at module scope amortizes that cost
+// over the worker's lifetime. Tests bypass this path entirely by
+// injecting `companiesContainer` through `deps`.
+let _cachedCosmosClient = null;
+let _cachedCompaniesContainer = null;
+let _cachedCompaniesContainerKey = null;
+
 function getCompaniesContainer() {
   try {
     const endpoint = env("COSMOS_DB_ENDPOINT", "");
@@ -89,8 +99,18 @@ function getCompaniesContainer() {
 
     if (!endpoint || !key) return null;
 
-    const client = new CosmosClient({ endpoint, key });
-    return client.database(databaseId).container(containerId);
+    // Cache key includes every input that would invalidate the connection.
+    // Env vars are stable per worker on Functions, but key rotation /
+    // container migration shouldn't require a worker restart to take effect.
+    const cacheKey = `${endpoint}|${databaseId}|${containerId}|${key.length}:${key.slice(0, 4)}`;
+    if (_cachedCompaniesContainer && _cachedCompaniesContainerKey === cacheKey) {
+      return _cachedCompaniesContainer;
+    }
+
+    _cachedCosmosClient = new CosmosClient({ endpoint, key });
+    _cachedCompaniesContainer = _cachedCosmosClient.database(databaseId).container(containerId);
+    _cachedCompaniesContainerKey = cacheKey;
+    return _cachedCompaniesContainer;
   } catch (err) {
     console.error("Failed to initialize Cosmos container:", err);
     return null;
