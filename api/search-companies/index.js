@@ -1727,7 +1727,14 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // falls back to the hybrid Pass 1 + Pass 2 path the site ran on for
       // the past 57 days. Kill switch: set this back to false and redeploy.
       // Tests can force the fallback path via deps.useFTS = false.
-      const USE_FTS = deps.useFTS !== undefined ? deps.useFTS : true;
+      // 2026-05-24: REVERTED to false. Flipping to true caused all search
+      // requests to hang for 45s (SWA "Backend call failure"). Worked fine
+      // for ~10 minutes after deploy, then broke for every query — not just
+      // typo/fuzzy paths. Suspect: FTS query path holds a connection or
+      // semaphore that doesn't get released, eventually starving the worker.
+      // Investigating before re-enabling. Hybrid Pass 1 + Pass 2 path (the
+      // path that ran production for the past 57 days) is back in service.
+      const USE_FTS = deps.useFTS !== undefined ? deps.useFTS : false;
 
       // Helper: run a Cosmos query with a timeout to prevent hanging when FTS index is building.
       // Uses AbortController to properly cancel the underlying HTTP request on timeout,
