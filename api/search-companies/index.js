@@ -1690,18 +1690,23 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   // the response meta so the frontend can offer a "Showing results for
   // X" UX later.
   let corrected_query = null;
+  let _typoDiag = { attempted: false };
   if (q_norm && container) {
+    _typoDiag.attempted = true;
     try {
       const dictionary = await getTypoCorrectionDictionary(container);
+      _typoDiag.dictionaryLoaded = !!dictionary;
+      _typoDiag.termCount = dictionary?.termCount || 0;
       const rewritten = correctTypoQuery(q_norm, dictionary);
+      _typoDiag.rewritten = rewritten;
       if (rewritten && rewritten !== q_norm) {
         corrected_query = { original: q_norm, corrected: rewritten };
         q_norm = rewritten;
         q_compact = q_norm.replace(/\s+/g, "");
         q_stemmed = stemWords(q_norm);
       }
-    } catch {
-      // typo correction must never block search
+    } catch (typoErr) {
+      _typoDiag.error = typoErr?.message || String(typoErr);
     }
   }
 
@@ -2553,6 +2558,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             user_location,
             _searchMode: quickMode ? "quick" : usedFallback ? "contains" : "fts",
             ...(corrected_query ? { correctedQuery: corrected_query } : {}),
+            _typoDiag,
           },
         },
         200,
