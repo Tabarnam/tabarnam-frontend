@@ -1581,6 +1581,60 @@ test("manufacturing sort ranks a strong match above a physically nearer weak mat
   );
 });
 
+// ── Pass 4 fires for fuzzy-matched brand searches ────────────────────────
+// Regression check for the "moodhops → MoodHoops" case where the user
+// typo'd a niche brand name, fuzzy fallback caught it, but Pass 4's
+// industry-peer expansion silently skipped because primary detection
+// re-ran computeNameMatchScore against the user's original (typo'd)
+// query which returns 0.
+
+test("Pass 4 fires for fuzzy-matched primary brand: industry peer query gets issued", async () => {
+  // The brand the fuzzy fallback will surface. Its actual name doesn't
+  // match the query exactly — the user typo'd it (one char off).
+  const brand = {
+    id: "brand_moodhoops",
+    company_name: "MoodHoops",
+    normalized_domain: "moodhoops.com",
+    industries: ["LED Hula Hoops", "Programmable LED Props", "Flow Arts Toys"],
+    _ts: 1700000200,
+  };
+
+  // Record every Cosmos SQL that gets issued so we can assert Pass 4
+  // (the industry-peer query) was among them.
+  const queriesIssued = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    const sql = String(spec.query || "");
+    queriesIssued.push(sql);
+    // Pass 1 + Pass 2: return nothing (forces fuzzy fallback).
+    // Fuzzy fallback (STARTSWITH on company_name): return the brand.
+    // Pass 4 (EXISTS on industries with bigram CONTAINS): return nothing
+    // for this test — we only need to verify the query was ISSUED.
+    if (sql.includes("STARTSWITH(LOWER(c.company_name)")) {
+      return [brand];
+    }
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=moodhops&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  // Pass 4 SQL signature: EXISTS(SELECT VALUE x FROM x IN c.industries
+  // WHERE CONTAINS(LOWER(x), @iw0))
+  const pass4Issued = queriesIssued.some(
+    (sql) =>
+      sql.includes("c.industries") &&
+      sql.includes("EXISTS") &&
+      sql.includes("CONTAINS(LOWER(x)")
+  );
+  assert.ok(
+    pass4Issued,
+    `expected Pass 4 industry-peer query to be issued for the fuzzy-matched brand; got SQLs: ${queriesIssued.map(s => s.replace(/\s+/g, " ").trim().slice(0, 80)).join(" || ")}`
+  );
+});
+
 // ── ftsAllSingleToken gate ───────────────────────────────────────────────
 // Defends against re-introducing the 2026-05-24 multi-word FTS hang.
 // FullTextContainsAll on Cosmos hangs even with SDK 4.9.1, so the FTS

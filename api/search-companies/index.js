@@ -2261,7 +2261,17 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         let primary = null;
         let primaryScore = 0;
         for (const c of items) {
-          const score = computeNameMatchScore(c, q_raw, q_norm, q_compact);
+          // Fuzzy-matched companies are automatic primaries: the fuzzy
+          // fallback has already concluded the user meant THIS company
+          // (it survived a Damerau-Levenshtein threshold). Re-running
+          // computeNameMatchScore against the user's original typo'd
+          // query would return 0 here (because the typo doesn't literally
+          // match the company name) and Pass 4 would silently skip —
+          // exactly the moodhops → MoodHoops case where peer comps
+          // (UltraPoi, Hoopologie, HulaFit, Hoopnotica) never surfaced.
+          const score = c._fuzzyMatch
+            ? 100
+            : computeNameMatchScore(c, q_raw, q_norm, q_compact);
           if (score > primaryScore) {
             primaryScore = score;
             primary = c;
