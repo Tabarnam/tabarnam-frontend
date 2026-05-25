@@ -23,6 +23,15 @@ const {
   getCacheInfo: getTypoCacheInfo,
   startBackgroundLoad: startTypoBackgroundLoad,
 } = require("../_typoCorrection");
+const { TTLCache, buildCacheKey } = require("../_responseCache");
+
+// In-worker hot-query cache. Two anonymous users searching "candle" within
+// the TTL window share the same Cosmos work. Cross-user by design (cache
+// key is query+params, never user identity). Per-worker, so 1-3 workers
+// during scaled-up bursts each warm independently — acceptable for a
+// small LRU. Cache is bypassed when ?nocache=1 is set.
+const _responseCache = new TTLCache({ maxEntries: 200, ttlMs: 5 * 60 * 1000 });
+function _getResponseCache() { return _responseCache; }
 
 let cosmosTargetPromise;
 
@@ -2636,31 +2645,89 @@ function timeoutResponse(req) {
   };
 }
 
+/**
+ * Lightly clone a cached response so the cached object's headers aren't
+ * mutated by downstream code. The body is a string (already serialized)
+ * so it can be shared by reference cheaply.
+ */
+function cloneCachedResponse(cached) {
+  return {
+    status: cached.status,
+    headers: { ...cached.headers, "X-Cache": "HIT" },
+    body: cached.body,
+  };
+}
+
+/**
+ * The Functions-host-facing wrapper. Adds the response cache, the
+ * per-request hard timeout, and the per-worker recycle on top of
+ * searchCompaniesHandler. Exported as `searchCompaniesHttpHandler` so
+ * tests can drive the same code path the host does.
+ */
+async function searchCompaniesHttpHandler(req, context, deps = {}) {
+  // ── Cache lookup ────────────────────────────────────────────────
+  // Identical queries (after URL normalisation) within the TTL window
+  // return the previously-computed response immediately. Skips the
+  // entire pipeline including Cosmos round-trips.
+  const cacheKey = buildCacheKey(req.url, req.method);
+  if (cacheKey) {
+    const cached = _responseCache.get(cacheKey);
+    if (cached) {
+      return cloneCachedResponse(cached);
+    }
+  }
+
+  const handlerPromise = searchCompaniesHandler(req, context, deps);
+  const timeoutPromise = new Promise((resolve) =>
+    setTimeout(() => resolve(timeoutResponse(req)), REQUEST_HARD_TIMEOUT_MS)
+  );
+  const response = await Promise.race([handlerPromise, timeoutPromise]);
+
+  // ── Cache store ─────────────────────────────────────────────────
+  // Only cache successful responses (2xx). Errors / timeouts could be
+  // transient and we don't want to pin them in the cache for 5 min.
+  if (
+    cacheKey &&
+    response &&
+    typeof response.status === "number" &&
+    response.status >= 200 &&
+    response.status < 300
+  ) {
+    _responseCache.set(cacheKey, {
+      status: response.status,
+      headers: { ...response.headers, "X-Cache": "MISS" },
+      body: response.body,
+    });
+  }
+
+  // Tag the (first-time) response as a MISS so cache behaviour is
+  // observable end-to-end.
+  if (response && response.headers) {
+    response.headers = { ...response.headers, "X-Cache": "MISS" };
+  }
+
+  // Per-worker auto-recycle. Fires AFTER the response is constructed
+  // but BEFORE it's returned to the host — setImmediate defers the
+  // process.exit until the next tick so the response actually flushes.
+  _requestsServed++;
+  const ageMs = Date.now() - _workerStartedAt;
+  if (_requestsServed >= MAX_REQUESTS_PER_WORKER || ageMs >= MAX_WORKER_AGE_MS) {
+    if (context && typeof context.log === "function") {
+      context.log(
+        `[search-companies] recycling worker: served=${_requestsServed} ageMs=${ageMs}`
+      );
+    }
+    setImmediate(() => process.exit(0));
+  }
+
+  return response;
+}
+
 app.http("search-companies", {
   route: "search-companies",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    const handlerPromise = searchCompaniesHandler(req, context);
-    const timeoutPromise = new Promise((resolve) =>
-      setTimeout(() => resolve(timeoutResponse(req)), REQUEST_HARD_TIMEOUT_MS)
-    );
-    const response = await Promise.race([handlerPromise, timeoutPromise]);
-
-    // Per-worker auto-recycle. Fires AFTER the response is constructed
-    // but BEFORE it's returned to the host — setImmediate defers the
-    // process.exit until the next tick so the response actually flushes.
-    _requestsServed++;
-    const ageMs = Date.now() - _workerStartedAt;
-    if (_requestsServed >= MAX_REQUESTS_PER_WORKER || ageMs >= MAX_WORKER_AGE_MS) {
-      context.log(
-        `[search-companies] recycling worker: served=${_requestsServed} ageMs=${ageMs}`
-      );
-      setImmediate(() => process.exit(0));
-    }
-
-    return response;
-  },
+  handler: searchCompaniesHttpHandler,
 });
 
 module.exports.handler = searchCompaniesHandler;
@@ -2669,6 +2736,7 @@ module.exports._test = {
   normalizeStringArray,
   mapCompanyToPublic,
   searchCompaniesHandler,
+  searchCompaniesHttpHandler,
   computeNameMatchScore,
   computeKeywordMatchScore,
   computeRelevanceScore,
@@ -2676,4 +2744,5 @@ module.exports._test = {
   companyMatchesAllConcepts,
   isSynonymOnlyMatch,
   ftsAllSingleToken,
+  _getResponseCache,
 };

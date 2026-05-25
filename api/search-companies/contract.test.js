@@ -1602,6 +1602,103 @@ test("typo correction: an already-correct query gets no correctedQuery on meta",
     "no typo → no correctedQuery on meta");
 });
 
+// ── response cache integration ───────────────────────────────────────────
+// Proves the http handler caches successful responses across calls and
+// skips the underlying searchCompaniesHandler on cache hit (the second
+// call shouldn't issue any new Cosmos queries).
+
+test("response cache: identical query is served from cache on the second call", async () => {
+  // Reset the cache so a previous test doesn't pre-populate this key.
+  _test._getResponseCache().clear();
+
+  let queryCount = 0;
+  const doc = {
+    id: "cached_doc_1",
+    company_name: "Cache Test Inc",
+    normalized_domain: "cachetest.example",
+    industries: ["Testing"],
+    _ts: 1700000099,
+  };
+  const companiesContainer = makeContainer(async () => {
+    queryCount++;
+    return [doc];
+  });
+
+  // Unique URL so this test never collides with cached entries from
+  // earlier tests in the same run.
+  const url = "https://example.test/api/search-companies?q=cachemarker_uniq&sort=recent&take=10";
+
+  const r1 = await _test.searchCompaniesHttpHandler(
+    makeReq(url),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  const queriesAfter1 = queryCount;
+  assert.equal(r1.status, 200);
+  assert.equal(r1.headers["X-Cache"], "MISS", "first call must be a MISS");
+  assert.ok(queriesAfter1 > 0, "first call should issue at least one Cosmos query");
+
+  const r2 = await _test.searchCompaniesHttpHandler(
+    makeReq(url),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(r2.status, 200);
+  assert.equal(r2.headers["X-Cache"], "HIT", "second call must be a HIT");
+  assert.equal(
+    queryCount,
+    queriesAfter1,
+    `second call must NOT issue new Cosmos queries (queryCount went ${queriesAfter1} -> ${queryCount})`
+  );
+
+  // Bodies are byte-identical between miss and hit.
+  assert.equal(r1.body, r2.body);
+});
+
+test("response cache: ?nocache=1 bypasses both lookup and store", async () => {
+  _test._getResponseCache().clear();
+
+  let queryCount = 0;
+  const companiesContainer = makeContainer(async () => {
+    queryCount++;
+    return [];
+  });
+
+  const url = "https://example.test/api/search-companies?q=nocache_test&take=5&nocache=1";
+
+  await _test.searchCompaniesHttpHandler(makeReq(url), { log() {} }, { companiesContainer, useFTS: false });
+  const after1 = queryCount;
+
+  await _test.searchCompaniesHttpHandler(makeReq(url), { log() {} }, { companiesContainer, useFTS: false });
+  assert.ok(queryCount > after1, "?nocache=1 should not cache → second call hits Cosmos again");
+});
+
+test("response cache: case-insensitive query values share a cache entry", async () => {
+  _test._getResponseCache().clear();
+
+  let queryCount = 0;
+  const companiesContainer = makeContainer(async () => {
+    queryCount++;
+    return [];
+  });
+
+  await _test.searchCompaniesHttpHandler(
+    makeReq("https://example.test/api/search-companies?q=Candle&take=5"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  const after1 = queryCount;
+
+  // Same query, different case — should hit the same cache entry.
+  const r2 = await _test.searchCompaniesHttpHandler(
+    makeReq("https://example.test/api/search-companies?q=candle&take=5"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(r2.headers["X-Cache"], "HIT");
+  assert.equal(queryCount, after1, "case-only difference must not trigger a new Cosmos query");
+});
+
 test("typo correction: gracefully no-ops when affinity index is missing", async () => {
   // No indexDoc → loader returns null → typo correction skipped silently.
   // Search still proceeds with the original (typo) query.
