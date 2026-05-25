@@ -2666,10 +2666,28 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 // state for ~10 minutes of normal traffic, then started returning 45s
 // gateway timeouts on every request. With alwaysReady=1 keeping a fresh
 // worker pre-warmed, eagerly recycling this one costs nothing.
+//
+// Race-condition history (2026-05-25): earlier versions used
+// setImmediate(() => process.exit(0)) to recycle, which fires before the
+// host has finished flushing the response and can ALSO kill any other
+// requests in flight on the same worker. Symptom: client gets HTTP 500
+// with empty body and empty headers (SWA proxy had no upstream response
+// to relay). Fixed by tracking in-flight count and only exiting when
+// the worker is idle — see _requestsInFlight + _recycleRequested below.
 const _workerStartedAt = Date.now();
 let _requestsServed = 0;
+let _requestsInFlight = 0;
+let _recycleRequested = false;
 const MAX_REQUESTS_PER_WORKER = 200;
 const MAX_WORKER_AGE_MS = 20 * 60 * 1000; // 20 minutes
+
+function _maybeRecycleWorker(context) {
+  if (!_recycleRequested) return;
+  if (_requestsInFlight !== 0) return;
+  // Defer one tick after the response goes out so the host's outbound
+  // socket write completes cleanly before we tear down the process.
+  setTimeout(() => process.exit(0), 100);
+}
 
 // If the handler blocks past this (e.g. a Cosmos call wedged, an FTS
 // query hanging despite AbortController), return 503 to unblock the
@@ -2716,62 +2734,76 @@ function cloneCachedResponse(cached) {
  * tests can drive the same code path the host does.
  */
 async function searchCompaniesHttpHandler(req, context, deps = {}) {
-  // ── Cache lookup ────────────────────────────────────────────────
-  // Identical queries (after URL normalisation) within the TTL window
-  // return the previously-computed response immediately. Skips the
-  // entire pipeline including Cosmos round-trips.
-  const cacheKey = buildCacheKey(req.url, req.method);
-  if (cacheKey) {
-    const cached = _responseCache.get(cacheKey);
-    if (cached) {
-      return cloneCachedResponse(cached);
+  // Track in-flight count so we never call process.exit while a request
+  // is being served. _maybeRecycleWorker checks this counter and only
+  // exits when the worker is idle.
+  _requestsInFlight++;
+  try {
+    // ── Cache lookup ────────────────────────────────────────────────
+    // Identical queries (after URL normalisation) within the TTL window
+    // return the previously-computed response immediately. Skips the
+    // entire pipeline including Cosmos round-trips.
+    const cacheKey = buildCacheKey(req.url, req.method);
+    if (cacheKey) {
+      const cached = _responseCache.get(cacheKey);
+      if (cached) {
+        return cloneCachedResponse(cached);
+      }
     }
-  }
 
-  const handlerPromise = searchCompaniesHandler(req, context, deps);
-  const timeoutPromise = new Promise((resolve) =>
-    setTimeout(() => resolve(timeoutResponse(req)), REQUEST_HARD_TIMEOUT_MS)
-  );
-  const response = await Promise.race([handlerPromise, timeoutPromise]);
+    const handlerPromise = searchCompaniesHandler(req, context, deps);
+    const timeoutPromise = new Promise((resolve) =>
+      setTimeout(() => resolve(timeoutResponse(req)), REQUEST_HARD_TIMEOUT_MS)
+    );
+    const response = await Promise.race([handlerPromise, timeoutPromise]);
 
-  // ── Cache store ─────────────────────────────────────────────────
-  // Only cache successful responses (2xx). Errors / timeouts could be
-  // transient and we don't want to pin them in the cache for 5 min.
-  if (
-    cacheKey &&
-    response &&
-    typeof response.status === "number" &&
-    response.status >= 200 &&
-    response.status < 300
-  ) {
-    _responseCache.set(cacheKey, {
-      status: response.status,
-      headers: { ...response.headers, "X-Cache": "MISS" },
-      body: response.body,
-    });
-  }
-
-  // Tag the (first-time) response as a MISS so cache behaviour is
-  // observable end-to-end.
-  if (response && response.headers) {
-    response.headers = { ...response.headers, "X-Cache": "MISS" };
-  }
-
-  // Per-worker auto-recycle. Fires AFTER the response is constructed
-  // but BEFORE it's returned to the host — setImmediate defers the
-  // process.exit until the next tick so the response actually flushes.
-  _requestsServed++;
-  const ageMs = Date.now() - _workerStartedAt;
-  if (_requestsServed >= MAX_REQUESTS_PER_WORKER || ageMs >= MAX_WORKER_AGE_MS) {
-    if (context && typeof context.log === "function") {
-      context.log(
-        `[search-companies] recycling worker: served=${_requestsServed} ageMs=${ageMs}`
-      );
+    // ── Cache store ─────────────────────────────────────────────────
+    // Only cache successful responses (2xx). Errors / timeouts could be
+    // transient and we don't want to pin them in the cache for 5 min.
+    if (
+      cacheKey &&
+      response &&
+      typeof response.status === "number" &&
+      response.status >= 200 &&
+      response.status < 300
+    ) {
+      _responseCache.set(cacheKey, {
+        status: response.status,
+        headers: { ...response.headers, "X-Cache": "MISS" },
+        body: response.body,
+      });
     }
-    setImmediate(() => process.exit(0));
-  }
 
-  return response;
+    // Tag the (first-time) response as a MISS so cache behaviour is
+    // observable end-to-end.
+    if (response && response.headers) {
+      response.headers = { ...response.headers, "X-Cache": "MISS" };
+    }
+
+    // Per-worker auto-recycle bookkeeping. We never call process.exit
+    // here — only mark that a recycle is requested. The finally block
+    // calls _maybeRecycleWorker which checks _requestsInFlight === 0
+    // before actually exiting.
+    _requestsServed++;
+    const ageMs = Date.now() - _workerStartedAt;
+    if (
+      !_recycleRequested &&
+      (_requestsServed >= MAX_REQUESTS_PER_WORKER ||
+        ageMs >= MAX_WORKER_AGE_MS)
+    ) {
+      _recycleRequested = true;
+      if (context && typeof context.log === "function") {
+        context.log(
+          `[search-companies] recycle requested: served=${_requestsServed} ageMs=${ageMs} inflight=${_requestsInFlight}`
+        );
+      }
+    }
+
+    return response;
+  } finally {
+    _requestsInFlight--;
+    _maybeRecycleWorker(context);
+  }
 }
 
 app.http("search-companies", {
