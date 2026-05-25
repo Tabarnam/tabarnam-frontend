@@ -725,6 +725,53 @@ test("search-companies still runs Pass 2 + Pass 3 when Pass 1 returns FEW tier-1
   assert.ok(pass3Specs.length >= 1, "Pass 3 should fire on multi-word query when Pass 1 has no tier-0 primary");
 });
 
+test("search-companies SKIPS Pass 3 when the PRIMARY surfaces via Pass 2 (not Pass 1)", async () => {
+  // The exact 2026-05-25 'buffalo fish' regression. Pass 1's strict
+  // word-boundary AND filter can miss strong matches whose
+  // search_text_norm doesn't precisely contain the space-padded query
+  // — H&H Boneless Buffalo Fish Market matched via Pass 2's substring
+  // path, not Pass 1. The pre-fix code only checked Pass 1's items for
+  // a primary so the gate stayed open. Now we re-check after Pass 2
+  // merges its results.
+  const primary = {
+    id: "primary_via_pass2",
+    company_name: "Acme Buffalo Fish Market",
+    normalized_domain: "acme.example",
+    _ts: 1700000010,
+  };
+
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    const params = spec.parameters || [];
+    const isPass1 = params.some((p) => p.name === "@q_wb");
+    // Pass 1 returns nothing — simulating the case where the word-boundary
+    // filter misses the primary.
+    if (isPass1) return [];
+    // Pass 2 (has @q + @q_compact params) returns the primary.
+    const isPass2 =
+      params.some((p) => p.name === "@q") &&
+      params.some((p) => p.name === "@q_compact");
+    if (isPass2) return [primary];
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=buffalo%20fish&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  const pass3Specs = specs.filter((s) =>
+    (s.parameters || []).some((p) => p.name === "@broadenTake")
+  );
+  assert.equal(
+    pass3Specs.length,
+    0,
+    "Pass 3 should skip when Pass 2 supplied a tier-0 primary — even if Pass 1 returned nothing"
+  );
+});
+
 test("search-companies SKIPS Pass 3 when Pass 1 has even ONE tier-0 primary", async () => {
   // The 2026-05-25 "buffalo fish" fix: when Pass 1 has any tier-0 hit
   // (R ≥ 90 OR nameScore ≥ 100), Pass 3 broadening is unnecessary —

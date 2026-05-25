@@ -1828,6 +1828,24 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // ranked below H&H (tier 0) anyway, but the broadening Cosmos query
       // took 7-14s and tipped the per-request hard timeout.
       let pass1HasPrimary = false;
+      // What counts as a "primary" for the Pass 3 skip gate. We can't use
+      // relevanceTier <= 0 here because that depends on keyword/industry
+      // bonuses pushing R >= 90 — bonuses that vary per company. A clear
+      // name match can land in tier 1 without bonuses even though it's
+      // semantically a primary. nameScore >= 90 is the right signal:
+      //   100 — full match
+      //    90 — overlap path: all query tokens at word boundaries in name
+      //    80 — name starts with query
+      // We use the 90 threshold so "startsWith" alone doesn't fire (the
+      // user might search "candy" and we don't want to anchor on "Candy
+      // Bar Company Inc"); but full-token-overlap or exact does.
+      const PRIMARY_NAME_THRESHOLD = 90;
+      function isStrongPrimary(company) {
+        return (
+          computeNameMatchScore(company, q_raw, q_norm, q_compact) >=
+          PRIMARY_NAME_THRESHOLD
+        );
+      }
       function checkPass1Sufficiency(candidates) {
         if (!q_norm) return false;
         let strongCount = 0;
@@ -1835,7 +1853,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           const nameScore = computeNameMatchScore(c, q_raw, q_norm, q_compact);
           const relScore = computeRelevanceScore(c, q_raw, q_norm, q_compact);
           const tier = relevanceTier(relScore, nameScore);
-          if (tier <= 0) pass1HasPrimary = true;
+          if (nameScore >= PRIMARY_NAME_THRESHOLD) pass1HasPrimary = true;
           if (tier <= 1) {
             strongCount++;
             if (strongCount >= pass1SufficiencyThreshold) return true;
@@ -2153,15 +2171,33 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       //   - single-word queries (Pass 1 already covers the equivalent set)
       //   - sort=manu (user explicitly chose a strict view)
       //   - Pass 1 had enough strong-tier matches to fill the page
-      //   - Pass 1 found ANY tier-0+ primary brand match — Pass 4 handles
-      //     peer expansion from there, and broadening on common single
-      //     words ("buffalo", "fish") adds expensive cross-partition
-      //     CONTAINS scans that bloat the result with weakly-relevant
-      //     candidates ranking below the strong primary anyway.
+      //   - Pass 1 + Pass 2 combined found ANY tier-0+ primary brand match
+      //     — Pass 4 handles peer expansion from there, and broadening on
+      //     common single words ("buffalo", "fish") adds expensive
+      //     cross-partition CONTAINS scans that bloat the result with
+      //     weakly-relevant candidates ranking below the strong primary
+      //     anyway.
+      //
+      // IMPORTANT: re-check for a primary HERE rather than relying on
+      // pass1HasPrimary alone. Pass 1's strict word-boundary filter can
+      // miss strong matches whose search_text_norm doesn't precisely
+      // contain the space-padded query (e.g. "buffalo fish" found H&H
+      // Boneless Buffalo Fish Market via Pass 2 substring fallback —
+      // not Pass 1 — so pass1HasPrimary stayed false despite the items
+      // array containing a clear tier-0 brand by the time we hit Pass 3).
+      let haveStrongPrimary = pass1HasPrimary;
+      if (!haveStrongPrimary && q_norm && sort !== "manu") {
+        for (const c of items) {
+          if (isStrongPrimary(c)) {
+            haveStrongPrimary = true;
+            break;
+          }
+        }
+      }
       if (
         !quickMode &&
         !pass1Sufficient &&
-        !pass1HasPrimary &&
+        !haveStrongPrimary &&
         q_norm &&
         sort !== "manu"
       ) {
