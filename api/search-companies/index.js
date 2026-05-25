@@ -1817,13 +1817,26 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         PASS1_SUFFICIENCY_MIN
       );
       let pass1Sufficient = false;
+      // Pass 1 having even ONE tier-0 (R ≥ 90) or tier -1 hit means there's
+      // a definitive primary brand match — Pass 4 (industry-related peer
+      // expansion) will handle widening from there. Pass 3 (per-word
+      // broadening) would just add noise via expensive cross-partition
+      // CONTAINS scans on common single words ("buffalo", "fish") that
+      // bloat the result set with weakly-relevant candidates. The
+      // 2026-05-25 "buffalo fish" 503-timeout incident traced exactly to
+      // this — 40 of 50 returned items were Pass-3 broadened matches that
+      // ranked below H&H (tier 0) anyway, but the broadening Cosmos query
+      // took 7-14s and tipped the per-request hard timeout.
+      let pass1HasPrimary = false;
       function checkPass1Sufficiency(candidates) {
         if (!q_norm) return false;
         let strongCount = 0;
         for (const c of candidates) {
           const nameScore = computeNameMatchScore(c, q_raw, q_norm, q_compact);
           const relScore = computeRelevanceScore(c, q_raw, q_norm, q_compact);
-          if (relevanceTier(relScore, nameScore) <= 1) {
+          const tier = relevanceTier(relScore, nameScore);
+          if (tier <= 0) pass1HasPrimary = true;
+          if (tier <= 1) {
             strongCount++;
             if (strongCount >= pass1SufficiencyThreshold) return true;
           }
@@ -2135,12 +2148,23 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // "Hobbs Pickles" beneath the brand match. Strict-AND retrieval (Pass
       // 1/2) keeps precision for the primary hit; this pass adds related
       // candidates that the existing relevance scoring + industry affinity
-      // index then rank correctly. Skipped in quickMode and for single-word
-      // queries (Pass 1 already covers the equivalent set). Skipped for
-      // sort=manu where the user explicitly chose a strict view. Also skipped
-      // when Pass 1 already returned enough strong-tier matches — any
-      // per-word OR additions would sort below the strong band anyway.
-      if (!quickMode && !pass1Sufficient && q_norm && sort !== "manu") {
+      // index then rank correctly. Skipped in:
+      //   - quickMode (above-the-fold preview only)
+      //   - single-word queries (Pass 1 already covers the equivalent set)
+      //   - sort=manu (user explicitly chose a strict view)
+      //   - Pass 1 had enough strong-tier matches to fill the page
+      //   - Pass 1 found ANY tier-0+ primary brand match — Pass 4 handles
+      //     peer expansion from there, and broadening on common single
+      //     words ("buffalo", "fish") adds expensive cross-partition
+      //     CONTAINS scans that bloat the result with weakly-relevant
+      //     candidates ranking below the strong primary anyway.
+      if (
+        !quickMode &&
+        !pass1Sufficient &&
+        !pass1HasPrimary &&
+        q_norm &&
+        sort !== "manu"
+      ) {
         const broadenWords = q_norm.split(/\s+/).filter((w) => w.length >= 3);
         if (broadenWords.length >= 2) {
           const broadenParams = [{ name: "@broadenTake", value: 500 }];

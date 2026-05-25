@@ -678,12 +678,22 @@ test("search-companies short-circuits Pass 2 + Pass 3 when Pass 1 returns enough
   assert.equal(pass3Specs.length, 0, "Pass 3 should be short-circuited when Pass 1 has enough strong matches");
 });
 
-test("search-companies still runs Pass 2 + Pass 3 when Pass 1 returns FEW strong matches", async () => {
-  // Only 5 strong matches — well below the sufficiency threshold of 50.
-  // The pipeline should still consult Pass 2 / Pass 3 to fill out candidates.
-  const fewStrongDocs = Array.from({ length: 5 }, (_, i) => ({
-    id: `few_${i}`,
-    company_name: "candle wick",
+test("search-companies still runs Pass 2 + Pass 3 when Pass 1 returns FEW tier-1 matches with no tier-0 primary", async () => {
+  // Only 5 tier-1 matches — well below the sufficiency threshold of 50,
+  // AND none reaches tier 0 (R ≥ 90). Under those conditions, both Pass 2
+  // (fill substring matches) and Pass 3 (broaden per-word) should still
+  // fire. Tier-0 matches DO short-circuit Pass 3 in current code
+  // (post-2026-05-25 fix) — Pass 4 handles peer expansion when there's a
+  // definitive primary.
+  //
+  // Fixture: name "Candlewick Brand" — nameCompact "candlewickbrand"
+  // starts with qCompact "candlewick" → nameScore 80 (startsWith), R ~76.
+  // Tier 1 but NOT tier 0. Name tokens "candlewick" and "brand" don't
+  // equal "candle" or "wick" individually so per-token overlap gives 0/2
+  // and doesn't boost to tier 0.
+  const tier1Docs = Array.from({ length: 5 }, (_, i) => ({
+    id: `t1_${i}`,
+    company_name: "Candlewick Brand",
     normalized_domain: `cw${i}.com`,
     _ts: 1700000000 + i,
   }));
@@ -693,7 +703,7 @@ test("search-companies still runs Pass 2 + Pass 3 when Pass 1 returns FEW strong
     specs.push(spec);
     const params = spec.parameters || [];
     const isPass1 = params.some((p) => p.name === "@q_wb");
-    return isPass1 ? fewStrongDocs : [];
+    return isPass1 ? tier1Docs : [];
   });
 
   await _test.searchCompaniesHandler(
@@ -707,12 +717,50 @@ test("search-companies still runs Pass 2 + Pass 3 when Pass 1 returns FEW strong
     const params = s.parameters || [];
     return params.some((p) => p.name === "@q") && params.some((p) => p.name === "@q_compact");
   });
-  assert.ok(pass2Specs.length >= 1, "Pass 2 should fire when Pass 1 returned few strong matches");
+  assert.ok(pass2Specs.length >= 1, "Pass 2 should fire when Pass 1 returned only tier-1 matches");
 
   const pass3Specs = specs.filter((s) =>
     (s.parameters || []).some((p) => p.name === "@broadenTake")
   );
-  assert.ok(pass3Specs.length >= 1, "Pass 3 should fire on multi-word query when Pass 1 returned few strong matches");
+  assert.ok(pass3Specs.length >= 1, "Pass 3 should fire on multi-word query when Pass 1 has no tier-0 primary");
+});
+
+test("search-companies SKIPS Pass 3 when Pass 1 has even ONE tier-0 primary", async () => {
+  // The 2026-05-25 "buffalo fish" fix: when Pass 1 has any tier-0 hit
+  // (R ≥ 90 OR nameScore ≥ 100), Pass 3 broadening is unnecessary —
+  // Pass 4 handles industry-related peer expansion. Skipping Pass 3 saves
+  // a 7-14s cross-partition CONTAINS scan that would bloat the result
+  // pool with weakly-relevant candidates ranking below the primary.
+  const tier0Docs = Array.from({ length: 5 }, (_, i) => ({
+    id: `t0_${i}`,
+    // Exact match → nameScore 100 → tier -1 → pass1HasPrimary = true.
+    company_name: "candle wick",
+    normalized_domain: `cw${i}.com`,
+    _ts: 1700000000 + i,
+  }));
+
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    const params = spec.parameters || [];
+    const isPass1 = params.some((p) => p.name === "@q_wb");
+    return isPass1 ? tier0Docs : [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=candle%20wick&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  const pass3Specs = specs.filter((s) =>
+    (s.parameters || []).some((p) => p.name === "@broadenTake")
+  );
+  assert.equal(
+    pass3Specs.length,
+    0,
+    "Pass 3 should be short-circuited when Pass 1 has any tier-0 primary"
+  );
 });
 
 test("search-companies skips word-boundary for short queries (< 3 chars)", async () => {
@@ -1407,8 +1455,15 @@ test("broadening pass: 'Hobbs Pickles' surfaces other pickle companies below the
     if (isFuzzy) return [];
     const isBroaden = spec?.parameters?.some((p) => p.name === "@broadenTake");
     if (isBroaden) {
-      // Returns every company whose search_text_norm contains " hobbs " or
-      // " pickles " (or stemmed equivalents).
+      return [hobbsPickles, pete, sour, brine];
+    }
+    // Pass 4 (industry-related peer comps): fires when Pass 1 has a tier-0+
+    // primary brand match and primary has industries. After 2026-05-25
+    // Pass 3 is skipped in this case (broadening on common single words
+    // bloats results with no relevance gain), so Pass 4 is the path that
+    // surfaces peer pickle companies via shared "Pickles" industry tag.
+    const isIndustryPeers = spec?.parameters?.some((p) => p.name === "@indTake");
+    if (isIndustryPeers) {
       return [hobbsPickles, pete, sour, brine];
     }
     // Pass 1 + Pass 2 (strict AND) — only Hobbs matches both words.
