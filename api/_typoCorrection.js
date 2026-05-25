@@ -27,13 +27,23 @@
 
 const { damerauLevenshtein } = require("./_fuzzyMatch");
 
-// Same shape the industry-affinity loader reads from. Duplicating these
-// here (vs. importing) so we can call container.item(...).read() directly
-// and surface ANY underlying error in `_lastLoadError` — the affinity
-// loader swallows errors which made the production-debugging blind.
+// Affinity-index doc IDs — kept here for back-compat in case a cached
+// version exists. The primary dictionary source is now a direct scan of
+// the companies container (see buildDictionaryFromScan), because the
+// affinity index doc is not guaranteed to exist in production (it's
+// built on demand by an admin endpoint that may not be reachable).
 const INDEX_DOC_ID = "_index_industry_affinity";
 const INDEX_PARTITION_KEY = "_index";
 let _lastLoadError = null;
+let _backgroundLoadStarted = false;
+
+// Minimum companies a token must appear in to make the dictionary.
+// Higher = more conservative (no rare/unique tokens) → safer against
+// "correcting" a real-but-rare brand name into the wrong common word.
+// Lower = more coverage. 2 means "at least one OTHER company shares this
+// token", which excludes most one-off brand names while still capturing
+// product words like "paint", "puzzle", "candle", "jerky".
+const MIN_COMPANIES_PER_TOKEN = 2;
 
 // Tokens shorter than this are too ambiguous to safely auto-correct
 // ("bar" → "baz" / "bag" / "bat" / etc.) — leave them alone and let the
@@ -92,33 +102,107 @@ function buildBuckets(terms) {
  * stale. Best-effort: any failure returns the previous cache (or null on
  * cold start) so a Cosmos hiccup never breaks search.
  */
-async function getDictionary(container, { log = console.log } = {}) {
+/**
+ * Build the dictionary by scanning the companies container directly.
+ *
+ * Projects only the few fields we need for tokenization (names, keywords,
+ * industries) so the per-doc payload stays small. Iterates the async
+ * iterator in batches of 200 (a single roundtrip per batch). The
+ * resulting map is `token -> count` (counts let callers tune the
+ * MIN_COMPANIES_PER_TOKEN threshold later without re-scanning).
+ *
+ * Cost on a 23k-doc catalog: ~3-7 seconds on a warm Cosmos connection.
+ * That's why this runs in the background — see startBackgroundLoad.
+ */
+async function buildDictionaryFromScan(container) {
+  const tokenCount = Object.create(null);
+
+  const sql = {
+    query:
+      "SELECT c.company_name, c.display_name, c.name, " +
+      "c.keywords, c.product_keywords, c.industries " +
+      "FROM c WHERE NOT STARTSWITH(c.id, '_') " +
+      "AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false) " +
+      "AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')",
+  };
+
+  const iterator = container.items.query(sql, { maxItemCount: 200 });
+
+  for await (const { resources } of iterator.getAsyncIterator()) {
+    for (const company of resources || []) {
+      const seenInCompany = new Set();
+      const sources = [
+        company.company_name,
+        company.display_name,
+        company.name,
+        ...(Array.isArray(company.keywords) ? company.keywords : []),
+        ...(Array.isArray(company.product_keywords) ? company.product_keywords : []),
+        ...(Array.isArray(company.industries) ? company.industries : []),
+      ];
+      for (const src of sources) {
+        if (typeof src !== "string" || !src) continue;
+        for (const raw of src.toLowerCase().split(/[\s\-_/.,;:!?()&]+/)) {
+          // Strip remaining non-letter chars (digits, apostrophes) and check length.
+          const token = raw.replace(/[^a-z]/g, "");
+          if (token.length < MIN_TOKEN_LEN) continue;
+          if (seenInCompany.has(token)) continue;
+          seenInCompany.add(token);
+          tokenCount[token] = (tokenCount[token] || 0) + 1;
+        }
+      }
+    }
+  }
+
+  // Apply the company-frequency threshold.
+  const kept = Object.create(null);
+  for (const [token, count] of Object.entries(tokenCount)) {
+    if (count >= MIN_COMPANIES_PER_TOKEN) kept[token] = count;
+  }
+  return kept;
+}
+
+async function getDictionary(container) {
   if (!container) return _dictCache;
-  if (typeof container.item !== "function") return _dictCache;
+  if (typeof container.items !== "object") return _dictCache;
   const now = Date.now();
   if (_dictCache && now - _dictCacheAt < CACHE_TTL_MS) return _dictCache;
   if (_inFlight) return _inFlight;
 
   _inFlight = (async () => {
     try {
-      // Read the affinity index doc directly so any failure surfaces in
-      // _lastLoadError. The shared loader catches silently which made it
-      // impossible to tell why production wasn't loading.
-      const { resource } = await container
-        .item(INDEX_DOC_ID, INDEX_PARTITION_KEY)
-        .read();
-      if (!resource) {
-        _lastLoadError = "affinity index doc not found";
+      // Prefer a pre-built affinity index if it happens to exist (much
+      // faster than the full scan), but DON'T require it — fall through
+      // to the scan path when it's missing or unreadable.
+      let terms = null;
+      let source = "scan";
+      try {
+        const { resource } = await container
+          .item(INDEX_DOC_ID, INDEX_PARTITION_KEY)
+          .read();
+        if (resource && resource.terms && typeof resource.terms === "object") {
+          terms = resource.terms;
+          source = "affinity_index";
+        }
+      } catch {
+        // Not fatal — try the scan path.
+      }
+
+      if (!terms) {
+        const scanned = await buildDictionaryFromScan(container);
+        terms = scanned;
+        source = "scan";
+      }
+
+      const termCount = Object.keys(terms).length;
+      if (termCount === 0) {
+        _lastLoadError = "dictionary build returned 0 terms";
         return _dictCache;
       }
-      if (!resource.terms || typeof resource.terms !== "object") {
-        _lastLoadError = "affinity index doc has no terms map";
-        return _dictCache;
-      }
-      const buckets = buildBuckets(resource.terms);
+      const buckets = buildBuckets(terms);
       _dictCache = {
         buckets,
-        termCount: Object.keys(resource.terms).length,
+        termCount,
+        source,
         freshAt: Date.now(),
       };
       _dictCacheAt = Date.now();
@@ -137,8 +221,30 @@ async function getDictionary(container, { log = console.log } = {}) {
   return _inFlight;
 }
 
+/**
+ * Kick off a dictionary load in the background. Fire-and-forget — the
+ * caller does NOT await this. Subsequent calls are no-ops until the
+ * cache TTL expires. Use this to pre-warm the cache so a user's first
+ * request doesn't pay the ~5s full-scan cost.
+ */
+function startBackgroundLoad(container) {
+  if (_backgroundLoadStarted) return;
+  if (!container || typeof container.items !== "object") return;
+  _backgroundLoadStarted = true;
+  // The promise is intentionally orphaned. Errors are captured in
+  // _lastLoadError by getDictionary, so silent failures here aren't
+  // truly silent — they surface in the per-request diag.
+  getDictionary(container).catch(() => {});
+}
+
 function getLastLoadError() {
   return _lastLoadError;
+}
+
+function getCacheInfo() {
+  return _dictCache
+    ? { termCount: _dictCache.termCount, source: _dictCache.source, ageMs: Date.now() - _dictCacheAt }
+    : null;
 }
 
 /**
@@ -226,16 +332,21 @@ function _resetCache() {
   _dictCacheAt = 0;
   _inFlight = null;
   _lastLoadError = null;
+  _backgroundLoadStarted = false;
 }
 
 module.exports = {
   getDictionary,
   getLastLoadError,
+  getCacheInfo,
+  startBackgroundLoad,
   buildBuckets,
+  buildDictionaryFromScan,
   correctToken,
   correctQuery,
   MIN_TOKEN_LEN,
   MAX_EDIT_DISTANCE,
+  MIN_COMPANIES_PER_TOKEN,
   INDEX_DOC_ID,
   INDEX_PARTITION_KEY,
   _resetCache,

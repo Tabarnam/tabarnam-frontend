@@ -2,7 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { _test } = require("./index.js");
-const { _resetCache: resetTypoCorrectionCache } = require("../_typoCorrection");
+const {
+  _resetCache: resetTypoCorrectionCache,
+  getDictionary: warmTypoDictionary,
+} = require("../_typoCorrection");
 const { _resetCache: resetIndustryAffinityCache } = require("../_industryAffinityIndex");
 
 function makeReq(url) {
@@ -1530,6 +1533,12 @@ test("typo correction: 'paintt' is rewritten to 'paint' end-to-end", async () =>
     },
     { indexDoc }
   );
+
+  // Pre-warm the dictionary cache. In production the handler kicks
+  // the load in the background and the FIRST request uses whatever is
+  // already cached (often nothing on a cold worker). For the test we
+  // want to assert the post-warm behavior, so we await the load explicitly.
+  await warmTypoDictionary(companiesContainer);
 
   const res = await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=paintt&sort=recent&take=10"),

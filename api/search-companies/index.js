@@ -20,6 +20,8 @@ const {
   getDictionary: getTypoCorrectionDictionary,
   correctQuery: correctTypoQuery,
   getLastLoadError: getTypoLoadError,
+  getCacheInfo: getTypoCacheInfo,
+  startBackgroundLoad: startTypoBackgroundLoad,
 } = require("../_typoCorrection");
 
 let cosmosTargetPromise;
@@ -1690,23 +1692,39 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   // The original q_norm is preserved in `corrected_query.original` for
   // the response meta so the frontend can offer a "Showing results for
   // X" UX later.
+  // Kick the dictionary load in the background on every request — it's a
+  // no-op once the cache is warm. First request after a worker recycle
+  // sees no correction (dictionary still building), but every subsequent
+  // request gets it. Cheaper than blocking the user's first query.
+  if (container) startTypoBackgroundLoad(container);
+
   let corrected_query = null;
   let _typoDiag = { attempted: false };
   if (q_norm && container) {
     _typoDiag.attempted = true;
     try {
-      const dictionary = await getTypoCorrectionDictionary(container);
-      _typoDiag.dictionaryLoaded = !!dictionary;
-      _typoDiag.termCount = dictionary?.termCount || 0;
+      // IMPORTANT: don't await getDictionary here — that would re-introduce
+      // the cold-load latency on first requests. Use whatever's cached
+      // RIGHT NOW (could be null if the background load is still running).
+      const cacheInfo = getTypoCacheInfo();
+      _typoDiag.dictionaryLoaded = !!cacheInfo;
+      _typoDiag.termCount = cacheInfo?.termCount || 0;
+      if (cacheInfo?.source) _typoDiag.source = cacheInfo.source;
       const loadErr = getTypoLoadError();
       if (loadErr) _typoDiag.loadError = loadErr;
-      const rewritten = correctTypoQuery(q_norm, dictionary);
-      _typoDiag.rewritten = rewritten;
-      if (rewritten && rewritten !== q_norm) {
-        corrected_query = { original: q_norm, corrected: rewritten };
-        q_norm = rewritten;
-        q_compact = q_norm.replace(/\s+/g, "");
-        q_stemmed = stemWords(q_norm);
+
+      if (cacheInfo) {
+        // Cache is populated — actually call getDictionary which returns
+        // the cached object synchronously without re-fetching.
+        const dictionary = await getTypoCorrectionDictionary(container);
+        const rewritten = correctTypoQuery(q_norm, dictionary);
+        _typoDiag.rewritten = rewritten;
+        if (rewritten && rewritten !== q_norm) {
+          corrected_query = { original: q_norm, corrected: rewritten };
+          q_norm = rewritten;
+          q_compact = q_norm.replace(/\s+/g, "");
+          q_stemmed = stemWords(q_norm);
+        }
       }
     } catch (typoErr) {
       _typoDiag.error = typoErr?.message || String(typoErr);
