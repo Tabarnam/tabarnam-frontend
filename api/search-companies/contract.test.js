@@ -336,9 +336,140 @@ test("computeKeywordMatchScore returns 0 for no match", () => {
 test("computeRelevanceScore combines name and keyword scores", () => {
   const company = { company_name: "Body Wash Co", product_keywords: ["body wash"] };
   const scores = _test.computeRelevanceScore(company, "body wash", "body wash", "bodywash");
-  assert.equal(scores._nameMatchScore, 80); // starts-with
+  // With per-token overlap scoring, "body" + "wash" both appear at word
+  // boundaries in "Body Wash Co" → 2 of 2 tokens match → overlap path
+  // returns 90 (a 2-token full-overlap caps at 90, not 100, to avoid
+  // over-promoting common 2-word phrases). 90 wins over the existing
+  // starts-with score of 80.
+  assert.equal(scores._nameMatchScore, 90);
   assert.equal(scores._keywordMatchScore, 125); // exact match + coupling bonus
-  assert.equal(scores._relevanceScore, Math.round(80 * 0.7 + 125 * 0.3) + 20); // 114 (includes +20 name bonus)
+  assert.equal(scores._relevanceScore, Math.round(90 * 0.7 + 125 * 0.3) + 20); // 121
+});
+
+// ── per-token name-overlap scoring ───────────────────────────────────────
+// Defends against the "user typed a name from memory with one word wrong"
+// case (e.g. "grand teton ORGANIC grains" vs the real "Grand Teton ANCIENT
+// Grains"). Before this path, 3-of-4 token overlap returned nameScore=0
+// and the company landed at rank 30+ buried under keyword-only matches.
+
+test("name overlap: 3 of 4 query tokens at word boundaries scores 90 (tier 0)", () => {
+  const company = { company_name: "Grand Teton Ancient Grains" };
+  const score = _test.computeNameMatchScore(
+    company,
+    "grand teton organic grains",
+    "grand teton organic grains",
+    "grandtetonorganicgrains"
+  );
+  // "grand", "teton", "grains" all in name; "organic" not. 3/4 = 75% → 90.
+  assert.equal(score, 90);
+});
+
+test("name overlap: all query tokens matching gets 100 when query has 3+ tokens", () => {
+  const company = { company_name: "Grand Teton Organic Grains" };
+  const score = _test.computeNameMatchScore(
+    company,
+    "grand teton organic grains",
+    "grand teton organic grains",
+    "grandtetonorganicgrains"
+  );
+  // Should hit the existing exact-match path AND the overlap path.
+  // Both give 100. Either way the result is 100.
+  assert.equal(score, 100);
+});
+
+test("name overlap: 2-token query with full overlap caps at 90, not 100", () => {
+  // "body wash" → "The Body Wash Co" — 2/2 match, but 2 tokens is too few
+  // to safely promote to tier -1 (many "X Y" phrases will match many names).
+  const company = { company_name: "The Body Wash Co" };
+  const score = _test.computeNameMatchScore(
+    company,
+    "body wash",
+    "body wash",
+    "bodywash"
+  );
+  assert.equal(score, 90);
+});
+
+test("name overlap: 50% overlap (2 of 4) scores 70 (tier 1)", () => {
+  const company = { company_name: "Grand Teton Outdoor Gear" };
+  const score = _test.computeNameMatchScore(
+    company,
+    "grand teton organic grains",
+    "grand teton organic grains",
+    "grandtetonorganicgrains"
+  );
+  // "grand", "teton" match; "organic", "grains" don't. 2/4 = 50% → 70.
+  assert.equal(score, 70);
+});
+
+test("name overlap: 25% overlap (1 of 4) gets no boost", () => {
+  const company = { company_name: "Grand Oak Furniture" };
+  const score = _test.computeNameMatchScore(
+    company,
+    "grand teton organic grains",
+    "grand teton organic grains",
+    "grandtetonorganicgrains"
+  );
+  // Only "grand" matches; would fire the existing word-boundary path
+  // for "grand" as a substring of the query (returns 0 since query
+  // isn't fully present). Overlap path requires matched ≥ 2 → no boost.
+  // Result: 0.
+  assert.equal(score, 0);
+});
+
+test("name overlap: single-word queries are unaffected (path requires ≥2 tokens)", () => {
+  // "dove" is a single token — overlap path doesn't fire.
+  // Existing starts-with (80) is unchanged.
+  const company = { company_name: "Dove (Unilever)", product_keywords: [] };
+  const score = _test.computeNameMatchScore(company, "dove", "dove", "dove");
+  assert.equal(score, 80);
+});
+
+test("name overlap: short tokens (length < 2) are excluded from overlap counting", () => {
+  // "X" and "Y" in a query shouldn't inflate matches. Only tokens length≥2.
+  // Query: "x y grand teton" → effective tokens: ["grand", "teton"]
+  // Name: "Grand Teton Outfitters" → matches 2/2 → 90.
+  const company = { company_name: "Grand Teton Outfitters" };
+  const score = _test.computeNameMatchScore(
+    company,
+    "x y grand teton",
+    "x y grand teton",
+    "xygrandteton"
+  );
+  // 2 effective query tokens, both match → 2/2 = 90.
+  assert.equal(score, 90);
+});
+
+test("name overlap: Grand Teton Ancient Grains end-to-end scores higher than keyword-only matches", () => {
+  // The user's exact failing case. Verifies tier-0 promotion.
+  const grandTeton = {
+    company_name: "Grand Teton Ancient Grains",
+    product_keywords: ["ancient grains", "organic grains", "einkorn"],
+  };
+  // McGeary Organics from production probe (keyword-only "organic grains" match)
+  const mcGeary = {
+    company_name: "McGeary Organics",
+    product_keywords: ["organic grains", "feed grains"],
+    industries: ["Organic Agriculture"],
+  };
+
+  const gtScores = _test.computeRelevanceScore(
+    grandTeton,
+    "grand teton organic grains",
+    "grand teton organic grains",
+    "grandtetonorganicgrains"
+  );
+  const mcgScores = _test.computeRelevanceScore(
+    mcGeary,
+    "grand teton organic grains",
+    "grand teton organic grains",
+    "grandtetonorganicgrains"
+  );
+
+  assert.ok(
+    gtScores._relevanceScore > mcgScores._relevanceScore,
+    `Grand Teton (R=${gtScores._relevanceScore}) must beat McGeary (R=${mcgScores._relevanceScore})`
+  );
 });
 
 test("computeRelevanceScore: partial keyword match scores lower than exact", () => {

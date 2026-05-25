@@ -387,6 +387,47 @@ function computeNameMatchScore(company, q_raw, q_norm, q_compact) {
         best = Math.max(best, 40);
       }
     }
+
+    // Per-token overlap (multi-word query only). The checks above all
+    // reward the WHOLE query appearing somewhere in the name. This adds
+    // a separate signal for when MOST of the query tokens appear as
+    // individual words in the name — which is exactly what happens when
+    // the user types a name from memory with one word wrong
+    // ("grand teton ORGANIC grains" → "Grand Teton ANCIENT Grains") or
+    // mixes up brand qualifiers. Without this path, partial-name matches
+    // get nameScore=0 and are outranked by keyword-only matches that
+    // share no name signal at all.
+    //
+    // Scoring is deliberately conservative on short queries:
+    //   ALL tokens match, query has ≥3 tokens → 100 (tier -1)
+    //   ALL tokens match, query has 2 tokens  → 90  (tier 0)
+    //   ≥75% match, ≥2 matched               → 90  (tier 0)
+    //   ≥50% match, ≥2 matched               → 70  (tier 1)
+    //   else                                  → no boost
+    const queryTokens = q_norm
+      ? q_norm.toLowerCase().trim().split(/\s+/).filter((t) => t.length >= 2)
+      : [];
+    if (queryTokens.length >= 2) {
+      const nameTokens = new Set(
+        nameLower.split(/\s+/).filter((t) => t.length >= 2)
+      );
+      let matched = 0;
+      for (const qt of queryTokens) {
+        if (nameTokens.has(qt)) matched++;
+      }
+      if (matched >= 2) {
+        const fraction = matched / queryTokens.length;
+        let overlapScore = 0;
+        if (matched === queryTokens.length) {
+          overlapScore = queryTokens.length >= 3 ? 100 : 90;
+        } else if (fraction >= 0.75) {
+          overlapScore = 90;
+        } else if (fraction >= 0.5) {
+          overlapScore = 70;
+        }
+        if (overlapScore > 0) best = Math.max(best, overlapScore);
+      }
+    }
   }
 
   return best;
