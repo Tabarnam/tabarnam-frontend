@@ -25,8 +25,15 @@
  * per query word instead of all ~30k dictionary entries.
  */
 
-const { loadIndustryAffinityIndex } = require("./_industryAffinityIndex");
 const { damerauLevenshtein } = require("./_fuzzyMatch");
+
+// Same shape the industry-affinity loader reads from. Duplicating these
+// here (vs. importing) so we can call container.item(...).read() directly
+// and surface ANY underlying error in `_lastLoadError` — the affinity
+// loader swallows errors which made the production-debugging blind.
+const INDEX_DOC_ID = "_index_industry_affinity";
+const INDEX_PARTITION_KEY = "_index";
+let _lastLoadError = null;
 
 // Tokens shorter than this are too ambiguous to safely auto-correct
 // ("bar" → "baz" / "bag" / "bat" / etc.) — leave them alone and let the
@@ -87,23 +94,40 @@ function buildBuckets(terms) {
  */
 async function getDictionary(container, { log = console.log } = {}) {
   if (!container) return _dictCache;
+  if (typeof container.item !== "function") return _dictCache;
   const now = Date.now();
   if (_dictCache && now - _dictCacheAt < CACHE_TTL_MS) return _dictCache;
   if (_inFlight) return _inFlight;
 
   _inFlight = (async () => {
     try {
-      const index = await loadIndustryAffinityIndex(container);
-      if (!index || !index.terms) return _dictCache;
-      const buckets = buildBuckets(index.terms);
+      // Read the affinity index doc directly so any failure surfaces in
+      // _lastLoadError. The shared loader catches silently which made it
+      // impossible to tell why production wasn't loading.
+      const { resource } = await container
+        .item(INDEX_DOC_ID, INDEX_PARTITION_KEY)
+        .read();
+      if (!resource) {
+        _lastLoadError = "affinity index doc not found";
+        return _dictCache;
+      }
+      if (!resource.terms || typeof resource.terms !== "object") {
+        _lastLoadError = "affinity index doc has no terms map";
+        return _dictCache;
+      }
+      const buckets = buildBuckets(resource.terms);
       _dictCache = {
         buckets,
-        termCount: Object.keys(index.terms).length,
+        termCount: Object.keys(resource.terms).length,
         freshAt: Date.now(),
       };
       _dictCacheAt = Date.now();
+      _lastLoadError = null;
       return _dictCache;
     } catch (err) {
+      _lastLoadError = err?.code
+        ? `${err.code}: ${err.message || ""}`
+        : (err?.message || String(err));
       return _dictCache;
     } finally {
       _inFlight = null;
@@ -111,6 +135,10 @@ async function getDictionary(container, { log = console.log } = {}) {
   })();
 
   return _inFlight;
+}
+
+function getLastLoadError() {
+  return _lastLoadError;
 }
 
 /**
@@ -197,14 +225,18 @@ function _resetCache() {
   _dictCache = null;
   _dictCacheAt = 0;
   _inFlight = null;
+  _lastLoadError = null;
 }
 
 module.exports = {
   getDictionary,
+  getLastLoadError,
   buildBuckets,
   correctToken,
   correctQuery,
   MIN_TOKEN_LEN,
   MAX_EDIT_DISTANCE,
+  INDEX_DOC_ID,
+  INDEX_PARTITION_KEY,
   _resetCache,
 };

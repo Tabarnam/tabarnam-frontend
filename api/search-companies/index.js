@@ -19,6 +19,7 @@ const {
 const {
   getDictionary: getTypoCorrectionDictionary,
   correctQuery: correctTypoQuery,
+  getLastLoadError: getTypoLoadError,
 } = require("../_typoCorrection");
 
 let cosmosTargetPromise;
@@ -1697,6 +1698,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const dictionary = await getTypoCorrectionDictionary(container);
       _typoDiag.dictionaryLoaded = !!dictionary;
       _typoDiag.termCount = dictionary?.termCount || 0;
+      const loadErr = getTypoLoadError();
+      if (loadErr) _typoDiag.loadError = loadErr;
       const rewritten = correctTypoQuery(q_norm, dictionary);
       _typoDiag.rewritten = rewritten;
       if (rewritten && rewritten !== q_norm) {
