@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { _test } = require("./index.js");
+const { _resetCache: resetTypoCorrectionCache } = require("../_typoCorrection");
+const { _resetCache: resetIndustryAffinityCache } = require("../_industryAffinityIndex");
 
 function makeReq(url) {
   return {
@@ -11,13 +13,25 @@ function makeReq(url) {
   };
 }
 
-function makeContainer(queryResponder) {
+function makeContainer(queryResponder, opts = {}) {
+  // Optional `indexDoc` simulates a /item(id, pk).read() response, used by
+  // the affinity-index loader and (transitively) the typo correction
+  // dictionary. Default: undefined → loader returns null, typo correction
+  // becomes a no-op, no test interference.
   return {
     items: {
       query: (spec) => ({
         fetchAll: async () => ({ resources: await queryResponder(spec) }),
       }),
     },
+    item: (id) => ({
+      read: async () => {
+        if (opts.indexDoc && id === opts.indexDoc.id) {
+          return { resource: opts.indexDoc };
+        }
+        return { resource: null };
+      },
+    }),
   };
 }
 
@@ -1463,4 +1477,139 @@ test("ftsAllSingleToken: returns false for empty input (defensive)", () => {
 test("ftsAllSingleToken: ignores leading/trailing whitespace", () => {
   assert.equal(_test.ftsAllSingleToken(["  jerky  "]), true);
   assert.equal(_test.ftsAllSingleToken([" pre  workout "]), false);
+});
+
+// ── typo correction integration ──────────────────────────────────────────
+// Proves the wire-up: when the dictionary has the corrected form, the
+// handler rewrites the query, runs the search with the corrected term,
+// and surfaces both forms in meta.correctedQuery.
+
+test("typo correction: 'paintt' is rewritten to 'paint' end-to-end", async () => {
+  // Reset module caches so this test doesn't leak state into / from others.
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+
+  // Affinity-index doc shaped like the production one. `terms` keys are
+  // the dictionary the typo corrector uses.
+  const indexDoc = {
+    id: "_index_industry_affinity",
+    normalized_domain: "_index",
+    type: "industry_affinity_index",
+    terms: {
+      paint: { paints: 0.8 },
+      paints: { paints: 0.7 },
+      brushes: { paints: 0.4 },
+    },
+  };
+
+  const paintCompany = {
+    id: "company_paint_1",
+    company_name: "Miller Paint Company",
+    normalized_domain: "millerpaint.com",
+    keywords: ["paint", "house paint"],
+    product_keywords: "paint",
+    industries: ["Paints"],
+    _ts: 1700000000,
+  };
+
+  // Container records the parameters of each query so we can assert that
+  // the corrected form ("paint") — not the typo ("paintt") — was issued.
+  const sentParams = [];
+  const companiesContainer = makeContainer(
+    async (spec) => {
+      sentParams.push(...(spec.parameters || []));
+      // Return the paint company for any query that's looking for "paint"
+      // (in @q, @q_compact, @q_wb, or as a literal token).
+      const sql = String(spec.query || "");
+      const looksForPaint =
+        (spec.parameters || []).some(
+          (p) =>
+            typeof p.value === "string" && p.value.toLowerCase().includes("paint")
+        ) || /\bpaint\b/i.test(sql);
+      return looksForPaint ? [paintCompany] : [];
+    },
+    { indexDoc }
+  );
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=paintt&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.ok, true);
+
+  // Meta surfaces both the original and corrected query.
+  assert.deepEqual(
+    body.meta?.correctedQuery,
+    { original: "paintt", corrected: "paint" },
+    `expected correctedQuery on meta; got: ${JSON.stringify(body.meta)}`
+  );
+
+  // At least one query was issued with the CORRECTED token, not the typo.
+  const sentValues = sentParams
+    .map((p) => (typeof p.value === "string" ? p.value : ""))
+    .join(" ");
+  assert.ok(
+    sentValues.includes("paint"),
+    `expected Cosmos queries to include the corrected term 'paint'; got: ${sentValues}`
+  );
+  assert.ok(
+    !sentValues.includes("paintt"),
+    `Cosmos queries should NOT contain the original typo 'paintt'; got: ${sentValues}`
+  );
+
+  // The corrected search actually returned items.
+  assert.ok(body.items.length > 0, "corrected search should return matching companies");
+});
+
+test("typo correction: an already-correct query gets no correctedQuery on meta", async () => {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+
+  const indexDoc = {
+    id: "_index_industry_affinity",
+    normalized_domain: "_index",
+    type: "industry_affinity_index",
+    terms: { paint: { paints: 0.8 } },
+  };
+
+  const companiesContainer = makeContainer(
+    async () => [],
+    { indexDoc }
+  );
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=paint&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.meta?.correctedQuery, undefined,
+    "no typo → no correctedQuery on meta");
+});
+
+test("typo correction: gracefully no-ops when affinity index is missing", async () => {
+  // No indexDoc → loader returns null → typo correction skipped silently.
+  // Search still proceeds with the original (typo) query.
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+
+  const companiesContainer = makeContainer(async () => []);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=paintt&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  // Service still returns 200 — never break search just because the
+  // dictionary isn't loaded.
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.meta?.correctedQuery, undefined);
 });

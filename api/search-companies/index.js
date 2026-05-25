@@ -16,6 +16,10 @@ const {
   loadIndustryAffinityIndex,
   getAffinityIndustriesFromIndex,
 } = require("../_industryAffinityIndex");
+const {
+  getDictionary: getTypoCorrectionDictionary,
+  correctQuery: correctTypoQuery,
+} = require("../_typoCorrection");
 
 let cosmosTargetPromise;
 
@@ -1672,6 +1676,35 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
 
+  // Pre-Cosmos typo correction. When the user types a common product
+  // word with a typo ("paintt", "puzle", "jerkey-but-as-an-actual-typo"),
+  // rewrite the query to the corrected form BEFORE issuing the Cosmos
+  // query. Source dictionary = the affinity-index `terms` map (every
+  // token appearing in ≥3 companies). The existing fuzzy fallback only
+  // matches single-word company NAMES via prefix STARTSWITH, so it can't
+  // surface "Miller Paint Company" for "paintt" — this fixes that.
+  //
+  // Best-effort: if the dictionary isn't loaded yet (cold worker) or the
+  // load fails, we just search with the original query — never blocks.
+  // The original q_norm is preserved in `corrected_query.original` for
+  // the response meta so the frontend can offer a "Showing results for
+  // X" UX later.
+  let corrected_query = null;
+  if (q_norm && container) {
+    try {
+      const dictionary = await getTypoCorrectionDictionary(container);
+      const rewritten = correctTypoQuery(q_norm, dictionary);
+      if (rewritten && rewritten !== q_norm) {
+        corrected_query = { original: q_norm, corrected: rewritten };
+        q_norm = rewritten;
+        q_compact = q_norm.replace(/\s+/g, "");
+        q_stemmed = stemWords(q_norm);
+      }
+    } catch {
+      // typo correction must never block search
+    }
+  }
+
   const cosmosTarget = container ? await getCompaniesCosmosTargetDiagnostics(container).catch(() => null) : null;
   if (cosmosTarget) {
     try {
@@ -2512,7 +2545,15 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           items: paged,
           count: paged.length,
           hasMore,
-          meta: { q: q_raw, sort, skip, take, user_location, _searchMode: quickMode ? "quick" : usedFallback ? "contains" : "fts" },
+          meta: {
+            q: q_raw,
+            sort,
+            skip,
+            take,
+            user_location,
+            _searchMode: quickMode ? "quick" : usedFallback ? "contains" : "fts",
+            ...(corrected_query ? { correctedQuery: corrected_query } : {}),
+          },
         },
         200,
         req
