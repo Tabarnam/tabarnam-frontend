@@ -477,8 +477,16 @@ export default function ResultsPage() {
     return () => { cancelled = true; };
   }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam]);
 
-  // Called by the top search bar
-  async function handleInlineSearch(params) {
+  // Called by the top search bar.
+  // opts.urlOnly === true means "the 1s auto-search already populated
+  // results for this exact query; just commit the URL so the search is
+  // shareable, don't re-run doSearch". Without this branch, a typing
+  // pause would show: results paint at 1s → blank at 3s as doSearch
+  // resets and re-fetches the SAME results. See the 2026-05-25 regression
+  // report ("we see the requested company, then it goes blank as it
+  // searches again").
+  async function handleInlineSearch(params, opts = {}) {
+    const urlOnly = opts.urlOnly === true;
     const q = (params.q ?? "").toString();
     const sort = (params.sort ?? "stars").toString();
     const country = (params.country ?? "").toString();
@@ -506,6 +514,12 @@ export default function ResultsPage() {
     next.delete("page");
     skipUrlEffectRef.current = true;
     setSearchParams(next);
+
+    // urlOnly: 1s auto-search already fetched results; just commit URL.
+    // Returning here prevents a second doSearch cycle that would
+    // setResults([]) and re-fetch the SAME data, producing a visible
+    // "results → blank → results" flash 2s after the auto-search painted.
+    if (urlOnly) return;
 
     // Enter loading state immediately — before the geocoding round-trip
     // below — so the results area shows the skeleton, never a stale

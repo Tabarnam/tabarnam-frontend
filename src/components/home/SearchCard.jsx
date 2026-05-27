@@ -309,10 +309,19 @@ export default function SearchCard({
     // search becomes shareable / bookmarkable without firing on every brief
     // typing pause. Only the inline (results-page) path needs this; the
     // home-page path already updated URL via the auto-search above.
+    //
+    // urlOnly: the 1s auto-search above has already FETCHED results for
+    // this query. This timer's only job is the URL update. Passing
+    // urlOnly tells handleSubmit -> onSubmitParams -> handleInlineSearch
+    // to update the URL WITHOUT re-running doSearch. Without this flag
+    // the user sees: results paint at 1s -> "blank" at 3s as doSearch
+    // resets and re-fetches the SAME results. (2026-05-25 regression
+    // report: "we see the requested company, then it goes blank as it
+    // searches again the presents the results".)
     if (onAutoSearch && onSubmitParams) {
       debounceUrlRef.current = setTimeout(() => {
         lastSearchedQRef.current = trimmed;
-        handleSubmitRef.current();
+        handleSubmitRef.current({ urlOnly: true });
       }, 3000);
     }
 
@@ -446,7 +455,20 @@ export default function SearchCard({
     }
   };
 
-  const handleSubmit = async (overrideQ) => {
+  const handleSubmit = async (overrideQOrOpts) => {
+    // Argument shape:
+    //   string — legacy override of the query text (paste + Enter races)
+    //   object — { overrideQ?, urlOnly? } from the 3s URL-commit debounce
+    // urlOnly === true means "the 1s auto-search already FETCHED these
+    // results; this call's only job is to commit the URL so the search
+    // is shareable. Skip the doSearch step on the parent side."
+    const isOpts =
+      overrideQOrOpts !== null &&
+      typeof overrideQOrOpts === "object" &&
+      !Array.isArray(overrideQOrOpts);
+    const overrideQ = isOpts ? overrideQOrOpts.overrideQ : overrideQOrOpts;
+    const urlOnly = isOpts && overrideQOrOpts.urlOnly === true;
+
     // Cancel any pending auto-search and URL-update debounces — a deliberate
     // submit (Enter / Search button / suggestion pick) supersedes them.
     if (debounceSearchRef.current) {
@@ -566,7 +588,7 @@ export default function SearchCard({
         hqCountry: hqInCountry ? userCountryCode : '',
         mfgCountry: mfgInCountry ? userCountryCode : '',
       };
-      if (onSubmitParams) onSubmitParams(params);
+      if (onSubmitParams) onSubmitParams(params, { urlOnly });
       else nav(`/results?${toQs(params)}`);
     } finally {
       setLoading(false);
