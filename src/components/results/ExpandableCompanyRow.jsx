@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Copy } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
 import ReviewsWidget from "@/components/ReviewsWidget";
+import useInView from "@/hooks/useInView";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { normalizeExternalUrl } from "@/lib/externalUrl";
@@ -214,9 +215,30 @@ export default function ExpandableCompanyRow({
   onKeywordSearch,
   rightColsOrder,
   debugScores = false,
+  // Phase 4.28 — fires once the row enters the viewport (with 1000px
+  // rootMargin pre-fetch buffer). ResultsPage uses this signal to
+  // lazy-fetch the row's reviews instead of bulk-fetching all rows at
+  // page mount. Optional — falsy parents skip lazy fetching entirely.
+  onInView,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // Phase 4.28 — attach this ref to the outer container of whichever
+  // return branch renders (collapsed or expanded). The `once: true`
+  // semantics in useInView mean the observer disconnects after the
+  // first hit, so swapping the ref's element when isExpanded flips is
+  // harmless (effect doesn't re-observe once inView is true).
+  const [rowRef, rowInView] = useInView({ rootMargin: "1000px 0px", once: true });
+
+  useEffect(() => {
+    if (rowInView && typeof onInView === "function") {
+      onInView(company);
+    }
+    // company identity is captured at fire-time; if the parent passes a
+    // different company instance for the same id, the dedup set on the
+    // parent side handles it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowInView, onInView]);
 
   const affiliateLinks = normalizeAffiliateLinks(company);
   const amazonLink = company.amazon_url || company.amazon_store_url || "";
@@ -613,6 +635,7 @@ export default function ExpandableCompanyRow({
   if (isExpanded) {
     return (
       <div
+        ref={rowRef}
         onClick={handleExpandedClick}
         className="border-2 border-tabarnam-blue dark:border-primary rounded-lg p-2 bg-card cursor-default"
       >
@@ -714,6 +737,7 @@ export default function ExpandableCompanyRow({
                       alt={displayName}
                       className="w-full max-h-40 h-auto object-contain"
                       onError={() => setLogoFailed(true)}
+                      loading="lazy"
                     />
                   </a>
                 ) : (
@@ -722,6 +746,7 @@ export default function ExpandableCompanyRow({
                     alt={displayName}
                     className="w-full max-h-40 h-auto object-contain"
                     onError={() => setLogoFailed(true)}
+                    loading="lazy"
                   />
                 )
               ) : (
@@ -884,6 +909,7 @@ export default function ExpandableCompanyRow({
 
   return (
     <div
+      ref={rowRef}
       onClick={handleRowClick}
       className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 gap-y-2 border border-tabarnam-blue-bold rounded-lg p-2 bg-card hover:bg-accent cursor-pointer transition-colors relative"
       data-tour-step="expandable-row"
@@ -1009,6 +1035,7 @@ export default function ExpandableCompanyRow({
                   alt={displayName}
                   className="w-full max-h-60 h-auto object-contain"
                   onError={() => setLogoFailed(true)}
+                  loading="lazy"
                 />
               </a>
             ) : (
@@ -1017,6 +1044,7 @@ export default function ExpandableCompanyRow({
                 alt={displayName}
                 className="w-full max-h-60 h-auto object-contain"
                 onError={() => setLogoFailed(true)}
+                loading="lazy"
               />
             )
           ) : (

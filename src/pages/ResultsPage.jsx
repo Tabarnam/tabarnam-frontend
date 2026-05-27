@@ -1,5 +1,5 @@
 // src/pages/ResultsPage.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
@@ -16,7 +16,11 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import ShareButton from "@/components/ShareButton";
 
-const PAGE_SIZE = 50;
+// Phase 4.28 — PAGE_SIZE reduced 50 → 25. Halves the per-page row count
+// and the upper-bound fan-out for any lazy-on-mount fetches; combined with
+// the lazy-load-on-view change below, the per-page-load network burst
+// drops from 100+ requests to 5-10 (visible rows only).
+const PAGE_SIZE = 25;
 
 /** Skeleton placeholder that mirrors the collapsed ExpandableCompanyRow grid */
 function SkeletonRow() {
@@ -333,18 +337,49 @@ export default function ResultsPage() {
     }
   }
 
-  // Load reviews in background batches, updating state progressively
-  async function loadReviewsDeferred(companies) {
-    const BATCH = 5;
-    for (let i = 0; i < companies.length; i += BATCH) {
-      const batch = companies.slice(i, i + BATCH);
-      const enriched = await Promise.all(batch.map(fetchReviewsForCompany));
-      setResults((prev) => {
-        const map = new Map(enriched.map((c) => [c.company_id || c.id, c]));
-        return prev.map((p) => map.get(p.company_id || p.id) || p);
-      });
+  // Phase 4.28 — replaced eager loadReviewsDeferred with on-demand
+  // per-row fetch triggered by IntersectionObserver in ExpandableCompanyRow.
+  //
+  // Pre-4.28 every search fired 50 (or 25 post-PAGE_SIZE-change) reviews
+  // fetches at mount time, batched 5 at a time. Combined with 50 logo
+  // <img> fetches the browser fires for each result page, this saturated
+  // the single warm Function App worker and caused widespread 500s.
+  //
+  // Now each row reports its own visibility via the onInView callback
+  // wired below. `requestReviewsForCompany` dedupes via a Set so a row
+  // that flickers in/out (or any other duplicate trigger) only fetches
+  // once. The 1000px rootMargin on the row's IntersectionObserver fires
+  // the fetch while the row is still ~3 viewport-heights below visible,
+  // so by the time the user scrolls down to see it the reviews are
+  // already populated and the collapsed-row preview renders without a
+  // visible loading state.
+  const requestedReviewsRef = useRef(new Set());
+
+  const requestReviewsForCompany = useCallback(async (company) => {
+    const id = company?.company_id || company?.id;
+    if (!id) return;
+    if (requestedReviewsRef.current.has(id)) return; // already fetched / in flight
+    requestedReviewsRef.current.add(id);
+
+    try {
+      const enriched = await fetchReviewsForCompany(company);
+      setResults((prev) =>
+        prev.map((p) => ((p.company_id || p.id) === id ? { ...p, _reviews: enriched._reviews } : p))
+      );
+    } catch {
+      // Mark fetched even on error so we don't retry-storm a broken backend.
+      // A subsequent successful page load (or manual refresh) will retry.
     }
-  }
+  }, []);
+
+  // Clear the deduped-fetch set whenever the search context changes (new
+  // query, sort change, location change, page change). Without this, a
+  // subsequent search whose result set happens to include a company_id
+  // that was already fetched in a prior search would skip the reviews
+  // fetch and render an empty preview.
+  useEffect(() => {
+    requestedReviewsRef.current = new Set();
+  }, [qParam, sortBy, countryParam, stateParam, cityParam, pageParam]);
 
   // Skip-flag: when handleInlineSearch fires doSearch directly, skip the URL-watching effect
   const skipUrlEffectRef = useRef(false);
@@ -686,7 +721,9 @@ export default function ResultsPage() {
         if (gen === searchGenRef.current && quickResult?.items?.length > 0) {
           const quickWithDist = quickResult.items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
           setResults(quickWithDist);
-          loadReviewsDeferred(quickWithDist);
+          // Phase 4.28 — eager loadReviewsDeferred removed. Reviews now
+          // fetch per-row when the row's IntersectionObserver fires
+          // (rootMargin=1000px). See requestReviewsForCompany above.
           setHasMore(quickResult.hasMore === true);
           setStatus("");
           setLoading(false);
@@ -761,7 +798,8 @@ export default function ResultsPage() {
       } else {
         setResults(withDistances);
       }
-      loadReviewsDeferred(withDistances);
+      // Phase 4.28 — eager loadReviewsDeferred removed. Per-row
+      // IntersectionObserver in ExpandableCompanyRow drives the fetch.
       setHasMore(apiHasMore === true);
 
       // Page-count resolution. Two paths:
@@ -1265,6 +1303,7 @@ export default function ResultsPage() {
                     onKeywordSearch={handleKeywordSearch}
                     rightColsOrder={rightColsOrder}
                     debugScores={debugScores}
+                    onInView={requestReviewsForCompany}
                   />
                 );
               }
