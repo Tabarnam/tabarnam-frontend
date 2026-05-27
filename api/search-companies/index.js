@@ -30,8 +30,32 @@ const { TTLCache, buildCacheKey } = require("../_responseCache");
 // key is query+params, never user identity). Per-worker, so 1-3 workers
 // during scaled-up bursts each warm independently — acceptable for a
 // small LRU. Cache is bypassed when ?nocache=1 is set.
+//
+// Phase 4.27 — DEFAULT-DISABLED via RESPONSE_CACHE_ENABLED env var.
+//
+// Empirical (2026-05-26): under sustained admin-only bulk-import load,
+// the 200-entry cache accumulated on a single always-ready instance and
+// pushed working-set memory toward the 2 GB Flex ceiling. Minute-level
+// memory peaks at 1.5+ GB triggered V8 GC pauses that froze the event
+// loop, causing short-lived HTTP requests (search-companies, health,
+// version) to queue and time out while the worker was busy with a
+// long-running xAI streaming call.
+//
+// Cross-user response caching pays off when MANY anonymous users hit
+// the same hot query within the TTL window — i.e. real public traffic.
+// Pre-launch traffic is admin-only with low query-repeat probability,
+// so the cache was paying memory cost for ~zero benefit.
+//
+// To re-enable: set RESPONSE_CACHE_ENABLED=on in the Function App
+// configuration (no redeploy). Right-size maxEntries / ttlMs against
+// real production metrics before flipping on. The TTLCache + cache
+// integration tests still exercise the wiring when the env is set.
 const _responseCache = new TTLCache({ maxEntries: 200, ttlMs: 5 * 60 * 1000 });
 function _getResponseCache() { return _responseCache; }
+function _responseCacheEnabled() {
+  const raw = String(process.env.RESPONSE_CACHE_ENABLED || "").toLowerCase().trim();
+  return raw === "on" || raw === "true" || raw === "1";
+}
 
 let cosmosTargetPromise;
 
@@ -2803,7 +2827,12 @@ async function searchCompaniesHttpHandler(req, context, deps = {}) {
     // Identical queries (after URL normalisation) within the TTL window
     // return the previously-computed response immediately. Skips the
     // entire pipeline including Cosmos round-trips.
-    const cacheKey = buildCacheKey(req.url, req.method);
+    //
+    // Phase 4.27 — gated on RESPONSE_CACHE_ENABLED env var; default
+    // off. When disabled, cacheKey is null so both the lookup below
+    // and the store further down short-circuit cleanly. X-Cache: MISS
+    // is still tagged on every response for observability.
+    const cacheKey = _responseCacheEnabled() ? buildCacheKey(req.url, req.method) : null;
     if (cacheKey) {
       const cached = _responseCache.get(cacheKey);
       if (cached) {
