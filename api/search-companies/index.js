@@ -2361,9 +2361,21 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             primary = c;
           }
         }
+        // Threshold of 80 catches the single-most-common brand-search shape:
+        // user types ONE word that's the first word of a multi-word company
+        // name ("everlit" → "EVERLIT SURVIVAL", "skindinavia" → "Skindinavia,
+        // Inc", "greenlight" → "Greenlight Bookstore"). Those land at
+        // nameScore = 80 via the startsWith path. A threshold of 90 missed
+        // every one of those — even though the user typed a clear, specific
+        // brand identifier and obviously wanted peers. nameScore 80 IS a
+        // brand identifier signal; it's effectively distinct from generic
+        // multi-word matches (which would be 60 word-boundary) or substring
+        // hits (40). Tight enough not to fire on "Bear" → "Bear Naked
+        // Granola"-style accidental matches once you couple it with the
+        // existing skip === 0 + has-industries gates.
         if (
           primary &&
-          primaryScore >= 90 &&
+          primaryScore >= 80 &&
           Array.isArray(primary.industries) &&
           primary.industries.length > 0
         ) {

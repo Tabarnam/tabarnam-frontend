@@ -1690,6 +1690,50 @@ test("manufacturing sort ranks a strong match above a physically nearer weak mat
 // re-ran computeNameMatchScore against the user's original (typo'd)
 // query which returns 0.
 
+test("Pass 4 fires for single-word query matching first word of multi-word brand", async () => {
+  // The 2026-05-25 EVERLIT regression. User searched "EVERLIT" — the brand
+  // is "EVERLIT SURVIVAL". startsWith path returned nameScore=80, and the
+  // Pass 4 gate at >=90 silently skipped peer expansion. Lowered to >=80
+  // so single-word brand searches surface peers as users expect.
+  const brand = {
+    id: "brand_everlit",
+    company_name: "EVERLIT SURVIVAL",
+    normalized_domain: "everlitsurvival.com",
+    industries: ["Tactical First Aid Kits", "Survival Medical Kits", "Trauma Care Equipment"],
+    _ts: 1700000300,
+  };
+
+  const queriesIssued = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    const sql = String(spec.query || "");
+    queriesIssued.push(sql);
+    // Pass 1 word-boundary returns the brand.
+    if (sql.includes("c.search_text_norm") && sql.includes("@q_wb")) {
+      return [brand];
+    }
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=everlit&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  // Pass 4 SQL signature: EXISTS(SELECT VALUE x FROM x IN c.industries
+  // WHERE CONTAINS(LOWER(x), ...))
+  const pass4Issued = queriesIssued.some(
+    (sql) =>
+      sql.includes("c.industries") &&
+      sql.includes("EXISTS") &&
+      sql.includes("CONTAINS(LOWER(x)")
+  );
+  assert.ok(
+    pass4Issued,
+    `Pass 4 must fire for nameScore-80 brand match. SQLs issued: ${queriesIssued.map(s => s.replace(/\s+/g, " ").trim().slice(0, 60)).join(" || ")}`
+  );
+});
+
 test("Pass 4 fires for fuzzy-matched primary brand: industry peer query gets issued", async () => {
   // The brand the fuzzy fallback will surface. Its actual name doesn't
   // match the query exactly — the user typo'd it (one char off).
