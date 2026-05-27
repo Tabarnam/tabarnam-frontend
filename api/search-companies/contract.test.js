@@ -1893,8 +1893,14 @@ test("typo correction: an already-correct query gets no correctedQuery on meta",
 // Proves the http handler caches successful responses across calls and
 // skips the underlying searchCompaniesHandler on cache hit (the second
 // call shouldn't issue any new Cosmos queries).
+//
+// Phase 4.27 — the cache is DEFAULT-DISABLED in production. These tests
+// opt in via RESPONSE_CACHE_ENABLED=on so they still verify the cache
+// wiring works when the env flag is flipped on. Production deploys
+// without the env set will not exercise the cache code path.
 
 test("response cache: identical query is served from cache on the second call", async () => {
+  process.env.RESPONSE_CACHE_ENABLED = "on";
   // Reset the cache so a previous test doesn't pre-populate this key.
   _test._getResponseCache().clear();
 
@@ -1943,6 +1949,7 @@ test("response cache: identical query is served from cache on the second call", 
 });
 
 test("response cache: ?nocache=1 bypasses both lookup and store", async () => {
+  process.env.RESPONSE_CACHE_ENABLED = "on"; // Phase 4.27 — opt in
   _test._getResponseCache().clear();
 
   let queryCount = 0;
@@ -1961,6 +1968,7 @@ test("response cache: ?nocache=1 bypasses both lookup and store", async () => {
 });
 
 test("response cache: case-insensitive query values share a cache entry", async () => {
+  process.env.RESPONSE_CACHE_ENABLED = "on"; // Phase 4.27 — opt in
   _test._getResponseCache().clear();
 
   let queryCount = 0;
