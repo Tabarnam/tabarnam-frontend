@@ -3080,7 +3080,8 @@ export default function CompanyDashboard() {
     setLogoUploadError(null);
 
     try {
-      const url = await uploadLogoBlobFile(file, companyId);
+      const normalizedDomain = asString(editorDraft?.normalized_domain).trim();
+      const url = await uploadLogoBlobFile(file, companyId, normalizedDomain);
 
       setEditorDraft((d) => ({ ...(d || {}), logo_url: url, logo_approved: true }));
       updateCompanyInState(companyId, { logo_url: url });
@@ -3230,7 +3231,8 @@ export default function CompanyDashboard() {
     setHomepageUploadError(null);
 
     try {
-      const url = await uploadHomepageBlobFile(file, companyId);
+      const normalizedDomain = asString(editorDraft?.normalized_domain).trim();
+      const url = await uploadHomepageBlobFile(file, companyId, normalizedDomain);
       setEditorDraft((d) => ({ ...(d || {}), homepage_image_url: url, homepage_approved: true }));
       updateCompanyInState(companyId, { homepage_image_url: url });
       setHomepageFile(null);

@@ -363,7 +363,8 @@ export default function AdminImages() {
     }
     setUploadingLogoIds((prev) => new Set(prev).add(id));
     try {
-      const url = await uploadLogoBlobFile(file, id);
+      const normalizedDomain = typeof company?.normalized_domain === "string" ? company.normalized_domain.trim() : "";
+      const url = await uploadLogoBlobFile(file, id, normalizedDomain);
       updateLocal(id, { logo_url: url, logo_approved: true });
       // Persist approval=true server-side to mirror dashboard upload behavior.
       await apiFetch(`/xadmin-api-companies/${encodeURIComponent(id)}`, {
@@ -535,7 +536,8 @@ export default function AdminImages() {
     }
     setUploadingHomepageIds((prev) => new Set(prev).add(id));
     try {
-      const url = await uploadHomepageBlobFile(file, id);
+      const normalizedDomain = typeof company?.normalized_domain === "string" ? company.normalized_domain.trim() : "";
+      const url = await uploadHomepageBlobFile(file, id, normalizedDomain);
       updateLocal(id, { homepage_image_url: url, homepage_approved: false });
       await apiFetch(`/xadmin-api-companies/${encodeURIComponent(id)}`, {
         method: "PUT",

@@ -17,11 +17,16 @@ export interface HomepageUploadResponse {
 /**
  * Upload a logo file to Azure Blob Storage.
  */
-export async function uploadLogoBlobFile(file: File, companyId: string): Promise<string> {
+export async function uploadLogoBlobFile(file: File, companyId: string, normalizedDomain?: string): Promise<string> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("company_id", companyId);
   formData.append("companyId", companyId);
+  // Optional: lets the server do a fast point-read instead of a slow
+  // cross-partition Cosmos query. Frontend has this in editorDraft.
+  if (normalizedDomain && normalizedDomain.trim()) {
+    formData.append("normalized_domain", normalizedDomain.trim().toLowerCase());
+  }
 
   const response = await apiFetch("/upload-logo-blob", {
     method: "POST",
@@ -62,11 +67,16 @@ export async function deleteLogoBlob(blobUrl: string): Promise<void> {
  * Upload a homepage image (above-the-fold website screenshot) to Azure Blob Storage.
  * The server re-encodes to webp and stores under the company-homepages container.
  */
-export async function uploadHomepageBlobFile(file: File, companyId: string): Promise<string> {
+export async function uploadHomepageBlobFile(file: File, companyId: string, normalizedDomain?: string): Promise<string> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("company_id", companyId);
   formData.append("companyId", companyId);
+  // Optional: lets the server do a fast point-read instead of a slow
+  // cross-partition Cosmos query. Frontend has this in editorDraft.
+  if (normalizedDomain && normalizedDomain.trim()) {
+    formData.append("normalized_domain", normalizedDomain.trim().toLowerCase());
+  }
 
   const response = await apiFetch("/upload-homepage-blob", {
     method: "POST",

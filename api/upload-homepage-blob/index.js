@@ -101,6 +101,10 @@ async function uploadHomepageBlobHandler(req, ctx) {
     const formData = await req.formData();
     const file = formData.get("file");
     const companyId = formData.get("company_id") || formData.get("companyId");
+    // Optional partition-key hint: lets us point-read the doc instead of a
+    // slow cross-partition Cosmos query (which can take 5-15s and push the
+    // request over the SWA 45s gateway timeout).
+    const normalizedDomainHint = String(formData.get("normalized_domain") || "").trim().toLowerCase();
 
     if (!file || !companyId) {
       return json({ ok: false, error: "Missing file or company_id" }, 400, req);
@@ -179,12 +183,33 @@ async function uploadHomepageBlobHandler(req, ctx) {
       return json({ ok: false, error: "Cosmos DB not configured; cannot persist homepage reference." }, 503, req);
     }
 
-    const querySpec = {
-      query: "SELECT * FROM c WHERE c.id = @id OR c.company_id = @id",
-      parameters: [{ name: "@id", value: companyId }],
-    };
-    const queryResult = await cosmosContainer.items.query(querySpec, { enableCrossPartitionQuery: true }).fetchAll();
-    const doc = Array.isArray(queryResult?.resources) && queryResult.resources.length > 0 ? queryResult.resources[0] : null;
+    // Fast path: if the client provided normalized_domain, point-read by id
+    // + partition key. Falls back to cross-partition query when missing.
+    let doc = null;
+    if (normalizedDomainHint) {
+      try {
+        const t0 = Date.now();
+        const { resource } = await cosmosContainer.item(String(companyId), normalizedDomainHint).read();
+        if (resource) {
+          doc = resource;
+          ctx.log(`[upload-homepage-blob] Cosmos point-read found doc in ${Date.now() - t0}ms`);
+        } else {
+          ctx.log(`[upload-homepage-blob] Cosmos point-read returned no doc (in ${Date.now() - t0}ms); falling back to cross-partition`);
+        }
+      } catch (e) {
+        ctx.log(`[upload-homepage-blob] Cosmos point-read failed (${e?.code || e?.message}); falling back to cross-partition`);
+      }
+    }
+    if (!doc) {
+      const querySpec = {
+        query: "SELECT * FROM c WHERE c.id = @id OR c.company_id = @id",
+        parameters: [{ name: "@id", value: companyId }],
+      };
+      const t0 = Date.now();
+      const queryResult = await cosmosContainer.items.query(querySpec, { enableCrossPartitionQuery: true }).fetchAll();
+      ctx.log(`[upload-homepage-blob] Cosmos cross-partition query took ${Date.now() - t0}ms`);
+      doc = Array.isArray(queryResult?.resources) && queryResult.resources.length > 0 ? queryResult.resources[0] : null;
+    }
 
     if (!doc) {
       try {
