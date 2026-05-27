@@ -2757,33 +2757,34 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: "Cosmos DB not configured" }, 503, req);
 }
 
-// Per-worker safety nets — defense in depth against a repeat of the
-// 2026-05-24 FTS regression where the worker quietly accumulated leaked
-// state for ~10 minutes of normal traffic, then started returning 45s
-// gateway timeouts on every request. With alwaysReady=1 keeping a fresh
-// worker pre-warmed, eagerly recycling this one costs nothing.
+// Phase 4.29 — per-worker recycle code removed.
 //
-// Race-condition history (2026-05-25): earlier versions used
-// setImmediate(() => process.exit(0)) to recycle, which fires before the
-// host has finished flushing the response and can ALSO kill any other
-// requests in flight on the same worker. Symptom: client gets HTTP 500
-// with empty body and empty headers (SWA proxy had no upstream response
-// to relay). Fixed by tracking in-flight count and only exiting when
-// the worker is idle — see _requestsInFlight + _recycleRequested below.
-const _workerStartedAt = Date.now();
-let _requestsServed = 0;
-let _requestsInFlight = 0;
-let _recycleRequested = false;
-const MAX_REQUESTS_PER_WORKER = 200;
-const MAX_WORKER_AGE_MS = 20 * 60 * 1000; // 20 minutes
-
-function _maybeRecycleWorker(context) {
-  if (!_recycleRequested) return;
-  if (_requestsInFlight !== 0) return;
-  // Defer one tick after the response goes out so the host's outbound
-  // socket write completes cleanly before we tear down the process.
-  setTimeout(() => process.exit(0), 100);
-}
+// Earlier commits (b35feddd "fix: per-worker recycle no longer kills in-flight
+// responses") added a `_maybeRecycleWorker` path that called
+// `setTimeout(() => process.exit(0), 100)` after 200 search-companies calls
+// or 20 minutes of worker age. The intent was defense-in-depth against
+// hypothetical leaked worker state.
+//
+// Forensic finding (2026-05-27, App Insights workspace
+// af1760ad-1d06-429e-b846-3857086b2a2e): the recycle path was the actual
+// cause of every multi-minute 500-storm we'd been chasing for 48 hours.
+// Failure mode:
+//   1. _requestsInFlight counted ONLY search-companies invocations, NOT
+//      get-reviews / company-logo / ping / adminCompanies / etc.
+//   2. When the recycle fired, the worker process exited even if other
+//      functions were mid-flight on the same worker. process.exit(0)
+//      kills the entire Node worker, not just one function.
+//   3. Worse: the Function host had already dispatched additional
+//      invocations to the doomed worker. When it died, those invocations
+//      were stuck waiting until the platform's 10-minute functionTimeout
+//      fired — producing the AppRequests entries with DurationMs ≈
+//      600,000 whose OperationIds never appear in any trace log (the
+//      handler never ran).
+//
+// Trust Azure Functions' built-in worker lifecycle management instead.
+// Workers will live longer; if a genuine leak appears we'll see it in
+// memory metrics and address it directly rather than via this
+// sledgehammer.
 
 // If the handler blocks past this (e.g. a Cosmos call wedged, an FTS
 // query hanging despite AbortController), return 503 to unblock the
@@ -2830,81 +2831,57 @@ function cloneCachedResponse(cached) {
  * tests can drive the same code path the host does.
  */
 async function searchCompaniesHttpHandler(req, context, deps = {}) {
-  // Track in-flight count so we never call process.exit while a request
-  // is being served. _maybeRecycleWorker checks this counter and only
-  // exits when the worker is idle.
-  _requestsInFlight++;
-  try {
-    // ── Cache lookup ────────────────────────────────────────────────
-    // Identical queries (after URL normalisation) within the TTL window
-    // return the previously-computed response immediately. Skips the
-    // entire pipeline including Cosmos round-trips.
-    //
-    // Phase 4.27 — gated on RESPONSE_CACHE_ENABLED env var; default
-    // off. When disabled, cacheKey is null so both the lookup below
-    // and the store further down short-circuit cleanly. X-Cache: MISS
-    // is still tagged on every response for observability.
-    const cacheKey = _responseCacheEnabled() ? buildCacheKey(req.url, req.method) : null;
-    if (cacheKey) {
-      const cached = _responseCache.get(cacheKey);
-      if (cached) {
-        return cloneCachedResponse(cached);
-      }
+  // ── Cache lookup ────────────────────────────────────────────────
+  // Identical queries (after URL normalisation) within the TTL window
+  // return the previously-computed response immediately. Skips the
+  // entire pipeline including Cosmos round-trips.
+  //
+  // Phase 4.27 — gated on RESPONSE_CACHE_ENABLED env var; default
+  // off. When disabled, cacheKey is null so both the lookup below
+  // and the store further down short-circuit cleanly. X-Cache: MISS
+  // is still tagged on every response for observability.
+  const cacheKey = _responseCacheEnabled() ? buildCacheKey(req.url, req.method) : null;
+  if (cacheKey) {
+    const cached = _responseCache.get(cacheKey);
+    if (cached) {
+      return cloneCachedResponse(cached);
     }
-
-    const handlerPromise = searchCompaniesHandler(req, context, deps);
-    const timeoutPromise = new Promise((resolve) =>
-      setTimeout(() => resolve(timeoutResponse(req)), REQUEST_HARD_TIMEOUT_MS)
-    );
-    const response = await Promise.race([handlerPromise, timeoutPromise]);
-
-    // ── Cache store ─────────────────────────────────────────────────
-    // Only cache successful responses (2xx). Errors / timeouts could be
-    // transient and we don't want to pin them in the cache for 5 min.
-    if (
-      cacheKey &&
-      response &&
-      typeof response.status === "number" &&
-      response.status >= 200 &&
-      response.status < 300
-    ) {
-      _responseCache.set(cacheKey, {
-        status: response.status,
-        headers: { ...response.headers, "X-Cache": "MISS" },
-        body: response.body,
-      });
-    }
-
-    // Tag the (first-time) response as a MISS so cache behaviour is
-    // observable end-to-end.
-    if (response && response.headers) {
-      response.headers = { ...response.headers, "X-Cache": "MISS" };
-    }
-
-    // Per-worker auto-recycle bookkeeping. We never call process.exit
-    // here — only mark that a recycle is requested. The finally block
-    // calls _maybeRecycleWorker which checks _requestsInFlight === 0
-    // before actually exiting.
-    _requestsServed++;
-    const ageMs = Date.now() - _workerStartedAt;
-    if (
-      !_recycleRequested &&
-      (_requestsServed >= MAX_REQUESTS_PER_WORKER ||
-        ageMs >= MAX_WORKER_AGE_MS)
-    ) {
-      _recycleRequested = true;
-      if (context && typeof context.log === "function") {
-        context.log(
-          `[search-companies] recycle requested: served=${_requestsServed} ageMs=${ageMs} inflight=${_requestsInFlight}`
-        );
-      }
-    }
-
-    return response;
-  } finally {
-    _requestsInFlight--;
-    _maybeRecycleWorker(context);
   }
+
+  const handlerPromise = searchCompaniesHandler(req, context, deps);
+  const timeoutPromise = new Promise((resolve) =>
+    setTimeout(() => resolve(timeoutResponse(req)), REQUEST_HARD_TIMEOUT_MS)
+  );
+  const response = await Promise.race([handlerPromise, timeoutPromise]);
+
+  // ── Cache store ─────────────────────────────────────────────────
+  // Only cache successful responses (2xx). Errors / timeouts could be
+  // transient and we don't want to pin them in the cache for 5 min.
+  if (
+    cacheKey &&
+    response &&
+    typeof response.status === "number" &&
+    response.status >= 200 &&
+    response.status < 300
+  ) {
+    _responseCache.set(cacheKey, {
+      status: response.status,
+      headers: { ...response.headers, "X-Cache": "MISS" },
+      body: response.body,
+    });
+  }
+
+  // Tag the (first-time) response as a MISS so cache behaviour is
+  // observable end-to-end.
+  if (response && response.headers) {
+    response.headers = { ...response.headers, "X-Cache": "MISS" };
+  }
+
+  // Phase 4.29 — per-worker recycle bookkeeping removed. See the comment
+  // block above the constants further up in this file for the forensic
+  // narrative.
+
+  return response;
 }
 
 app.http("search-companies", {
