@@ -1160,6 +1160,17 @@ export default function CompanyDashboard() {
     setEditorOriginalId(id || null);
     draft.logo_approved = false;
     draft.homepage_approved = false;
+    // Pre-fill a name-based Amazon brand search as a default suggestion when no
+    // URL exists yet, and mark it unapproved so it keeps presenting "Amz" in the
+    // issues column until a human reviews it. The admin can accept it (tick
+    // Approve), swap for a store URL (auto-approves), or clear it.
+    if (!asString(draft.amazon_url).trim() && !draft.no_amazon_store) {
+      const amazonName = asString(draft.company_name).trim();
+      if (amazonName) {
+        draft.amazon_url = `https://www.amazon.com/s?k=${encodeURIComponent(amazonName)}`;
+        draft.amazon_url_approved = false;
+      }
+    }
     editorHistory.resetHistory(draft);
     setEditorShowAdvanced(false);
     setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
@@ -2692,6 +2703,7 @@ export default function CompanyDashboard() {
         homepage_approved: Boolean(draftForSave.homepage_approved),
         homepage_issue_cleared: Boolean(draftForSave.homepage_issue_cleared),
         amazon_url: asString(draftForSave.amazon_url).trim(),
+        amazon_url_approved: Boolean(draftForSave.amazon_url_approved),
         amazon_store_url: asString(draftForSave.amazon_store_url).trim(),
         affiliate_link_urls,
         show_location_sources_to_users: Boolean(draftForSave.show_location_sources_to_users),
@@ -4953,22 +4965,64 @@ export default function CompanyDashboard() {
                             <div className="flex gap-3 items-start">
                               <div className="flex-[2] space-y-1">
                                 <label className="text-sm text-slate-700 dark:text-muted-foreground">Amazon URL</label>
-                                <Input
-                                  value={asString(editorDraft.amazon_url)}
-                                  onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
-                                />
-                                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-2">
-                                  <Checkbox
-                                    checked={Boolean(editorDraft.no_amazon_store)}
-                                    onCheckedChange={(v) =>
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    value={asString(editorDraft.amazon_url)}
+                                    onChange={(e) =>
                                       setEditorDraft((d) => ({
                                         ...(d || {}),
-                                        no_amazon_store: Boolean(v),
+                                        amazon_url: e.target.value,
+                                        // A human entering/swapping a link counts as approval — same
+                                        // as uploading a logo/homepage auto-approves. (The machine
+                                        // pre-fill comes in via the open handler, not here, so it
+                                        // stays unapproved until a human accepts it.) Clearing the
+                                        // field leaves nothing to approve.
+                                        amazon_url_approved: Boolean(e.target.value.trim()),
                                       }))
                                     }
+                                    placeholder="https://www.amazon.com/s?k=Company+Name"
                                   />
-                                  <span>No Amazon Store</span>
-                                </label>
+                                  <button
+                                    type="button"
+                                    className="opacity-40 hover:opacity-100 transition-opacity p-2 rounded hover:bg-slate-100 dark:hover:bg-muted shrink-0"
+                                    onClick={async () => {
+                                      const ok = await copyToClipboard(asString(editorDraft.amazon_url));
+                                      if (ok) toast.success("Amazon URL copied — paste it to verify the result");
+                                      else toast.error("Nothing to copy");
+                                    }}
+                                    disabled={!asString(editorDraft.amazon_url).trim()}
+                                    title="Copy Amazon URL"
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-4 mt-2">
+                                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
+                                    <Checkbox
+                                      checked={Boolean(editorDraft.no_amazon_store)}
+                                      onCheckedChange={(v) =>
+                                        setEditorDraft((d) => ({
+                                          ...(d || {}),
+                                          no_amazon_store: Boolean(v),
+                                        }))
+                                      }
+                                    />
+                                    <span>No Amazon Store</span>
+                                  </label>
+                                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
+                                    <Checkbox
+                                      checked={Boolean(editorDraft.amazon_url_approved)}
+                                      onCheckedChange={(v) =>
+                                        setEditorDraft((d) => ({
+                                          ...(d || {}),
+                                          amazon_url_approved: Boolean(v),
+                                        }))
+                                      }
+                                      disabled={!asString(editorDraft.amazon_url).trim()}
+                                    />
+                                    <span>Approve</span>
+                                  </label>
+                                </div>
                               </div>
 
                               <details className="flex-1">

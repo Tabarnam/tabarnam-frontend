@@ -627,10 +627,14 @@ export function getContractMissingFields(company) {
     fields.push("+products");
   }
 
-  // Check for missing Amazon URL (unless marked as "no_amazon_store")
+  // "Amz" presents when a company has no Amazon URL, OR when a freshly-imported
+  // URL is still pending admin review (amazon_url_approved === false). Legacy
+  // companies have no amazon_url_approved field at all (undefined), so they are
+  // treated as already fine — this never re-flags the existing catalog.
   const hasAmazonUrl = Boolean(asString(company?.amazon_url).trim());
   const noAmazonStore = Boolean(company?.no_amazon_store);
-  if (!hasAmazonUrl && !noAmazonStore) {
+  const approvalPending = company?.amazon_url_approved === false;
+  if (!noAmazonStore && (!hasAmazonUrl || approvalPending)) {
     fields.push("amazon_url");
   }
 
