@@ -1,4 +1,4 @@
-const AMAZON_ASSOCIATE_TAG = "tabarnam00-20";
+const AMAZON_ASSOCIATE_TAG = "tabarnam08-20";
 
 function normalizeHostname(hostname) {
   return String(hostname || "")

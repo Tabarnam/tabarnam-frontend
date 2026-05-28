@@ -1,4 +1,4 @@
-export const AMAZON_ASSOCIATE_TAG = "tabarnam00-20";
+export const AMAZON_ASSOCIATE_TAG = "tabarnam08-20";
 
 function hasProtocol(input: string) {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(input) || input.startsWith("//");
