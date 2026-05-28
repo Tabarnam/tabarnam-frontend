@@ -114,8 +114,25 @@ function buildBuckets(terms) {
  * Cost on a 23k-doc catalog: ~3-7 seconds on a warm Cosmos connection.
  * That's why this runs in the background — see startBackgroundLoad.
  */
+function tokenizeField(src, sink) {
+  if (typeof src !== "string" || !src) return;
+  for (const raw of src.toLowerCase().split(/[\s\-_/.,;:!?()&]+/)) {
+    // Strip remaining non-letter chars (digits, apostrophes) and check length.
+    const token = raw.replace(/[^a-z]/g, "");
+    if (token.length < MIN_TOKEN_LEN) continue;
+    sink(token);
+  }
+}
+
 async function buildDictionaryFromScan(container) {
   const tokenCount = Object.create(null);
+  // Every token that appears in a company NAME field, at ANY frequency.
+  // This is the "don't you dare correct this" protection set: a brand
+  // deliberately spelled "Pillowz" / "Froot" / "Lyft" / "Flickr" must
+  // never be rewritten into the common word ("pillow" / "fruit" / "lift" /
+  // "flicker"). Built from name fields only — keyword/industry typos are
+  // fair game to correct, but a real brand name is sacred.
+  const nameTokens = new Set();
 
   const sql = {
     query:
@@ -130,6 +147,13 @@ async function buildDictionaryFromScan(container) {
 
   for await (const { resources } of iterator.getAsyncIterator()) {
     for (const company of resources || []) {
+      // Protection set: name fields only, any frequency.
+      tokenizeField(company.company_name, (t) => nameTokens.add(t));
+      tokenizeField(company.display_name, (t) => nameTokens.add(t));
+      tokenizeField(company.name, (t) => nameTokens.add(t));
+
+      // Correction dictionary: all searchable fields, deduped per-company,
+      // frequency-counted.
       const seenInCompany = new Set();
       const sources = [
         company.company_name,
@@ -140,25 +164,21 @@ async function buildDictionaryFromScan(container) {
         ...(Array.isArray(company.industries) ? company.industries : []),
       ];
       for (const src of sources) {
-        if (typeof src !== "string" || !src) continue;
-        for (const raw of src.toLowerCase().split(/[\s\-_/.,;:!?()&]+/)) {
-          // Strip remaining non-letter chars (digits, apostrophes) and check length.
-          const token = raw.replace(/[^a-z]/g, "");
-          if (token.length < MIN_TOKEN_LEN) continue;
-          if (seenInCompany.has(token)) continue;
+        tokenizeField(src, (token) => {
+          if (seenInCompany.has(token)) return;
           seenInCompany.add(token);
           tokenCount[token] = (tokenCount[token] || 0) + 1;
-        }
+        });
       }
     }
   }
 
-  // Apply the company-frequency threshold.
+  // Apply the company-frequency threshold to the correction dictionary.
   const kept = Object.create(null);
   for (const [token, count] of Object.entries(tokenCount)) {
     if (count >= MIN_COMPANIES_PER_TOKEN) kept[token] = count;
   }
-  return kept;
+  return { terms: kept, nameTokens };
 }
 
 async function getDictionary(container) {
@@ -172,8 +192,14 @@ async function getDictionary(container) {
     try {
       // Prefer a pre-built affinity index if it happens to exist (much
       // faster than the full scan), but DON'T require it — fall through
-      // to the scan path when it's missing or unreadable.
+      // to the scan path when it's missing or unreadable. NOTE: the
+      // affinity-index path has no name-token protection set, so a brand
+      // protected by the scan path wouldn't be protected here. In practice
+      // the affinity index doc doesn't exist in production (the scan path
+      // always runs), so this is acceptable; if that changes, the index
+      // builder should emit a nameTokens set too.
       let terms = null;
+      let nameTokens = null;
       let source = "scan";
       try {
         const { resource } = await container
@@ -189,7 +215,8 @@ async function getDictionary(container) {
 
       if (!terms) {
         const scanned = await buildDictionaryFromScan(container);
-        terms = scanned;
+        terms = scanned.terms;
+        nameTokens = scanned.nameTokens;
         source = "scan";
       }
 
@@ -201,7 +228,9 @@ async function getDictionary(container) {
       const buckets = buildBuckets(terms);
       _dictCache = {
         buckets,
+        nameTokens: nameTokens || new Set(),
         termCount,
+        nameTokenCount: nameTokens ? nameTokens.size : 0,
         source,
         freshAt: Date.now(),
       };
@@ -261,6 +290,13 @@ function correctToken(token, dictionary) {
   if (!token || typeof token !== "string") return null;
   const t = token.toLowerCase();
   if (t.length < MIN_TOKEN_LEN) return null;
+
+  // Protection: never "correct" a token that is itself a real company-name
+  // token. A brand deliberately spelled "Pillowz" / "Froot" / "Lyft" must
+  // not be rewritten into the common word "pillow" / "fruit" / "lift" —
+  // doing so loses the exact brand the user searched for. (2026-05-25:
+  // "pillowz" was being rewritten to "pillow", burying the Pillowz brand.)
+  if (dictionary.nameTokens && dictionary.nameTokens.has(t)) return null;
 
   const buckets = dictionary.buckets;
   const firstChar = t[0];

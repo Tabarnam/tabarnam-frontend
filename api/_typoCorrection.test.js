@@ -14,6 +14,14 @@ function dictWith(terms) {
   return { buckets: buildBuckets(map) };
 }
 
+// Like dictWith but also supplies a name-token protection set — tokens
+// that are real company-name words and must never be auto-corrected.
+function dictWithNames(terms, nameTokens) {
+  const map = {};
+  for (const t of terms) map[t] = {};
+  return { buckets: buildBuckets(map), nameTokens: new Set(nameTokens) };
+}
+
 test.beforeEach(() => _resetCache());
 
 // ── correctToken ─────────────────────────────────────────────────────────
@@ -88,6 +96,28 @@ test("correctToken: handles empty / null input safely", () => {
   assert.equal(correctToken("", d), null);
   assert.equal(correctToken(null, d), null);
   assert.equal(correctToken(undefined, d), null);
+});
+
+test("correctToken: does NOT correct a token that is a real company-name token (Pillowz)", () => {
+  // "pillow" is in the correction dictionary; "pillowz" is 1 edit away.
+  // But "pillowz" is ALSO a real brand name token → must be protected.
+  const d = dictWithNames(["pillow"], ["pillowz", "pillow"]);
+  assert.equal(correctToken("pillowz", d), null);
+});
+
+test("correctToken: still corrects a typo when it's NOT a protected name token", () => {
+  // "pillowx" is a genuine typo (not a brand). It should correct to "pillow".
+  const d = dictWithNames(["pillow"], ["pillowz", "pillow"]);
+  assert.equal(correctToken("pillowx", d), "pillow");
+});
+
+test("correctToken: protects deliberately-misspelled brands (froot, lyft)", () => {
+  const d = dictWithNames(
+    ["fruit", "lift"],
+    ["froot", "lyft", "fruit", "lift"]
+  );
+  assert.equal(correctToken("froot", d), null); // brand, don't correct
+  assert.equal(correctToken("lyft", d), null);  // brand, don't correct
 });
 
 test("correctToken: returns null when dictionary is missing or malformed", () => {
