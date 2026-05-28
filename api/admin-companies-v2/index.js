@@ -12,6 +12,7 @@ const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { computeEnrichmentHealth, computeMissingFields, isRealValue } = require("../_requiredFields");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
+const { normalizeAmazonUrlForStorage } = require("../_amazonAffiliate");
 const { expandBusinessAbbreviations } = require("../_searchSynonyms");
 const { foldDiacritics, parseQuery } = require("../_queryNormalizer");
 
@@ -1823,6 +1824,19 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         } else {
           if (Object.prototype.hasOwnProperty.call(doc, "display_name")) delete doc.display_name;
           if (Object.prototype.hasOwnProperty.call(doc, "displayName")) delete doc.displayName;
+        }
+
+        // Auto-expand Amazon short links (amzn.to, a.co, ...) on save so the tag
+        // never gets frozen server-side. Non-shorteners pass through untouched;
+        // failures keep the original value.
+        try {
+          for (const field of ["amazon_url", "amazon_store_url"]) {
+            if (typeof doc[field] === "string" && doc[field].trim()) {
+              doc[field] = await normalizeAmazonUrlForStorage(doc[field]);
+            }
+          }
+        } catch (e) {
+          context.log("[admin-companies-v2] amazon_url_normalize_failed", { error: e?.message });
         }
 
         try {

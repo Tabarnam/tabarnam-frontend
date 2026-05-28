@@ -13,7 +13,7 @@ try {
   CosmosClient = null;
 }
 
-const { stripAmazonAffiliateTagForStorage } = require("../_amazonAffiliate");
+const { stripAmazonAffiliateTagForStorage, normalizeAmazonUrlForStorage } = require("../_amazonAffiliate");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 const { deduplicateLocationEntries } = require("../import-start/_importStartCompanyUtils");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
@@ -540,6 +540,10 @@ async function saveCompaniesHandler(req, context) {
           const baseUrl = String(company?.website_url || company?.canonical_url || company?.url || "").trim();
           const cleanUrl = baseUrl ? stripAmazonAffiliateTagForStorage(baseUrl) : "";
 
+          // Auto-expand Amazon short links (amzn.to, a.co, ...) so the tag isn't
+          // frozen server-side; non-shorteners and failures pass through unchanged.
+          const normalizedAmazonUrl = await normalizeAmazonUrlForStorage(String(company?.amazon_url || ""));
+
           const normalizedDomainRaw =
             toNormalizedDomain(cleanUrl) ||
             toNormalizedDomain(company?.normalized_domain) ||
@@ -733,7 +737,7 @@ async function saveCompaniesHandler(req, context) {
             red_flag_reason: String(company?.red_flag_reason || ""),
             location_confidence: String(company?.location_confidence || "medium"),
             social: company?.social && typeof company.social === "object" ? company.social : {},
-            amazon_url: String(company?.amazon_url || ""),
+            amazon_url: String(normalizedAmazonUrl || ""),
 
             rating_icon_type: String(company?.rating_icon_type || "star"),
             rating: company?.rating && typeof company.rating === "object" ? company.rating : defaultRating,
