@@ -4997,7 +4997,10 @@ async function enrichCompanyFields({
 
   if (SINGLE_PROMPT_MODE) {
     console.log(`[enrichCompanyFields] v6.0 single-prompt mode for "${companyName}" (${domain}), budget=${budgetMs}ms, run=${runId}`);
-    const skipLogo = !!existingLogoUrl;
+    // xAI logo-hunting is OFF by default — logos come from Microlink, and the xAI
+    // logo lookup (browse + image-understanding/vision) never produced usable
+    // results, so it was pure spend. Set ENRICH_XAI_LOGO=1 to re-enable.
+    const skipLogo = process.env.ENRICH_XAI_LOGO === "1" ? !!existingLogoUrl : true;
     // wantLogo mirrors skipLogo logic for v6.0 — needed by logo verification block below
     const wantLogo = !skipLogo;
 
@@ -5155,7 +5158,8 @@ async function enrichCompanyFields({
   console.log(`[enrichCompanyFields] Batch 1 starting (light, hq, keywords), budget_remaining=${getRemainingMs()}ms, run=${runId}`);
   const batch1Started = Date.now();
 
-  const skipLogo = !!existingLogoUrl;
+  // xAI logo-hunting OFF by default (logos come from Microlink); ENRICH_XAI_LOGO=1 re-enables.
+  const skipLogo = process.env.ENRICH_XAI_LOGO === "1" ? !!existingLogoUrl : true;
   const lightPromise = wantLight
     ? fetchLightFields({
         companyName, websiteUrl, normalizedDomain: domain,
