@@ -147,7 +147,9 @@ function getCompaniesContainer() {
       return _cachedCompaniesContainer;
     }
 
-    _cachedCosmosClient = new CosmosClient({ endpoint, key });
+    // requestTimeout: a hung/slow query (e.g. the FTS path) aborts in 30s
+    // instead of pinning the single warm worker for the 10-min function timeout.
+    _cachedCosmosClient = new CosmosClient({ endpoint, key, connectionPolicy: { requestTimeout: 30000 } });
     _cachedCompaniesContainer = _cachedCosmosClient.database(databaseId).container(containerId);
     _cachedCompaniesContainerKey = cacheKey;
     return _cachedCompaniesContainer;

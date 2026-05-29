@@ -9,6 +9,7 @@ try {
 } catch {
   app = { http() {} };
 }
+const { fetchWithTimeout } = require("../../_fetchWithTimeout");
 
 function getHeader(req, name) {
   if (!req || !req.headers) return "";
@@ -43,7 +44,7 @@ function json(body, status, req) {
 
 async function lookupIpLocation() {
   try {
-    const r = await fetch("https://ipapi.co/json/");
+    const r = await fetchWithTimeout("https://ipapi.co/json/", {}, 5000);
     if (!r.ok) return null;
     const data = await r.json();
     if (!data) return null;
@@ -96,7 +97,7 @@ async function googleGeocode({ address, lat, lng }) {
   params.set("key", key);
 
   const url = `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   if (!res.ok) return null;
   const data = await res.json();
   if (!data || !Array.isArray(data.results) || !data.results.length) return null;

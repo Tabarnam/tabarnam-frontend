@@ -25,16 +25,9 @@ function json(obj, status = 200, req) {
 
 function getCompaniesContainer() {
   try {
-    const endpoint = env("COSMOS_DB_ENDPOINT", "");
-    const key = env("COSMOS_DB_KEY", "");
-    const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
-    const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
-
-    if (!endpoint || !key) return null;
-
-    const { CosmosClient } = require("@azure/cosmos");
-    const client = new CosmosClient({ endpoint, key });
-    return client.database(databaseId).container(containerId);
+    // Shared singleton client (cached, with requestTimeout) — avoids the
+    // per-request CosmosClient leak and the no-timeout hang that wedged the worker.
+    return require("../_cosmosConfig").getCompaniesContainer();
   } catch (err) {
     console.error("Failed to initialize Cosmos container:", err);
     return null;

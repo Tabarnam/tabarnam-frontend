@@ -9,6 +9,7 @@ try {
 } catch {
   app = { http() {} };
 }
+const { fetchWithTimeout } = require("../../_fetchWithTimeout");
 
 function getHeader(req, name) {
   if (!req || !req.headers) return "";
@@ -68,7 +69,7 @@ async function googlePlacesAutocomplete({ input, country }) {
   if (country) params.set("components", `country:${country.toLowerCase()}`);
 
   const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params.toString()}`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   if (!res.ok) return null;
   const data = await res.json();
   if (!data || !Array.isArray(data.predictions)) return null;
@@ -95,7 +96,7 @@ async function googlePlacesDetails({ placeId }) {
   params.set("fields", "geometry,address_components");
 
   const url = `https://maps.googleapis.com/maps/api/place/details/json?${params.toString()}`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   if (!res.ok) return null;
   const data = await res.json();
   if (!data || !data.result) return null;

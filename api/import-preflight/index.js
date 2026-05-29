@@ -45,16 +45,10 @@ function json(obj, status = 200) {
 }
 
 function getCompaniesContainer() {
-  const endpoint = env("COSMOS_DB_ENDPOINT", "");
-  const key = env("COSMOS_DB_KEY", "");
-  const database = env("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerName = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
-
-  if (!endpoint || !key) return null;
-
+  // Shared singleton client (cached, with requestTimeout) — avoids the
+  // per-request CosmosClient leak and the no-timeout hang that wedged the worker.
   try {
-    const client = new CosmosClient({ endpoint, key });
-    return client.database(database).container(containerName);
+    return require("../_cosmosConfig").getCompaniesContainer();
   } catch (e) {
     console.error("[import-preflight] Failed to create Cosmos client:", e?.message);
     return null;
