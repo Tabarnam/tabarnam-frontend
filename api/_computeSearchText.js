@@ -83,11 +83,26 @@ function computeSearchText(company) {
   const search_text_stemmed = stemmed ? ` ${stemmed} ` : "";
   const search_text_stemmed_compact = stemmed.replace(/\s+/g, "");
 
+  // Tokenized array for indexed exact-word matching. Cosmos indexes each array
+  // element, so ARRAY_CONTAINS(c.search_tokens, @w) is an index lookup that
+  // can't hang the way the full-text query does. Tokens are the union of the
+  // normalized words and their stems — the same forms the query side derives
+  // (normalizeQuery + stemWords) — so a query word always matches its token.
+  // Length >= 2 drops single-char noise while keeping real short brands ("3m").
+  const search_tokens = Array.from(
+    new Set(
+      `${search_text_norm} ${stemmed}`
+        .split(/\s+/)
+        .filter((w) => w && w.length >= 2)
+    )
+  );
+
   return {
     search_text_norm: search_text_norm_with_boundaries,
     search_text_compact,
     search_text_stemmed,
     search_text_stemmed_compact,
+    search_tokens,
   };
 }
 
@@ -98,12 +113,13 @@ function computeSearchText(company) {
 function patchCompanyWithSearchText(company) {
   if (!company || typeof company !== "object") return company;
   
-  const { search_text_norm, search_text_compact, search_text_stemmed, search_text_stemmed_compact } = computeSearchText(company);
+  const { search_text_norm, search_text_compact, search_text_stemmed, search_text_stemmed_compact, search_tokens } = computeSearchText(company);
   company.search_text_norm = search_text_norm;
   company.search_text_compact = search_text_compact;
   company.search_text_stemmed = search_text_stemmed;
   company.search_text_stemmed_compact = search_text_stemmed_compact;
-  
+  company.search_tokens = search_tokens;
+
   return company;
 }
 
