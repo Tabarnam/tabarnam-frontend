@@ -139,7 +139,7 @@ async function importStopHandler(req, context) {
     }
 
     try {
-      const client = new CosmosClient({ endpoint, key });
+      const client = require("../_cosmosConfig").getCosmosClient();
       const database = client.database(databaseId);
       const container = database.container(containerId);
 

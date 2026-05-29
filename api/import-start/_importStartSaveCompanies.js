@@ -535,7 +535,7 @@ async function saveCompaniesToCosmos({
       return { saved: 0, failed: 0, skipped: 0 };
     }
 
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("../_cosmosConfig").getCosmosClient();
     const database = client.database(databaseId);
     const container = database.container(containerId);
 

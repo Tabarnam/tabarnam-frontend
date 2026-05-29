@@ -106,7 +106,7 @@ function getCosmosContainer() {
 
     if (!endpoint || !key) return null;
 
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("./_cosmosConfig").getCosmosClient();
     return client.database(databaseId).container(containerId);
   })();
 

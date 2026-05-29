@@ -366,7 +366,7 @@ function getCompaniesContainer() {
   if (!CosmosClient) return null;
 
   try {
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("../_cosmosConfig").getCosmosClient();
     return client.database(database).container(containerName);
   } catch {
     return null;

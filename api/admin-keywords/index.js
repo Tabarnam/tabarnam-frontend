@@ -26,7 +26,7 @@ function getCosmosClient() {
   const endpoint = env("COSMOS_DB_ENDPOINT");
   const key = env("COSMOS_DB_KEY");
   if (!endpoint || !key) return null;
-  cosmosClient ||= new CosmosClient({ endpoint, key });
+  cosmosClient ||= require("../_cosmosConfig").getCosmosClient();
   return cosmosClient;
 }
 

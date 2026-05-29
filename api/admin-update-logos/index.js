@@ -33,7 +33,7 @@ async function updateLogos() {
       return { success: false, error: "Missing COSMOS_DB_KEY" };
     }
 
-    const client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
+    const client = require("../_cosmosConfig").getCosmosClient();
     const database = client.database(DATABASE_ID);
     const container = database.container(CONTAINER_ID);
 

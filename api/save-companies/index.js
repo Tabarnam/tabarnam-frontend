@@ -178,7 +178,7 @@ function getCompaniesCosmosContainer() {
     if (!endpoint || !key) return null;
     if (!CosmosClient) return null;
 
-    cosmosCompaniesClient ||= new CosmosClient({ endpoint, key });
+    cosmosCompaniesClient ||= require("../_cosmosConfig").getCosmosClient();
     return cosmosCompaniesClient.database(databaseId).container(containerId);
   } catch {
     return null;

@@ -164,7 +164,7 @@ function getLogsContainer() {
   const db = (process.env.COSMOS_DB_DATABASE || "").trim();
   const ct = (process.env.COSMOS_DB_LOGS_CONTAINER || "import_logs").trim();
   if (!ep || !key || !db || !ct) return null;
-  cosmosClient ||= new CosmosClient({ endpoint: ep, key });
+  cosmosClient ||= require("../_cosmosConfig").getCosmosClient();
   return cosmosClient.database(db).container(ct);
 }
 async function writeDoneLog(sessionId, payload = {}) {

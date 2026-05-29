@@ -101,7 +101,7 @@ function getCompaniesContainer() {
   if (!endpoint || !key) return null;
 
   try {
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("../_cosmosConfig").getCosmosClient();
     return client.database(database).container(container);
   } catch (e) {
     console.error("[admin-companies-v2] Failed to create Cosmos client:", e?.message);

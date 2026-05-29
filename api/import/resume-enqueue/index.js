@@ -197,7 +197,7 @@ async function importResumeEnqueueHandler(req, context) {
 
     if (cosmos.enabled) {
       try {
-        const client = new CosmosClient({ endpoint, key });
+        const client = require("../../_cosmosConfig").getCosmosClient();
         const container = client.database(databaseId).container(containerId);
 
         resumeDoc = await readWithPkCandidates(container, `_import_resume_${sessionId}`, sessionId).catch(() => null);
@@ -221,7 +221,7 @@ async function importResumeEnqueueHandler(req, context) {
 
     if (cosmos.enabled) {
       try {
-        const client = new CosmosClient({ endpoint, key });
+        const client = require("../../_cosmosConfig").getCosmosClient();
         const container = client.database(databaseId).container(containerId);
 
         // Session patch: write resume-related fields so status can reflect reality

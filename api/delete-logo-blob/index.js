@@ -34,7 +34,7 @@ function getCosmosContainer(ctx) {
   }
 
   try {
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("../_cosmosConfig").getCosmosClient();
     return client.database(database).container(container);
   } catch (e) {
     ctx.error("[delete-logo-blob] Failed to create Cosmos client:", e?.message);

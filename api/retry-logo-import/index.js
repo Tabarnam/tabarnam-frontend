@@ -39,7 +39,7 @@ function getCompaniesContainer() {
   const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
 
   if (!endpoint || !key) return null;
-  cosmosClient ||= new CosmosClient({ endpoint, key });
+  cosmosClient ||= require("../_cosmosConfig").getCosmosClient();
   return cosmosClient.database(databaseId).container(containerId);
 }
 

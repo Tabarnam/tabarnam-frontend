@@ -79,7 +79,7 @@ function getCompaniesContainer(context) {
   if (!endpoint || !key) return null;
 
   try {
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("../_cosmosConfig").getCosmosClient();
     return client.database(database).container(container);
   } catch (e) {
     context.log("[admin-refresh-import] Failed to create Cosmos client", {

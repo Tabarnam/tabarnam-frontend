@@ -1588,7 +1588,7 @@ async function resumeWorkerHandler(req, context) {
       const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
       if (endpoint && key && CosmosClient) {
-        const client = new CosmosClient({ endpoint, key });
+        const client = require("../../_cosmosConfig").getCosmosClient();
         cosmosContainer = client.database(databaseId).container(containerId);
 
         await bestEffortPatchSessionDoc({
@@ -1685,7 +1685,7 @@ async function resumeWorkerHandler(req, context) {
     );
   }
 
-  const client = new CosmosClient({ endpoint, key });
+  const client = require("../../_cosmosConfig").getCosmosClient();
   const container = client.database(databaseId).container(containerId);
 
   const gracefulExit = async (reason) => {
@@ -5864,7 +5864,7 @@ async function resumeWorkerHandler(req, context) {
       const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
       const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
       if (endpoint && dbKey && CosmosClient) {
-        const errContainer = new CosmosClient({ endpoint, key: dbKey }).database(databaseId).container(containerId);
+        const errContainer = require("../../_cosmosConfig").getCosmosClient().database(databaseId).container(containerId);
         await bestEffortPatchSessionDoc({
           container: errContainer,
           sessionId,

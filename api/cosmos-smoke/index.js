@@ -102,7 +102,7 @@ const cosmosSmokeHandler = async (req, context) => {
     }
 
     try {
-      const client = new CosmosClient({ endpoint, key });
+      const client = require("../_cosmosConfig").getCosmosClient();
 
       // Minimal, safe operation that does not depend on a specific DB/container existing.
       // This should fail fast if endpoint/key/network are wrong.

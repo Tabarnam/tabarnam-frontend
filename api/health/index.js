@@ -14,7 +14,7 @@ async function checkCosmos() {
     if (!endpoint || !key) return { ok: false, reason: "not_configured" };
 
     const { CosmosClient } = require("@azure/cosmos");
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("../_cosmosConfig").getCosmosClient();
     const db = process.env.COSMOS_DB_DATABASE || "tabarnam-db";
     const { resource } = await client.database(db).read();
     return { ok: Boolean(resource), db };

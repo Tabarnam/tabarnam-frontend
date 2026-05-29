@@ -412,7 +412,7 @@ async function handler(req, context) {
       const { endpoint, key, databaseId, containerId } = getCosmosConfig();
 
       if (endpoint && key && CosmosClient) {
-        const client = new CosmosClient({ endpoint, key });
+        const client = require("../_cosmosConfig").getCosmosClient();
         const container = client.database(databaseId).container(containerId);
 
         ([sessionDoc, completionDoc, acceptDoc, resumeDoc, stopDoc] = await Promise.all([
@@ -741,7 +741,7 @@ async function handler(req, context) {
             const freshIds = Array.isArray(saved_company_ids_verified) && saved_company_ids_verified.length > 0
               ? saved_company_ids_verified : [];
             if (freshIds.length > 0) {
-              const refreshClient = new CosmosClient({ endpoint, key });
+              const refreshClient = require("../_cosmosConfig").getCosmosClient();
               const refreshContainer = refreshClient.database(databaseId).container(containerId);
               const freshDocs = await fetchCompaniesByIds(refreshContainer, freshIds).catch(() => []);
               if (freshDocs.length > 0) {
@@ -778,7 +778,7 @@ async function handler(req, context) {
       }
 
       if (resume_needed && endpoint && key && CosmosClient) {
-        const client = new CosmosClient({ endpoint, key });
+        const client = require("../_cosmosConfig").getCosmosClient();
         const container = client.database(databaseId).container(containerId);
         const resumeDocId = `_import_resume_${sessionId}`;
 
@@ -1484,7 +1484,7 @@ async function handler(req, context) {
       );
     }
 
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("../_cosmosConfig").getCosmosClient();
     const container = client.database(databaseId).container(containerId);
 
     const sessionDocId = `_import_session_${sessionId}`;
@@ -2552,7 +2552,7 @@ app.http("import-status-session-raw", {
         }, 200, req);
       }
 
-      const client = new CosmosClient({ endpoint, key });
+      const client = require("../_cosmosConfig").getCosmosClient();
       const container = client.database(databaseId).container(containerId);
 
       // Use the EXACT SAME readControlDoc function that import-status uses

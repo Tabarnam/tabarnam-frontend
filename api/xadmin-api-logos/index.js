@@ -30,7 +30,7 @@ function getCosmosContainer() {
   }
 
   try {
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("../_cosmosConfig").getCosmosClient();
     return client.database(database).container(container);
   } catch (e) {
     console.error("[xadmin-api-logos] Failed to create Cosmos client:", e?.message);

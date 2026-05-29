@@ -156,7 +156,7 @@ function getCosmosClient() {
   if (!CosmosClient) return null;
 
   try {
-    cachedClient ||= new CosmosClient({ endpoint, key });
+    cachedClient ||= require("./_cosmosConfig").getCosmosClient();
     return cachedClient;
   } catch (e) {
     console.error("[company-edit-history] Failed to create Cosmos client:", e?.message);

@@ -98,7 +98,7 @@ async function importProgressHandler(req, ctx) {
       return json({ error: "Cosmos not configured" }, 500, req);
     }
 
-    const client = new CosmosClient({ endpoint, key });
+    const client = require("../_cosmosConfig").getCosmosClient();
     const container = client.database(databaseId).container(containerId);
 
     try {
