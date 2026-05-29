@@ -4997,7 +4997,7 @@ export default function CompanyDashboard() {
                                   </button>
                                 </div>
                                 <div className="flex items-center gap-4 mt-2">
-                                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
+                                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground whitespace-nowrap shrink-0">
                                     <Checkbox
                                       checked={Boolean(editorDraft.no_amazon_store)}
                                       onCheckedChange={(v) =>
@@ -5009,7 +5009,7 @@ export default function CompanyDashboard() {
                                     />
                                     <span>No Amazon Store</span>
                                   </label>
-                                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
+                                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground whitespace-nowrap shrink-0">
                                     <Checkbox
                                       checked={Boolean(editorDraft.amazon_url_approved)}
                                       onCheckedChange={(v) =>
