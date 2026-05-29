@@ -5011,6 +5011,21 @@ export default function CompanyDashboard() {
                                     />
                                     <span>Approve</span>
                                   </label>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      setEditorDraft((d) => ({
+                                        ...(d || {}),
+                                        amazon_url: "",
+                                        amazon_url_approved: false,
+                                      }))
+                                    }
+                                    disabled={!asString(editorDraft.amazon_url).trim()}
+                                  >
+                                    Clear
+                                  </Button>
                                 </div>
                               </div>
 
