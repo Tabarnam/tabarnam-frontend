@@ -4962,8 +4962,7 @@ export default function CompanyDashboard() {
                               />
                             </div>
 
-                            <div className="flex gap-3 items-start">
-                              <div className="flex-[2] space-y-1">
+                            <div className="space-y-1 md:col-span-2">
                                 <label className="text-sm text-slate-700 dark:text-muted-foreground">Amazon URL</label>
                                 <div className="flex items-center gap-2">
                                   <Input
@@ -5024,6 +5023,7 @@ export default function CompanyDashboard() {
                                 </div>
                               </div>
 
+                            <div className="flex gap-3 items-start md:col-span-2">
                               <details className="flex-1">
                                 <summary className="text-sm text-slate-500 dark:text-muted-foreground cursor-pointer hover:text-slate-700 dark:hover:text-foreground select-none py-1">
                                   Contact info
