@@ -4980,7 +4980,6 @@ export default function CompanyDashboard() {
                                         amazon_url_approved: Boolean(e.target.value.trim()),
                                       }))
                                     }
-                                    placeholder="https://www.amazon.com/s?k=Company+Name"
                                   />
                                   <button
                                     type="button"
