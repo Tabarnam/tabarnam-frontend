@@ -1160,17 +1160,8 @@ export default function CompanyDashboard() {
     setEditorOriginalId(id || null);
     draft.logo_approved = false;
     draft.homepage_approved = false;
-    // Pre-fill a name-based Amazon brand search as a default suggestion when no
-    // URL exists yet, and mark it unapproved so it keeps presenting "Amz" in the
-    // issues column until a human reviews it. The admin can accept it (tick
-    // Approve), swap for a store URL (auto-approves), or clear it.
-    if (!asString(draft.amazon_url).trim() && !draft.no_amazon_store) {
-      const amazonName = asString(draft.company_name).trim();
-      if (amazonName) {
-        draft.amazon_url = `https://www.amazon.com/s?k=${encodeURIComponent(amazonName)}`;
-        draft.amazon_url_approved = false;
-      }
-    }
+    // (Amazon URL pre-fill now lives in buildCompanyDraft so it applies to every
+    // editor-open path, including the import-review flow.)
     editorHistory.resetHistory(draft);
     setEditorShowAdvanced(false);
     setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
