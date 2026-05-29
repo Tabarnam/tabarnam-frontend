@@ -1947,327 +1947,74 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // fall back to legacy CONTAINS-based search so the site stays functional.
       let usedFallback = false;
 
-      if (sort === "manu") {
-        // Manufacturing sort: two-stage query — companies WITH mfg locations first
-        let searchFilter = "";
-        let sqlParams = [{ name: "@take", value: limit }];
-        if (ftsPhrases.length > 0) {
-          const fts = buildFTSQuery(ftsPhrases);
-          searchFilter = `AND (${fts.ftsWhere}) AND ${softDeleteFilter}`;
-        } else {
-          searchFilter = `AND ${softDeleteFilter}`;
-        }
+      // ── Candidate retrieval: ONE indexed query over search_tokens ──
+      // Replaces the former FTS path + manu two-stage + word-boundary/substring
+      // passes. ARRAY_CONTAINS over the (default-indexed) search_tokens array is a
+      // true index lookup: fast, bounded, and — unlike FullTextContainsAll — it
+      // cannot hang and wedge the worker. Matching model:
+      //   - per query word: word OR its stem (so plurals/inflections hit)
+      //   - words WITHIN a synonym phrase are AND'd (all must be present)
+      //   - synonym phrases are OR'd together
+      //   - stopwords are dropped from the QUERY so strict-AND never requires a
+      //     filler word ("the", "of") to be present; stored tokens keep them.
+      // sort=manu / stars / distance are all handled by the post-fetch reranker
+      // below, so retrieval is identical for every sort (no special manu path).
+      {
+        const SEARCH_STOPWORDS = new Set([
+          "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "by",
+          "with", "at", "from", "as", "is", "are", "be",
+        ]);
+        const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
+        const tokenParams = [{ name: "@take", value: limit }];
+        let tokenWhere = "";
 
-        try {
-          if (!USE_FTS && ftsPhrases.length > 0) throw new Error("FTS disabled via env var");
-          if (USE_FTS && ftsPhrases.length > 0 && !ftsAllSingleToken(ftsPhrases)) {
-            throw new Error("FTS skipped: multi-token phrase triggers FullTextContainsAll hang");
-          }
-          const sqlA = `
-              SELECT TOP @take ${SELECT_FIELDS}
-              FROM c
-              WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
-              ${searchFilter}
-              ORDER BY c._ts DESC
-            `;
-
-          const partA = ftsPhrases.length > 0
-            ? await queryWithTimeout(sqlA, [...sqlParams])
-            : await container.items.query({ query: sqlA, parameters: [...sqlParams] }, { enableCrossPartitionQuery: true }).fetchAll();
-          items = partA.resources || [];
-
-          const remaining = Math.max(0, limit - items.length);
-          if (remaining > 0) {
-            const sqlParamsB = [
-              { name: "@take2", value: remaining },
-              ...sqlParams.filter((p) => p.name !== "@take"),
-            ];
-            const sqlB = `
-                SELECT TOP @take2 ${SELECT_FIELDS}
-                FROM c
-                WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
-                ${searchFilter}
-                ORDER BY c._ts DESC
-              `;
-
-            const partB = ftsPhrases.length > 0
-              ? await queryWithTimeout(sqlB, sqlParamsB)
-              : await container.items.query({ query: sqlB, parameters: sqlParamsB }, { enableCrossPartitionQuery: true }).fetchAll();
-            items = items.concat(partB.resources || []);
-          }
-        } catch (ftsErr) {
-          // FTS failed — use hybrid two-pass search: word-boundary first, then substring fill
-          context.log("[search-companies] FTS failed (manu), using hybrid word-boundary + substring search:", ftsErr?.message);
-          usedFallback = true;
-
-          // Helper to run the two-part manu query (with + without manufacturing locations)
-          async function runManuQuery(whereClause, params) {
-            const sqlA = `
-                SELECT TOP @take ${SELECT_FIELDS}
-                FROM c
-                WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
-                ${whereClause}
-                ORDER BY c._ts DESC
-              `;
-            const partA = await container.items
-              .query({ query: sqlA, parameters: [...params] }, { enableCrossPartitionQuery: true })
-              .fetchAll();
-            const result = partA.resources || [];
-
-            const rem = Math.max(0, limit - result.length);
-            if (rem > 0) {
-              const paramsB = [
-                { name: "@take2", value: rem },
-                ...params.filter((p) => p.name !== "@take"),
-              ];
-              const sqlB = `
-                  SELECT TOP @take2 ${SELECT_FIELDS}
-                  FROM c
-                  WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
-                  ${whereClause}
-                  ORDER BY c._ts DESC
-                `;
-              const partB = await container.items
-                .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
-                .fetchAll();
-              result.push(...(partB.resources || []));
-            }
-            return result;
-          }
-
-          // ── Pass 1: Word-boundary matching (precise, high-relevance) ──
-          const MIN_WORD_BOUNDARY_LEN = 3;
-          if (q_norm && q_norm.length >= MIN_WORD_BOUNDARY_LEN) {
-            const wbParams = [{ name: "@take", value: limit }];
-            const wbFilter = buildWordBoundaryFilter(q_norm, q_stemmed, q_compact, wbParams);
-            const wbWhere = `AND (${wbFilter}) AND ${softDeleteFilter}`;
-            items = await runManuQuery(wbWhere, wbParams);
-            pass1Sufficient = checkPass1Sufficiency(items);
-          }
-
-          // ── Pass 2: Substring matching (broader, fills remaining slots) ──
-          // Skip in quick mode — return word-boundary results only for fastest response.
-          // Also skip when Pass 1 returned enough strong-tier matches to fill
-          // the current page with room for the reranker (see pass1Sufficient).
-          const manuRemaining = Math.max(0, limit - items.length);
-          if (manuRemaining > 0 && !quickMode && !pass1Sufficient) {
-            const legacyFilter = q_norm ? buildLegacySearchFilter() : "";
-            const legacyParams = [{ name: "@take", value: manuRemaining }];
-            if (q_norm) {
-              legacyParams.push({ name: "@q", value: q_norm });
-              legacyParams.push({ name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") });
-            }
-            const variantFilter = q_norm ? buildVariantContainsClauses(ftsPhrases, q_norm, legacyParams) : "";
-            const legacyWhere = q_norm
-              ? `AND (${legacyFilter}${variantFilter}) AND ${softDeleteFilter}`
-              : `AND ${softDeleteFilter}`;
-
-            const legacyItems = await runManuQuery(legacyWhere, legacyParams);
-
-            // Merge: add Pass 2 results not already in Pass 1, tagged for scoring
-            const existingIds = new Set(items.map((i) => i.id));
-            for (const item of legacyItems) {
-              if (!existingIds.has(item.id)) {
-                item._substringOnly = true;
-                items.push(item);
-                existingIds.add(item.id);
+        if (q_norm && ftsPhrases.length > 0) {
+          let pIdx = 0;
+          const phraseClauses = [];
+          for (const phrase of ftsPhrases) {
+            const words = String(phrase || "")
+              .split(/\s+/)
+              .filter((w) => w.length >= 2 && !SEARCH_STOPWORDS.has(w));
+            if (words.length === 0) continue;
+            const wordClauses = [];
+            for (const word of words) {
+              const variants = new Set([word]);
+              const st = simpleStem(word);
+              if (st && st.length >= 2) variants.add(st);
+              const ors = [];
+              for (const v of variants) {
+                const pn = `@tok${pIdx++}`;
+                tokenParams.push({ name: pn, value: v });
+                ors.push(`ARRAY_CONTAINS(c.search_tokens, ${pn})`);
               }
+              wordClauses.push(`(${ors.join(" OR ")})`);
+            }
+            if (wordClauses.length > 0) {
+              phraseClauses.push(`(${wordClauses.join(" AND ")})`);
             }
           }
-        }
-      } else {
-        // Standard query — use FTS for text matching
-        let queryParams = [{ name: "@take", value: limit }];
-
-        if (ftsPhrases.length > 0) {
-          try {
-            if (!USE_FTS) throw new Error("FTS disabled via env var");
-            if (!ftsAllSingleToken(ftsPhrases)) {
-              throw new Error("FTS skipped: multi-token phrase triggers FullTextContainsAll hang");
-            }
-            const fts = buildFTSQuery(ftsPhrases);
-            ftsWhere = fts.ftsWhere;
-            ftsOrderBy = fts.ftsOrderBy;
-
-            // Determine ordering strategy:
-            // - "name" sort: alphabetical by company name
-            // - Default (recent/stars/etc.): BM25 relevance ranking
-            const orderBy =
-              sort === "name"
-                ? "ORDER BY c.company_name ASC"
-                : ftsOrderBy; // BM25 relevance
-
-            const sql = `
-                SELECT TOP @take ${SELECT_FIELDS}
-                FROM c
-                WHERE ${ftsWhere} AND ${softDeleteFilter}
-                ${orderBy}
-              `;
-
-            const res = await queryWithTimeout(sql, queryParams);
-            items = res.resources || [];
-          } catch (ftsErr) {
-            // FTS failed — use hybrid two-pass search: word-boundary first, then substring fill
-            context.log("[search-companies] FTS failed, using hybrid word-boundary + substring search:", ftsErr?.message);
-            usedFallback = true;
-            const orderBy =
-              sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-
-            // ── Pass 1: Word-boundary matching (precise, high-relevance) ──
-            const MIN_WORD_BOUNDARY_LEN = 3;
-            if (q_norm.length >= MIN_WORD_BOUNDARY_LEN) {
-              const wbParams = [{ name: "@take", value: limit }];
-              const wbFilter = buildWordBoundaryFilter(q_norm, q_stemmed, q_compact, wbParams);
-
-              const wbSql = `
-                  SELECT TOP @take ${SELECT_FIELDS}
-                  FROM c
-                  WHERE (${wbFilter}) AND ${softDeleteFilter}
-                  ${orderBy}
-                `;
-              const wbRes = await container.items
-                .query({ query: wbSql, parameters: wbParams }, { enableCrossPartitionQuery: true })
-                .fetchAll();
-              items = wbRes.resources || [];
-              pass1Sufficient = checkPass1Sufficiency(items);
-            }
-
-            // ── Pass 2: Substring matching (broader, fills remaining slots) ──
-            // Skip in quick mode — return word-boundary results only for fastest response.
-            // Also skip when Pass 1 returned enough strong-tier matches to fill
-            // the current page with room for the reranker (see pass1Sufficient).
-            const remaining = Math.max(0, limit - items.length);
-            if (remaining > 0 && !quickMode && !pass1Sufficient) {
-              const legacyFilter = buildLegacySearchFilter();
-              const legacyParams = [
-                { name: "@take", value: remaining },
-                { name: "@q", value: q_norm },
-                { name: "@q_compact", value: q_compact || q_norm.replace(/\s+/g, "") },
-              ];
-              const variantFilter = buildVariantContainsClauses(ftsPhrases, q_norm, legacyParams);
-
-              const legacySql = `
-                  SELECT TOP @take ${SELECT_FIELDS}
-                  FROM c
-                  WHERE (${legacyFilter}${variantFilter}) AND ${softDeleteFilter}
-                  ${orderBy}
-                `;
-              const legacyRes = await container.items
-                .query({ query: legacySql, parameters: legacyParams }, { enableCrossPartitionQuery: true })
-                .fetchAll();
-
-              // Merge: add Pass 2 results not already in Pass 1, tagged for scoring
-              const existingIds = new Set(items.map((i) => i.id));
-              for (const item of (legacyRes.resources || [])) {
-                if (!existingIds.has(item.id)) {
-                  item._substringOnly = true;
-                  items.push(item);
-                  existingIds.add(item.id);
-                }
-              }
-            }
-          }
-        } else {
-          // No search query — return all results
-          const orderBy =
-            sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-
-          const sql = `
-              SELECT TOP @take ${SELECT_FIELDS}
-              FROM c
-              WHERE ${softDeleteFilter}
-              ${orderBy}
-            `;
-
-          const res = await container.items
-            .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
-            .fetchAll();
-          items = res.resources || [];
-        }
-      }
-
-      // ── Pass 3: broadening — per-word word-boundary OR ──
-      // For multi-word queries, also retrieve companies that match ANY query
-      // word at a word boundary. This is what surfaces pickle companies for
-      // "Hobbs Pickles" beneath the brand match. Strict-AND retrieval (Pass
-      // 1/2) keeps precision for the primary hit; this pass adds related
-      // candidates that the existing relevance scoring + industry affinity
-      // index then rank correctly. Skipped in:
-      //   - quickMode (above-the-fold preview only)
-      //   - single-word queries (Pass 1 already covers the equivalent set)
-      //   - sort=manu (user explicitly chose a strict view)
-      //   - Pass 1 had enough strong-tier matches to fill the page
-      //   - Pass 1 + Pass 2 combined found ANY tier-0+ primary brand match
-      //     — Pass 4 handles peer expansion from there, and broadening on
-      //     common single words ("buffalo", "fish") adds expensive
-      //     cross-partition CONTAINS scans that bloat the result with
-      //     weakly-relevant candidates ranking below the strong primary
-      //     anyway.
-      //
-      // IMPORTANT: re-check for a primary HERE rather than relying on
-      // pass1HasPrimary alone. Pass 1's strict word-boundary filter can
-      // miss strong matches whose search_text_norm doesn't precisely
-      // contain the space-padded query (e.g. "buffalo fish" found H&H
-      // Boneless Buffalo Fish Market via Pass 2 substring fallback —
-      // not Pass 1 — so pass1HasPrimary stayed false despite the items
-      // array containing a clear tier-0 brand by the time we hit Pass 3).
-      let haveStrongPrimary = pass1HasPrimary;
-      if (!haveStrongPrimary && q_norm && sort !== "manu") {
-        for (const c of items) {
-          if (isStrongPrimary(c)) {
-            haveStrongPrimary = true;
-            break;
+          if (phraseClauses.length > 0) {
+            tokenWhere = `AND (${phraseClauses.join(" OR ")}) `;
           }
         }
-      }
-      if (
-        !quickMode &&
-        !pass1Sufficient &&
-        !haveStrongPrimary &&
-        q_norm &&
-        sort !== "manu"
-      ) {
-        const broadenWords = q_norm.split(/\s+/).filter((w) => w.length >= 3);
-        if (broadenWords.length >= 2) {
-          const broadenParams = [{ name: "@broadenTake", value: 500 }];
-          const broadenClauses = [];
-          broadenWords.forEach((word, i) => {
-            const wParam = `@bw${i}`;
-            broadenParams.push({ name: wParam, value: ` ${word} ` });
-            broadenClauses.push(`CONTAINS(c.search_text_norm, ${wParam})`);
-            const stemmed = simpleStem(word);
-            if (stemmed && stemmed !== word) {
-              const sParam = `@bws${i}`;
-              broadenParams.push({ name: sParam, value: ` ${stemmed} ` });
-              broadenClauses.push(`CONTAINS(c.search_text_stemmed, ${sParam})`);
-            }
-          });
 
-          const broadenSql = `
-            SELECT TOP @broadenTake ${SELECT_FIELDS}
+        const tokenSql = `
+            SELECT TOP @take ${SELECT_FIELDS}
             FROM c
-            WHERE (${broadenClauses.join(" OR ")}) AND ${softDeleteFilter}
-            ORDER BY c._ts DESC
+            WHERE ${softDeleteFilter} ${tokenWhere}
+            ${orderBy}
           `;
-
-          try {
-            const broadenRes = await container.items
-              .query({ query: broadenSql, parameters: broadenParams }, { enableCrossPartitionQuery: true })
-              .fetchAll();
-            const broadenItems = broadenRes.resources || [];
-            const existingIds = new Set(items.map((i) => i.id));
-            for (const item of broadenItems) {
-              if (existingIds.has(item.id)) continue;
-              item._broadenedMatch = true;
-              items.push(item);
-              existingIds.add(item.id);
-            }
-          } catch (broadenErr) {
-            // Best-effort. If this fails, the user still gets Pass 1+2 results.
-            context.log("[search-companies] broadening pass error:", broadenErr?.message);
-          }
-        }
+        const tokenRes = await container.items
+          .query({ query: tokenSql, parameters: tokenParams }, { enableCrossPartitionQuery: true })
+          .fetchAll();
+        items = tokenRes.resources || [];
       }
+
+      // (Pass-3 "broadening" removed in the search_tokens rewrite: the single
+      // ARRAY_CONTAINS query with synonym OR-expansion already covers multi-word
+      // recall, and Pass 4 below handles industry-peer expansion for brand
+      // searches — so the expensive cross-partition CONTAINS broadening scan is
+      // no longer needed.)
 
       // Fuzzy fallback: fall back to prefix-based search with Damerau-Levenshtein
       // post-filter when primary search produces no real name match for the query.
@@ -2735,7 +2482,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             skip,
             take,
             user_location,
-            _searchMode: quickMode ? "quick" : usedFallback ? "contains" : "fts",
+            _searchMode: quickMode ? "quick" : "tokens",
             ...(corrected_query ? { correctedQuery: corrected_query } : {}),
             _typoDiag,
           },

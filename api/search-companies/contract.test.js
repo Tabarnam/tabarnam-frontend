@@ -535,7 +535,7 @@ test("search SQL uses CONTAINS fallback while FTS is disabled", async () => {
   assert.ok(primarySql.includes("CONTAINS"), "Primary SQL should use CONTAINS while FTS is disabled");
 });
 
-test("CONTAINS fallback includes synonym variant params (company → co)", async () => {
+test("search-companies retrieves via ARRAY_CONTAINS over search_tokens (no FTS, no scan)", async () => {
   const specs = [];
   const companiesContainer = makeContainer(async (spec) => {
     specs.push(spec);
@@ -543,22 +543,21 @@ test("CONTAINS fallback includes synonym variant params (company → co)", async
   });
 
   await _test.searchCompaniesHandler(
-    makeReq("https://example.test/api/search-companies?q=acme+company&sort=recent&take=10"),
+    makeReq("https://example.test/api/search-companies?q=candles&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer, useFTS: false }
+    { companiesContainer }
   );
 
-  assert.ok(specs.length > 0, "at least one query should be issued");
-  // With two-pass search, synonym variants appear in Pass 2 (substring fallback)
-  const allParams = specs.flatMap((s) => s.parameters || []);
-  const variantValues = allParams.filter((p) => p.name.startsWith("@q_v")).map((p) => p.value);
-  assert.ok(
-    variantValues.some((v) => v.includes("acme co")),
-    `Variant params should include "acme co" but got: ${JSON.stringify(variantValues)}`
-  );
+  const main = specs.find((s) => String(s.query || "").includes("ARRAY_CONTAINS(c.search_tokens"));
+  assert.ok(main, "main retrieval should issue an ARRAY_CONTAINS query over search_tokens");
+  const sql = String(main.query || "");
+  assert.ok(!sql.includes("FullTextContains"), "must not use the FTS path");
+  const tokenVals = (main.parameters || []).filter((p) => p.name.startsWith("@tok")).map((p) => p.value);
+  assert.ok(tokenVals.includes("candles"), `token params should include "candles"; got ${JSON.stringify(tokenVals)}`);
+  assert.ok(tokenVals.includes("candle"), `token params should include stem "candle"; got ${JSON.stringify(tokenVals)}`);
 });
 
-test("CONTAINS fallback includes per-word params for multi-word queries", async () => {
+test("search-companies includes every word of a multi-word query as a token clause", async () => {
   const specs = [];
   const companiesContainer = makeContainer(async (spec) => {
     specs.push(spec);
@@ -568,26 +567,17 @@ test("CONTAINS fallback includes per-word params for multi-word queries", async 
   await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=monster+beverage&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer, useFTS: false }
+    { companiesContainer }
   );
 
-  assert.ok(specs.length > 0, "at least one query should be issued");
-  // With two-pass search, per-word params appear in Pass 2 (substring fallback)
-  const allParams = specs.flatMap((s) => s.parameters || []);
-  const wordValues = allParams.filter((p) => p.name.startsWith("@q_w")).map((p) => p.value);
-  assert.ok(
-    wordValues.includes("monster"),
-    `Per-word params should include "monster" but got: ${JSON.stringify(wordValues)}`
-  );
-  assert.ok(
-    wordValues.includes("beverage"),
-    `Per-word params should include "beverage" but got: ${JSON.stringify(wordValues)}`
-  );
+  const main = specs.find((s) => String(s.query || "").includes("ARRAY_CONTAINS(c.search_tokens"));
+  assert.ok(main, "a token query should be issued");
+  const tokenVals = (main.parameters || []).filter((p) => p.name.startsWith("@tok")).map((p) => p.value);
+  assert.ok(tokenVals.includes("monster"), `token params should include "monster"; got ${JSON.stringify(tokenVals)}`);
+  assert.ok(tokenVals.includes("beverage"), `token params should include "beverage"; got ${JSON.stringify(tokenVals)}`);
 });
 
-// ── fuzzy fallback integration ───────────────────────────────────────────
-
-test("search-companies uses word-boundary CONTAINS in Pass 1", async () => {
+test("search-companies strips stopwords from query token clauses", async () => {
   const specs = [];
   const companiesContainer = makeContainer(async (spec) => {
     specs.push(spec);
@@ -595,134 +585,16 @@ test("search-companies uses word-boundary CONTAINS in Pass 1", async () => {
   });
 
   await _test.searchCompaniesHandler(
-    makeReq("https://example.test/api/search-companies?q=robes&sort=recent&take=10"),
+    makeReq("https://example.test/api/search-companies?q=the+north+face&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer, useFTS: false }
+    { companiesContainer }
   );
 
-  assert.ok(specs.length >= 1, "at least one query should be issued");
-  // First query should be word-boundary (Pass 1)
-  const firstParams = specs[0].parameters || [];
-  const wbParam = firstParams.find((p) => p.name === "@q_wb");
-  assert.ok(wbParam, "Pass 1 should have @q_wb parameter");
-  assert.equal(wbParam.value, " robes ", "Word boundary param should be space-padded");
-});
-
-test("search-companies issues Pass 2 substring query to fill remaining slots", async () => {
-  const specs = [];
-  const companiesContainer = makeContainer(async (spec) => {
-    specs.push(spec);
-    return [];
-  });
-
-  await _test.searchCompaniesHandler(
-    makeReq("https://example.test/api/search-companies?q=robes&sort=recent&take=10"),
-    { log() {} },
-    { companiesContainer, useFTS: false }
-  );
-
-  // Should have at least 2 queries: Pass 1 (word-boundary) + Pass 2 (substring)
-  assert.ok(specs.length >= 2, `Should issue Pass 1 + Pass 2 queries, got ${specs.length}`);
-  const pass2Params = specs[1].parameters || [];
-  const qParam = pass2Params.find((p) => p.name === "@q");
-  assert.ok(qParam, "Pass 2 should have @q parameter for substring matching");
-  assert.equal(qParam.value, "robes");
-});
-
-test("search-companies short-circuits Pass 2 + Pass 3 when Pass 1 returns enough strong matches", async () => {
-  // Threshold = max(skip + take + 25, 50). For take=10/skip=0 that's 50.
-  // Build 60 strong-match docs so Pass 1 alone clears the bar.
-  const strongDocs = Array.from({ length: 60 }, (_, i) => ({
-    id: `strong_${i}`,
-    company_name: "candle", // exact name match → nameScore=100 → tier -1
-    normalized_domain: `candle${i}.com`,
-    industries: ["Candles"],
-    _ts: 1700000000 + i,
-  }));
-
-  const specs = [];
-  const companiesContainer = makeContainer(async (spec) => {
-    specs.push(spec);
-    const sql = String(spec.query || "");
-    // Pass 1 = word-boundary filter, params include @q_wb. Return the strong docs.
-    const params = spec.parameters || [];
-    const isPass1 = params.some((p) => p.name === "@q_wb");
-    if (isPass1) return strongDocs;
-    // Anything else (Pass 2 substring, Pass 3 broadening) — return empty.
-    return [];
-  });
-
-  await _test.searchCompaniesHandler(
-    makeReq("https://example.test/api/search-companies?q=candle&sort=recent&take=10"),
-    { log() {} },
-    { companiesContainer, useFTS: false }
-  );
-
-  // Confirm Pass 1 fired.
-  const pass1Specs = specs.filter((s) =>
-    (s.parameters || []).some((p) => p.name === "@q_wb")
-  );
-  assert.equal(pass1Specs.length, 1, "Pass 1 should fire exactly once");
-
-  // Pass 2 (substring fallback) is identified by the @q + @q_compact params.
-  const pass2Specs = specs.filter((s) => {
-    const params = s.parameters || [];
-    return params.some((p) => p.name === "@q") && params.some((p) => p.name === "@q_compact");
-  });
-  assert.equal(pass2Specs.length, 0, "Pass 2 should be short-circuited when Pass 1 has enough strong matches");
-
-  // Pass 3 (per-word broadening) is identified by @broadenTake.
-  const pass3Specs = specs.filter((s) =>
-    (s.parameters || []).some((p) => p.name === "@broadenTake")
-  );
-  assert.equal(pass3Specs.length, 0, "Pass 3 should be short-circuited when Pass 1 has enough strong matches");
-});
-
-test("search-companies still runs Pass 2 + Pass 3 when Pass 1 returns FEW tier-1 matches with no tier-0 primary", async () => {
-  // Only 5 tier-1 matches — well below the sufficiency threshold of 50,
-  // AND none reaches tier 0 (R ≥ 90). Under those conditions, both Pass 2
-  // (fill substring matches) and Pass 3 (broaden per-word) should still
-  // fire. Tier-0 matches DO short-circuit Pass 3 in current code
-  // (post-2026-05-25 fix) — Pass 4 handles peer expansion when there's a
-  // definitive primary.
-  //
-  // Fixture: name "Candlewick Brand" — nameCompact "candlewickbrand"
-  // starts with qCompact "candlewick" → nameScore 80 (startsWith), R ~76.
-  // Tier 1 but NOT tier 0. Name tokens "candlewick" and "brand" don't
-  // equal "candle" or "wick" individually so per-token overlap gives 0/2
-  // and doesn't boost to tier 0.
-  const tier1Docs = Array.from({ length: 5 }, (_, i) => ({
-    id: `t1_${i}`,
-    company_name: "Candlewick Brand",
-    normalized_domain: `cw${i}.com`,
-    _ts: 1700000000 + i,
-  }));
-
-  const specs = [];
-  const companiesContainer = makeContainer(async (spec) => {
-    specs.push(spec);
-    const params = spec.parameters || [];
-    const isPass1 = params.some((p) => p.name === "@q_wb");
-    return isPass1 ? tier1Docs : [];
-  });
-
-  await _test.searchCompaniesHandler(
-    // Multi-word query so Pass 3 (broadening) is eligible.
-    makeReq("https://example.test/api/search-companies?q=candle%20wick&sort=recent&take=10"),
-    { log() {} },
-    { companiesContainer, useFTS: false }
-  );
-
-  const pass2Specs = specs.filter((s) => {
-    const params = s.parameters || [];
-    return params.some((p) => p.name === "@q") && params.some((p) => p.name === "@q_compact");
-  });
-  assert.ok(pass2Specs.length >= 1, "Pass 2 should fire when Pass 1 returned only tier-1 matches");
-
-  const pass3Specs = specs.filter((s) =>
-    (s.parameters || []).some((p) => p.name === "@broadenTake")
-  );
-  assert.ok(pass3Specs.length >= 1, "Pass 3 should fire on multi-word query when Pass 1 has no tier-0 primary");
+  const main = specs.find((s) => String(s.query || "").includes("ARRAY_CONTAINS(c.search_tokens"));
+  assert.ok(main, "a token query should be issued");
+  const tokenVals = (main.parameters || []).filter((p) => p.name.startsWith("@tok")).map((p) => p.value);
+  assert.ok(!tokenVals.includes("the"), `stopword "the" should be stripped; got ${JSON.stringify(tokenVals)}`);
+  assert.ok(tokenVals.includes("north") && tokenVals.includes("face"), `real words kept; got ${JSON.stringify(tokenVals)}`);
 });
 
 test("search-companies SKIPS Pass 3 when the PRIMARY surfaces via Pass 2 (not Pass 1)", async () => {
@@ -810,7 +682,9 @@ test("search-companies SKIPS Pass 3 when Pass 1 has even ONE tier-0 primary", as
   );
 });
 
-test("search-companies skips word-boundary for short queries (< 3 chars)", async () => {
+test("search-companies matches short (2-char) queries as tokens (e.g. '3m')", async () => {
+  // The old word-boundary path skipped queries < 3 chars; the token model
+  // matches any token >= 2 chars, so real 2-char brands like "3m"/"hp" hit.
   const specs = [];
   const companiesContainer = makeContainer(async (spec) => {
     specs.push(spec);
@@ -820,16 +694,13 @@ test("search-companies skips word-boundary for short queries (< 3 chars)", async
   await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=3m&sort=recent&take=10"),
     { log() {} },
-    { companiesContainer, useFTS: false }
+    { companiesContainer }
   );
 
-  assert.ok(specs.length >= 1, "at least one query should be issued");
-  // Short queries should skip word-boundary and go straight to substring
-  const firstParams = specs[0].parameters || [];
-  const wbParam = firstParams.find((p) => p.name === "@q_wb");
-  assert.ok(!wbParam, "Short queries should NOT have word-boundary params");
-  const qParam = firstParams.find((p) => p.name === "@q");
-  assert.ok(qParam, "Short queries should use substring @q param");
+  const main = specs.find((s) => String(s.query || "").includes("ARRAY_CONTAINS(c.search_tokens"));
+  assert.ok(main, "a token query should be issued for a 2-char brand like '3m'");
+  const tokenVals = (main.parameters || []).filter((p) => p.name.startsWith("@tok")).map((p) => p.value);
+  assert.ok(tokenVals.includes("3m"), `2-char token '3m' should be matched; got ${JSON.stringify(tokenVals)}`);
 });
 
 // ── word-boundary keyword scoring tests ──────────────────────────────────
@@ -1707,8 +1578,8 @@ test("Pass 4 fires for single-word query matching first word of multi-word brand
   const companiesContainer = makeContainer(async (spec) => {
     const sql = String(spec.query || "");
     queriesIssued.push(sql);
-    // Pass 1 word-boundary returns the brand.
-    if (sql.includes("c.search_text_norm") && sql.includes("@q_wb")) {
+    // The single token query returns the brand (so a primary forms and Pass 4 fires).
+    if (sql.includes("ARRAY_CONTAINS(c.search_tokens")) {
       return [brand];
     }
     return [];
