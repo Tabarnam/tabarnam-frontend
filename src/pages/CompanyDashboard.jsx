@@ -597,6 +597,10 @@ export default function CompanyDashboard() {
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState("desc");
+  // Active server-side sort, read by loadCompanies so every refresh keeps the
+  // current ordering. Defaults to created/desc to match the table's default
+  // column. Updated by the DataTable onSort handler for server-sortable cols.
+  const sortRef = useRef({ sortBy: "created", sortDir: "desc" });
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
@@ -812,6 +816,12 @@ export default function CompanyDashboard() {
     async (opts = {}) => {
       const q = typeof opts.search === "string" ? opts.search : search;
       const t = Number.isFinite(opts.take) ? opts.take : take;
+      // Server-side sort hints. Only created/updated/name/domain are
+      // server-sortable; computed columns are sorted client-side.
+      // Fall back to the active sort (sortRef) so every refresh — visibility
+      // refetch, import-complete, manual Refresh — keeps the current ordering.
+      const sortBy = typeof opts.sortBy === "string" ? opts.sortBy : (sortRef.current?.sortBy || "");
+      const sortDir = opts.sortDir === "asc" ? "asc" : opts.sortDir === "desc" ? "desc" : (sortRef.current?.sortDir || "desc");
 
       const seq = (requestSeqRef.current += 1);
       if (abortRef.current) {
@@ -829,7 +839,14 @@ export default function CompanyDashboard() {
       try {
         const params = new URLSearchParams();
         if (q.trim()) params.set("search", q.trim());
-        params.set("take", String(Math.max(1, Math.min(500, Math.trunc(t || DEFAULT_TAKE)))));
+        params.set("take", String(Math.max(1, Math.min(1000, Math.trunc(t || DEFAULT_TAKE)))));
+        // When a search query is active, the backend's relevance ranking must
+        // win — never override it with a column sort.
+        const SERVER_SORTABLE = new Set(["created", "updated", "name", "domain"]);
+        if (!q.trim() && sortBy && SERVER_SORTABLE.has(sortBy)) {
+          params.set("sort_by", sortBy);
+          params.set("sort_dir", sortDir || "desc");
+        }
 
         const res = await apiFetch(`/xadmin-api-companies?${params.toString()}`, { signal: controller.signal });
         const body = await res.json().catch(() => ({}));
@@ -4188,6 +4205,21 @@ export default function CompanyDashboard() {
               onSort={(column, direction) => {
                 setSortColumn(column);
                 setSortDirection(direction);
+                // For server-sortable columns, re-fetch ordered by that field
+                // across the WHOLE dataset (not just the fetched window) so
+                // e.g. "Created DESC" surfaces the genuinely-newest companies.
+                const SERVER_SORTABLE = new Set(["created", "updated", "name", "domain"]);
+                if (column?.id && SERVER_SORTABLE.has(column.id)) {
+                  sortRef.current = { sortBy: column.id, sortDir: direction };
+                  if (!search.trim()) {
+                    loadCompanies({ search: "", take, sortBy: column.id, sortDir: direction });
+                  }
+                } else {
+                  // Computed column (stars/profile/issues/etc.) — sort client-
+                  // side on the fetched window; clear the server-sort hint so a
+                  // later plain refresh doesn't re-apply a stale ORDER BY.
+                  sortRef.current = { sortBy: "", sortDir: direction };
+                }
               }}
               defaultSortFieldId={search.trim() ? undefined : (sortColumn?.id || "created")}
               defaultSortAsc={sortDirection === "asc"}

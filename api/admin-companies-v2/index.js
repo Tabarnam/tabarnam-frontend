@@ -1552,10 +1552,35 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           });
 
         const whereClause = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
+
+        // Server-side sort: map the requested sort column to a Cosmos field so
+        // the ORDER BY (and therefore the take/skip window) reflects the ENTIRE
+        // dataset, not just the most-recently-modified slice. Without this, a
+        // bulk update (e.g. a backfill job) that bumps _ts on many old docs
+        // floods the default _ts-DESC window and hides genuinely-new rows.
+        //
+        // Only direct scalar fields are server-sortable. Computed columns
+        // (stars, profile, issues) stay client-side on the fetched window.
+        const SORT_FIELD_MAP = {
+          created: "c.created_at",
+          updated: "c.updated_at",
+          name: "c.company_name",
+          domain: "c.normalized_domain",
+        };
+        const sortByRaw = String(req.query?.sort_by || "").trim().toLowerCase();
+        const sortDir = String(req.query?.sort_dir || "desc").trim().toLowerCase() === "asc" ? "ASC" : "DESC";
+        const mappedSortField = SORT_FIELD_MAP[sortByRaw];
+        // Note: Cosmos ORDER BY excludes docs missing the sort field. For
+        // created/updated that's fine (recent rows always have them). Fall
+        // back to _ts DESC for the default/unknown case.
+        const orderByClause = mappedSortField
+          ? `${mappedSortField} ${sortDir}`
+          : "c._ts DESC";
+
         // OFFSET/LIMIT replaces SELECT TOP so the same endpoint can serve any
         // page of results, not just the first N. Cosmos requires both clauses
         // and a stable ORDER BY for deterministic paging.
-        const sql = "SELECT * FROM c " + whereClause + " ORDER BY c._ts DESC OFFSET @skip LIMIT @take";
+        const sql = `SELECT * FROM c ${whereClause} ORDER BY ${orderByClause} OFFSET @skip LIMIT @take`;
 
         const { resources } = await container.items
           .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
