@@ -614,6 +614,9 @@ export default function CompanyDashboard() {
   const [editorOriginalId, setEditorOriginalId] = useState(null);
   const [editorShowAdvanced, setEditorShowAdvanced] = useState(false);
   const [editorDisplayNameOverride, setEditorDisplayNameOverride] = useState("");
+  // Holds the Amazon URL/approval that was last cleared (via Clear or "No Amazon
+  // Store") so "Undo Clear" can restore it. Reset whenever the editor opens.
+  const [clearedAmazon, setClearedAmazon] = useState(null);
 
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [refreshError, setRefreshError] = useState(null);
@@ -1090,6 +1093,7 @@ export default function CompanyDashboard() {
 
         const draft = buildCompanyDraft(company);
         editorHistory.resetHistory(draft);
+        setClearedAmazon(null);
         setEditorShowAdvanced(false);
         setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
       } catch (e) {
@@ -4989,12 +4993,24 @@ export default function CompanyDashboard() {
                                   <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground whitespace-nowrap shrink-0">
                                     <Checkbox
                                       checked={Boolean(editorDraft.no_amazon_store)}
-                                      onCheckedChange={(v) =>
-                                        setEditorDraft((d) => ({
-                                          ...(d || {}),
-                                          no_amazon_store: Boolean(v),
-                                        }))
-                                      }
+                                      onCheckedChange={(v) => {
+                                        if (v) {
+                                          // Checking "No Amazon Store" clears the URL; remember it so
+                                          // "Undo Clear" can restore it.
+                                          setClearedAmazon({
+                                            url: asString(editorDraft.amazon_url),
+                                            approved: Boolean(editorDraft.amazon_url_approved),
+                                          });
+                                          setEditorDraft((d) => ({
+                                            ...(d || {}),
+                                            no_amazon_store: true,
+                                            amazon_url: "",
+                                            amazon_url_approved: false,
+                                          }));
+                                        } else {
+                                          setEditorDraft((d) => ({ ...(d || {}), no_amazon_store: false }));
+                                        }
+                                      }}
                                     />
                                     <span>No Amazon Store</span>
                                   </label>
@@ -5015,16 +5031,36 @@ export default function CompanyDashboard() {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    onClick={() =>
+                                    onClick={() => {
+                                      setClearedAmazon({
+                                        url: asString(editorDraft.amazon_url),
+                                        approved: Boolean(editorDraft.amazon_url_approved),
+                                      });
                                       setEditorDraft((d) => ({
                                         ...(d || {}),
                                         amazon_url: "",
                                         amazon_url_approved: false,
-                                      }))
-                                    }
+                                      }));
+                                    }}
                                     disabled={!asString(editorDraft.amazon_url).trim()}
                                   >
                                     Clear
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      setEditorDraft((d) => ({
+                                        ...(d || {}),
+                                        amazon_url: clearedAmazon?.url || "",
+                                        amazon_url_approved: Boolean(clearedAmazon?.approved),
+                                        no_amazon_store: false,
+                                      }))
+                                    }
+                                    disabled={!asString(clearedAmazon?.url).trim()}
+                                  >
+                                    Undo Clear
                                   </Button>
                                 </div>
                               </div>
