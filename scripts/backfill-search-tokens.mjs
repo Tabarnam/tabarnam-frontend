@@ -12,8 +12,16 @@
  * to what new writes produce.
  *
  * Usage:
- *   node scripts/backfill-search-tokens.mjs            # DRY RUN — previews tokens, no writes
- *   node scripts/backfill-search-tokens.mjs --execute  # writes recomputed fields back to Cosmos
+ *   node scripts/backfill-search-tokens.mjs                      # DRY RUN — previews tokens for ALL docs
+ *   node scripts/backfill-search-tokens.mjs --execute            # writes recomputed fields to ALL docs
+ *   node scripts/backfill-search-tokens.mjs --fix-missing        # DRY RUN — list docs missing search_tokens
+ *   node scripts/backfill-search-tokens.mjs --fix-missing --execute  # patch only the docs missing it
+ *
+ * --fix-missing exists because the initial backfill skipped 41 docs whose
+ * `normalized_domain` was absent/odd: the point-read fell back to (id, id),
+ * which is the wrong partition. This mode reads each target cross-partition
+ * (by id) and writes back via upsert — which extracts the real PK from the
+ * doc itself, so the partition-key fallback bug can't bite it.
  *
  * Requires env vars: COSMOS_DB_ENDPOINT, COSMOS_DB_KEY
  * Optional:          COSMOS_DB_DATABASE (default "tabarnam-db"),
@@ -49,6 +57,7 @@ if (!endpoint || !key) {
 }
 
 const execute = process.argv.includes("--execute");
+const fixMissing = process.argv.includes("--fix-missing");
 
 const client = new CosmosClient({ endpoint, key });
 const container = client.database(databaseId).container(containerId);
@@ -59,6 +68,18 @@ const SCAN_SQL = `
          c.tagline, c.industries, c.categories, c.product_keywords, c.keywords
   FROM c
   WHERE NOT STARTSWITH(c.id, '_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')
+  ORDER BY c._ts DESC
+`;
+
+// Docs that the initial backfill missed — same exclusions as SCAN_SQL plus
+// soft-delete, but filtered to docs that still have NO search_tokens at all.
+const SCAN_SQL_MISSING = `
+  SELECT c.id, c.normalized_domain, c.company_name, c._ts
+  FROM c
+  WHERE (NOT IS_DEFINED(c.search_tokens))
+    AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
+    AND NOT STARTSWITH(c.id, '_')
+    AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')
   ORDER BY c._ts DESC
 `;
 
@@ -151,9 +172,83 @@ async function applyAll() {
   return failed;
 }
 
+async function fixMissingDocs() {
+  // 1) Collect the targets.
+  const targets = [];
+  const it = container.items.query(SCAN_SQL_MISSING, { maxItemCount: 100 });
+  for await (const { resources } of it.getAsyncIterator()) {
+    targets.push(...resources);
+  }
+
+  console.log(`Found ${targets.length} doc(s) missing search_tokens.\n`);
+  if (targets.length === 0) {
+    console.log("Nothing to do.");
+    return 0;
+  }
+
+  // Show what they look like before writing anything.
+  const sampleCount = Math.min(targets.length, 30);
+  console.log(`--- first ${sampleCount} target(s) ---`);
+  for (const t of targets.slice(0, sampleCount)) {
+    const ageDays = t._ts ? ((Date.now() / 1000 - t._ts) / 86400).toFixed(1) : "?";
+    console.log(
+      `  - id=${t.id}  name=${t.company_name || "(no name)"}  ` +
+      `domain=${t.normalized_domain ?? "(undefined)"}  age=${ageDays}d`
+    );
+  }
+  if (targets.length > sampleCount) console.log(`  ... +${targets.length - sampleCount} more`);
+
+  if (!execute) {
+    console.log(`\nDry run. Re-run with --fix-missing --execute to patch them.`);
+    return 0;
+  }
+
+  // 2) For each, read the FULL doc via a cross-partition query by id (sidesteps
+  //    the wrong-partition point-read that caused the original 41 failures),
+  //    patch with search fields, and upsert (which derives PK from the doc).
+  let updated = 0;
+  let failed = 0;
+  for (const t of targets) {
+    try {
+      const { resources } = await container.items
+        .query(
+          { query: "SELECT * FROM c WHERE c.id = @id", parameters: [{ name: "@id", value: t.id }] },
+          { enableCrossPartitionQuery: true, maxItemCount: 1 }
+        )
+        .fetchAll();
+      const doc = resources[0];
+      if (!doc) {
+        failed++;
+        console.error(`  ✗ not found (cross-partition): ${t.id}`);
+        continue;
+      }
+      patchCompanyWithSearchText(doc);
+      await container.items.upsert(doc);
+      updated++;
+    } catch (e) {
+      failed++;
+      console.error(`  ✗ ${t.id}: ${e.message}`);
+    }
+  }
+
+  console.log("\n=== FIX-MISSING SUMMARY ===");
+  console.log(`  Targets : ${targets.length}`);
+  console.log(`  Updated : ${updated}`);
+  console.log(`  Failed  : ${failed}`);
+  return failed;
+}
+
 async function run() {
   console.log(`Database: ${databaseId} / Container: ${containerId}`);
-  console.log(`Mode: ${execute ? "EXECUTE" : "DRY RUN — no changes"}\n`);
+  const modeLabel = fixMissing
+    ? (execute ? "FIX-MISSING / EXECUTE" : "FIX-MISSING / DRY RUN")
+    : (execute ? "EXECUTE" : "DRY RUN — no changes");
+  console.log(`Mode: ${modeLabel}\n`);
+
+  if (fixMissing) {
+    const failed = await fixMissingDocs();
+    process.exit(failed > 0 ? 1 : 0);
+  }
 
   if (!execute) {
     await dryRun();
