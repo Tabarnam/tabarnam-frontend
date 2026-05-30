@@ -4943,21 +4943,38 @@ export default function CompanyDashboard() {
                                     </span>
                                   ) : null}
                                 </div>
-                                <Input
-                                  required
-                                  value={asString(editorDraft.company_name)}
-                                  onChange={(e) => {
-                                    const next = e.target.value;
-                                    setEditorDraft((d) => {
-                                      const base = d && typeof d === "object" ? d : {};
-                                      const override = asString(editorDisplayNameOverride).trim();
-                                      const out = { ...base, company_name: next };
-                                      if (!override) out.name = next;
-                                      return out;
-                                    });
-                                  }}
-                                  placeholder="Acme Corp"
-                                />
+                                <div className="flex items-center gap-1">
+                                  <Input
+                                    required
+                                    value={asString(editorDraft.company_name)}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setEditorDraft((d) => {
+                                        const base = d && typeof d === "object" ? d : {};
+                                        const override = asString(editorDisplayNameOverride).trim();
+                                        const out = { ...base, company_name: next };
+                                        if (!override) out.name = next;
+                                        return out;
+                                      });
+                                    }}
+                                    placeholder="Acme Corp"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={async () => {
+                                      const value = asString(editorDraft.company_name).trim();
+                                      if (!value) { toast.error("Nothing to copy"); return; }
+                                      const ok = await copyToClipboard(value);
+                                      if (ok) toast.success("Company name copied");
+                                      else toast.error("Copy failed");
+                                    }}
+                                    title="Copy company name"
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </div>
 
                               <details className="flex-none w-[200px]">
@@ -4991,11 +5008,28 @@ export default function CompanyDashboard() {
 
                             <div className="space-y-1 md:col-span-2">
                               <label className="text-sm text-slate-700 dark:text-muted-foreground">Website URL</label>
-                              <Input
-                                value={asString(editorDraft.website_url)}
-                                onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
-                                placeholder="https://example.com"
-                              />
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={asString(editorDraft.website_url)}
+                                  onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
+                                  placeholder="https://example.com"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={async () => {
+                                    const value = asString(editorDraft.website_url).trim();
+                                    if (!value) { toast.error("Nothing to copy"); return; }
+                                    const ok = await copyToClipboard(value);
+                                    if (ok) toast.success("Website URL copied");
+                                    else toast.error("Copy failed");
+                                  }}
+                                  title="Copy website URL"
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </div>
 
                             <div className="space-y-1 md:col-span-2">
