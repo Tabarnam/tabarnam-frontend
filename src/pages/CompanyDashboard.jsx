@@ -4944,21 +4944,6 @@ export default function CompanyDashboard() {
                                   ) : null}
                                 </div>
                                 <div className="flex items-center gap-1">
-                                  <Input
-                                    required
-                                    value={asString(editorDraft.company_name)}
-                                    onChange={(e) => {
-                                      const next = e.target.value;
-                                      setEditorDraft((d) => {
-                                        const base = d && typeof d === "object" ? d : {};
-                                        const override = asString(editorDisplayNameOverride).trim();
-                                        const out = { ...base, company_name: next };
-                                        if (!override) out.name = next;
-                                        return out;
-                                      });
-                                    }}
-                                    placeholder="Acme Corp"
-                                  />
                                   <button
                                     type="button"
                                     className="opacity-40 hover:opacity-100 transition-opacity p-2 rounded hover:bg-slate-100 dark:hover:bg-muted shrink-0"
@@ -4974,6 +4959,21 @@ export default function CompanyDashboard() {
                                   >
                                     <Copy className="h-4 w-4" />
                                   </button>
+                                  <Input
+                                    required
+                                    value={asString(editorDraft.company_name)}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setEditorDraft((d) => {
+                                        const base = d && typeof d === "object" ? d : {};
+                                        const override = asString(editorDisplayNameOverride).trim();
+                                        const out = { ...base, company_name: next };
+                                        if (!override) out.name = next;
+                                        return out;
+                                      });
+                                    }}
+                                    placeholder="Acme Corp"
+                                  />
                                 </div>
                               </div>
 
@@ -5009,11 +5009,6 @@ export default function CompanyDashboard() {
                             <div className="space-y-1 md:col-span-2">
                               <label className="text-sm text-slate-700 dark:text-muted-foreground">Website URL</label>
                               <div className="flex items-center gap-1">
-                                <Input
-                                  value={asString(editorDraft.website_url)}
-                                  onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
-                                  placeholder="https://example.com"
-                                />
                                 <button
                                   type="button"
                                   className="opacity-40 hover:opacity-100 transition-opacity p-2 rounded hover:bg-slate-100 dark:hover:bg-muted shrink-0"
@@ -5029,6 +5024,11 @@ export default function CompanyDashboard() {
                                 >
                                   <Copy className="h-4 w-4" />
                                 </button>
+                                <Input
+                                  value={asString(editorDraft.website_url)}
+                                  onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
+                                  placeholder="https://example.com"
+                                />
                               </div>
                             </div>
 
@@ -5044,6 +5044,19 @@ export default function CompanyDashboard() {
                             <div className="space-y-1 md:col-span-2">
                                 <label className="text-sm text-slate-700 dark:text-muted-foreground">Amazon URL</label>
                                 <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    className="opacity-40 hover:opacity-100 transition-opacity p-2 rounded hover:bg-slate-100 dark:hover:bg-muted shrink-0"
+                                    onClick={async () => {
+                                      const ok = await copyToClipboard(asString(editorDraft.amazon_url));
+                                      if (ok) toast.success("Amazon URL copied — paste it to verify the result");
+                                      else toast.error("Nothing to copy");
+                                    }}
+                                    disabled={!asString(editorDraft.amazon_url).trim()}
+                                    title="Copy Amazon URL"
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                  </button>
                                   <Input
                                     value={asString(editorDraft.amazon_url)}
                                     onChange={(e) =>
@@ -5059,19 +5072,6 @@ export default function CompanyDashboard() {
                                       }))
                                     }
                                   />
-                                  <button
-                                    type="button"
-                                    className="opacity-40 hover:opacity-100 transition-opacity p-2 rounded hover:bg-slate-100 dark:hover:bg-muted shrink-0"
-                                    onClick={async () => {
-                                      const ok = await copyToClipboard(asString(editorDraft.amazon_url));
-                                      if (ok) toast.success("Amazon URL copied — paste it to verify the result");
-                                      else toast.error("Nothing to copy");
-                                    }}
-                                    disabled={!asString(editorDraft.amazon_url).trim()}
-                                    title="Copy Amazon URL"
-                                  >
-                                    <Copy className="h-4 w-4" />
-                                  </button>
                                 </div>
                                 <div className="flex items-center gap-4 mt-2">
                                   <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground whitespace-nowrap shrink-0">
