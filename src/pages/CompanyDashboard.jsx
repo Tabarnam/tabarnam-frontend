@@ -2785,8 +2785,17 @@ export default function CompanyDashboard() {
 
       setItems((prev) => {
         if (!savedId) return [savedCompany, ...prev];
-        const next = prev.filter((c) => getCompanyId(c) !== savedId);
-        return [savedCompany, ...next];
+        // Update in place — preserves the current sort position. With
+        // sortServer enabled the DataTable trusts our array order, so
+        // unconditionally prepending the saved company puts it at row 1
+        // until the server refresh corrects it (visible glitch). Replace
+        // the matching row instead; new companies (no existing match)
+        // still get prepended.
+        const idx = prev.findIndex((c) => getCompanyId(c) === savedId);
+        if (idx < 0) return [savedCompany, ...prev];
+        const next = prev.slice();
+        next[idx] = savedCompany;
+        return next;
       });
 
       // Detect whether scoring-relevant signals (curated_reviews, star4/star5
