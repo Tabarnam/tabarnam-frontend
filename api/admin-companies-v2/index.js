@@ -15,6 +15,7 @@ const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { normalizeAmazonUrlForStorage } = require("../_amazonAffiliate");
 const { expandBusinessAbbreviations } = require("../_searchSynonyms");
 const { foldDiacritics, parseQuery } = require("../_queryNormalizer");
+const { applySortKeys } = require("../_sortKeys");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -1565,7 +1566,15 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           created: "c.created_at",
           updated: "c.updated_at",
           name: "c.company_name",
+          // The frontend column id "url" sorts by normalized_domain (the
+          // column's selector falls back to it). domain is kept as a legacy
+          // alias in case any caller still sends the old key.
+          url: "c.normalized_domain",
           domain: "c.normalized_domain",
+          profile: "c.profile_completeness",
+          reviews: "c.review_count",
+          stars: "c.qq_score",
+          issues: "c.issues_count",
         };
         const sortByRaw = String(req.query?.sort_by || "").trim().toLowerCase();
         const sortDir = String(req.query?.sort_dir || "desc").trim().toLowerCase() === "asc" ? "ASC" : "DESC";
@@ -1938,6 +1947,16 @@ async function adminCompaniesHandler(req, context, deps = {}) {
               code: delErr?.code,
             });
           }
+        }
+
+        // Persist the two scalar sort keys (qq_score, issues_count) so the
+        // admin Companies list can ORDER BY them across the whole DB. Computed
+        // from the now-final doc state (rating, enrichment_health, all fields).
+        // Keep in sync with src/pages/company-dashboard/dashboardUtils.js#getContractMissingFields.
+        try {
+          applySortKeys(doc);
+        } catch (e) {
+          context.log("[admin-companies-v2] applySortKeys failed (non-fatal)", { error: e?.message });
         }
 
         context.log("[admin-companies-v2] Upserting company", {

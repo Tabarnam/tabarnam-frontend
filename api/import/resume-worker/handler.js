@@ -16,6 +16,7 @@ const {
 } = require("../../_internalJobAuth");
 
 const { getBuildInfo } = require("../../_buildInfo");
+const { applySortKeys } = require("../../_sortKeys");
 const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../../_shared");
 const {
   computeMissingFields,
@@ -844,6 +845,11 @@ async function upsertDoc(container, doc) {
   if (!container || !doc) return { ok: false, error: "no_container" };
   const id = String(doc?.id || "").trim();
   if (!id) return { ok: false, error: "missing_id" };
+
+  // Apply admin-sort scalar keys for company docs (no-op for control/job docs).
+  // Keeps newly imported / enriched companies sortable in /admin without a
+  // separate backfill run.
+  try { applySortKeys(doc); } catch { /* non-fatal */ }
 
   const containerPkPath = await getCompaniesPkPath(container);
   const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });

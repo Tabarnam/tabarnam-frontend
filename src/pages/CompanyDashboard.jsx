@@ -842,7 +842,12 @@ export default function CompanyDashboard() {
         params.set("take", String(Math.max(1, Math.min(1000, Math.trunc(t || DEFAULT_TAKE)))));
         // When a search query is active, the backend's relevance ranking must
         // win — never override it with a column sort.
-        const SERVER_SORTABLE = new Set(["created", "updated", "name", "domain"]);
+        // All 8 sortable columns map to stored scalar fields on the Cosmos doc:
+        //   created→created_at, updated→updated_at, name→company_name,
+        //   domain→normalized_domain, profile→profile_completeness,
+        //   reviews→review_count, stars→qq_score, issues→issues_count
+        // (qq_score / issues_count are persisted by api/_sortKeys.applySortKeys).
+        const SERVER_SORTABLE = new Set(["created", "updated", "name", "url", "profile", "reviews", "stars", "issues"]);
         if (!q.trim() && sortBy && SERVER_SORTABLE.has(sortBy)) {
           params.set("sort_by", sortBy);
           params.set("sort_dir", sortDir || "desc");
@@ -3566,7 +3571,9 @@ export default function CompanyDashboard() {
           );
           return hqList.map((l) => formatStructuredLocation(l)).filter(Boolean).join("; ");
         },
-        sortable: true,
+        // Not sortable: hq is a multi-location array; sorting by a joined
+        // string isn't meaningful and there's no stored scalar to ORDER BY.
+        sortable: false,
         wrap: true,
         width: "180px",
         cell: (row) => {
@@ -3605,7 +3612,8 @@ export default function CompanyDashboard() {
           const list = normalizeStructuredLocationList(manuBase);
           return list.map((l) => formatStructuredLocation(l)).filter(Boolean).join("; ");
         },
-        sortable: true,
+        // Not sortable: see HQ above.
+        sortable: false,
         wrap: true,
         width: "180px",
         cell: (row) => {
@@ -4202,23 +4210,24 @@ export default function CompanyDashboard() {
               fixedHeaderScrollHeight="calc(100vh - 220px)"
               highlightOnHover
               dense
+              // sortServer: trust the server's ORDER BY result; the DataTable
+              // never re-sorts client-side. Required because the displayed
+              // issues count (getContractMissingFields) can differ slightly
+              // from the stored issues_count used for ranking — we want the
+              // server's stable order regardless of any local tweaks.
+              sortServer
               onSort={(column, direction) => {
                 setSortColumn(column);
                 setSortDirection(direction);
-                // For server-sortable columns, re-fetch ordered by that field
-                // across the WHOLE dataset (not just the fetched window) so
-                // e.g. "Created DESC" surfaces the genuinely-newest companies.
-                const SERVER_SORTABLE = new Set(["created", "updated", "name", "domain"]);
+                // Every sortable column maps to a stored scalar field; re-fetch
+                // ordered by that field across the WHOLE DB. Search relevance
+                // wins when a query is active — don't override it.
+                const SERVER_SORTABLE = new Set(["created", "updated", "name", "url", "profile", "reviews", "stars", "issues"]);
                 if (column?.id && SERVER_SORTABLE.has(column.id)) {
                   sortRef.current = { sortBy: column.id, sortDir: direction };
                   if (!search.trim()) {
                     loadCompanies({ search: "", take, sortBy: column.id, sortDir: direction });
                   }
-                } else {
-                  // Computed column (stars/profile/issues/etc.) — sort client-
-                  // side on the fetched window; clear the server-sort hint so a
-                  // later plain refresh doesn't re-apply a stale ORDER BY.
-                  sortRef.current = { sortBy: "", sortDir: direction };
                 }
               }}
               defaultSortFieldId={search.trim() ? undefined : (sortColumn?.id || "created")}
