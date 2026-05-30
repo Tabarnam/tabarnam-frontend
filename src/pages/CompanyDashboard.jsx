@@ -4959,10 +4959,9 @@ export default function CompanyDashboard() {
                                     }}
                                     placeholder="Acme Corp"
                                   />
-                                  <Button
+                                  <button
                                     type="button"
-                                    variant="outline"
-                                    size="sm"
+                                    className="opacity-40 hover:opacity-100 transition-opacity p-2 rounded hover:bg-slate-100 dark:hover:bg-muted shrink-0"
                                     onClick={async () => {
                                       const value = asString(editorDraft.company_name).trim();
                                       if (!value) { toast.error("Nothing to copy"); return; }
@@ -4970,10 +4969,11 @@ export default function CompanyDashboard() {
                                       if (ok) toast.success("Company name copied");
                                       else toast.error("Copy failed");
                                     }}
+                                    disabled={!asString(editorDraft.company_name).trim()}
                                     title="Copy company name"
                                   >
                                     <Copy className="h-4 w-4" />
-                                  </Button>
+                                  </button>
                                 </div>
                               </div>
 
@@ -5014,10 +5014,9 @@ export default function CompanyDashboard() {
                                   onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
                                   placeholder="https://example.com"
                                 />
-                                <Button
+                                <button
                                   type="button"
-                                  variant="outline"
-                                  size="sm"
+                                  className="opacity-40 hover:opacity-100 transition-opacity p-2 rounded hover:bg-slate-100 dark:hover:bg-muted shrink-0"
                                   onClick={async () => {
                                     const value = asString(editorDraft.website_url).trim();
                                     if (!value) { toast.error("Nothing to copy"); return; }
@@ -5025,10 +5024,11 @@ export default function CompanyDashboard() {
                                     if (ok) toast.success("Website URL copied");
                                     else toast.error("Copy failed");
                                   }}
+                                  disabled={!asString(editorDraft.website_url).trim()}
                                   title="Copy website URL"
                                 >
                                   <Copy className="h-4 w-4" />
-                                </Button>
+                                </button>
                               </div>
                             </div>
 
