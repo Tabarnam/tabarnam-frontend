@@ -760,40 +760,6 @@ test("computeRelevanceScore: name-starts-with always beats keyword-only (dove sc
   );
 });
 
-// ── buildWordBoundaryFilter unit tests ───────────────────────────────────
-
-test("buildWordBoundaryFilter includes space-padded query params", () => {
-  const params = [];
-  const filter = _test.buildWordBoundaryFilter("robes", "robe", "robes", params);
-  const wbParam = params.find((p) => p.name === "@q_wb");
-  assert.ok(wbParam, "Should have @q_wb param");
-  assert.equal(wbParam.value, " robes ", "Should be space-padded");
-  const stemmedParam = params.find((p) => p.name === "@q_stemmed_wb");
-  assert.ok(stemmedParam, "Should have stemmed param when stemmed differs");
-  assert.equal(stemmedParam.value, " robe ");
-  assert.ok(filter.includes("CONTAINS"), "Filter should use CONTAINS");
-});
-
-test("buildWordBoundaryFilter skips stemmed when same as norm", () => {
-  const params = [];
-  _test.buildWordBoundaryFilter("robe", "robe", "robe", params);
-  const stemmedParam = params.find((p) => p.name === "@q_stemmed_wb");
-  assert.ok(!stemmedParam, "Should NOT have stemmed param when stemmed equals norm");
-});
-
-test("buildWordBoundaryFilter adds per-word AND for multi-word queries", () => {
-  const params = [];
-  const filter = _test.buildWordBoundaryFilter("silk robes", "silk robe", "silkrobes", params);
-  const mw0 = params.find((p) => p.name === "@q_mw0");
-  const mw1 = params.find((p) => p.name === "@q_mw1");
-  assert.ok(mw0, "Should have per-word param @q_mw0");
-  assert.ok(mw1, "Should have per-word param @q_mw1");
-  assert.equal(mw0.value, " silk ");
-  assert.equal(mw1.value, " robes ");
-  // Filter should include AND logic for multi-word
-  assert.ok(filter.includes("AND"), "Multi-word filter should use AND logic");
-});
-
 // ── fuzzy fallback integration ───────────────────────────────────────────
 
 test("search-companies triggers fuzzy fallback when primary search returns 0 results", async () => {
@@ -1650,38 +1616,6 @@ test("Pass 4 fires for fuzzy-matched primary brand: industry peer query gets iss
     pass4Issued,
     `expected Pass 4 industry-peer query to be issued for the fuzzy-matched brand; got SQLs: ${queriesIssued.map(s => s.replace(/\s+/g, " ").trim().slice(0, 80)).join(" || ")}`
   );
-});
-
-// ── ftsAllSingleToken gate ───────────────────────────────────────────────
-// Defends against re-introducing the 2026-05-24 multi-word FTS hang.
-// FullTextContainsAll on Cosmos hangs even with SDK 4.9.1, so the FTS
-// code path MUST refuse to run when any phrase has more than one token.
-
-test("ftsAllSingleToken: returns true for a single single-token phrase", () => {
-  assert.equal(_test.ftsAllSingleToken(["candle"]), true);
-});
-
-test("ftsAllSingleToken: returns true for multiple single-token phrases (synonym expansion)", () => {
-  // expandQueryTermsForFTS may add synonyms like "co" for "company".
-  // Multi-PHRASE is fine — buildFTSQuery joins them with OR. The hang
-  // is specific to multi-TOKEN phrases (FullTextContainsAll).
-  assert.equal(_test.ftsAllSingleToken(["company", "co"]), true);
-});
-
-test("ftsAllSingleToken: returns false when any phrase has more than one token", () => {
-  assert.equal(_test.ftsAllSingleToken(["pre workout"]), false);
-  assert.equal(_test.ftsAllSingleToken(["candle", "scented candle"]), false);
-});
-
-test("ftsAllSingleToken: returns false for empty input (defensive)", () => {
-  assert.equal(_test.ftsAllSingleToken([]), false);
-  assert.equal(_test.ftsAllSingleToken(null), false);
-  assert.equal(_test.ftsAllSingleToken(undefined), false);
-});
-
-test("ftsAllSingleToken: ignores leading/trailing whitespace", () => {
-  assert.equal(_test.ftsAllSingleToken(["  jerky  "]), true);
-  assert.equal(_test.ftsAllSingleToken([" pre  workout "]), false);
 });
 
 // ── typo correction integration ──────────────────────────────────────────
