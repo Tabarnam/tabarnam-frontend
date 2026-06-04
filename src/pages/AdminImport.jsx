@@ -102,6 +102,61 @@ async function apiFetchWithFallback(paths, init) {
   return { res: lastRes, usedPath: join(API_BASE || "", lastPath) };
 }
 
+// Phase 4.30 — persist pasted-queue rows across the SWA silent-auth-refresh
+// redirect.
+//
+// Pattern: user pastes companies via "Paste from spreadsheet" → 800ms later
+// the auto-preflight fires `/api/import-preflight` → SWA cookie has expired
+// → apiFetch's 401 handler does `window.location.href = '/.auth/login/aad?
+// post_login_redirect_uri=/admin/import'` → the browser navigates away,
+// SWA does its silent re-login dance, and React re-mounts the page from
+// scratch on return. All in-memory state (the pasted rows) was lost.
+//
+// Fix: stash the parsed rows in sessionStorage at the moment of paste, and
+// restore them on next mount if still within TTL. One-shot — cleared after
+// restore so subsequent unrelated mounts don't keep re-populating the
+// queue.
+const PASTED_QUEUE_STORAGE_KEY = "tabarnam.admin.import.pasted_queue.v1";
+const PASTED_QUEUE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function savePastedQueueToStorage(payload) {
+  try {
+    if (typeof window === "undefined" || !window.sessionStorage) return;
+    const envelope = { ...payload, savedAt: Date.now() };
+    window.sessionStorage.setItem(PASTED_QUEUE_STORAGE_KEY, JSON.stringify(envelope));
+  } catch {
+    // storage unavailable (private mode, quota, disabled) — silently ignore
+  }
+}
+
+function loadPastedQueueFromStorage() {
+  try {
+    if (typeof window === "undefined" || !window.sessionStorage) return null;
+    const raw = window.sessionStorage.getItem(PASTED_QUEUE_STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object") return null;
+    if (typeof data.savedAt !== "number") return null;
+    if (Date.now() - data.savedAt > PASTED_QUEUE_TTL_MS) {
+      try { window.sessionStorage.removeItem(PASTED_QUEUE_STORAGE_KEY); } catch {}
+      return null;
+    }
+    if (!Array.isArray(data.rows)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function clearPastedQueueFromStorage() {
+  try {
+    if (typeof window === "undefined" || !window.sessionStorage) return;
+    window.sessionStorage.removeItem(PASTED_QUEUE_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export default function AdminImport() {
   const [query, setQuery] = useState("");
   const [companyUrl, setCompanyUrl] = useState("");
@@ -119,6 +174,36 @@ export default function AdminImport() {
   const [successionResults, setSuccessionResults] = useState([]);
   const successionTriggerRef = useRef(false);
   const successionCount = normalizeSuccessionCount(successionCountInput);
+
+  // Phase 4.30 — restore pasted-queue rows that survived a SWA silent-auth-
+  // refresh redirect (see savePastedQueueToStorage docblock at top of file
+  // for the failure mode). Runs once on mount; clears storage after
+  // restoring so subsequent unrelated mounts don't keep re-populating the
+  // queue.
+  useEffect(() => {
+    const restored = loadPastedQueueFromStorage();
+    if (!restored) return;
+    if (!Array.isArray(restored.rows) || restored.rows.length === 0) return;
+
+    setSuccessionRows(restored.rows);
+    if (typeof restored.countInput === "string") {
+      setSuccessionCountInput(restored.countInput);
+    }
+    if (typeof restored.query === "string") setQuery(restored.query);
+    if (typeof restored.companyUrl === "string") setCompanyUrl(restored.companyUrl);
+    clearPastedQueueFromStorage();
+
+    try {
+      const count = restored.rows.length;
+      toast.success(
+        `Restored ${count} pasted ${count === 1 ? "company" : "companies"} from before page refresh.`
+      );
+    } catch {
+      // toast unavailable — restore still succeeded
+    }
+    // Intentionally empty dep array: run exactly once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Concurrent succession: shadow slot (slot B) for parallel imports
   // Set to 1 to instantly disable concurrent imports (revert to sequential)
@@ -444,6 +529,16 @@ export default function AdminImport() {
     }
     setSpreadsheetPasteOpen(false);
     setSpreadsheetPasteText("");
+
+    // Phase 4.30 — stash pasted rows in sessionStorage so they survive a
+    // potential SWA silent-auth-refresh redirect triggered by the
+    // /api/import-preflight call that fires 800ms after this paste.
+    savePastedQueueToStorage({
+      rows,
+      countInput: String(rows.length),
+      query: rows[0]?.companyName || "",
+      companyUrl: rows[0]?.companyUrl || "",
+    });
 
     if (truncated) {
       toast.warning(`Pasted ${rows.length} companies (truncated from ${lines.length} — max ${SUCCESSION_MAX}).`);
