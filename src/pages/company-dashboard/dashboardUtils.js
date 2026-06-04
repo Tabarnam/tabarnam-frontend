@@ -366,6 +366,15 @@ export function buildCompanyDraft(company) {
 
   if (!draft.name) draft.name = draft.company_name;
 
+  // Pre-fill a name-based Amazon brand search when no URL exists yet (and the
+  // company isn't marked "no store"), so every editor-open path — companies
+  // list, import review, post-save rebuild — shows a candidate Amazon URL to
+  // validate. Left unapproved so it keeps flagging "Amz" until a human accepts.
+  if (!draft.amazon_url && !draft.no_amazon_store && draft.company_name) {
+    draft.amazon_url = `https://www.amazon.com/s?k=${encodeURIComponent(draft.company_name)}`;
+    draft.amazon_url_approved = false;
+  }
+
   if (!draft.rating) {
     draft.rating = calculateInitialRating(computeAutoRatingInput(draft));
   }
