@@ -248,6 +248,22 @@ function stripParentheticals(value) {
   return v;
 }
 
+// Phase 4.31 — sentinel string the model may append as the FINAL entry of
+// manufacturing_locations to signal "I found some specific cities, but
+// the brand sources from more places I couldn't pin down." Documented in
+// the prompt's "Incompleteness signal" paragraph. The string is the only
+// non-geocodable entry permitted in the array; the existing geocoder
+// gracefully skips entries that don't resolve (._directEnrichment.js
+// `.catch(() => null)`), so we don't need extra handling there. The
+// admin UI shows the string inline with the other entries — informative
+// to the human reviewer.
+const OTHER_UNKNOWN_LOCATIONS_SENTINEL = "Other unknown locations";
+
+function isOtherUnknownLocationsSentinel(value) {
+  if (typeof value !== "string") return false;
+  return value.trim().toLowerCase() === OTHER_UNKNOWN_LOCATIONS_SENTINEL.toLowerCase();
+}
+
 // Red-flag words that strongly indicate narrative/marketing prose rather
 // than a clean geographic string. Each entry is checked case-insensitively.
 const LOCATION_NARRATIVE_RED_FLAGS = [
@@ -268,6 +284,11 @@ function isValidLocationEntry(value) {
   if (typeof value !== "string") return false;
   const v = value.trim();
   if (!v) return false;
+  // Phase 4.31 — explicit allowlist for the "Other unknown locations"
+  // sentinel. Today's red flags don't catch it, but adding the explicit
+  // pass keeps the sentinel safe even if future red-flag additions would
+  // otherwise reject it.
+  if (isOtherUnknownLocationsSentinel(v)) return true;
   // Real locations are short. Longest realistic legitimate string:
   // "Linz am Rhein, Rhineland-Palatinate, Germany" = 44 chars. 80 is
   // generous; narrative entries are typically 60-150 chars.
@@ -284,6 +305,13 @@ function isValidLocationEntry(value) {
 function sanitizeLocationString(value, fieldName = "") {
   if (typeof value !== "string") return value;
   const original = value;
+  // Phase 4.31 — short-circuit the "Other unknown locations" sentinel
+  // BEFORE stripping parentheticals so an upstream variant like "Other
+  // unknown locations (per supplier list)" still normalizes to the
+  // canonical sentinel and survives.
+  if (isOtherUnknownLocationsSentinel(value.trim())) {
+    return OTHER_UNKNOWN_LOCATIONS_SENTINEL;
+  }
   const stripped = stripParentheticals(value);
   if (stripped !== original) {
     try {
@@ -293,6 +321,11 @@ function sanitizeLocationString(value, fieldName = "") {
         cleaned: stripped.slice(0, 120),
       });
     } catch { /* best-effort */ }
+  }
+  // Re-check sentinel after parenthetical strip too — covers cases like
+  // "Other unknown locations (per the parent company list)".
+  if (isOtherUnknownLocationsSentinel(stripped)) {
+    return OTHER_UNKNOWN_LOCATIONS_SENTINEL;
   }
   if (!isValidLocationEntry(stripped)) {
     try {
@@ -2154,5 +2187,8 @@ module.exports = {
   isValidLocationEntry,
   sanitizeLocationString,
   sanitizeLocationArray,
+  // Phase 4.31: incompleteness sentinel for manufacturing locations
+  OTHER_UNKNOWN_LOCATIONS_SENTINEL,
+  isOtherUnknownLocationsSentinel,
   LOCATION_NARRATIVE_RED_FLAGS,
 };
