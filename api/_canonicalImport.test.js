@@ -25,6 +25,9 @@ const {
   isValidLocationEntry,
   sanitizeLocationString,
   sanitizeLocationArray,
+  // Phase 4.31 — incompleteness sentinel for manufacturing locations
+  OTHER_UNKNOWN_LOCATIONS_SENTINEL,
+  isOtherUnknownLocationsSentinel,
 } = require("./_canonicalImport");
 
 test("shapeEnrichedFromParsed returns canonical defaults for null/undefined input", () => {
@@ -2532,6 +2535,69 @@ test("Phase 4.12: sanitizeLocationArray cleans + splits on semicolons + drops na
   assert.deepEqual(sanitizeLocationArray([]), []);
   // Non-array passes through
   assert.deepEqual(sanitizeLocationArray(null), null);
+});
+
+// ── Phase 4.31 — "Other unknown locations" sentinel survives sanitization ─
+
+test("Phase 4.31: OTHER_UNKNOWN_LOCATIONS_SENTINEL exported as 'Other unknown locations'", () => {
+  assert.equal(OTHER_UNKNOWN_LOCATIONS_SENTINEL, "Other unknown locations");
+});
+
+test("Phase 4.31: isOtherUnknownLocationsSentinel recognizes canonical + case variants", () => {
+  assert.equal(isOtherUnknownLocationsSentinel("Other unknown locations"), true);
+  assert.equal(isOtherUnknownLocationsSentinel("OTHER UNKNOWN LOCATIONS"), true);
+  assert.equal(isOtherUnknownLocationsSentinel("other unknown locations"), true);
+  assert.equal(isOtherUnknownLocationsSentinel("  Other unknown locations  "), true);
+  // Negatives
+  assert.equal(isOtherUnknownLocationsSentinel("Other locations"), false);
+  assert.equal(isOtherUnknownLocationsSentinel("Unknown"), false);
+  assert.equal(isOtherUnknownLocationsSentinel("USA"), false);
+  assert.equal(isOtherUnknownLocationsSentinel(""), false);
+  assert.equal(isOtherUnknownLocationsSentinel(null), false);
+  assert.equal(isOtherUnknownLocationsSentinel(undefined), false);
+});
+
+test("Phase 4.31: isValidLocationEntry explicitly allows the sentinel", () => {
+  assert.equal(isValidLocationEntry("Other unknown locations"), true);
+  // Case-insensitive even though the canonical form is mixed-case
+  assert.equal(isValidLocationEntry("OTHER UNKNOWN LOCATIONS"), true);
+  assert.equal(isValidLocationEntry("other unknown locations"), true);
+});
+
+test("Phase 4.31: sanitizeLocationString normalizes sentinel variants to the canonical form", () => {
+  assert.equal(sanitizeLocationString("Other unknown locations"), "Other unknown locations");
+  assert.equal(sanitizeLocationString("OTHER UNKNOWN LOCATIONS"), "Other unknown locations");
+  assert.equal(sanitizeLocationString("  other unknown locations  "), "Other unknown locations");
+  // Sentinel with trailing parenthetical → still normalizes
+  assert.equal(
+    sanitizeLocationString("Other unknown locations (per parent company supplier list)"),
+    "Other unknown locations"
+  );
+});
+
+test("Phase 4.31: sanitizeLocationArray preserves sentinel mixed with valid locations", () => {
+  // Typical Phase 4.31 emission: model found 2 specific cities, signals
+  // incompleteness with the sentinel as the final entry.
+  assert.deepEqual(
+    sanitizeLocationArray([
+      "Burgos, Spain",
+      "Florence, KY, USA",
+      "Other unknown locations",
+    ]),
+    ["Burgos, Spain", "Florence, KY, USA", "Other unknown locations"]
+  );
+  // Sentinel survives even if it's the only entry (model found nothing
+  // specific but knows there's manufacturing somewhere — edge case the
+  // prompt instructs against, but defensive sanitization shouldn't drop it)
+  assert.deepEqual(
+    sanitizeLocationArray(["Other unknown locations"]),
+    ["Other unknown locations"]
+  );
+  // Case-insensitive sentinel inside a semicolon-split entry normalizes
+  assert.deepEqual(
+    sanitizeLocationArray(["Burgos, Spain; OTHER UNKNOWN LOCATIONS"]),
+    ["Burgos, Spain", "Other unknown locations"]
+  );
 });
 
 test("Phase 4.12: shapeEnrichedFromParsed end-to-end sanitizes HQ + manufacturing", () => {

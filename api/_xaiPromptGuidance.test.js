@@ -515,19 +515,45 @@ test("Phase 4.16 — _xaiLiveSearch translates response_format → text.format o
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.17: PROMPT_GUIDANCE_VERSION is 9.10.0-products-no-duplicates", () => {
-  // Phase 4.17 — Products rule augmented with explicit anti-duplicate
-  // guidance after MANNKITCHEN import (2026-05-16) showed the model
-  // emitted 36 product entries with 18 duplicates (deduped post-hoc by
-  // sanitizeKeywords). Telling the model not to re-list items it's
-  // already accumulated saves part of the tool budget.
-  //
-  // Phase 4.14 anchors (Q1-Q5) still present in the prompt; only the
-  // Products rule changed in 4.17.
+test("Phase 4.31: PROMPT_GUIDANCE_VERSION is 9.11.0-mfg-category-inference-and-beauty-parents", () => {
+  // Phase 4.31 — Manufacturing rule augmented with three additions:
+  //   1. Category-level inference allowance for industries where overseas
+  //      production is the industry norm (hair extensions, hair tools, etc.)
+  //      Lets the model emit ["China"] when no specific city is found and
+  //      the category overwhelmingly comes from China.
+  //   2. Beauty/cosmetics parent-company shortcut paragraph with explicit
+  //      enumeration of L'Oréal, P&G, Estée Lauder, Unilever, Henkel, Coty,
+  //      Kao brand families + their public sustainability-report search
+  //      patterns. Surfaces specific cities for Matrix, Clairol, Pulp Riot,
+  //      etc. that previously emitted [].
+  //   3. "Other unknown locations" trailing-entry sentinel to signal
+  //      incompleteness when the model finds some cities but knows more
+  //      exist undisclosed.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.10\.0-products-no-duplicates/,
-    "PROMPT_GUIDANCE_VERSION must be 9.10.0-products-no-duplicates for Phase 4.17"
+    /^9\.11\.0-mfg-category-inference-and-beauty-parents/,
+    "PROMPT_GUIDANCE_VERSION must be 9.11.0-mfg-category-inference-and-beauty-parents for Phase 4.31"
+  );
+});
+
+test("Phase 4.31: Manufacturing rule contains category-level inference + beauty parent shortcuts + Other unknown locations sentinel", () => {
+  // Anti-regression anchors for the three Phase 4.31 paragraphs.
+  const { buildCanonicalImportPrompt } = require("./_xaiPromptGuidance");
+  const prompt = buildCanonicalImportPrompt({
+    companyName: "TestCo",
+    websiteUrl: "https://testco.example.com",
+  });
+  assert.ok(
+    /Category-level inference/i.test(prompt),
+    "Manufacturing rule must contain the category-level inference paragraph (Phase 4.31)"
+  );
+  assert.ok(
+    /L'Oréal: Matrix/.test(prompt) || /L'Oreal: Matrix/.test(prompt),
+    "Manufacturing rule must enumerate the L'Oréal brand family including Matrix (Phase 4.31)"
+  );
+  assert.ok(
+    /Other unknown locations/i.test(prompt),
+    "Manufacturing rule must document the Other unknown locations sentinel (Phase 4.31)"
   );
 });
 
