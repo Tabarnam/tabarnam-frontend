@@ -822,9 +822,18 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                 <div className="space-y-1">
                   <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Excerpt</label>
                   <Textarea
-                    value={asString(review.excerpt)}
+                    // Phase 4.34 — fall through `text` (canonical pipeline) then
+                    // `excerpt`/`abstract` (legacy fetchCuratedReviews) so the
+                    // textarea reflects whichever field shape the source data uses.
+                    value={asString(review.text || review.excerpt || review.abstract)}
                     onChange={(e) =>
-                      setItems((prev) => prev.map((r) => (r.id === review.id ? { ...(r || {}), excerpt: e.target.value } : r)))
+                      setItems((prev) =>
+                        prev.map((r) =>
+                          r.id === review.id
+                            ? { ...(r || {}), text: e.target.value, excerpt: e.target.value, abstract: e.target.value }
+                            : r
+                        )
+                      )
                     }
                     disabled={disabled}
                     className="min-h-[100px]"
