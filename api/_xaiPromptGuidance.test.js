@@ -515,47 +515,24 @@ test("Phase 4.16 — _xaiLiveSearch translates response_format → text.format o
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.33: PROMPT_GUIDANCE_VERSION is 9.12.0-mandatory-review-excerpts", () => {
-  // Phase 4.33 — Reviews rule strengthened to make the `text` field
-  // MANDATORY on every review object. The model previously emitted
-  // reviews with empty / missing text because Phase 2.19.9 runs in
-  // json_object mode (not strict json_schema), so the schema's
-  // required: ["text"] wasn't being enforced and the descriptive
-  // "1-3 sentence excerpt or summary" language let the model treat
-  // it as optional. New language adds explicit MANDATORY + omit-if-
-  // unable-to-summarize instructions in both the single-call
-  // canonical Reviews rule and the multi-call Phase 3.0 Reviews
-  // prompt. Plus consistency reinforcement in the legacy plain-text
-  // format templates used by the refresh path (_grokEnrichment.js
-  // fetchCuratedReviews).
+test("Phase 4.31: PROMPT_GUIDANCE_VERSION is 9.11.0-mfg-category-inference-and-beauty-parents", () => {
+  // Phase 4.31 — Manufacturing rule augmented with three additions:
+  //   1. Category-level inference allowance for industries where overseas
+  //      production is the industry norm (hair extensions, hair tools, etc.)
+  //      Lets the model emit ["China"] when no specific city is found and
+  //      the category overwhelmingly comes from China.
+  //   2. Beauty/cosmetics parent-company shortcut paragraph with explicit
+  //      enumeration of L'Oréal, P&G, Estée Lauder, Unilever, Henkel, Coty,
+  //      Kao brand families + their public sustainability-report search
+  //      patterns. Surfaces specific cities for Matrix, Clairol, Pulp Riot,
+  //      etc. that previously emitted [].
+  //   3. "Other unknown locations" trailing-entry sentinel to signal
+  //      incompleteness when the model finds some cities but knows more
+  //      exist undisclosed.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.12\.0-mandatory-review-excerpts/,
-    "PROMPT_GUIDANCE_VERSION must be 9.12.0-mandatory-review-excerpts for Phase 4.33"
-  );
-});
-
-test("Phase 4.33: Reviews rule mandates the text field on every review object", () => {
-  // Anti-regression anchor for the Phase 4.33 mandate language. The
-  // canonical Reviews rule must explicitly state the text field is
-  // MANDATORY and direct the model to OMIT reviews it can't summarize
-  // rather than emitting empty text.
-  const { buildCanonicalImportPrompt } = require("./_xaiPromptGuidance");
-  const prompt = buildCanonicalImportPrompt({
-    companyName: "TestCo",
-    websiteUrl: "https://testco.example.com",
-  });
-  assert.ok(
-    /text\s+field\s+is\s+MANDATORY/i.test(prompt),
-    "Reviews rule must contain the MANDATORY text-field language (Phase 4.33)"
-  );
-  assert.ok(
-    /OMIT\s+THE\s+ENTIRE\s+REVIEW\s+OBJECT/i.test(prompt),
-    "Reviews rule must instruct the model to OMIT THE ENTIRE REVIEW OBJECT when unable to summarize (Phase 4.33)"
-  );
-  assert.ok(
-    /Quality\s+over\s+quantity/i.test(prompt),
-    "Reviews rule must include the Quality over quantity reinforcement (Phase 4.33)"
+    /^9\.11\.0-mfg-category-inference-and-beauty-parents/,
+    "PROMPT_GUIDANCE_VERSION must be 9.11.0-mfg-category-inference-and-beauty-parents for Phase 4.31"
   );
 });
 

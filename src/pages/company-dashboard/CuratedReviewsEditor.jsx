@@ -27,6 +27,7 @@ export default function CuratedReviewsEditor({ value, onChange, disabled }) {
         title: "",
         source_url: "",
         url: "",
+        text: "",
         excerpt: "",
         abstract: "",
         content: "",
@@ -82,7 +83,16 @@ export default function CuratedReviewsEditor({ value, onChange, disabled }) {
           merged.source_url = urlRaw;
           merged.url = urlRaw;
 
-          const text = asString(merged.excerpt || merged.abstract || merged.content).trim();
+          // Phase 4.34 — read `text` first to honor canonical-pipeline imports.
+          // Legacy fetchCuratedReviews stored the excerpt under `excerpt`; the
+          // canonical xAI schema stores it under `text`. Mirror to all four
+          // field names on write so downstream readers (public /api/get-reviews,
+          // admin ImportedReviewsPanel via getReviewText, this editor on
+          // reload) all see the same value regardless of which one they read.
+          const text = asString(
+            merged.text || merged.excerpt || merged.abstract || merged.content
+          ).trim();
+          merged.text = text;
           merged.excerpt = text;
           merged.abstract = text;
           merged.content = text;
@@ -254,8 +264,8 @@ export default function CuratedReviewsEditor({ value, onChange, disabled }) {
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-[11px] font-medium text-slate-700 dark:text-muted-foreground">Excerpt</label>
                     <Textarea
-                      value={asString(review?.excerpt || review?.abstract || review?.content)}
-                      onChange={(e) => updateReview(idx, { excerpt: e.target.value, abstract: e.target.value, content: e.target.value })}
+                      value={asString(review?.text || review?.excerpt || review?.abstract || review?.content)}
+                      onChange={(e) => updateReview(idx, { text: e.target.value, excerpt: e.target.value, abstract: e.target.value, content: e.target.value })}
                       disabled={disabled}
                       className="min-h-[110px]"
                       placeholder="Write the review snippet..."
