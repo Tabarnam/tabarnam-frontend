@@ -686,6 +686,15 @@ try {
   console.error("[api] ❌ Failed to load xadmin-api-refresh-reviews:", e?.message || e);
 }
 
+// Phase 4.33 — backfill missing review excerpts on already-imported companies
+try {
+  console.log("[api] Registering: xadmin-api-backfill-review-excerpts");
+  require("./xadmin-api-backfill-review-excerpts/index.js");
+  console.log("[api] ✓ xadmin-api-backfill-review-excerpts registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-backfill-review-excerpts:", e?.message || e);
+}
+
 try {
   console.log("[api] Registering: admin-geocode-location");
   require("./admin-geocode-location/index.js");
