@@ -133,11 +133,23 @@ function describeRow(row) {
   return name ? `${action || "action"} on ${name}` : action || "action";
 }
 
+// Default and expanded item counts for the progressive-disclosure feed.
+// MAX_LIMIT mirrors the server-side cap in xadmin-api-recent-activity/index.js.
+const DEFAULT_LIMIT = 25;
+const EXPANDED_LIMIT = 100;
+
 const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // Progressive disclosure: start at 25, jump to 100 on "Show more". A
+  // single fetch returns the full requested set — no incremental paging
+  // (the underlying query is TOP-N with a 4x over-fetch for filtering,
+  // so cost stays bounded).
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const mountedRef = useRef(true);
+  const limitRef = useRef(DEFAULT_LIMIT);
+  limitRef.current = limit;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -146,11 +158,14 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
     };
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (overrideLimit) => {
+    const targetLimit = Number.isFinite(overrideLimit) && overrideLimit > 0
+      ? Math.min(EXPANDED_LIMIT, Math.trunc(overrideLimit))
+      : limitRef.current;
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch("/xadmin-api-recent-activity?limit=25");
+      const res = await apiFetch(`/xadmin-api-recent-activity?limit=${targetLimit}`);
       const data = await res.json().catch(() => ({ items: [] }));
       if (!res.ok) {
         throw new Error(asString(data?.error).trim() || res.statusText || "Failed to load");
@@ -167,11 +182,28 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
     }
   }, []);
 
-  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+  // `refresh` from the parent uses whatever limit the user has selected
+  // — so if they've expanded to 100, post-batch refreshes also fetch 100.
+  useImperativeHandle(ref, () => ({ refresh: () => load() }), [load]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const showMore = useCallback(() => {
+    setLimit(EXPANDED_LIMIT);
+    load(EXPANDED_LIMIT);
+  }, [load]);
+
+  const showLess = useCallback(() => {
+    setLimit(DEFAULT_LIMIT);
+    load(DEFAULT_LIMIT);
+  }, [load]);
+
+  const isExpanded = limit > DEFAULT_LIMIT;
+  // Only offer "Show more" when the current fetch saturated the default
+  // limit — if we're already seeing < 25 items, there's nothing more.
+  const couldHaveMore = !isExpanded && items.length >= DEFAULT_LIMIT;
 
   return (
     <details className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
@@ -241,6 +273,38 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
             })}
           </ul>
         )}
+
+        {/* Progressive disclosure — toggle between 25 and 100 items.
+            Hidden when there's nothing more to show (items < default limit). */}
+        {!error && items.length > 0 && (couldHaveMore || isExpanded) ? (
+          <div className="mt-2 pt-2 border-t border-slate-200 dark:border-border flex items-center justify-between text-[11px]">
+            <span className="text-slate-500 dark:text-muted-foreground">
+              Showing {items.length} {items.length === 1 ? "item" : "items"}
+              {isExpanded ? ` (up to ${EXPANDED_LIMIT})` : ""}
+            </span>
+            {isExpanded ? (
+              <button
+                type="button"
+                onClick={showLess}
+                className="rounded border border-slate-300 dark:border-border px-2 py-0.5 text-slate-700 dark:text-muted-foreground hover:bg-white dark:hover:bg-card"
+                disabled={loading}
+                title={`Collapse back to the most recent ${DEFAULT_LIMIT}`}
+              >
+                Show less
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={showMore}
+                className="rounded border border-slate-300 dark:border-border px-2 py-0.5 text-slate-700 dark:text-muted-foreground hover:bg-white dark:hover:bg-card"
+                disabled={loading}
+                title={`Load up to ${EXPANDED_LIMIT} most-recent items`}
+              >
+                {loading ? "Loading…" : `Show more (up to ${EXPANDED_LIMIT})`}
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
     </details>
   );

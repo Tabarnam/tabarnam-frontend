@@ -197,8 +197,10 @@ async function handleGet(req, context) {
           const companies = companiesClient.database(databaseId).container(companiesId);
 
           // Cosmos doesn't support parameterized IN well via array; build
-          // placeholders. Limit list to 25 to keep query simple.
-          const idsForQuery = companyIds.slice(0, 25);
+          // placeholders. Cap the lookup at MAX_LIMIT (100) so the progressive
+          // disclosure expansion to 100 items still gets friendly names on
+          // every row.
+          const idsForQuery = companyIds.slice(0, MAX_LIMIT);
           const placeholders = idsForQuery
             .map((_, i) => `@id${i}`)
             .join(", ");
