@@ -621,6 +621,14 @@ export function getContractMissingFields(company) {
     fields.push("keywords");
   }
 
+  // Check for missing logo (client-side, in case backend didn't flag it).
+  // Mirrors the homepage pattern so clearing the logo in the editor surfaces
+  // the tag live — without waiting for a save round-trip.
+  const hasLogo = Boolean(asString(company?.logo_url).trim());
+  if (!hasLogo && !fields.includes("logo") && !fields.includes("logo_url")) {
+    fields.push("logo");
+  }
+
   // Check for missing homepage image (unless admin cleared the issue)
   const hasHomepage = Boolean(asString(company?.homepage_image_url).trim());
   const homepageCleared = Boolean(company?.homepage_issue_cleared);
@@ -689,6 +697,9 @@ export function formatContractMissingField(field) {
     case "homepage_image":
     case "homepage_image_url":
       return "home pg";
+    case "logo":
+    case "logo_url":
+      return "logo";
     default:
       return f.replace(/_/g, " ");
   }
