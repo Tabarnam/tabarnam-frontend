@@ -1650,6 +1650,10 @@ async function adminCompaniesHandler(req, context, deps = {}) {
               source: String(body.source ?? body.audit_source ?? body.auditSource ?? "").trim(),
               action: String(body.action ?? body.audit_action ?? body.auditAction ?? "").trim(),
               request_id: String(body.request_id ?? body.requestId ?? "").trim(),
+              // Phase 4.35 — batch_id stamps per-company entries that are
+              // part of a batch operation so the Recent Activity feed can
+              // filter them out and show ONE batch-summary row instead.
+              batch_id: String(body.batch_id ?? body.batchId ?? "").trim(),
             }
           : {
               actor_user_id: "",
@@ -1657,6 +1661,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
               source: "",
               action: "",
               request_id: "",
+              batch_id: "",
             };
 
         const incomingRaw = (body && body.company) || body;
@@ -2002,6 +2007,9 @@ async function adminCompaniesHandler(req, context, deps = {}) {
                 action: auditAction,
                 source: auditSource,
                 request_id: request_id || undefined,
+                // Phase 4.35 — passthrough so the Recent Activity feed
+                // can suppress batch-member rows in favor of the summary row.
+                batch_id: meta.batch_id || undefined,
                 before: existingDoc,
                 after: doc,
               });

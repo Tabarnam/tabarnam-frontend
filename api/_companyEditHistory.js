@@ -217,6 +217,13 @@ async function writeCompanyEditHistoryEntry(params) {
 
   const request_id = params?.request_id != null ? String(params.request_id).trim() : "";
 
+  // Phase 4.35 — optional batch_id stamps per-company entries that are part
+  // of a batch operation (bulk import, apply-industries-products). The
+  // global Recent Activity feed filters these out so the feed shows ONE
+  // batch summary row instead of N per-company rows. Per-company history
+  // page is unaffected.
+  const batch_id = params?.batch_id != null ? String(params.batch_id).trim() : "";
+
   const doc = {
     id: `audit_${company_id}_${randomId()}`,
     company_id,
@@ -228,6 +235,7 @@ async function writeCompanyEditHistoryEntry(params) {
     diff,
     request_id: request_id || undefined,
     source,
+    batch_id: batch_id || undefined,
   };
 
   try {
@@ -239,9 +247,81 @@ async function writeCompanyEditHistoryEntry(params) {
   }
 }
 
+// Phase 4.35 — sentinel partition key for batch-summary rows. All
+// batch summaries land in a single partition so cross-partition
+// TOP-25 queries against `company_edit_history` find them next to
+// per-company entries. Volume is low (a few writes per minute at
+// most), so single-partition is fine.
+const BATCH_SUMMARY_PARTITION = "_batch_summary";
+
+/**
+ * Phase 4.35 — write a single "batch summary" row to the same
+ * `company_edit_history` container. Used after a bulk import or
+ * Apply Industries/Products run completes.
+ *
+ * @param {object} params
+ * @param {string} params.action - one of: "bulk_import_summary",
+ *   "apply_batch_fields_summary"
+ * @param {string} [params.actor_email]
+ * @param {string} [params.actor_user_id]
+ * @param {string} [params.request_id]
+ * @param {string} [params.source] - default "admin-ui"
+ * @param {string} [params.batch_id] - optional uuid to correlate with
+ *   per-company entries
+ * @param {object} params.summary - free-form payload describing the
+ *   batch: { count, first, last, batch_industries, batch_keywords,
+ *   companies?: [{id, name}] }. Truncated for storage.
+ */
+async function writeBatchSummaryEntry(params) {
+  const action = String(params?.action || "").trim();
+  if (!action) return { ok: false, error: "action required" };
+
+  const container = params?.container || (await getCompanyEditHistoryContainer());
+  if (!container) return { ok: false, error: "history container unavailable" };
+
+  const created_at = new Date().toISOString();
+  const source = String(params?.source || "admin-ui").trim() || "admin-ui";
+  const actor_user_id = params?.actor_user_id != null ? String(params.actor_user_id).trim() : "";
+  const actor_email = params?.actor_email != null ? String(params.actor_email).trim() : "";
+  const request_id = params?.request_id != null ? String(params.request_id).trim() : "";
+  const batch_id = params?.batch_id != null ? String(params.batch_id).trim() : "";
+
+  const summary = isPlainObject(params?.summary)
+    ? truncateForStorage(params.summary, {
+        maxStringLength: 500,
+        maxArrayLength: 50,
+        maxObjectKeys: 40,
+        maxDepth: 3,
+      })
+    : {};
+
+  const doc = {
+    id: `audit_batch_${randomId()}`,
+    company_id: BATCH_SUMMARY_PARTITION,
+    created_at,
+    actor_user_id: actor_user_id || undefined,
+    actor_email: actor_email || undefined,
+    action,
+    summary,
+    request_id: request_id || undefined,
+    source,
+    batch_id: batch_id || undefined,
+  };
+
+  try {
+    await container.items.create(doc, { partitionKey: BATCH_SUMMARY_PARTITION });
+    return { ok: true, id: doc.id };
+  } catch (e) {
+    console.error("[company-edit-history] Failed to write batch summary:", e?.message);
+    return { ok: false, error: e?.message || "write failed" };
+  }
+}
+
 module.exports = {
   getCompanyEditHistoryContainer,
   writeCompanyEditHistoryEntry,
+  writeBatchSummaryEntry,
   computeTopLevelDiff,
   truncateForStorage,
+  BATCH_SUMMARY_PARTITION,
 };
