@@ -510,6 +510,15 @@ try {
   console.error("[api] ❌ Failed to load admin-company-history:", e?.message || e);
 }
 
+// Phase 4.35 — Recent Activity feed for the AdminImport page.
+try {
+  console.log("[api] Registering: xadmin-api-recent-activity");
+  require("./xadmin-api-recent-activity/index.js");
+  console.log("[api] ✓ xadmin-api-recent-activity registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-recent-activity:", e?.message || e);
+}
+
 try {
   console.log("[api] Registering: xadmin-api-debug");
   require("./admin-debug/index.js");

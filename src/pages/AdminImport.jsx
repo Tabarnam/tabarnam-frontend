@@ -72,6 +72,7 @@ import ImportDebugPanel from "./admin-import/ImportDebugPanel";
 import ImportReportSection from "./admin-import/ImportReportSection";
 import StatusAlerts from "./admin-import/StatusAlerts";
 import ImportResultsPanels from "./admin-import/ImportResultsPanels";
+import { getAdminUser } from "@/lib/azureAuth";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader,
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
@@ -80,6 +81,10 @@ import {
 // Phase 3.5 — shared active-imports state so the Companies dashboard can
 // render an "Importing…" badge on rows that are currently being processed.
 import { markImportActive, markImportInactive } from "@/lib/activeImports";
+// Phase 4.35 — Recent admin activity widget shown above the bulk import form.
+// Lazy-loaded into its own chunk to keep the main bundle under the
+// 850 KB CI gate (matches the `shepherd.js` lazy-load precedent).
+const RecentActivityPanel = React.lazy(() => import("@/components/RecentActivityPanel"));
 
 async function apiFetchWithFallback(paths, init) {
   const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
@@ -332,6 +337,10 @@ export default function AdminImport() {
   const startImportRequestInFlightRef = useRef(false);
   const activeStatusRef = useRef(activeStatus);
   const importReportRef = useRef(null);
+  // Phase 4.35 — handle to the Recent Activity panel so batch-completion
+  // and apply-batch-fields handlers can poke it for an immediate refresh
+  // after the summary row is written.
+  const recentActivityRef = useRef(null);
   activeStatusRef.current = activeStatus;
 
   // Phase 3.5.1 — succession is "running" as long as EITHER slot is still
@@ -3585,6 +3594,9 @@ export default function AdminImport() {
       return;
     }
     setApplyingBatchFields(true);
+    // Phase 4.35 — single batch_id stamped on every per-company PUT so the
+    // Recent Activity feed groups them as one batch summary row.
+    const batchId = `apply_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     let ok = 0;
     let fail = 0;
     const failedNames = [];
@@ -3626,7 +3638,15 @@ export default function AdminImport() {
         }
         const { res: putRes } = await apiFetchWithFallback([`/xadmin-api-companies/${encodeURIComponent(existing.id)}`], {
           method: "PUT",
-          body: JSON.stringify({ company: { ...existing, ...patch } }),
+          // Phase 4.35 — include batch_id so admin-companies-v2 stamps it
+          // onto the company_edit_history row; the Recent Activity feed
+          // suppresses these in favor of the one batch-summary row.
+          body: JSON.stringify({
+            company: { ...existing, ...patch },
+            batch_id: batchId,
+            action: "update",
+            source: "apply-batch-fields",
+          }),
         });
         if (putRes.ok) {
           ok++;
@@ -3641,6 +3661,41 @@ export default function AdminImport() {
     setApplyingBatchFields(false);
     if (ok > 0) toast.success(`Applied to ${ok} compan${ok === 1 ? "y" : "ies"}.`);
     if (fail > 0) toast.warning(`${fail} not found or failed: ${failedNames.join(", ")}`);
+
+    // Phase 4.35 — write the single batch summary row. Always attempted
+    // (even if ok=0) so admins can see attempted batches in the feed.
+    try {
+      const names = rows
+        .map((r) => String(r.companyName || r.companyUrl || "").trim())
+        .filter(Boolean);
+      const sorted = [...names].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" })
+      );
+      const adminUser = (typeof getAdminUser === "function" ? getAdminUser() : null) || {};
+      apiFetch("/xadmin-api-recent-activity", {
+        method: "POST",
+        body: {
+          action: "apply_batch_fields_summary",
+          actor_email: adminUser?.email || adminUser?.actor_email || "",
+          batch_id: batchId,
+          summary: {
+            count: rows.length,
+            applied: ok,
+            failed: fail,
+            first: sorted[0] || "",
+            last: sorted[sorted.length - 1] || "",
+            batch_industries: batchIndustries.trim(),
+            batch_keywords: batchKeywords.trim(),
+          },
+        },
+      })
+        .catch(() => null)
+        .finally(() => {
+          try { recentActivityRef.current?.refresh(); } catch { /* noop */ }
+        });
+    } catch {
+      // Best-effort — never block the toast.
+    }
   }, [batchIndustries, batchKeywords, successionRows]);
 
   const stopImport = useCallback(async () => {
@@ -4830,7 +4885,52 @@ export default function AdminImport() {
     } else {
       toast.success(`Succession import complete: ${completedCount} imports processed`);
     }
-  }, [successionIndex, successionShadowIndex, successionResults, successionQueue.length]);
+
+    // Phase 4.35 — write a single Recent Activity summary row for the
+    // whole batch. Skip when nothing actually completed (queueLength=0 or
+    // all unaccounted). Best-effort — failures must not block the toast.
+    if (queueLength > 0) {
+      try {
+        // Derive first/last alphabetical names from the queue.
+        const names = successionQueue
+          .map((row) => String(row?.companyName || row?.companyUrl || "").trim())
+          .filter(Boolean);
+        const sorted = [...names].sort((a, b) =>
+          a.localeCompare(b, undefined, { sensitivity: "base" })
+        );
+        const first = sorted[0] || "";
+        const last = sorted[sorted.length - 1] || "";
+
+        const adminUser = (typeof getAdminUser === "function" ? getAdminUser() : null) || {};
+        const summaryPayload = {
+          count: queueLength,
+          completed: doneCount,
+          errors: errorCount,
+          unaccounted: unaccountedCount,
+          first,
+          last,
+          batch_industries: String(batchIndustries || "").trim(),
+          batch_keywords: String(batchKeywords || "").trim(),
+        };
+
+        apiFetch("/xadmin-api-recent-activity", {
+          method: "POST",
+          body: {
+            action: "bulk_import_summary",
+            actor_email: adminUser?.email || adminUser?.actor_email || "",
+            summary: summaryPayload,
+          },
+        })
+          .catch(() => null)
+          .finally(() => {
+            // Refresh the panel so the new summary surfaces immediately.
+            try { recentActivityRef.current?.refresh(); } catch { /* noop */ }
+          });
+      } catch {
+        // Never block the completion toast on activity logging.
+      }
+    }
+  }, [successionIndex, successionShadowIndex, successionResults, successionQueue, batchIndustries, batchKeywords]);
 
   // Reset toast-fired flag when a new succession kicks off (so the next
   // batch can fire its own completion toast).
@@ -4951,6 +5051,11 @@ export default function AdminImport() {
             notificationMuted={notificationMuted}
             onToggleNotificationMuted={toggleNotificationMuted}
           />
+
+          {/* Phase 4.35 — Recent admin activity feed (collapsed by default). */}
+          <React.Suspense fallback={null}>
+            <RecentActivityPanel ref={recentActivityRef} />
+          </React.Suspense>
 
           <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
