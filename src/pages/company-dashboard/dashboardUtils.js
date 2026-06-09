@@ -507,19 +507,33 @@ export function getContractMissingFields(company) {
 
   // Data-wins-over-flag: drop "keywords" / "product_keywords" when populated.
   // Backend caches _kwRelevantCount (meaningful keyword count after stub/sentinel
-  // sanitization) — when defined, it's authoritative. Otherwise fall back to
-  // .some(non-empty) so arrays of just empty/whitespace strings count as missing.
+  // sanitization) keyed on _kwCacheKey. We can trust the count ONLY if the live
+  // keyword data still matches that cache key — otherwise the admin has edited
+  // the field since the backend last computed, and the cached count is stale
+  // (e.g. admin just typed new products into an empty field; cached count is 0
+  // but live data has real values). When the cache is stale or absent, fall back
+  // to a non-empty array/string heuristic. Mirrors the cache-key format used by
+  // _requiredFields.js isRealValue("product_keywords").
+  const _kwCacheValid = (() => {
+    if (typeof company?._kwCacheKey !== "string" || company._kwCacheKey === "") return false;
+    const pk = company?.product_keywords;
+    const rawStr = typeof pk === "string" ? pk : Array.isArray(pk) ? pk.join(", ") : "";
+    const kw = company?.keywords;
+    const kwArrStr = Array.isArray(kw) ? kw.join("|") : "";
+    return `${rawStr}|||${kwArrStr}` === company._kwCacheKey;
+  })();
   const kwRelevantCount = typeof company?._kwRelevantCount === "number"
     ? company._kwRelevantCount
     : null;
-  const hasKeywords = kwRelevantCount != null
+  const heuristicHasKeywords = (
+    (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
+    (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
+    Boolean(asString(company?.product_keywords).trim()) ||
+    Boolean(asString(company?.keywords).trim())
+  );
+  const hasKeywords = (_kwCacheValid && kwRelevantCount != null)
     ? kwRelevantCount >= 1
-    : (
-        (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
-        (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
-        Boolean(asString(company?.product_keywords).trim()) ||
-        Boolean(asString(company?.keywords).trim())
-      );
+    : heuristicHasKeywords;
   if (hasKeywords) {
     for (let i = fields.length - 1; i >= 0; i--) {
       if (fields[i] === "keywords" || fields[i] === "product_keywords") fields.splice(i, 1);
@@ -685,12 +699,19 @@ export function formatContractMissingField(field) {
     case "product_keywords":
       return "products";
     case "products_partial":
+    case "+products":
       // Phase 2.19.B — distinguish "partial" from "missing". The "+"
       // prefix signals that the field IS populated but may be incomplete
       // (worker didn't populate enough product keywords for the chip
       // count to feel complete). Different from a fully-missing
-      // "products" tag which has no prefix.
+      // "products" tag which has no prefix. Accept the literal "+products"
+      // token that getContractMissingFields pushes for the keywords-incomplete
+      // case, so the displayed label is consistent ("+ products") regardless
+      // of which producer emitted it.
       return "+ products";
+    case "reviews":
+    case "curated_reviews":
+      return "reviews";
     case "amazon_url":
       return "Amz";
     case "homepage":
