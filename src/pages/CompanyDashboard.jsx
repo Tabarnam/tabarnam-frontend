@@ -130,23 +130,26 @@ import StructuredLocationListEditor from "./company-dashboard/StructuredLocation
 import { parseBulkPasteText } from "./company-dashboard/parseBulkPaste";
 
 // Collapsible section wrapper for sidebar and left column groups
-function CollapsibleSection({ title, isOpen, onToggle, badge, children, className = "" }) {
+function CollapsibleSection({ title, isOpen, onToggle, badge, headerExtra, children, className = "" }) {
   return (
     <div className={className}>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-slate-800 dark:text-foreground hover:bg-slate-50 dark:hover:bg-muted transition-colors"
-        aria-expanded={isOpen}
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-800 dark:text-foreground hover:bg-slate-50 dark:hover:bg-muted transition-colors">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-2 flex-1 min-w-0 text-left"
+          aria-expanded={isOpen}
+        >
           <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? "" : "-rotate-90"}`} />
           <span>{title}</span>
           {badge != null && !isOpen ? (
             <span className="text-[10px] text-muted-foreground bg-slate-100 dark:bg-muted rounded-full px-1.5 py-0.5 font-normal">{badge}</span>
           ) : null}
-        </div>
-      </button>
+        </button>
+        {headerExtra ? (
+          <div className="flex items-center gap-1 flex-wrap justify-end">{headerExtra}</div>
+        ) : null}
+      </div>
       {isOpen ? children : null}
     </div>
   );
@@ -4929,7 +4932,29 @@ export default function CompanyDashboard() {
 
                       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,460px)]">
                         <div className="space-y-3">
-                          <CollapsibleSection title="Basic Info" isOpen={leftSections.basicInfo} onToggle={() => toggleLeftSection("basicInfo")}>
+                          <CollapsibleSection
+                            title="Basic Info"
+                            isOpen={leftSections.basicInfo}
+                            onToggle={() => toggleLeftSection("basicInfo")}
+                            headerExtra={(() => {
+                              // Mirror the Issues column from the companies table: same
+                              // tag set + same styling. Recomputed each render so saves
+                              // (which mutate editorDraft) update the tags automatically.
+                              const tags = editorDraft ? getContractMissingFields(editorDraft) : [];
+                              if (tags.length === 0) {
+                                return <span className="text-[11px] text-emerald-700 dark:text-emerald-400">OK</span>;
+                              }
+                              return tags.map((t, idx) => (
+                                <span
+                                  key={`${t}-${idx}`}
+                                  title={`Missing: ${t}`}
+                                  className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-900"
+                                >
+                                  {formatContractMissingField(t)}
+                                </span>
+                              ));
+                            })()}
+                          >
                           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 px-1 pt-1">
                             <div className="md:col-span-2 flex items-end gap-3">
                               <div className="flex-1 space-y-1">
