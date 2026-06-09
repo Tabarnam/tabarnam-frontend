@@ -5052,11 +5052,6 @@ export default function AdminImport() {
             onToggleNotificationMuted={toggleNotificationMuted}
           />
 
-          {/* Phase 4.35 — Recent admin activity feed (collapsed by default). */}
-          <React.Suspense fallback={null}>
-            <RecentActivityPanel ref={recentActivityRef} />
-          </React.Suspense>
-
           <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
               {successionCount <= 1 ? (
@@ -5978,6 +5973,13 @@ export default function AdminImport() {
 
               {activeSummary ? <div className="text-sm text-slate-600 dark:text-muted-foreground">{activeSummary}</div> : null}
             </div>
+
+            {/* Phase 4.35 — Recent admin activity feed, collapsed by default.
+                Placed below the action button row (Start/Stop/Apply Industries/
+                Copy session id) so the controls stay above the fold. */}
+            <React.Suspense fallback={null}>
+              <RecentActivityPanel ref={recentActivityRef} />
+            </React.Suspense>
 
             {activeAsyncPrimaryMessage ? (
               <div className="rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 px-3 py-2 text-sm text-blue-900 dark:text-blue-200">
