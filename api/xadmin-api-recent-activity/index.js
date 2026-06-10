@@ -67,10 +67,35 @@ function clampLimit(value) {
 }
 
 function getQueryParam(req, name) {
-  const q = req && req.query;
-  if (!q || typeof q !== "object") return "";
-  const v = q[name];
-  return v == null ? "" : String(v);
+  if (!req) return "";
+  // Azure Functions v4 exposes `req.query` as a URLSearchParams instance,
+  // NOT a plain object — bracket access (`req.query[name]`) silently
+  // returns undefined. Use `.get()` when available, then fall back to a
+  // plain-object access (for tests / older shapes) and finally parse the
+  // URL ourselves.
+  const q = req.query;
+  if (q) {
+    if (typeof q.get === "function") {
+      const v = q.get(name);
+      if (v != null) return String(v);
+    } else if (typeof q === "object") {
+      const v = q[name];
+      if (v != null) return String(v);
+    }
+  }
+  // Last-resort: parse the URL. Useful when `req.url` is absolute and
+  // `req.query` is missing entirely (e.g. some local-dev harnesses).
+  const url = typeof req.url === "string" ? req.url : "";
+  if (url) {
+    try {
+      const u = url.includes("://") ? new URL(url) : new URL(url, "http://localhost");
+      const v = u.searchParams.get(name);
+      if (v != null) return String(v);
+    } catch {
+      /* fall through */
+    }
+  }
+  return "";
 }
 
 function extractActor(req) {
