@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { Compass } from 'lucide-react';
 
 export default function HelpPage() {
-  const updatedAt = 'May 3, 2026';
   const contactEmail = 'duh@tabarnam.com';
 
   return (
@@ -23,9 +22,6 @@ export default function HelpPage() {
           </div>
           <div>
             <h1 className="text-3xl font-bold">How Tabarnam Works</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Last updated: {updatedAt}
-            </p>
             <p className="text-sm text-muted-foreground mt-2 italic">
               ...but where was it made?
             </p>
