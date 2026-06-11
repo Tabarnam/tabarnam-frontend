@@ -5272,7 +5272,7 @@ export default function AdminImport() {
                         title={`Remove all ${exactMatchCount} row${exactMatchCount === 1 ? "" : "s"} flagged as Exact match`}
                       >
                         <X className="h-3 w-3 mr-1" />
-                        {exactMatchCount} {exactMatchCount === 1 ? "Match" : "Matches"}
+                        Remove matches
                       </Button>
                     ) : null}
                     {/* Undo the last bulk-remove. One-level undo only — chained removals don't stack. */}
