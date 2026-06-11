@@ -14,6 +14,9 @@ const { computeEnrichmentHealth, computeMissingFields, isRealValue } = require("
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { normalizeAmazonUrlForStorage } = require("../_amazonAffiliate");
 const { expandBusinessAbbreviations } = require("../_searchSynonyms");
+// Phase 4.36 — indexed admin search uses the same search_tokens helper
+// public /results search uses; see _searchTokens.js for the rationale.
+const { buildTokenMatchSqlFromRaw } = require("../_searchTokens");
 const { foldDiacritics, parseQuery } = require("../_queryNormalizer");
 const { applySortKeys } = require("../_sortKeys");
 
@@ -1334,7 +1337,13 @@ function sqlContainsRatingNotes() {
   return `(IS_DEFINED(c.rating) AND IS_OBJECT(c.rating) AND (${clauses.join(" OR ")}))`;
 }
 
-function buildSearchWhereClause(variantClauses = []) {
+// Phase 4.36 — DEEP search WHERE clause. Preserves the pre-4.36 behavior:
+// ~25 OR'd CONTAINS scans across raw fields, plus nested subquery scans
+// into note / rating / location structures. Cost: ~35 s per call against a
+// 9663-company catalog (cross-partition, unindexed substring scans).
+// Used only when the caller passes `?deep=true` to opt-in to the full
+// recall (search inside note text, location address strings, etc.).
+function buildDeepSearchWhereClause(variantClauses = []) {
   const clauses = [
     sqlContainsStringCompact("c.company_name"),
     sqlContainsStringCompact("c.name"),
@@ -1369,6 +1378,71 @@ function buildSearchWhereClause(variantClauses = []) {
   ];
 
   return `(${clauses.join(" OR ")})`;
+}
+
+// Phase 4.36 — INDEXED search WHERE clause built on top of the
+// `search_tokens` array that `_computeSearchText.js` already writes on
+// every company doc. Two tiers OR'd together:
+//
+//   Tier 1: ARRAY_CONTAINS(c.search_tokens, @tok) per content word.
+//           True indexed lookup, O(log N) per partition. Strict-AND
+//           across words via the helper from _searchTokens.js.
+//
+//   Tier 2: STARTSWITH(LOWER(c.company_name|normalized_domain), @pfx).
+//           Handles short queries (< 2 chars survive tokenization), URL
+//           pastes, and any case where Tier 1 misses because the user
+//           typed a prefix rather than a full word. STARTSWITH uses the
+//           range index — fast.
+//
+// Together they cover the ~95% admin search case (name / domain /
+// industry / product). Searching inside note text, rating notes, or
+// location address strings requires the deep mode (see above).
+//
+// Returns null when neither tier produces a usable clause — caller
+// should skip the search filter entirely (treat as a non-search list
+// request).
+function buildIndexedSearchWhereClause(search, parameters) {
+  const tierClauses = [];
+
+  // Tier 1: token match against `search_tokens`. Adds its own @tok* params.
+  const tokens = buildTokenMatchSqlFromRaw(search, {
+    paramPrefix: "tok",
+    startIndex: 0,
+  });
+  if (tokens) {
+    tierClauses.push(tokens.whereClause);
+    for (const p of tokens.parameters) parameters.push(p);
+  }
+
+  // Tier 2: prefix match on company_name + normalized_domain. Always
+  // safe to include — STARTSWITH on a non-empty prefix is bounded. The
+  // bound `@q` parameter is already pushed by the caller in the search
+  // block below; reuse it as the prefix.
+  const trimmed = String(search || "").trim().toLowerCase();
+  if (trimmed.length >= 2) {
+    tierClauses.push(
+      `(IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), @q))`
+    );
+    tierClauses.push(
+      `(IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND STARTSWITH(LOWER(c.normalized_domain), @q))`
+    );
+  }
+
+  if (tierClauses.length === 0) return null;
+  return `(${tierClauses.join(" OR ")})`;
+}
+
+// Phase 4.36 — backwards-compatible alias. External callers (none today,
+// but defensive) get the indexed shape by default. The legacy slow shape
+// is exposed via `buildDeepSearchWhereClause` for `?deep=true`.
+function buildSearchWhereClause(searchOrVariantClauses, parameters) {
+  // Old signature: `buildSearchWhereClause(variantClauses)` returning the
+  // deep WHERE. Preserved so any test or external import keeps compiling.
+  if (Array.isArray(searchOrVariantClauses)) {
+    return buildDeepSearchWhereClause(searchOrVariantClauses);
+  }
+  // New signature: `buildSearchWhereClause(searchString, parameters)`.
+  return buildIndexedSearchWhereClause(searchOrVariantClauses, parameters);
 }
 
 async function doesCompanyIdExist(container, id) {
@@ -1529,10 +1603,34 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         }
 
         if (search) {
+          // Phase 4.36 — dispatch on `?deep=true` (or `?deep=1`) to either
+          // the fast indexed path (default) or the legacy CONTAINS-spam
+          // path (opt-in for searching inside note text / location
+          // strings / rating notes — the rare admin recall case).
+          const deepRaw = String(req.query?.deep || "").toLowerCase().trim();
+          const deepSearch = deepRaw === "true" || deepRaw === "1" || deepRaw === "yes";
+
           parameters.push({ name: "@q", value: search });
           parameters.push({ name: "@q_compact", value: searchCompact });
-          const variantClauses = buildVariantSearchClauses(search, parameters);
-          whereClauses.push(buildSearchWhereClause(variantClauses));
+
+          if (deepSearch) {
+            const variantClauses = buildVariantSearchClauses(search, parameters);
+            whereClauses.push(buildDeepSearchWhereClause(variantClauses));
+          } else {
+            // Indexed path. `buildIndexedSearchWhereClause` pushes its own
+            // @tok* params onto `parameters` and reuses @q for STARTSWITH.
+            const indexedClause = buildIndexedSearchWhereClause(search, parameters);
+            if (indexedClause) {
+              whereClauses.push(indexedClause);
+            }
+            // No usable clause (e.g. query was all stopwords) → fall back
+            // to a deep search so the admin still gets something.
+            // Empirically rare on real workflows.
+            else {
+              const variantClauses = buildVariantSearchClauses(search, parameters);
+              whereClauses.push(buildDeepSearchWhereClause(variantClauses));
+            }
+          }
         }
 
         // filteredTotalCount runs against the active filter set (search +
@@ -2351,5 +2449,9 @@ module.exports = {
   _test: {
     adminCompaniesHandler,
     adminCompanyHistoryFallbackHandler,
+    // Phase 4.36 — exported for direct WHERE-clause shape tests.
+    buildIndexedSearchWhereClause,
+    buildDeepSearchWhereClause,
+    buildSearchWhereClause,
   },
 };
