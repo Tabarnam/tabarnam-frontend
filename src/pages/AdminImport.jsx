@@ -3682,14 +3682,33 @@ export default function AdminImport() {
     let fail = 0;
     const failedNames = [];
 
-    // Build a fast lookup: row index -> resolved company id from
-    // succession results. When present, we already know the Cosmos id
-    // from the in-session import and can skip the two search GETs.
+    // Build two fast lookups, in priority order:
+    //   1. row index -> cached company doc (from runs[].saved_companies at
+    //      import time). If we have this, we skip BOTH the search step AND
+    //      the GET-by-id — just merge fields + PUT. Empirically the search
+    //      step is ~35s per call against the 9663-company catalog and the
+    //      GET-by-id is ~2.3s (both are cross-partition); skipping them is
+    //      the dominant speedup.
+    //   2. row index -> verified company id (from successionResults). If
+    //      the saved_companies cache miss but we have the id, GET by id
+    //      (~2.3s, still way faster than 2 searches).
+    const docByRowIndex = new Map();
     const idByRowIndex = new Map();
     if (Array.isArray(successionResults)) {
       for (const sr of successionResults) {
-        if (sr && typeof sr.index === "number" && sr.company_id) {
-          idByRowIndex.set(sr.index, sr.company_id);
+        if (!sr || typeof sr.index !== "number") continue;
+        if (sr.company_id) idByRowIndex.set(sr.index, sr.company_id);
+        // Hydrate the doc from runs[] via the sessionId. The import flow
+        // stashes the full saved_companies array on each run, including
+        // every field the PUT needs.
+        if (sr.sessionId && Array.isArray(runs)) {
+          const run = runs.find((r) => asString(r?.session_id).trim() === asString(sr.sessionId).trim());
+          const savedDoc = Array.isArray(run?.saved_companies) && run.saved_companies.length > 0
+            ? run.saved_companies[0]
+            : null;
+          if (savedDoc && typeof savedDoc === "object" && savedDoc.id) {
+            docByRowIndex.set(sr.index, savedDoc);
+          }
         }
       }
     }
@@ -3703,24 +3722,42 @@ export default function AdminImport() {
     const failRef = { v: 0 };
     const doneRef = { v: 0 };
 
+    // Diagnostic counters so we can see what proportion of rows hit
+    // each path. Logged once at the end.
+    const pathCounts = { doc_cache: 0, get_by_id: 0, search: 0, miss: 0 };
+
     async function processRow(row, rowIdx) {
       const domain = row.companyUrl.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/^www\./, "").toLowerCase();
       const name = row.companyName.trim();
       try {
         let existing = null;
 
-        // Fast path — we just imported this row this session, use the
-        // known id and fetch the company doc directly (1 GET vs 2 searches).
-        const knownId = idByRowIndex.get(rowIdx);
-        if (knownId) {
-          const { res: getRes } = await apiFetchWithFallback([`/xadmin-api-companies/${encodeURIComponent(knownId)}`]);
-          if (getRes.ok) {
-            const data = await getRes.json().catch(() => ({}));
-            existing = data?.company || data?.item || data;
+        // Fastest path — use the company doc cached from the import.
+        // Skips both search and GET-by-id (~35s + ~2.3s in worst case).
+        const cachedDoc = docByRowIndex.get(rowIdx);
+        if (cachedDoc && cachedDoc.id) {
+          existing = cachedDoc;
+          pathCounts.doc_cache += 1;
+        }
+
+        // Next-fastest — we have the verified id but not a cached doc.
+        // GET the latest doc by id.
+        if (!existing) {
+          const knownId = idByRowIndex.get(rowIdx);
+          if (knownId) {
+            const { res: getRes } = await apiFetchWithFallback([`/xadmin-api-companies/${encodeURIComponent(knownId)}`]);
+            if (getRes.ok) {
+              const data = await getRes.json().catch(() => ({}));
+              existing = data?.company || data?.item || data;
+              if (existing) pathCounts.get_by_id += 1;
+            }
           }
         }
 
-        // Slow path — search by domain, then by name.
+        // Slow path — search by domain, then by name. Each /search call
+        // is ~35s against the 9663-company catalog (cross-partition fuzzy);
+        // we should rarely reach this branch after the import flow stashes
+        // saved_companies on every row's run.
         if (!existing) {
           let items = [];
           for (const q of [domain, name].filter(Boolean)) {
@@ -3739,9 +3776,11 @@ export default function AdminImport() {
             if (name && (n.includes(name.toLowerCase()) || name.toLowerCase().includes(n))) return true;
             return false;
           });
+          if (existing) pathCounts.search += 1;
         }
 
         if (!existing) {
+          pathCounts.miss += 1;
           failRef.v += 1;
           failedNames.push(name || domain);
           return;
@@ -3828,6 +3867,19 @@ export default function AdminImport() {
     if (ok > 0) toast.success(`Applied to ${ok} compan${ok === 1 ? "y" : "ies"}.`);
     if (fail > 0) toast.warning(`${fail} not found or failed: ${failedNames.join(", ")}`);
 
+    // Diagnostic — tells us at-a-glance which path each row took. If
+    // doc_cache is the majority we're at full speed; if search dominates
+    // we're paying the ~35s/call cross-partition cost on most rows.
+    // eslint-disable-next-line no-console
+    console.info("[apply-batch-fields] path mix", {
+      total: rows.length,
+      doc_cache: pathCounts.doc_cache,
+      get_by_id: pathCounts.get_by_id,
+      search: pathCounts.search,
+      miss: pathCounts.miss,
+      concurrency: CONCURRENCY,
+    });
+
     // Phase 4.35 — write the single batch summary row. Always attempted
     // (even if ok=0) so admins can see attempted batches in the feed.
     try {
@@ -3862,7 +3914,7 @@ export default function AdminImport() {
     } catch {
       // Best-effort — never block the toast.
     }
-  }, [batchIndustries, batchKeywords, successionRows, successionResults]);
+  }, [batchIndustries, batchKeywords, successionRows, successionResults, runs]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
