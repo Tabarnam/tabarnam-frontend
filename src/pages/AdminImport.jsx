@@ -286,6 +286,14 @@ export default function AdminImport() {
   const [preflightEnabled, setPreflightEnabled] = useState(true);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
 
+  // Bulk "remove exact matches" undo snapshot. When the user clicks
+  // "X Matches" we drop every row whose preflight came back as exact_match
+  // and store the pre-removal state here so they can undo in one click.
+  // Cleared on undo. Pasting a new spreadsheet or running an import does
+  // NOT clear it — undoing after import would just re-populate the queue,
+  // which is harmless.
+  const [lastMatchRemoval, setLastMatchRemoval] = useState(null);
+
   // Spreadsheet paste state
   const [spreadsheetPasteOpen, setSpreadsheetPasteOpen] = useState(false);
   const [spreadsheetPasteText, setSpreadsheetPasteText] = useState("");
@@ -439,6 +447,74 @@ export default function AdminImport() {
         .map((r) => (r.index > index ? { ...r, index: r.index - 1 } : r));
     });
   }, []);
+
+  // Count of preflight rows flagged exact_match that are eligible for the
+  // bulk-remove button. Excludes rows already imported in this session —
+  // those keep their preflight status (the company exists now because we
+  // just created it), but removing them would be confusing.
+  const eligibleExactMatchIndices = useMemo(() => {
+    if (!Array.isArray(preflightResults)) return [];
+    const completedSet = new Set(
+      successionResults.filter((sr) => sr?.status === "done").map((sr) => sr.index)
+    );
+    return preflightResults
+      .filter((r) => r.status === "exact_match" && !completedSet.has(r.index))
+      .map((r) => r.index);
+  }, [preflightResults, successionResults]);
+
+  const exactMatchCount = eligibleExactMatchIndices.length;
+
+  const removeExactMatches = useCallback(() => {
+    if (eligibleExactMatchIndices.length === 0) return;
+    const dropSet = new Set(eligibleExactMatchIndices);
+
+    // Snapshot for undo BEFORE mutation. Capture successionRows,
+    // successionCountInput, and the preflight results — restoring all
+    // three brings the user back exactly where they were.
+    setLastMatchRemoval({
+      rows: successionRows.slice(),
+      countInput: successionCountInput,
+      preflightResults: Array.isArray(preflightResults) ? preflightResults.slice() : null,
+      removedCount: dropSet.size,
+    });
+
+    setSuccessionRows((prev) => {
+      const next = prev.filter((_, i) => !dropSet.has(i));
+      if (next.length === 0) next.push({ companyName: "", companyUrl: "" });
+      return next;
+    });
+    setSuccessionCountInput((prev) => {
+      const n = Math.max(1, Number(prev) - dropSet.size);
+      return String(n);
+    });
+
+    // Re-index the surviving preflight results so they still line up with
+    // the shifted-down rows. Auto-preflight will re-fire too (rows changed),
+    // but doing this synchronously avoids a flash of misaligned chips.
+    setPreflightResults((prev) => {
+      if (!Array.isArray(prev)) return prev;
+      const indexMap = new Map();
+      let newIdx = 0;
+      const total = successionRows.length;
+      for (let oldIdx = 0; oldIdx < total; oldIdx += 1) {
+        if (!dropSet.has(oldIdx)) {
+          indexMap.set(oldIdx, newIdx);
+          newIdx += 1;
+        }
+      }
+      return prev
+        .filter((r) => indexMap.has(r.index))
+        .map((r) => ({ ...r, index: indexMap.get(r.index) }));
+    });
+  }, [eligibleExactMatchIndices, successionRows, successionCountInput, preflightResults]);
+
+  const undoMatchRemoval = useCallback(() => {
+    if (!lastMatchRemoval) return;
+    setSuccessionRows(lastMatchRemoval.rows);
+    setSuccessionCountInput(lastMatchRemoval.countInput);
+    setPreflightResults(lastMatchRemoval.preflightResults);
+    setLastMatchRemoval(null);
+  }, [lastMatchRemoval]);
 
   // Debounced auto-preflight check
   useEffect(() => {
@@ -5171,18 +5247,49 @@ export default function AdminImport() {
 
             {successionCount > 1 ? (
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Import queue ({successionCount} companies)</div>
-                  <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-muted-foreground select-none">
-                    <input
-                      type="checkbox"
-                      checked={preflightEnabled}
-                      onChange={(e) => setPreflightEnabled(e.target.checked)}
-                      className="rounded"
-                    />
-                    Check for duplicates
-                    {preflightLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-muted-foreground select-none">
+                      <input
+                        type="checkbox"
+                        checked={preflightEnabled}
+                        onChange={(e) => setPreflightEnabled(e.target.checked)}
+                        className="rounded"
+                      />
+                      Check for duplicates
+                      {preflightLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    </label>
+                    {/* Bulk-remove all exact-match rows. Shown only when there's something to remove. */}
+                    {exactMatchCount > 0 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        onClick={removeExactMatches}
+                        disabled={isSuccessionRunning}
+                        title={`Remove all ${exactMatchCount} row${exactMatchCount === 1 ? "" : "s"} flagged as Exact match`}
+                      >
+                        <X className="h-3 w-3 mr-1" />
+                        {exactMatchCount} {exactMatchCount === 1 ? "Match" : "Matches"}
+                      </Button>
+                    ) : null}
+                    {/* Undo the last bulk-remove. One-level undo only — chained removals don't stack. */}
+                    {lastMatchRemoval ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7"
+                        onClick={undoMatchRemoval}
+                        disabled={isSuccessionRunning}
+                        title={`Restore the ${lastMatchRemoval.removedCount} row${lastMatchRemoval.removedCount === 1 ? "" : "s"} just removed`}
+                      >
+                        Undo
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
                 {preflightError ? (
                   <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-2 text-xs text-red-800 dark:text-red-300">
