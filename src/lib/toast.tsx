@@ -25,7 +25,7 @@ type ToastTimerState = {
   paused: boolean;
 };
 
-const DEFAULT_DURATION_MS = 10000;
+const DEFAULT_DURATION_MS = 3000;
 
 let toastIdSeq = 0;
 function generateToastId(): ToastId {
