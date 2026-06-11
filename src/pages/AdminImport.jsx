@@ -4767,10 +4767,21 @@ export default function AdminImport() {
     const completedIndex = successionIndex;
     lastProcessedPrimaryIndexRef.current = completedIndex;
 
+    // Capture the verified Cosmos company_id now so Apply Industries/Products
+    // (and any other post-import bulk operation) can skip the search step
+    // for these rows. Without this the apply path falls back to two
+    // /xadmin-api-companies?search= calls per row — the dominant cost on
+    // large batches.
+    const completedRunForId = runs.find((r) => asString(r?.session_id).trim() === asString(activeSessionId).trim());
+    const verifiedCompanyId = Array.isArray(completedRunForId?.saved_company_ids_verified) && completedRunForId.saved_company_ids_verified.length > 0
+      ? asString(completedRunForId.saved_company_ids_verified[0]).trim()
+      : "";
+
     setSuccessionResults((prev) => [...prev, {
       index: completedIndex,
       status: activeStatus === "done" ? "done" : "error",
       sessionId: activeSessionId,
+      company_id: verifiedCompanyId || undefined,
     }]);
     verifyEnrichment(activeSessionId);
 
@@ -4830,10 +4841,18 @@ export default function AdminImport() {
     const completedIndex = successionShadowIndex;
     lastProcessedShadowIndexRef.current = completedIndex;
 
+    // Capture verified Cosmos company_id — same reason as primary slot
+    // above (see comment there).
+    const completedRunForId = runs.find((r) => asString(r?.session_id).trim() === asString(shadowSessionId).trim());
+    const verifiedCompanyId = Array.isArray(completedRunForId?.saved_company_ids_verified) && completedRunForId.saved_company_ids_verified.length > 0
+      ? asString(completedRunForId.saved_company_ids_verified[0]).trim()
+      : "";
+
     setSuccessionResults((prev) => [...prev, {
       index: completedIndex,
       status: shadowStatus === "done" ? "done" : "error",
       sessionId: shadowSessionId,
+      company_id: verifiedCompanyId || undefined,
     }]);
     verifyEnrichment(shadowSessionId);
 
