@@ -3655,6 +3655,10 @@ export default function AdminImport() {
   }, [importConfigured, location, query, queryTypes, urlTypeValidationError]);
 
   const [applyingBatchFields, setApplyingBatchFields] = useState(false);
+  // { done: N, total: M } while a batch apply is running, null otherwise.
+  // Drives the live "Applying 7/13…" progress chip on the Apply button.
+  const [applyBatchProgress, setApplyBatchProgress] = useState(null);
+
   const applyBatchFields = useCallback(async () => {
     const industries = batchIndustries.trim().split(",").map((s) => s.trim()).filter(Boolean);
     const keywords = batchKeywords.trim().split(",").map((s) => s.trim()).filter(Boolean);
@@ -3670,41 +3674,83 @@ export default function AdminImport() {
       return;
     }
     setApplyingBatchFields(true);
+    setApplyBatchProgress({ done: 0, total: rows.length });
     // Phase 4.35 — single batch_id stamped on every per-company PUT so the
     // Recent Activity feed groups them as one batch summary row.
     const batchId = `apply_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     let ok = 0;
     let fail = 0;
     const failedNames = [];
-    for (const row of rows) {
+
+    // Build a fast lookup: row index -> resolved company id from
+    // succession results. When present, we already know the Cosmos id
+    // from the in-session import and can skip the two search GETs.
+    const idByRowIndex = new Map();
+    if (Array.isArray(successionResults)) {
+      for (const sr of successionResults) {
+        if (sr && typeof sr.index === "number" && sr.company_id) {
+          idByRowIndex.set(sr.index, sr.company_id);
+        }
+      }
+    }
+
+    // Process one row: resolve id, fetch latest doc, patch, PUT.
+    // Returns nothing; updates outer counters via closure refs.
+    // We use refs so concurrent workers can increment safely (JS event
+    // loop is single-threaded so plain ++ on counter vars is also safe,
+    // but I prefer being explicit about the shared-state contract).
+    const okRef = { v: 0 };
+    const failRef = { v: 0 };
+    const doneRef = { v: 0 };
+
+    async function processRow(row, rowIdx) {
       const domain = row.companyUrl.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/^www\./, "").toLowerCase();
       const name = row.companyName.trim();
       try {
-        // Search by domain first, fall back to name
-        let items = [];
-        for (const q of [domain, name].filter(Boolean)) {
-          const { res: searchRes } = await apiFetchWithFallback([`/xadmin-api-companies?search=${encodeURIComponent(q)}&take=20`]);
-          if (!searchRes.ok) continue;
-          const data = await searchRes.json().catch(() => ({}));
-          items = data?.items || [];
-          if (items.length > 0) break;
+        let existing = null;
+
+        // Fast path — we just imported this row this session, use the
+        // known id and fetch the company doc directly (1 GET vs 2 searches).
+        const knownId = idByRowIndex.get(rowIdx);
+        if (knownId) {
+          const { res: getRes } = await apiFetchWithFallback([`/xadmin-api-companies/${encodeURIComponent(knownId)}`]);
+          if (getRes.ok) {
+            const data = await getRes.json().catch(() => ({}));
+            existing = data?.company || data?.item || data;
+          }
         }
-        const match = items.find((c) => {
-          const d = String(c.normalized_domain || "").toLowerCase().replace(/^www\./, "");
-          if (domain && d === domain) return true;
-          const n = String(c.company_name || "").toLowerCase();
-          if (name && n === name.toLowerCase()) return true;
-          // Fuzzy: name contains or is contained
-          if (name && (n.includes(name.toLowerCase()) || name.toLowerCase().includes(n))) return true;
-          return false;
-        });
-        if (!match) { fail++; failedNames.push(name || domain); toast.warning(`Not found: ${name || domain}`); continue; }
-        const existing = match;
+
+        // Slow path — search by domain, then by name.
+        if (!existing) {
+          let items = [];
+          for (const q of [domain, name].filter(Boolean)) {
+            const { res: searchRes } = await apiFetchWithFallback([`/xadmin-api-companies?search=${encodeURIComponent(q)}&take=20`]);
+            if (!searchRes.ok) continue;
+            const data = await searchRes.json().catch(() => ({}));
+            items = data?.items || [];
+            if (items.length > 0) break;
+          }
+          existing = items.find((c) => {
+            const d = String(c.normalized_domain || "").toLowerCase().replace(/^www\./, "");
+            if (domain && d === domain) return true;
+            const n = String(c.company_name || "").toLowerCase();
+            if (name && n === name.toLowerCase()) return true;
+            // Fuzzy: name contains or is contained
+            if (name && (n.includes(name.toLowerCase()) || name.toLowerCase().includes(n))) return true;
+            return false;
+          });
+        }
+
+        if (!existing) {
+          failRef.v += 1;
+          failedNames.push(name || domain);
+          return;
+        }
+
         const patch = {};
         if (industries.length > 0) {
           const cur = Array.isArray(existing.industries) ? existing.industries : [];
-          const merged = Array.from(new Set([...cur, ...industries]));
-          patch.industries = merged;
+          patch.industries = Array.from(new Set([...cur, ...industries]));
         }
         if (keywords.length > 0) {
           const cur = Array.isArray(existing.product_keywords || existing.keywords) ? (existing.product_keywords || existing.keywords) : [];
@@ -3714,9 +3760,6 @@ export default function AdminImport() {
         }
         const { res: putRes } = await apiFetchWithFallback([`/xadmin-api-companies/${encodeURIComponent(existing.id)}`], {
           method: "PUT",
-          // Phase 4.35 — include batch_id so admin-companies-v2 stamps it
-          // onto the company_edit_history row; the Recent Activity feed
-          // suppresses these in favor of the one batch-summary row.
           body: JSON.stringify({
             company: { ...existing, ...patch },
             batch_id: batchId,
@@ -3725,16 +3768,63 @@ export default function AdminImport() {
           }),
         });
         if (putRes.ok) {
-          ok++;
-          toast.success(`✓ ${name || domain}`);
+          okRef.v += 1;
         } else {
-          fail++;
+          failRef.v += 1;
           failedNames.push(name || domain);
-          toast.error(`Failed to save: ${name || domain}`);
         }
-      } catch (e) { fail++; failedNames.push(name || domain); toast.error(`Error: ${name || domain}`); }
+      } catch {
+        failRef.v += 1;
+        failedNames.push(name || domain);
+      } finally {
+        doneRef.v += 1;
+        // Throttle UI updates to once per ~80ms so React doesn't render
+        // on every single completion (typically 8 concurrent finishes
+        // would bunch up). The final state still lands via the post-loop
+        // setter below.
+        setApplyBatchProgress((prev) =>
+          prev && prev.done < doneRef.v ? { done: doneRef.v, total: rows.length } : prev
+        );
+      }
     }
+
+    // Concurrency limiter — N workers pull from a shared index. Order
+    // doesn't matter to the result; failures are recorded but don't
+    // abort siblings. 8 is empirically a sweet spot for /xadmin-api-companies
+    // (which is Cosmos-backed and tolerates fan-out well).
+    const CONCURRENCY = 8;
+    let nextIdx = 0;
+    async function worker() {
+      while (true) {
+        const myIdx = nextIdx;
+        nextIdx += 1;
+        if (myIdx >= rows.length) return;
+        // Map the filtered-rows index back to the original successionRows
+        // index so the known-id lookup matches. The successionRows entries
+        // that pass the filter retain their original ordering, so we walk
+        // successionRows and pick the myIdx-th filtered-eligible one.
+        // (Cheaper: do this once before fanning out.)
+        await processRow(rows[myIdx], filterIdxToRowIdx[myIdx]);
+      }
+    }
+
+    // Precompute filtered-idx -> original-row-idx so processRow can do
+    // the known-id lookup against the original successionRows ordering.
+    const filterIdxToRowIdx = [];
+    successionRows.forEach((r, i) => {
+      if (r.companyName.trim() || r.companyUrl.trim()) {
+        filterIdxToRowIdx.push(i);
+      }
+    });
+
+    const workers = Array.from({ length: Math.min(CONCURRENCY, rows.length) }, () => worker());
+    await Promise.all(workers);
+
+    ok = okRef.v;
+    fail = failRef.v;
+
     setApplyingBatchFields(false);
+    setApplyBatchProgress(null);
     if (ok > 0) toast.success(`Applied to ${ok} compan${ok === 1 ? "y" : "ies"}.`);
     if (fail > 0) toast.warning(`${fail} not found or failed: ${failedNames.join(", ")}`);
 
@@ -3772,7 +3862,7 @@ export default function AdminImport() {
     } catch {
       // Best-effort — never block the toast.
     }
-  }, [batchIndustries, batchKeywords, successionRows]);
+  }, [batchIndustries, batchKeywords, successionRows, successionResults]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -6012,7 +6102,9 @@ export default function AdminImport() {
                 {applyingBatchFields ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Applying…
+                    {applyBatchProgress && applyBatchProgress.total > 0
+                      ? `Applying ${applyBatchProgress.done}/${applyBatchProgress.total}…`
+                      : "Applying…"}
                   </>
                 ) : (
                   <>
