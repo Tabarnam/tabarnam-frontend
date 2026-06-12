@@ -684,11 +684,22 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndust
   // and supplied by the caller, so we don't reload it per company. When the
   // query has any affinity industries:
   //   +25 bonus for companies IN one of those industries
-  //   -15 penalty for companies NOT in any of them
-  // This creates a 40-point gap between aligned and non-aligned companies.
+  //   -15 penalty for companies NOT in any of them — BUT only when the
+  //        company also has no strong name match. A strong name match
+  //        (nameScore >= 60: exact / startsWith / q.startsWith / word
+  //        boundary) means the user typed THIS brand by name, so the
+  //        brand's own category trumps the query's affinity bucket.
+  //        Without this exception, searches like "alo yoga" demote the
+  //        ALO brand below yoga-tagged competitors because ALO's
+  //        industries are Apparel/Activewear/leggings (not yoga).
+  //        Brand searches lose to category searches every time.
+  // This creates a 40-point gap between aligned and non-aligned non-name-
+  // match companies, while keeping name-matched brands honest.
   const hasAffinity = affinityIndustries.length > 0 &&
     industries.some((ind) => affinityIndustries.some((aff) => ind.includes(aff.toLowerCase())));
-  const affinityBonus = hasAffinity ? 25 : (affinityIndustries.length > 0 ? -15 : 0);
+  const affinityBonus = hasAffinity
+    ? 25
+    : (affinityIndustries.length > 0 && nameScore < 60 ? -15 : 0);
 
   let relevanceScore = nameScore > 0
     ? Math.round(nameScore * 0.7 + keywordScore * 0.3) + nameBonus + industryBonus + affinityBonus

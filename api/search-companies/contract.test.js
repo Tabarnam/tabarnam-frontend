@@ -750,6 +750,75 @@ test("computeRelevanceScore: name-starts-with always beats keyword-only (dove sc
   );
 });
 
+test("computeRelevanceScore: strong name match exempt from -15 affinity penalty (alo yoga)", () => {
+  // ALO (apparel/activewear, no yoga tag) vs Yoga Co (yoga keyword/industry).
+  // Query "alo yoga" derives affinity industries that match yoga-related
+  // companies. Pre-fix: ALO got -15 affinity penalty for not being in those
+  // industries → ranked BELOW yoga-tagged broadened items. Now strong name
+  // matches (nameScore >= 60) skip the -15 penalty so the brand the user
+  // typed wins outright.
+  //
+  // search_text_norm is space-padded as production stores it — without
+  // this, isSynonymOnlyMatch wrongly flags ALO as synonym-only and
+  // applies a -60% penalty that masks the affinity behaviour we're
+  // testing here.
+  const alo = {
+    company_name: "ALO",
+    industries: ["Apparel", "Activewear", "leggings"],
+    keywords: ["leggings", "sports bras"],
+    search_text_norm: " alo apparel activewear leggings sports bras ",
+  };
+  const yogaCo = {
+    company_name: "Yoga Democracy",
+    industries: ["Yoga Apparel"],
+    keywords: ["yoga pants", "yoga tops"],
+    search_text_norm: " yoga democracy yoga apparel yoga pants yoga tops ",
+  };
+  // Pretend the affinity index says "alo yoga" maps to yoga-related industries.
+  const affinityIndustries = ["yoga apparel", "yoga mats", "yoga props"];
+
+  const aloScores = _test.computeRelevanceScore(alo, "alo yoga", "alo yoga", "aloyoga", affinityIndustries);
+  const yogaScores = _test.computeRelevanceScore(yogaCo, "alo yoga", "alo yoga", "aloyoga", affinityIndustries);
+
+  // ALO's nameScore should be 70 (q.startsWith(name)).
+  assert.equal(aloScores._nameMatchScore, 70);
+  // ALO must outrank Yoga Democracy — the brand the user typed wins.
+  assert.ok(
+    aloScores._relevanceScore > yogaScores._relevanceScore,
+    `ALO (R=${aloScores._relevanceScore}, N=${aloScores._nameMatchScore}) must beat Yoga Democracy (R=${yogaScores._relevanceScore}, N=${yogaScores._nameMatchScore}) for "alo yoga"`
+  );
+});
+
+test("computeRelevanceScore: weak/no name match still pays the -15 affinity penalty", () => {
+  // Sanity: the exemption only applies to nameScore >= 60. A keyword-match-
+  // only company outside the query's affinity bucket should still get the
+  // -15 penalty. Without this guard, the exemption would let unrelated
+  // off-affinity companies slip in.
+  //
+  // Fixture: a yoga-keyword-having company in an unrelated industry, so
+  // it scores via keyword (not zero) but is outside the yoga affinity
+  // bucket and gets the penalty.
+  const offAffinity = {
+    company_name: "Random Co",
+    industries: ["Office Supplies"],
+    keywords: ["yoga"],
+    search_text_norm: " random co office supplies yoga ",
+  };
+  const affinityIndustries = ["yoga apparel", "yoga mats"];
+
+  const scoresWithAffinity = _test.computeRelevanceScore(
+    offAffinity, "alo yoga", "alo yoga", "aloyoga", affinityIndustries
+  );
+  const scoresWithoutAffinity = _test.computeRelevanceScore(
+    offAffinity, "alo yoga", "alo yoga", "aloyoga", []
+  );
+  assert.equal(scoresWithAffinity._nameMatchScore, 0);
+  assert.ok(
+    scoresWithAffinity._relevanceScore < scoresWithoutAffinity._relevanceScore,
+    `weak-name-match items must still receive the -15 affinity penalty: withAff=${scoresWithAffinity._relevanceScore} withoutAff=${scoresWithoutAffinity._relevanceScore}`
+  );
+});
+
 // ── fuzzy fallback integration ───────────────────────────────────────────
 
 test("search-companies triggers fuzzy fallback when primary search returns 0 results", async () => {
