@@ -597,16 +597,15 @@ test("search-companies strips stopwords from query token clauses", async () => {
   assert.ok(tokenVals.includes("north") && tokenVals.includes("face"), `real words kept; got ${JSON.stringify(tokenVals)}`);
 });
 
-test("search-companies SKIPS Pass 3 when the PRIMARY surfaces via Pass 2 (not Pass 1)", async () => {
-  // The exact 2026-05-25 'buffalo fish' regression. Pass 1's strict
-  // word-boundary AND filter can miss strong matches whose
-  // search_text_norm doesn't precisely contain the space-padded query
-  // — H&H Boneless Buffalo Fish Market matched via Pass 2's substring
-  // path, not Pass 1. The pre-fix code only checked Pass 1's items for
-  // a primary so the gate stayed open. Now we re-check after Pass 2
-  // merges its results.
+test("broadening fallback skips when token query already returns a strong primary", async () => {
+  // The 2026-05-25 "buffalo fish" short-circuit guarantee, restated for
+  // the Phase 4.36 token system: when the indexed token query returns a
+  // company whose name strongly matches the query, the broadening
+  // fallback must NOT fire. The whole point of restoring broadening was
+  // to rescue queries that returned 0 — when the token query is healthy,
+  // broadening would just add noise and an unnecessary Cosmos roundtrip.
   const primary = {
-    id: "primary_via_pass2",
+    id: "primary_via_tokens",
     company_name: "Acme Buffalo Fish Market",
     normalized_domain: "acme.example",
     _ts: 1700000010,
@@ -616,15 +615,8 @@ test("search-companies SKIPS Pass 3 when the PRIMARY surfaces via Pass 2 (not Pa
   const companiesContainer = makeContainer(async (spec) => {
     specs.push(spec);
     const params = spec.parameters || [];
-    const isPass1 = params.some((p) => p.name === "@q_wb");
-    // Pass 1 returns nothing — simulating the case where the word-boundary
-    // filter misses the primary.
-    if (isPass1) return [];
-    // Pass 2 (has @q + @q_compact params) returns the primary.
-    const isPass2 =
-      params.some((p) => p.name === "@q") &&
-      params.some((p) => p.name === "@q_compact");
-    if (isPass2) return [primary];
+    // Token query identified by @tok* params.
+    if (params.some((p) => p.name.startsWith("@tok"))) return [primary];
     return [];
   });
 
@@ -634,25 +626,23 @@ test("search-companies SKIPS Pass 3 when the PRIMARY surfaces via Pass 2 (not Pa
     { companiesContainer, useFTS: false }
   );
 
-  const pass3Specs = specs.filter((s) =>
+  const broadenSpecs = specs.filter((s) =>
     (s.parameters || []).some((p) => p.name === "@broadenTake")
   );
   assert.equal(
-    pass3Specs.length,
+    broadenSpecs.length,
     0,
-    "Pass 3 should skip when Pass 2 supplied a tier-0 primary — even if Pass 1 returned nothing"
+    "broadening fallback should skip when token query returned a strong-name-match primary"
   );
 });
 
-test("search-companies SKIPS Pass 3 when Pass 1 has even ONE tier-0 primary", async () => {
-  // The 2026-05-25 "buffalo fish" fix: when Pass 1 has any tier-0 hit
-  // (R ≥ 90 OR nameScore ≥ 100), Pass 3 broadening is unnecessary —
-  // Pass 4 handles industry-related peer expansion. Skipping Pass 3 saves
-  // a 7-14s cross-partition CONTAINS scan that would bloat the result
-  // pool with weakly-relevant candidates ranking below the primary.
+test("broadening fallback skips when token query returns enough tier-0 primaries", async () => {
+  // The 2026-05-25 "candle wick" short-circuit guarantee, restated for
+  // the Phase 4.36 token system: many tier-0 hits → broadening adds no
+  // value → fallback must skip.
   const tier0Docs = Array.from({ length: 5 }, (_, i) => ({
     id: `t0_${i}`,
-    // Exact match → nameScore 100 → tier -1 → pass1HasPrimary = true.
+    // Exact match → nameScore 100.
     company_name: "candle wick",
     normalized_domain: `cw${i}.com`,
     _ts: 1700000000 + i,
@@ -662,8 +652,8 @@ test("search-companies SKIPS Pass 3 when Pass 1 has even ONE tier-0 primary", as
   const companiesContainer = makeContainer(async (spec) => {
     specs.push(spec);
     const params = spec.parameters || [];
-    const isPass1 = params.some((p) => p.name === "@q_wb");
-    return isPass1 ? tier0Docs : [];
+    if (params.some((p) => p.name.startsWith("@tok"))) return tier0Docs;
+    return [];
   });
 
   await _test.searchCompaniesHandler(
@@ -672,13 +662,13 @@ test("search-companies SKIPS Pass 3 when Pass 1 has even ONE tier-0 primary", as
     { companiesContainer, useFTS: false }
   );
 
-  const pass3Specs = specs.filter((s) =>
+  const broadenSpecs = specs.filter((s) =>
     (s.parameters || []).some((p) => p.name === "@broadenTake")
   );
   assert.equal(
-    pass3Specs.length,
+    broadenSpecs.length,
     0,
-    "Pass 3 should be short-circuited when Pass 1 has any tier-0 primary"
+    "broadening fallback should skip when token query returned exact-name primaries"
   );
 });
 
@@ -1862,4 +1852,148 @@ test("typo correction: gracefully no-ops when affinity index is missing", async 
   assert.equal(res.status, 200);
   const body = JSON.parse(res.body);
   assert.equal(body.meta?.correctedQuery, undefined);
+});
+
+// ── broadening fallback (restored Pass 3) ─────────────────────────────────
+// Regression check for the 2026-06-11 Phase 4.36 rewrite that removed the
+// per-word OR broadening pass. The strict-AND token query can return zero
+// for any multi-word "brand + category" query where the brand's record
+// doesn't have the category tagged — production case: "alo yoga" returned
+// 0 because the ALO brand has no "yoga" tag. The fallback fires only when
+// the token query genuinely missed, so it doesn't slow down the happy path.
+
+test("broadening fallback: fires when multi-word token query returns 0 + no strong primary", async () => {
+  // ALO's actual production shape: name "ALO", apparel/activewear/leggings
+  // industries, no "yoga" tag anywhere.
+  const alo = {
+    id: "alo_brand",
+    company_name: "ALO",
+    normalized_domain: "aloyoga.com",
+    industries: ["Apparel", "Activewear", "Sports & Fitness", "leggings"],
+    keywords: ["leggings", "sports bras", "tops"],
+    _ts: 1700000400,
+  };
+
+  const sqlsIssued = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    const sql = String(spec.query || "");
+    const params = spec.parameters || [];
+    sqlsIssued.push(sql);
+    // Token query (has @tok params): return nothing — simulates "alo yoga"
+    // missing because ALO doesn't carry the "yoga" token.
+    if (params.some((p) => p.name.startsWith("@tok"))) return [];
+    // Broadening fallback (has @bw params): return ALO — it matches the
+    // "alo" OR clause.
+    if (params.some((p) => p.name.startsWith("@bw"))) return [alo];
+    return [];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=alo+yoga&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  // ALO surfaces, tagged as a broadened match.
+  const ids = body.items.map((i) => i.id);
+  assert.ok(ids.includes("alo_brand"), `ALO must surface via broadening; got: ${ids}`);
+  const aloItem = body.items.find((i) => i.id === "alo_brand");
+  assert.equal(
+    aloItem._broadenedMatch,
+    true,
+    "ALO must be tagged _broadenedMatch so the scorer applies the broadening penalty"
+  );
+  // meta._searchMode reflects that the fallback fired (observable for
+  // canary and any future analytics).
+  assert.equal(body.meta._searchMode, "tokens+broaden");
+  // The fallback SQL was actually issued (use @bw params as the marker).
+  const broadenIssued = sqlsIssued.some((s) =>
+    /CONTAINS\(c\.search_text_norm/.test(s)
+  );
+  assert.ok(broadenIssued, "broadening SQL must have been issued");
+});
+
+test("broadening fallback: does NOT fire when token query already produced a strong primary", async () => {
+  // Clean case: token query returns a doc whose name exactly matches the
+  // query → no broadening needed; meta stays "tokens".
+  const exactMatch = {
+    id: "exact_doc",
+    company_name: "buffalo fish co",
+    normalized_domain: "buffalofishco.example",
+    industries: ["Seafood"],
+    _ts: 1700000401,
+  };
+
+  const sqlsIssued = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    sqlsIssued.push(String(spec.query || ""));
+    const params = spec.parameters || [];
+    if (params.some((p) => p.name.startsWith("@tok"))) return [exactMatch];
+    return [];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=buffalo+fish+co&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(
+    body.meta._searchMode,
+    "tokens",
+    "fallback must not fire when token query already produced a strong primary"
+  );
+  const broadenIssued = sqlsIssued.some((s) =>
+    /CONTAINS\(c\.search_text_norm/.test(s)
+  );
+  assert.ok(!broadenIssued, "no broadening SQL should have been issued");
+});
+
+test("Pass 4 fires for q.startsWith(name) brand+qualifier pattern (alo yoga)", async () => {
+  // The 2026-07-XX ALO regression. nameScore for q="alo yoga" vs name="ALO"
+  // is 70 (via the q.startsWith(name) path). The pre-fix Pass 4 threshold of
+  // 80 silently skipped peer expansion → user saw ALO + yoga-tagged peers
+  // via broadening, but missed ALO's true apparel/activewear competitors.
+  // Threshold lowered to 70 so the brand+qualifier shape qualifies.
+  const alo = {
+    id: "alo_brand_p4",
+    company_name: "ALO",
+    normalized_domain: "aloyoga.com",
+    industries: ["Apparel", "Activewear", "leggings"],
+    _ts: 1700000402,
+  };
+
+  const sqlsIssued = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    const sql = String(spec.query || "");
+    sqlsIssued.push(sql);
+    const params = spec.parameters || [];
+    // Token query: return ALO directly so we hit Pass 4 without depending
+    // on the broadening fallback.
+    if (params.some((p) => p.name.startsWith("@tok"))) return [alo];
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=alo+yoga&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  // Pass 4 SQL signature: EXISTS(SELECT VALUE x FROM x IN c.industries
+  // WHERE CONTAINS(LOWER(x), @iw0)).
+  const pass4Issued = sqlsIssued.some(
+    (sql) =>
+      sql.includes("c.industries") &&
+      sql.includes("EXISTS") &&
+      sql.includes("CONTAINS(LOWER(x)")
+  );
+  assert.ok(
+    pass4Issued,
+    `Pass 4 must fire for nameScore-70 brand+qualifier match. SQLs: ${sqlsIssued.map((s) => s.replace(/\s+/g, " ").trim().slice(0, 60)).join(" || ")}`
+  );
 });

@@ -1613,26 +1613,83 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         items = tokenRes.resources || [];
       }
 
-      // (Pass-3 "broadening" removed in the search_tokens rewrite: the single
-      // ARRAY_CONTAINS query with synonym OR-expansion already covers multi-word
-      // recall, and Pass 4 below handles industry-peer expansion for brand
-      // searches — so the expensive cross-partition CONTAINS broadening scan is
-      // no longer needed.)
+      // Compute once and reuse for the broadening + fuzzy gates below.
+      const hasStrongNameMatch =
+        items.length > 0 &&
+        items.some((c) => computeNameMatchScore(c, q_raw, q_norm, q_compact) >= 60);
+
+      // ── Broadening fallback (restored Pass 3) ──
+      // The Phase 4.36 search_tokens rewrite removed Pass 3 on the rationale
+      // that the indexed AND-of-tokens query "already covers multi-word
+      // recall". It doesn't — when a brand's record doesn't have ALL the
+      // query words as tags, strict AND returns zero. Production case:
+      // searching "alo yoga" returned 0 items because the ALO brand has
+      // "alo" in search_tokens but no "yoga" tag (its industries are
+      // Apparel / Activewear / leggings / etc.). Same hazard for any
+      // "brand + category" query when the brand isn't tagged for that
+      // category. Restore Pass 3 as a CONDITIONAL fallback: fires only on
+      // multi-word queries where the token query returned thin results and
+      // produced no strong primary name match. When the AND query already
+      // found a clear primary or a healthy result pool, the broadening
+      // pass adds noise — so we gate hard.
+      const BROADEN_FALLBACK_THRESHOLD = 10;
+      let usedBroadenFallback = false;
+      if (
+        !quickMode &&
+        q_norm &&
+        !hasStrongNameMatch &&
+        items.length < BROADEN_FALLBACK_THRESHOLD
+      ) {
+        const broadenWords = q_norm.split(/\s+/).filter((w) => w.length >= 3);
+        if (broadenWords.length >= 2) {
+          const broadenParams = [{ name: "@broadenTake", value: limit }];
+          const broadenClauses = [];
+          broadenWords.forEach((word, i) => {
+            const wParam = `@bw${i}`;
+            broadenParams.push({ name: wParam, value: ` ${word} ` });
+            broadenClauses.push(`CONTAINS(c.search_text_norm, ${wParam})`);
+            const stemmed = simpleStem(word);
+            if (stemmed && stemmed !== word) {
+              const sParam = `@bws${i}`;
+              broadenParams.push({ name: sParam, value: ` ${stemmed} ` });
+              broadenClauses.push(`CONTAINS(c.search_text_stemmed, ${sParam})`);
+            }
+          });
+
+          const broadenSql = `
+            SELECT TOP @broadenTake ${SELECT_FIELDS}
+            FROM c
+            WHERE (${broadenClauses.join(" OR ")}) AND ${softDeleteFilter}
+            ORDER BY c._ts DESC
+          `;
+
+          try {
+            const broadenRes = await container.items
+              .query(
+                { query: broadenSql, parameters: broadenParams },
+                { enableCrossPartitionQuery: true }
+              )
+              .fetchAll();
+            const broadenItems = broadenRes.resources || [];
+            const existingIds = new Set(items.map((i) => i.id));
+            for (const item of broadenItems) {
+              if (existingIds.has(item.id)) continue;
+              item._broadenedMatch = true;
+              items.push(item);
+              existingIds.add(item.id);
+            }
+            usedBroadenFallback = true;
+          } catch (broadenErr) {
+            // Best-effort. If this fails, the user still gets the token-query
+            // results (possibly empty) and the fuzzy fallback below still runs.
+            context.log("[search-companies] broadening fallback error:", broadenErr?.message);
+          }
+        }
+      }
 
       // Fuzzy fallback: fall back to prefix-based search with Damerau-Levenshtein
       // post-filter when primary search produces no real name match for the query.
       // Tries a 4-char prefix first, then a 3-char prefix.
-      //
-      // The gate used to be `items.length === 0`, but Pass 2's per-word substring
-      // AND can return incidental matches that block real typo corrections — e.g.
-      // "Cliff Bar" → "Clif Bar" never surfaced because some other company had
-      // "cliff" + "bar" as substrings somewhere, leaving items.length > 0. Now we
-      // also fire fuzzy when none of the retrieved companies has a name match
-      // score >= 60 (word-boundary or better) for the query. The decoy substring
-      // hits stay in results but rank below the fuzzy correction.
-      const hasStrongNameMatch =
-        items.length > 0 &&
-        items.some((c) => computeNameMatchScore(c, q_raw, q_norm, q_compact) >= 60);
 
       if (!hasStrongNameMatch && q_norm && q_norm.length >= 4 && !quickMode) {
         try {
@@ -1713,21 +1770,27 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             primary = c;
           }
         }
-        // Threshold of 80 catches the single-most-common brand-search shape:
-        // user types ONE word that's the first word of a multi-word company
-        // name ("everlit" → "EVERLIT SURVIVAL", "skindinavia" → "Skindinavia,
-        // Inc", "greenlight" → "Greenlight Bookstore"). Those land at
-        // nameScore = 80 via the startsWith path. A threshold of 90 missed
-        // every one of those — even though the user typed a clear, specific
-        // brand identifier and obviously wanted peers. nameScore 80 IS a
-        // brand identifier signal; it's effectively distinct from generic
-        // multi-word matches (which would be 60 word-boundary) or substring
-        // hits (40). Tight enough not to fire on "Bear" → "Bear Naked
-        // Granola"-style accidental matches once you couple it with the
-        // existing skip === 0 + has-industries gates.
+        // Threshold of 70 catches both the common brand-search shapes:
+        //   - user types ONE word that's the first word of a multi-word
+        //     company name (everlit → EVERLIT SURVIVAL, skindinavia →
+        //     Skindinavia Inc, greenlight → Greenlight Bookstore). These
+        //     land at nameScore = 80 via the startsWith path.
+        //   - user types BRAND + QUALIFIER where the brand is a short
+        //     prefix of the query ("alo yoga" → ALO, "watson farms beef"
+        //     → Watson Farms, "boulder canyon kettle" → Boulder Canyon).
+        //     These land at nameScore = 70 via the q.startsWith(name)
+        //     path. Without catching this case, ALO surfaces (via
+        //     broadening fallback) for "alo yoga" but Pass 4 doesn't fire
+        //     so the user never sees ALO's true activewear/apparel
+        //     competitors (Athleta, Lululemon, etc.) — only yoga-tagged
+        //     companies via the broadening pass.
+        // 70 is the precise floor for "user's query begins with this
+        // company's full name", which is rarely accidental. Tighter than
+        // the word-boundary (60) and substring (40) paths, which would
+        // over-fire.
         if (
           primary &&
-          primaryScore >= 80 &&
+          primaryScore >= 70 &&
           Array.isArray(primary.industries) &&
           primary.industries.length > 0
         ) {
@@ -2085,7 +2148,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             skip,
             take,
             user_location,
-            _searchMode: quickMode ? "quick" : "tokens",
+            _searchMode: quickMode
+              ? "quick"
+              : usedBroadenFallback
+                ? "tokens+broaden"
+                : "tokens",
             ...(corrected_query ? { correctedQuery: corrected_query } : {}),
             _typoDiag,
           },
