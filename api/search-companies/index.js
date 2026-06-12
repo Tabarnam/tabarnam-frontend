@@ -708,8 +708,20 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndust
   // Synonym-only penalty: companies that matched only via synonym expansion
   // (e.g., a coffee company with "sweatshirt" merch matching "hoodie" query)
   // get demoted so direct-match companies always rank above them.
+  //
+  // EXCEPTION: when the company has a strong name match (nameScore >= 60 —
+  // exact / startsWith / q.startsWith / word-boundary), the user typed THIS
+  // brand by name. That's a more definitive signal than "your text doesn't
+  // contain the literal query phrase". The previous synonym-only logic
+  // relied heavily on search_text_norm being populated with space-padded
+  // words; in production some docs (e.g. brands that moved to the Phase
+  // 4.36 search_tokens system) have inconsistent search_text_norm, causing
+  // strong-name-match brands like ALO to be misclassified as synonym-only
+  // and demoted with a 60% reduction (R goes from 69 → 28 for "alo yoga"
+  // → ALO buried at rank #37 instead of #1). Same principle as the
+  // affinity-bonus exemption above: the brand the user typed wins.
   const synonymOnly = isSynonymOnlyMatch(company, q_norm, q_compact);
-  if (synonymOnly) {
+  if (synonymOnly && nameScore < 60) {
     relevanceScore = Math.round(relevanceScore * 0.4);
   }
 

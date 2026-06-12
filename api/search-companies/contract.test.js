@@ -789,6 +789,40 @@ test("computeRelevanceScore: strong name match exempt from -15 affinity penalty 
   );
 });
 
+test("computeRelevanceScore: strong name match exempt from synonym-only ×0.4 penalty", () => {
+  // The 2026-07-XX ALO production regression. ALO with nameScore 70 was
+  // being flagged _synonymOnly: true by isSynonymOnlyMatch (production's
+  // search_text_norm coverage isn't uniform after the Phase 4.36
+  // search_tokens rewrite) → 60% score reduction → R 69 → 28 → ALO
+  // ranked #37 for "alo yoga". Strong name matches must skip the penalty
+  // — the user typed the brand by name, that's more definitive than
+  // "your text didn't include the literal phrase".
+  //
+  // Fixture deliberately OMITS search_text_norm so isSynonymOnlyMatch
+  // returns true and we can prove the exemption fires.
+  const alo = {
+    company_name: "ALO",
+    industries: ["Apparel", "Activewear", "leggings"],
+    keywords: ["leggings", "sports bras"],
+    // no search_text_norm → isSynonymOnlyMatch returns true
+  };
+
+  const scores = _test.computeRelevanceScore(alo, "alo yoga", "alo yoga", "aloyoga", []);
+
+  // Sanity: nameScore is the strong-match 70 (q.startsWith path).
+  assert.equal(scores._nameMatchScore, 70);
+  // Internally synonymOnly should still be flagged (it's a property of the
+  // company's data, not the scoring), but the penalty must not apply.
+  assert.equal(scores._synonymOnly, true);
+  // With penalty: R would be Math.round(69 * 0.4) = 28.
+  // Without (exemption fires): R = 69.
+  // Threshold: must be > 28 (i.e. the penalty was skipped).
+  assert.ok(
+    scores._relevanceScore > 28,
+    `strong name match must not get ×0.4 synonym-only penalty: R=${scores._relevanceScore}`
+  );
+});
+
 test("computeRelevanceScore: weak/no name match still pays the -15 affinity penalty", () => {
   // Sanity: the exemption only applies to nameScore >= 60. A keyword-match-
   // only company outside the query's affinity bucket should still get the
