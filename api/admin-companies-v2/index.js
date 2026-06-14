@@ -10,7 +10,7 @@ const { computeTopLevelDiff, writeCompanyEditHistoryEntry, getCompanyEditHistory
 const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_geocode");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
-const { computeEnrichmentHealth, computeMissingFields, isRealValue } = require("../_requiredFields");
+const { computeEnrichmentHealth, computeMissingFields, isRealValue, isTrueish, hasNonPlaceholderLocationEntry } = require("../_requiredFields");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { normalizeAmazonUrlForStorage } = require("../_amazonAffiliate");
 const { expandBusinessAbbreviations } = require("../_searchSynonyms");
@@ -2025,6 +2025,74 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           }
         } catch (e) {
           context.log("[admin-companies-v2] import_status_refresh_failed", {
+            company_id: String(doc.company_id || doc.id || "").trim(),
+            error: e?.message || String(e),
+          });
+        }
+
+        // Mirror admin "unknown/limited manufacturing" and "unknown HQ" intent into the
+        // import/enrichment pipeline's parallel vocabulary (mfg_unknown / hq_unknown +
+        // *_status + import_missing_reason). The pipeline keys off those fields, not the
+        // editor flags, so a still-active enrichment job on a recently-imported company
+        // would otherwise keep re-processing the field and clobber the admin's choice.
+        //
+        // Guard strictly on the existingDoc -> incoming TRANSITION: the editor always
+        // sends the flag key, so key-presence can't distinguish a real toggle from an
+        // unrelated save. Only acting on a transition prevents stomping a genuine pipeline
+        // "not_disclosed" finding when the admin saves some other field. Reuses the
+        // existing terminal "not_disclosed" sentinel — no contract change. Runs AFTER the
+        // import_missing_fields reconciliation above so these reasons are the final word.
+        try {
+          const ensureReasonObj = () => {
+            if (!doc.import_missing_reason || typeof doc.import_missing_reason !== "object") {
+              doc.import_missing_reason = {};
+            }
+            return doc.import_missing_reason;
+          };
+
+          // ── Manufacturing ──
+          const prevMfgResolved =
+            isTrueish(existingDoc?.unknown_manufacturing) || isTrueish(existingDoc?.limited_manufacturing);
+          const nowMfgResolved =
+            isTrueish(doc.unknown_manufacturing) || isTrueish(doc.limited_manufacturing);
+          const mfgHasRealData = hasNonPlaceholderLocationEntry(doc.manufacturing_locations);
+
+          if (nowMfgResolved && !prevMfgResolved && !mfgHasRealData) {
+            doc.mfg_unknown = true;
+            doc.mfg_unknown_reason = "not_disclosed";
+            doc.manufacturing_locations_status = "not_disclosed";
+            ensureReasonObj().manufacturing_locations = "not_disclosed";
+          } else if (!nowMfgResolved && prevMfgResolved && !mfgHasRealData) {
+            // Admin cleared the intent — re-enable enrichment. Safe: the prior state was
+            // admin-set (existing flag was true), so we never clear a pipeline finding.
+            doc.mfg_unknown = false;
+            doc.mfg_unknown_reason = null;
+            doc.manufacturing_locations_status = null;
+            if (doc.import_missing_reason && typeof doc.import_missing_reason === "object") {
+              delete doc.import_missing_reason.manufacturing_locations;
+            }
+          }
+
+          // ── Headquarters (no "limited HQ" variant) ──
+          const prevHqResolved = isTrueish(existingDoc?.unknown_hq);
+          const nowHqResolved = isTrueish(doc.unknown_hq);
+          const hqHasRealData = hasNonPlaceholderLocationEntry(doc.headquarters_locations);
+
+          if (nowHqResolved && !prevHqResolved && !hqHasRealData) {
+            doc.hq_unknown = true;
+            doc.hq_unknown_reason = "not_disclosed";
+            doc.headquarters_location_status = "not_disclosed";
+            ensureReasonObj().headquarters_location = "not_disclosed";
+          } else if (!nowHqResolved && prevHqResolved && !hqHasRealData) {
+            doc.hq_unknown = false;
+            doc.hq_unknown_reason = null;
+            doc.headquarters_location_status = null;
+            if (doc.import_missing_reason && typeof doc.import_missing_reason === "object") {
+              delete doc.import_missing_reason.headquarters_location;
+            }
+          }
+        } catch (e) {
+          context.log("[admin-companies-v2] admin_flag_pipeline_sync_failed", {
             company_id: String(doc.company_id || doc.id || "").trim(),
             error: e?.message || String(e),
           });
