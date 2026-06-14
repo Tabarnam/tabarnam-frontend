@@ -3,10 +3,12 @@ const { CosmosClient } = require("@azure/cosmos");
 
 // Budget-aware single-cycle worker. Claims the job lock, drives one bounded
 // invocation of processBackfillScoreBatch (which runs parallel waves inside
-// its budget), releases the lock, and returns. The frontend polls
-// /xadmin-api-score-status, which re-invokes this worker on every poll if
-// the job is still "running" — that polling loop is the thing that drives a
-// 5000-company backfill to completion across many worker invocations.
+// its budget), releases the lock, and returns. To run a large backfill to
+// completion UNATTENDED, the worker self-chains: when a cycle ends with the
+// job still "running" and remaining > 0, it fires the next cycle (fire-and-
+// forget). The frontend's /xadmin-api-score-status polling also re-invokes
+// this worker when the Scores page is open; the per-invocation lock makes the
+// two drivers safe to coexist (the loser of the race just gets claimed:false).
 //
 // Route: POST /api/xadmin-api-score-batch-worker
 // Body:  { job_id | session_id, cycle_count?, invocation_budget_ms? }
@@ -31,6 +33,36 @@ const json = (obj, status = 200) => ({
   headers: getCorsHeaders(),
   body: JSON.stringify(obj),
 });
+
+// Self-chain: fire the next cycle for this job (fire-and-forget). Uses
+// WEBSITE_HOSTNAME (set on the Function App). The per-invocation lock prevents
+// overlap with the status-endpoint self-drive.
+async function fireNextCycle(jobId, context) {
+  const host = (process.env.WEBSITE_HOSTNAME || "").trim();
+  if (!host) {
+    context.log(`[score-batch-worker] self-chain skipped: WEBSITE_HOSTNAME not set`);
+    return;
+  }
+  const url = `https://${host}/api/xadmin-api-score-batch-worker`;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 5000);
+  try {
+    await Promise.race([
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId }),
+        signal: ctl.signal,
+        keepalive: true,
+      }).catch(() => null),
+      new Promise((res) => setTimeout(res, 800)),
+    ]);
+  } catch (e) {
+    context.log(`[score-batch-worker] self-chain soft-error: ${e?.message || e}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 let cosmosClient = null;
 
@@ -188,6 +220,14 @@ async function adminScoreBatchWorkerHandler(req, context) {
     `remaining=${result?.remaining ?? "?"} exit=${result?.exit_reason || result?.error || "?"} ` +
     `elapsed=${(elapsedMs / 1000).toFixed(1)}s`
   );
+
+  // Self-chain the next cycle when the job is still running with work left.
+  // status != "running" (completed/paused/cancelled/max_companies) stops the
+  // chain; remaining <= 0 stops it; a thrown batch (ok:false) stops it so a
+  // hard failure can't hot-loop. The lock guards against overlapping firings.
+  if (result?.ok !== false && String(result?.status) === "running" && Number(result?.remaining) > 0) {
+    await fireNextCycle(jobId, context);
+  }
 
   return json({
     ok: true,

@@ -1,6 +1,7 @@
 const { app } = require("../_app");
 const { CosmosClient } = require("@azure/cosmos");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
+const { companyNeedsScoring, companyScoringState } = require("../_scoringStatus");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -212,14 +213,10 @@ async function adminScoreStatusHandler(req, context) {
         const star5Value = star5Obj && typeof star5Obj.value === "number" ? star5Obj.value : null;
         const star4Reasoning = star4Obj && typeof star4Obj.reasoning === "string" ? star4Obj.reasoning : "";
         const star5Reasoning = star5Obj && typeof star5Obj.reasoning === "string" ? star5Obj.reasoning : "";
-        const hasValue = typeof star4Value === "number" && star4Value > 0;
-        const hasReasoning = Boolean(star4Reasoning);
-        // scored = has an xAI-quality score (value AND reasoning)
-        // manual = has value but no reasoning (admin-set)
-        // unscored = no value
-        let state = "unscored";
-        if (hasValue && hasReasoning) state = "scored";
-        else if (hasValue) state = "manual";
+        // scored / manual / unscored — unscored includes 0.25 insufficient-data
+        // placeholders (they still need scoring). Shared predicate keeps this in
+        // sync with the backfill's "needs scoring" selection.
+        const state = companyScoringState(c);
         return {
           id: c.id,
           name: c.company_name || c.name || null,
@@ -244,13 +241,7 @@ async function adminScoreStatusHandler(req, context) {
         .query(listQuery, { enableCrossPartitionQuery: true })
         .fetchAll();
       const scored = (resources || [])
-        .filter((r) => {
-          const v =
-            r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating) && r.rating.star4 && typeof r.rating.star4 === "object"
-              ? r.rating.star4.value
-              : undefined;
-          return typeof v === "number" && v > 0;
-        })
+        .filter((r) => !companyNeedsScoring(r))
         .map((c) => ({
           id: c.id,
           name: c.company_name || c.name || null,
@@ -289,13 +280,8 @@ async function adminScoreStatusHandler(req, context) {
         .fetchAll();
       const list = rows || [];
       totalCompanies = list.length;
-      scoredCompanies = list.filter((r) => {
-        const v = r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating)
-          ? r.rating.star4 && typeof r.rating.star4 === "object" ? r.rating.star4.value : undefined
-          : undefined;
-        return typeof v === "number" && v > 0;
-      }).length;
-      missingCompanies = totalCompanies - scoredCompanies;
+      missingCompanies = list.filter((r) => companyNeedsScoring(r)).length;
+      scoredCompanies = totalCompanies - missingCompanies;
     } catch (e) {
       context.log(`[score-status] allQuery error: ${e?.message || e}`);
       queryError = `allQuery: ${e?.message || e}`;
@@ -307,9 +293,13 @@ async function adminScoreStatusHandler(req, context) {
       const { resources: jobs } = await jobsContainer.items
         .query("SELECT * FROM c", { enableCrossPartitionQuery: true })
         .fetchAll();
-      if (jobs && jobs.length > 0) {
-        jobs.sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || "")));
-        latestJob = jobs[0];
+      // backfill_jobs is shared with homepage/logo backfills (job_type
+      // "homepages"/"logos"). Only consider score jobs: job_type "scores" or
+      // legacy untyped docs (score jobs predate the job_type tag).
+      const scoreJobs = (jobs || []).filter((j) => j && j.job_type !== "homepages" && j.job_type !== "logos");
+      if (scoreJobs.length > 0) {
+        scoreJobs.sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || "")));
+        latestJob = scoreJobs[0];
       }
     } catch (e) {
       context.log(`[score-status] jobs query error: ${e?.message || e}`);

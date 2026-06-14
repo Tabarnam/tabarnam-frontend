@@ -565,6 +565,23 @@ const REFRESH_FIELD_STATUS = {
  * Other edits (logo, HQ, keywords, star1/star2/star3) don't affect the xAI
  * scoring prompt and should not trigger an xAI call on save.
  */
+// Frontend mirror of api/_scoringStatus.js#companyNeedsScoring — KEEP IN SYNC.
+// True when a company still needs Rep/Quality scoring: never scored (star4.value
+// not a number > 0), or sitting at the 0.25 "insufficient data" placeholder
+// (detected by the reasoning text or the insufficient_data marker). Used to
+// decide whether Save & Close should trigger a (re)score even when no scoring
+// signals changed this save — so a freshly-imported, never-scored company gets
+// scored. A real score or an admin-set manual score returns false.
+function companyNeedsScoring(company) {
+  const rating = company && typeof company.rating === "object" && !Array.isArray(company.rating) ? company.rating : null;
+  const star4 = rating && typeof rating.star4 === "object" && !Array.isArray(rating.star4) ? rating.star4 : null;
+  const value = star4 && typeof star4.value === "number" ? star4.value : null;
+  if (!(typeof value === "number" && value > 0)) return true;
+  if (star4.insufficient_data === true) return true;
+  if (value === 0.25 && typeof star4.reasoning === "string" && /not enough captured data/i.test(star4.reasoning)) return true;
+  return false;
+}
+
 function scoringSignalFingerprint(company) {
   if (!company || typeof company !== "object") return "";
   const curated = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
@@ -789,8 +806,6 @@ export default function CompanyDashboard() {
   const [deleteConfirmError, setDeleteConfirmError] = useState(null);
 
   const [proposedConfirmOpen, setProposedConfirmOpen] = useState(false);
-  // Prompt admin to refresh Rep & Quality scores after a save that changed scoring signals
-  const [rescorePrompt, setRescorePrompt] = useState(null); // { savedId, normalizedDomain, savedCompany } or null
 
   const requestSeqRef = useRef(0);
   const abortRef = useRef(null);
@@ -2802,8 +2817,8 @@ export default function CompanyDashboard() {
       });
 
       // Detect whether scoring-relevant signals (curated_reviews, star4/star5
-      // admin notes) changed on this save. If so, prompt the admin to refresh
-      // Rep & Quality scores before closing — rather than auto-rescoring silently.
+      // admin notes) changed on this save. If so, automatically recalculate
+      // Rep & Quality on Save & Close (see the closeAfter branch below).
       // Compare against draftForSave (what the admin actually edited), not the
       // API response which may normalize fields differently. Also treat any
       // reviews added via the import panel as a scoring change regardless.
@@ -2834,16 +2849,47 @@ export default function CompanyDashboard() {
         editorHistory.resetHistory(merged);
         setEditorOriginalId(savedId);
       } else if (closeAfter) {
-        if (scoringInputChanged && savedId && normalizedDomain) {
-          // Don't close yet — prompt admin to refresh or skip
-          setRescorePrompt({ savedId, normalizedDomain, savedCompany });
-        } else {
-          closeEditor();
-          // Refresh the list from the server so the issues column and
-          // other derived fields reflect the latest backend state.
-          // Avoids stale tags after Save & Close.
-          loadCompanies({ search, take });
+        // Rescore Rep & Quality on Save & Close when there's something new to
+        // assess: scoring inputs changed (reviews / star4-star5 notes) OR the
+        // company isn't properly scored yet (never scored / a 0.25 placeholder).
+        // Token-safe: an already-scored company with no input change makes no
+        // call at all; and when called, the scorer's own skip-path returns the
+        // 0.25 placeholder with no xAI call for data-less companies — so a token
+        // is only spent when there are actual changes to review.
+        if ((scoringInputChanged || companyNeedsScoring(savedCompany)) && savedId && normalizedDomain) {
+          // Recalculate and persist Reputation & Quality (force) in the
+          // background, then update the row when it returns — no prompt, no
+          // manual accept. The score is written server-side, so it survives even
+          // though the editor has closed.
+          const rescoreToastId = toast.info("Recalculating Reputation & Quality…", { duration: 60000 });
+          apiFetch("/xadmin-api-score-company", {
+            method: "POST",
+            body: { company_id: savedId, normalized_domain: normalizedDomain, force: true },
+          })
+            .then((res) => res.json().catch(() => ({})))
+            .then((data) => {
+              toast.dismiss(rescoreToastId);
+              if (data?.ok === true) {
+                const updatedCompany = data.company && typeof data.company === "object" ? data.company : savedCompany;
+                updateCompanyInState(savedId, updatedCompany);
+                const s4 = typeof data.star4 === "number" ? data.star4.toFixed(2) : "—";
+                const s5 = typeof data.star5 === "number" ? data.star5.toFixed(2) : "—";
+                toast.branded(`Rep & Quality updated: Reputation ${s4} · Quality ${s5}`);
+              } else {
+                toast.error(`Rep & Quality recalculation failed: ${data?.reason || data?.error || "unknown"} (other changes were saved)`);
+              }
+            })
+            .catch((e) => {
+              toast.dismiss(rescoreToastId);
+              toast.error(`Rep & Quality recalculation failed: ${e?.message || e} (other changes were saved)`);
+            });
         }
+        closeEditor();
+        // Refresh the list from the server so the issues column and other
+        // derived fields reflect the latest backend state. Avoids stale tags
+        // after Save & Close. (The background rescore patches the row again
+        // once it completes.)
+        loadCompanies({ search, take });
       } else {
         // Inline save (green sticky button) — stay open, show branded toast
         // Update the draft with the saved company so it reflects the persisted state
@@ -6031,49 +6077,6 @@ export default function CompanyDashboard() {
                   }}
                 >
                   Save &amp; Close
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-
-          {/* Rescore prompt — shown after save when scoring signals changed */}
-          <AlertDialog open={!!rescorePrompt} onOpenChange={(open) => { if (!open) setRescorePrompt(null); }}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Refresh Rep &amp; Quality scores?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Reviews or scoring notes changed. Refreshing will propose
-                  updated Reputation and Quality scores via xAI for your review.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter className="flex gap-2 sm:flex-row">
-                <AlertDialogCancel
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setRescorePrompt(null);
-                  }}
-                >
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  className="border border-border bg-transparent text-foreground hover:bg-muted"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setRescorePrompt(null);
-                    closeEditor();
-                  }}
-                >
-                  Skip Refresh &gt; Save &amp; Close
-                </AlertDialogAction>
-                <AlertDialogAction
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setRescorePrompt(null);
-                    // Stay in the editor and trigger the proposal workflow
-                    ratingEditorRef.current?.fetchProposal?.();
-                  }}
-                >
-                  Refresh Rep &amp; Quality
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

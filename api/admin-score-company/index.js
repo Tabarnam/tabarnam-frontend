@@ -142,8 +142,13 @@ async function adminScoreCompanyHandler(req, context) {
     const existingStar5 = company.rating.star5 && typeof company.rating.star5 === "object"
       ? company.rating.star5 : { value: 0, notes: [] };
 
-    company.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning };
-    company.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning };
+    // Mark whether this was the skip-short-circuit (no xAI call — insufficient
+    // data). The backfill "needs scoring" predicate re-scores these once the
+    // company gains data; a real score clears the marker. See api/_scoringStatus.js.
+    const insufficientData = scoring.skipped_xai_call === true;
+
+    company.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning, insufficient_data: insufficientData };
+    company.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning, insufficient_data: insufficientData };
     company.updated_at = new Date().toISOString();
 
     // Upsert to Cosmos DB

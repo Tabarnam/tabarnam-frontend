@@ -1,6 +1,7 @@
 const { app } = require("../_app");
 const { CosmosClient } = require("@azure/cosmos");
 const { computeReputationQualityScores } = require("../_companyScoring");
+const { companyNeedsScoring } = require("../_scoringStatus");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -52,18 +53,162 @@ function uuid() {
   });
 }
 
+// Fire the first batch-worker cycle for a job. Mirrors the homepage/logo
+// backfill pattern — without an initial fire the job sits idle until the
+// Scores admin page is polled. Fire-and-forget; the worker self-chains the
+// remaining cycles. Uses WEBSITE_HOSTNAME (set on the Function App).
+async function fireScoreBatchWorker(jobId, logger) {
+  const host = (process.env.WEBSITE_HOSTNAME || "").trim();
+  if (!host) {
+    logger?.log?.(`[score-all-missing] worker fire skipped: WEBSITE_HOSTNAME not set`);
+    return;
+  }
+  const url = `https://${host}/api/xadmin-api-score-batch-worker`;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 5000);
+  try {
+    await Promise.race([
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: jobId }),
+        signal: ctl.signal,
+        keepalive: true,
+      }).catch(() => null),
+      new Promise((res) => setTimeout(res, 800)),
+    ]);
+  } catch (e) {
+    logger?.log?.(`[score-all-missing] worker fire soft-error: ${e?.message || e}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Create a Rep & Quality scoring backfill job in Cosmos `backfill_jobs` and
+ * fire the first batch-worker cycle. Used by both the HTTP endpoint (manual
+ * admin backfill) and the import flow (auto-trigger after enrichment). Mirrors
+ * createHomepageBackfillJob. Returns:
+ *   { ok: true, job_id, total_to_score, ... }   on success
+ *   { ok: true, total_to_score: 0 }             when nothing needs scoring
+ *   { ok: false, error }                        on config/query failure
+ *
+ * Options: batchSize, concurrency, maxCompanies, force, source, logger
+ */
+async function createScoreJob(options = {}) {
+  const logger = options.logger || console;
+  const companiesContainer = getCompaniesContainer();
+  const jobsContainer = getBackfillJobsContainer();
+  if (!companiesContainer || !jobsContainer) {
+    return { ok: false, error: "Cosmos DB not configured" };
+  }
+
+  const batchSize = Math.max(1, Math.min(200, Number(options.batchSize) || 12));
+  // Parallelism cap 100 — grok-3-mini ran c=20 at ~36 companies/min with zero
+  // failures; batch_size cap (200) keeps c=50 × 4 waves inside the 240s budget.
+  const concurrency = Math.max(1, Math.min(100, Number(options.concurrency) || 4));
+  const maxCompanies = options.maxCompanies != null ? Math.max(1, Number(options.maxCompanies)) : null;
+  const force = Boolean(options.force);
+  const source = typeof options.source === "string" ? options.source.trim() : "";
+
+  // Dedupe concurrent auto-triggers: if a score job for the same source is
+  // already running and started within 30s, reuse it (mirror of the
+  // homepage/logo backfill dedupe). The existing job picks up newly-unscored
+  // companies on its next wave. Only same-source callers (e.g. "import_auto")
+  // dedupe; this prevents a batch of completing import sessions from spawning
+  // many redundant score jobs.
+  if (source) {
+    try {
+      const RECENT_JOB_WINDOW_MS = 30_000;
+      const cutoffIso = new Date(Date.now() - RECENT_JOB_WINDOW_MS).toISOString();
+      const query = `SELECT c.id, c.job_id, c.started_at, c.total_to_score, c.processed, c.failed, c.status FROM c WHERE c.job_type = "scores" AND c.source = @source AND c.status = "running" AND c.started_at > @cutoff ORDER BY c.started_at DESC`;
+      const { resources: recent } = await jobsContainer.items
+        .query(
+          { query, parameters: [{ name: "@source", value: source }, { name: "@cutoff", value: cutoffIso }] },
+          { enableCrossPartitionQuery: true }
+        )
+        .fetchAll();
+      if (Array.isArray(recent) && recent.length > 0) {
+        const existing = recent[0];
+        logger.log?.(`[score-all-missing] dedupe_skip: existing job=${existing.job_id} source=${source} started_at=${existing.started_at} — reusing`);
+        return { ok: true, job_id: existing.job_id, total_to_score: existing.total_to_score || 0, status: existing.status, deduped: true };
+      }
+    } catch (e) {
+      logger.warn?.(`[score-all-missing] dedup_query_failed: ${e?.message || e} — proceeding with new job`);
+    }
+  }
+
+  // Count companies needing scoring (project rating; filter in JS to avoid
+  // Cosmos type-coercion errors on heterogeneous rating fields).
+  let totalToScore = 0;
+  try {
+    const countQuery = `SELECT c.id, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
+    const { resources: countRows } = await companiesContainer.items
+      .query(countQuery, { enableCrossPartitionQuery: true })
+      .fetchAll();
+    totalToScore = (countRows || []).filter((r) => companyNeedsScoring(r)).length;
+  } catch (e) {
+    return { ok: false, error: `count failed: ${e?.message || e}` };
+  }
+
+  if (totalToScore === 0 && !force) {
+    return { ok: true, total_to_score: 0, message: "All companies already scored" };
+  }
+
+  const jobId = uuid();
+  const now = new Date().toISOString();
+  const jobDoc = {
+    id: `job_${jobId}`,
+    job_id: jobId,
+    job_type: "scores", // distinguishes score jobs from homepages/logos in the shared backfill_jobs container
+    status: "running",
+    batch_size: batchSize,
+    concurrency,
+    max_companies: maxCompanies,
+    force,
+    total_to_score: totalToScore,
+    processed: 0,
+    failed: 0,
+    remaining: totalToScore,
+    estimated_minutes_remaining: null,
+    started_at: now,
+    last_updated: now,
+    locked_by: null,
+    lock_expires_at: null,
+    last_heartbeat_at: null,
+    current_companies: [],
+    last_batch_results: [],
+    cycle_count: 0,
+    ...(source ? { source } : {}),
+  };
+
+  await jobsContainer.items.upsert(jobDoc, { partitionKey: jobId });
+  logger.log?.(`[score-all-missing] job=${jobId} total=${totalToScore} batch=${batchSize} concurrency=${concurrency} source=${source || "n/a"}`);
+
+  // Kick off the first cycle so the job starts immediately. The batch worker
+  // self-chains the remaining cycles (and the status endpoint also self-drives
+  // when the Scores page is open). Fire-and-forget.
+  await fireScoreBatchWorker(jobId, logger);
+
+  return {
+    ok: true,
+    job_id: jobId,
+    status: "running",
+    total_to_score: totalToScore,
+    processed: 0,
+    remaining: totalToScore,
+    batch_size: batchSize,
+    concurrency,
+    max_companies: maxCompanies,
+  };
+}
+
 // ── HTTP endpoint: POST /xadmin-api-score-all-missing ──────────────────
 
 async function adminScoreAllMissingHandler(req, context) {
   const method = String(req.method || "").toUpperCase();
   if (method === "OPTIONS") {
     return { status: 200, headers: getCorsHeaders() };
-  }
-
-  const companiesContainer = getCompaniesContainer();
-  const jobsContainer = getBackfillJobsContainer();
-  if (!companiesContainer || !jobsContainer) {
-    return json({ error: "Cosmos DB not configured" }, 500);
   }
 
   try {
@@ -74,88 +219,19 @@ async function adminScoreAllMissingHandler(req, context) {
       body = {};
     }
 
-    const batchSize = Math.max(1, Math.min(200, Number(body?.batch_size) || 12));
-    const maxCompanies = body?.max_companies != null ? Math.max(1, Number(body.max_companies)) : null;
-    const force = Boolean(body?.force);
-
-    // Count unscored companies: query with admin filter + project star4.value,
-    // filter unscored in JS (Cosmos AND doesn't guarantee short-circuit, so
-    // a DB-side type-guard can still throw on heterogeneous rating fields).
-    const countQuery = `SELECT c.id, c.rating FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND NOT STARTSWITH(c.id, 'refresh_job_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')`;
-    const { resources: countRows } = await companiesContainer.items
-      .query(countQuery, { enableCrossPartitionQuery: true })
-      .fetchAll();
-    const isScored = (r) => {
-      const v = r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating)
-        ? r.rating.star4 && typeof r.rating.star4 === "object" ? r.rating.star4.value : undefined
-        : undefined;
-      return typeof v === "number" && v > 0;
-    };
-    const totalToScore = (countRows || []).filter((r) => !isScored(r)).length;
-
-    if (totalToScore === 0 && !force) {
-      return json({ ok: true, message: "All companies already scored", total_to_score: 0 });
-    }
-
-    // Parallelism: default 4, override via body.concurrency. Each parallel slot
-    // runs one scoring call at a time. Cap at 100 — we've cleanly run c=20 on
-    // grok-3-mini at 36 companies/min with zero failures and a 42.5s p99
-    // straggler (well under the 70s PER_CALL_TIMEOUT_MS). c=40-50 is the next
-    // test target, c=100 is headroom in case grok-3-mini turns out to scale
-    // further. batch_size cap (200) is sized so c=50 × 4 waves still fits in
-    // the 240s Function budget.
-    const concurrency = Math.max(1, Math.min(100, Number(body?.concurrency) || 4));
-
-    // Create job document
-    const jobId = uuid();
-    const now = new Date().toISOString();
-    const jobDoc = {
-      id: `job_${jobId}`,
-      job_id: jobId,
-      status: "running",
-      batch_size: batchSize,
-      concurrency,
-      max_companies: maxCompanies,
-      force,
-      total_to_score: totalToScore,
-      processed: 0,
-      failed: 0,
-      remaining: totalToScore,
-      estimated_minutes_remaining: null,
-      started_at: now,
-      last_updated: now,
-      // Worker lock + heartbeat (import primary-worker pattern):
-      // Each batch-worker invocation claims the lock for LOCK_TTL_MS; another
-      // invocation may claim once the lock expires, letting a fresh worker
-      // resume the job if the previous one was recycled mid-cycle.
-      locked_by: null,
-      lock_expires_at: null,
-      last_heartbeat_at: null,
-      current_companies: [], // Array of { id, name, domain, started_at } for companies in-flight
-      last_batch_results: [],
-      cycle_count: 0,
-    };
-
-    await jobsContainer.items.upsert(jobDoc, { partitionKey: jobId });
-
-    context.log(`[score-all-missing] Created job ${jobId}: total=${totalToScore}, batch_size=${batchSize}, concurrency=${concurrency}`);
-
-    // The status endpoint (/xadmin-api-score-status) self-drives the worker on
-    // every poll: if the job is still "running" and the lock is free, it invokes
-    // /xadmin-api-score-batch-worker inline. This mirrors admin/import's
-    // status → primary-worker pattern and lets a 5000-company backfill run
-    // unattended even through Azure Function timeouts / worker recycles.
-    return json({
-      ok: true,
-      job_id: jobId,
-      status: "running",
-      total_to_score: totalToScore,
-      processed: 0,
-      remaining: totalToScore,
-      batch_size: batchSize,
-      concurrency,
-      max_companies: maxCompanies,
+    const result = await createScoreJob({
+      batchSize: body?.batch_size,
+      concurrency: body?.concurrency,
+      maxCompanies: body?.max_companies,
+      force: Boolean(body?.force),
+      source: typeof body?.source === "string" && body.source.trim() ? body.source : "admin_ui",
+      logger: context,
     });
+
+    if (!result.ok) {
+      return json({ error: result.error || "Internal error" }, result.error === "Cosmos DB not configured" ? 500 : 500);
+    }
+    return json(result);
   } catch (e) {
     context.log("Error in admin-score-all-missing:", e?.message || e, e?.stack || "");
     return json({ error: e?.message || "Internal error" }, 500);
@@ -314,13 +390,6 @@ async function processBackfillScoreBatch(queueBody, context) {
       const { resources: listRows } = await companiesContainer.items
         .query(listQuery, { enableCrossPartitionQuery: true })
         .fetchAll();
-      const isScored = (r) => {
-        const v = r && r.rating && typeof r.rating === "object" && !Array.isArray(r.rating)
-          ? r.rating.star4 && typeof r.rating.star4 === "object" ? r.rating.star4.value : undefined
-          : undefined;
-        return typeof v === "number" && v > 0;
-      };
-
       const remainingAllowedByMax = maxCompanies != null
         ? Math.max(0, Number(maxCompanies) - (job.processed || 0) - scoredThisInvocation)
         : Infinity;
@@ -332,7 +401,7 @@ async function processBackfillScoreBatch(queueBody, context) {
         break;
       }
 
-      const unscoredRows = (listRows || []).filter((r) => !isScored(r)).slice(0, waveSize);
+      const unscoredRows = (listRows || []).filter((r) => companyNeedsScoring(r)).slice(0, waveSize);
       if (unscoredRows.length === 0) {
         exitReason = "no_unscored_remaining";
         break;
@@ -660,4 +729,5 @@ app.http("adminScoreAllMissing", {
 module.exports = {
   handler: adminScoreAllMissingHandler,
   processBackfillScoreBatch,
+  createScoreJob,
 };
