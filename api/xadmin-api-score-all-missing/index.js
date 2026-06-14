@@ -219,12 +219,16 @@ async function adminScoreAllMissingHandler(req, context) {
       body = {};
     }
 
+    // No default source — manual runs must NOT dedupe against each other, or a
+    // capped test run immediately followed by a full run silently collapses into
+    // the capped job. The 30s source-dedupe in createScoreJob is only for
+    // tagged callers (e.g. a future import auto-trigger passing source).
     const result = await createScoreJob({
       batchSize: body?.batch_size,
       concurrency: body?.concurrency,
       maxCompanies: body?.max_companies,
       force: Boolean(body?.force),
-      source: typeof body?.source === "string" && body.source.trim() ? body.source : "admin_ui",
+      source: typeof body?.source === "string" && body.source.trim() ? body.source : "",
       logger: context,
     });
 
