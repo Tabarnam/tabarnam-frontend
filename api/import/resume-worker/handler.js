@@ -24,8 +24,6 @@ const {
   isTerminalMissingReason,
   isTerminalMissingField,
   isRealValue,
-  isTrueish,
-  hasNonPlaceholderLocationEntry,
 } = require("../../_requiredFields");
 
 const { deduplicateLocationEntries } = require("../../import-start/_importStartCompanyUtils");
@@ -890,81 +888,6 @@ async function upsertDoc(container, doc) {
   });
 
   return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
-}
-
-// Preserve admin-set "unknown/limited manufacturing" and "unknown HQ" intent against the
-// lost-update race. This worker often holds a company `doc` snapshot loaded BEFORE an
-// admin edit; its full-document upsert would otherwise overwrite the admin's choice
-// (the reported bug: MFG tag reappears on recently-imported companies after a save).
-// Re-read the current persisted doc by point-read; when it expresses admin-resolved
-// intent AND the in-memory doc has no better real location data, fold the authoritative
-// flags (and their pipeline mirrors) back in, then recompute import_missing_fields so the
-// written doc stays consistent. Only ever ADDS BACK flags the admin set — never invents
-// them — so a doc with no admin intent is written unchanged. Call ONLY for company docs,
-// never for control/job/resume docs (which have no company partition key). Non-fatal: on
-// any read failure the doc is written as-is, i.e. no worse than before this guard existed.
-async function preserveAdminFlagsForCompanyWrite(container, doc) {
-  if (!container || !doc) return doc;
-  const id = String(doc?.id || "").trim();
-  if (!id) return doc;
-  try {
-    const containerPkPath = await getCompaniesPkPath(container);
-    const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
-
-    let current = null;
-    for (const partitionKeyValue of candidates) {
-      try {
-        const item =
-          partitionKeyValue !== undefined ? container.item(id, partitionKeyValue) : container.item(id);
-        const { resource } = await item.read();
-        if (resource) {
-          current = resource;
-          break;
-        }
-      } catch (e) {
-        if (e?.code === 404) continue;
-      }
-    }
-    if (!current) return doc;
-
-    let changed = false;
-
-    // Manufacturing: admin "unknown/limited" wins only when there is no real data to keep
-    // (data-wins-over-flag — don't override locations that enrichment legitimately found).
-    const mfgAdminResolved =
-      isTrueish(current.unknown_manufacturing) || isTrueish(current.limited_manufacturing);
-    if (mfgAdminResolved && !hasNonPlaceholderLocationEntry(doc.manufacturing_locations)) {
-      doc.unknown_manufacturing = current.unknown_manufacturing;
-      doc.limited_manufacturing = current.limited_manufacturing;
-      doc.mfg_unknown = true;
-      doc.mfg_unknown_reason = current.mfg_unknown_reason || "not_disclosed";
-      doc.manufacturing_locations_status = current.manufacturing_locations_status || "not_disclosed";
-      changed = true;
-    }
-
-    // Headquarters (no "limited HQ" variant).
-    if (isTrueish(current.unknown_hq) && !hasNonPlaceholderLocationEntry(doc.headquarters_locations)) {
-      doc.unknown_hq = current.unknown_hq;
-      doc.hq_unknown = true;
-      doc.hq_unknown_reason = current.hq_unknown_reason || "not_disclosed";
-      doc.headquarters_location_status = current.headquarters_location_status || "not_disclosed";
-      changed = true;
-    }
-
-    if (changed) {
-      try {
-        doc.import_missing_fields = computeMissingFields(doc);
-      } catch {
-        /* leave import_missing_fields as-is */
-      }
-    }
-  } catch (e) {
-    console.error(`[resume-worker] preserve_admin_flags_failed`, {
-      doc_id: id,
-      error: e?.message || String(e),
-    });
-  }
-  return doc;
 }
 
 // ─── Phase 2.5 — xAI account-level serialization lock ────────────────────────
@@ -3489,7 +3412,6 @@ async function resumeWorkerHandler(req, context) {
           doc.headquarters_locations = deduplicateLocationEntries(doc.headquarters_locations);
           doc.headquarters = doc.headquarters_locations;
         }
-        await preserveAdminFlagsForCompanyWrite(container, doc);
         await upsertDoc(container, doc).catch((err) => {
           console.error(`[resume-worker] upsert_after_unified_error`, { session_id: sessionId, company_id: companyId, error: String(err?.message || err) });
         });
@@ -3653,7 +3575,6 @@ async function resumeWorkerHandler(req, context) {
           // Save doc after logo
           doc.import_missing_fields = computeMissingFields(doc);
           doc.updated_at = nowIso();
-          await preserveAdminFlagsForCompanyWrite(container, doc);
           const writeOk = await upsertDoc(container, doc).then(() => true).catch((err) => {
             console.error(`[resume-worker] COMPANY_DOC_WRITE_FAILED`, {
               session_id: sessionId,
@@ -3957,7 +3878,6 @@ async function resumeWorkerHandler(req, context) {
         if (changed) {
           d.import_missing_fields = computeMissingFields(d);
           d.updated_at = nowIso();
-          await preserveAdminFlagsForCompanyWrite(container, d);
           await upsertDoc(container, d).catch((err) => {
             console.error(`[resume-worker] TERMINALIZE_WRITE_FAILED`, {
               session_id: sessionId,
@@ -6088,6 +6008,5 @@ module.exports = {
     lockDocIdForShard,
     XAI_LOCK_DOC_ID,
     XAI_LOCK_PK_VALUE,
-    preserveAdminFlagsForCompanyWrite,
   },
 };

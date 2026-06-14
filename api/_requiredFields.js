@@ -885,8 +885,6 @@ module.exports = {
   sanitizeIndustries,
   isValidIndustries,
   sanitizeKeywords,
-  isTrueish,
-  hasNonPlaceholderLocationEntry,
   isRealValue,
   computeMissingFields,
   computeEnrichmentHealth,
