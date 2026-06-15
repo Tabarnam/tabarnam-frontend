@@ -43,7 +43,7 @@ function buildHomeSteps(tour, onHandoff) {
     {
       id: 'location',
       title: 'Add a location',
-      text: 'Optional. Type a city, postal code, or country to orient results around that place.',
+      text: 'You can type a city, postal code, or country to orient results around that place.',
       attachTo: { element: '[data-tour-step="location-input"]', on: 'bottom-end' },
       scrollTo: { behavior: 'smooth', block: 'nearest' },
       buttons: [
