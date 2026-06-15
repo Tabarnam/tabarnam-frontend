@@ -1251,24 +1251,26 @@ export default function ResultsPage() {
         {sorted.length > 0 ? (
           <div className="space-y-0">
             {(() => {
-              // Under a proximity sort, the list is tier-bucketed: strong
-              // matches first, then loosely-related ones. Inject ONE labeled
-              // divider at the strong→loose transition so the user is told
-              // plainly that a weaker tier follows. Only render it when a
-              // query is present, the active sort is a proximity sort, and
-              // the page actually contains the transition (a strong company
-              // followed by a loose one).
-              const proximitySort =
-                sortBy === "manu" ||
-                sortBy === "hq" ||
-                (!sortBy && (sortParam === "manu" || sortParam === "hq"));
+              // The result list is tier-bucketed under every sort: the
+              // backend's tier-first ordering puts strong matches before
+              // loosely-related ones, and the client-side `sorted` useMemo
+              // applies tier-first to any explicit re-sort the user picks.
+              // So whenever a query has a strong→loose transition on the
+              // current page, inject ONE labeled divider to make the
+              // distinction visible — regardless of sort. Originally
+              // scoped to proximity sorts (manu/hq) only on the rationale
+              // that other sorts "make it obvious"; user feedback
+              // disagreed (ballet flats under Highest Rated has the same
+              // transition without a marker). Conditions to render:
+              //   - a query is present (no divider for browse-by-location)
+              //   - the page actually contains the transition (a strong
+              //     company followed by a loose one)
               const rows = [];
               let dividerEmitted = false;
               let sawStrong = false;
               for (const company of sorted) {
                 const loose = isLooselyRelated(company);
                 if (
-                  proximitySort &&
                   qParam &&
                   loose &&
                   sawStrong &&
