@@ -62,7 +62,11 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
   const [userLocation, setUserLocation] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [sortDateDir, setSortDateDir] = useState(null); // null = default, "newest" | "oldest"
+  // "newest" | "oldest". The pre-2026-07-XX cycle had a third "null"
+  // (unsorted "Sort by date" prompt) state — user feedback said that
+  // option was useless and confusing, so reviews now always show in a
+  // date order, defaulting to newest first.
+  const [sortDateDir, setSortDateDir] = useState("newest");
 
   async function load() {
     const id = String(companyId || "").trim();
@@ -122,7 +126,6 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
   const titleName = String(displayName || companyName || "").trim();
 
   const sortedList = useMemo(() => {
-    if (!sortDateDir) return list;
     return [...list].sort((a, b) => {
       const ta = parseReviewTimestamp(pickReviewDate(a));
       const tb = parseReviewTimestamp(pickReviewDate(b));
@@ -131,11 +134,7 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
   }, [list, sortDateDir]);
 
   const cycleSortDate = () => {
-    setSortDateDir((prev) => {
-      if (prev === null) return "newest";
-      if (prev === "newest") return "oldest";
-      return null;
-    });
+    setSortDateDir((prev) => (prev === "newest" ? "oldest" : "newest"));
   };
 
   return (
@@ -147,10 +146,10 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
             type="button"
             onClick={cycleSortDate}
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 px-2 rounded-md hover:bg-muted border border-transparent hover:border-border"
-            title={sortDateDir === "newest" ? "Sorted: newest first" : sortDateDir === "oldest" ? "Sorted: oldest first" : "Sort by date"}
+            title={sortDateDir === "newest" ? "Sorted: newest first (click for oldest)" : "Sorted: oldest first (click for newest)"}
           >
             <ArrowDownUp className="h-3 w-3" />
-            {sortDateDir === "newest" ? "Newest first" : sortDateDir === "oldest" ? "Oldest first" : "Sort by date"}
+            {sortDateDir === "newest" ? "Newest first" : "Oldest first"}
           </button>
         )}
       </div>
