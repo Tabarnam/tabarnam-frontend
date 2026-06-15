@@ -1,6 +1,6 @@
 // Phase 4.35 — Recent Activity panel for the AdminImport page.
 //
-// Collapsed-by-default `<details>` widget. Shows up to 25 most recent
+// Expanded-by-default `<details>` widget. Shows up to 25 most recent
 // admin actions across the catalog, aggregated at the batch level:
 //   - "Imported 20 companies Adox through Shanghai"
 //   - "Applied 'film camera' as industry to 20 companies"
@@ -206,7 +206,7 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
   const couldHaveMore = !isExpanded && items.length >= DEFAULT_LIMIT;
 
   return (
-    <details className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
+    <details open className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
       <summary className="cursor-pointer select-none text-sm font-medium text-slate-800 dark:text-foreground flex items-center justify-between gap-2">
         <span>
           Recent activity
