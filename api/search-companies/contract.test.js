@@ -693,6 +693,107 @@ test("search-companies matches short (2-char) queries as tokens (e.g. '3m')", as
   assert.ok(tokenVals.includes("3m"), `2-char token '3m' should be matched; got ${JSON.stringify(tokenVals)}`);
 });
 
+// ── compact-form phrase (my pillow → MyPillow) ───────────────────────────
+// Regression check for the 2026-07-XX tokenizer-asymmetry case where a
+// brand is stored with no whitespace (search_tokens: ["mypillow"]) but
+// the user types it with one ("my pillow"). The per-word AND can't see
+// the brand because neither "my" nor "pillow" is a separate token on it.
+// The fix OR's in q_compact ("mypillow") as an additional phrase so the
+// indexed retrieval surfaces it directly.
+
+test("my pillow surfaces MyPillow via compact-form phrase (q_compact OR'd)", async () => {
+  const myPillow = {
+    id: "company_1775865651248_3xpv2t94sc4",
+    company_name: "MyPillow",
+    normalized_domain: "mypillow.com",
+    industries: ["Pillows", "Bedding"],
+    search_text_norm: " mypillow pillows bedding ",
+    _ts: 1700000500,
+  };
+
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    const params = spec.parameters || [];
+    // Return MyPillow only when the SQL is querying for "mypillow" as a
+    // token (the compact-form clause). Per-word AND for "my" + "pillow"
+    // should return nothing — MyPillow's tokens don't include either word
+    // separately.
+    const tokVals = params
+      .filter((p) => p.name.startsWith("@tok"))
+      .map((p) => p.value);
+    if (tokVals.includes("mypillow")) return [myPillow];
+    return [];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=my+pillow&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  const ids = body.items.map((i) => i.id);
+  assert.ok(
+    ids.includes("company_1775865651248_3xpv2t94sc4"),
+    `MyPillow must surface via compact-form clause; got: ${ids}`
+  );
+
+  // Verify the token-query SQL actually included the compact form.
+  const tokenSpec = specs.find((s) =>
+    String(s.query || "").includes("ARRAY_CONTAINS(c.search_tokens")
+  );
+  assert.ok(tokenSpec, "a token query should be issued");
+  const allTokVals = (tokenSpec.parameters || [])
+    .filter((p) => p.name.startsWith("@tok"))
+    .map((p) => p.value);
+  assert.ok(
+    allTokVals.includes("mypillow"),
+    `compact form "mypillow" must be among the @tok params; got: ${JSON.stringify(allTokVals)}`
+  );
+  // The per-word values should ALSO still be present (the original AND
+  // path is unchanged — compact form is strictly additive).
+  assert.ok(
+    allTokVals.includes("my") || allTokVals.includes("pillow"),
+    `per-word @tok params should still be issued alongside the compact form; got: ${JSON.stringify(allTokVals)}`
+  );
+});
+
+test("single-word query does NOT issue a compact-form clause (q_compact === q_norm)", async () => {
+  // When the query has no whitespace, q_compact equals q_norm — adding
+  // it as an "extra" phrase would just duplicate the existing single-word
+  // phrase. Gate must skip the compact-form addition in this case.
+  const specs = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    specs.push(spec);
+    return [];
+  });
+
+  await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=candle&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  const tokenSpec = specs.find((s) =>
+    String(s.query || "").includes("ARRAY_CONTAINS(c.search_tokens")
+  );
+  assert.ok(tokenSpec, "a token query should be issued");
+  const tokVals = (tokenSpec.parameters || [])
+    .filter((p) => p.name.startsWith("@tok"))
+    .map((p) => p.value);
+  // For single-word "candle", expect 1 token value (the word itself) plus
+  // possibly its stem — but NEVER a duplicate "candle" from the compact-
+  // form path firing redundantly. Count occurrences of the literal word.
+  const candleCount = tokVals.filter((v) => v === "candle").length;
+  assert.equal(
+    candleCount,
+    1,
+    `single-word query should issue exactly one "candle" @tok param, not duplicate via compact-form path; got: ${JSON.stringify(tokVals)}`
+  );
+});
+
 // ── word-boundary keyword scoring tests ──────────────────────────────────
 
 test("computeKeywordMatchScore returns 20 for compound substring (robes in bathrobes)", () => {

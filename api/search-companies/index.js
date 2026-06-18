@@ -1619,6 +1619,39 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               phraseClauses.push(`(${wordClauses.join(" AND ")})`);
             }
           }
+
+          // Compact-form phrase: handles the tokenizer asymmetry where a
+          // brand is stored as ONE solid token (MyPillow, Lululemon,
+          // YouTube, Facebook — names with no whitespace) but the user
+          // types it WITH whitespace ("my pillow", "lulu lemon"). The
+          // per-word AND above can't match — the doc has neither "my" nor
+          // "pillow" as a separate token, only "mypillow". Adding the
+          // joined q_compact as one more phrase (OR'd with the existing
+          // ones) lets ARRAY_CONTAINS hit "mypillow" directly. Strictly
+          // ADDITIVE — never removes a match the AND path was already
+          // catching. Gate keeps it from firing on single-word queries
+          // (q_compact === q_norm — would be a duplicate clause) and on
+          // compacts too short to be discriminating ("to do" → "todo" is
+          // noise; "iam" / "ups" / actual short brand acronyms are real).
+          // Mirrors the per-word loop's stem-variant treatment.
+          if (
+            q_compact &&
+            q_compact !== q_norm &&
+            q_compact.length >= 4 &&
+            !SEARCH_STOPWORDS.has(q_compact)
+          ) {
+            const variants = new Set([q_compact]);
+            const st = simpleStem(q_compact);
+            if (st && st.length >= 2) variants.add(st);
+            const ors = [];
+            for (const v of variants) {
+              const pn = `@tok${pIdx++}`;
+              tokenParams.push({ name: pn, value: v });
+              ors.push(`ARRAY_CONTAINS(c.search_tokens, ${pn})`);
+            }
+            phraseClauses.push(`(${ors.join(" OR ")})`);
+          }
+
           if (phraseClauses.length > 0) {
             tokenWhere = `AND (${phraseClauses.join(" OR ")}) `;
           }
