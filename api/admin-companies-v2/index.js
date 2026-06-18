@@ -17,7 +17,9 @@ const { expandBusinessAbbreviations } = require("../_searchSynonyms");
 // Phase 4.36 — indexed admin search uses the same search_tokens helper
 // public /results search uses; see _searchTokens.js for the rationale.
 const { buildTokenMatchSqlFromRaw } = require("../_searchTokens");
-const { foldDiacritics, parseQuery } = require("../_queryNormalizer");
+const { foldDiacritics, parseQuery, normalizeQuery } = require("../_queryNormalizer");
+const { isFuzzyNameMatch } = require("../_fuzzyMatch");
+const { simpleStem } = require("../_stemmer");
 const { applySortKeys } = require("../_sortKeys");
 
 const BUILD_INFO = getBuildInfo();
@@ -1694,6 +1696,93 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           .fetchAll();
 
         const raw = resources || [];
+
+        // ── Recall fallbacks: make admin search match what /results finds ──
+        // The fast path above (indexed token-AND + exact prefix) deliberately
+        // omits the public search's two recall passes. Port them here, gated to
+        // an active search on page 1 with thin results, so admin and /results
+        // surface the same companies. The shared computeRelevanceScore (used by
+        // computeAdminSearchRelevance below) then ranks them identically.
+        const SEARCH_FALLBACK_THRESHOLD = 10;
+        if (search && skip === 0 && raw.length < SEARCH_FALLBACK_THRESHOLD) {
+          const qNorm = normalizeQuery(search);
+          const existingIds = new Set(raw.map((d) => d && d.id).filter(Boolean));
+
+          // Pass 1 — Broadening (mirror search-companies Pass 3): retrieve docs
+          // whose search_text_norm contains ANY content word (+ stem), then let
+          // relevance ranking surface the best. Catches "brand + extra word" and
+          // "Co. vs company" cases that strict token-AND misses (e.g.
+          // "douglas smith soap company" → "Douglas Smith Soap Co.").
+          const broadenWords = qNorm.split(/\s+/).filter((w) => w.length >= 3);
+          if (broadenWords.length >= 2) {
+            try {
+              const broadenParams = [{ name: "@broadenTake", value: take }];
+              const broadenClauses = [];
+              broadenWords.forEach((word, i) => {
+                const wParam = `@bw${i}`;
+                broadenParams.push({ name: wParam, value: ` ${word} ` });
+                broadenClauses.push(`CONTAINS(c.search_text_norm, ${wParam})`);
+                const st = simpleStem(word);
+                if (st && st !== word) {
+                  const sParam = `@bws${i}`;
+                  broadenParams.push({ name: sParam, value: ` ${st} ` });
+                  broadenClauses.push(`CONTAINS(c.search_text_stemmed, ${sParam})`);
+                }
+              });
+              const broadenSql = `SELECT TOP @broadenTake * FROM c WHERE (${broadenClauses.join(" OR ")}) AND ${baseWhereStr} ORDER BY c._ts DESC`;
+              const broadenRes = await container.items
+                .query({ query: broadenSql, parameters: broadenParams }, { enableCrossPartitionQuery: true })
+                .fetchAll();
+              for (const cand of broadenRes.resources || []) {
+                if (!cand || existingIds.has(cand.id)) continue;
+                raw.push(cand);
+                existingIds.add(cand.id);
+              }
+            } catch (e) {
+              context.log("[admin-companies-v2] broadening fallback error:", e?.message || e);
+            }
+          }
+
+          // Pass 2 — Fuzzy (mirror search-companies fuzzy fallback): prefix
+          // lookup (range-indexed) + Damerau-Levenshtein name check via the
+          // shared _fuzzyMatch. Catches stylized/concatenated brands and typos
+          // (e.g. "think tank" → "thinkTANK") that the broadening pass can't,
+          // since "thinktank" is one word with no internal space. Only runs if
+          // recall is still thin after broadening.
+          if (raw.length < SEARCH_FALLBACK_THRESHOLD && qNorm && qNorm.length >= 4) {
+            try {
+              for (const prefixLen of [4, 3]) {
+                const prefix = qNorm.substring(0, Math.min(prefixLen, qNorm.length));
+                const fuzzySql = `SELECT TOP @fuzzyTake * FROM c WHERE (
+                  (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), @fpfx)) OR
+                  (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND STARTSWITH(LOWER(c.display_name), @fpfx)) OR
+                  (IS_DEFINED(c.name) AND IS_STRING(c.name) AND STARTSWITH(LOWER(c.name), @fpfx)) OR
+                  (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND STARTSWITH(LOWER(c.normalized_domain), @fpfx))
+                ) AND ${baseWhereStr} ORDER BY c._ts DESC`;
+                const fuzzyRes = await container.items
+                  .query(
+                    { query: fuzzySql, parameters: [{ name: "@fuzzyTake", value: take }, { name: "@fpfx", value: prefix }] },
+                    { enableCrossPartitionQuery: true }
+                  )
+                  .fetchAll();
+                let added = false;
+                for (const cand of fuzzyRes.resources || []) {
+                  if (!cand || existingIds.has(cand.id)) continue;
+                  const names = [cand.company_name, cand.display_name, cand.name, cand.normalized_domain].filter(Boolean);
+                  if (names.some((n) => isFuzzyNameMatch(n, qNorm))) {
+                    raw.push(cand);
+                    existingIds.add(cand.id);
+                    added = true;
+                  }
+                }
+                if (added) break; // longer prefix already matched — don't widen
+              }
+            } catch (e) {
+              context.log("[admin-companies-v2] fuzzy fallback error:", e?.message || e);
+            }
+          }
+        }
+
         const allItems = raw
           .filter((d) => d && typeof d === "object")
           .map((d) => normalizeCompanyForResponseWithContractIssues(d));

@@ -92,3 +92,34 @@ test("Phase 4.36: buildSearchWhereClause(stringArg, params) routes to indexed pa
   const clause = buildSearchWhereClause("zara", params);
   assert.match(clause, /ARRAY_CONTAINS\(c\.search_tokens, @tok\d+\)/, "string-arg invocation must route to indexed clause");
 });
+
+// Recall-fallback premises — why the admin search needs the broadening +
+// fuzzy passes (ported from the public /results search) on top of the fast
+// indexed token-AND path. These guard the matching primitives the fallbacks
+// rely on; the handler wiring is exercised end-to-end against live Cosmos.
+test("fallback premise: 'douglas smith soap company' must reach 'Douglas Smith Soap Co.'", () => {
+  const { isFuzzyNameMatch } = require("../_fuzzyMatch");
+  const { normalizeQuery } = require("../_queryNormalizer");
+
+  // Strict token-AND can't match: the query has 4 content words but the brand
+  // name lacks "company" (stored "Co."), so ARRAY_CONTAINS-all fails.
+  const params = [];
+  const indexed = buildIndexedSearchWhereClause("douglas smith soap company", params);
+  assert.match(indexed, /ARRAY_CONTAINS.*AND.*ARRAY_CONTAINS/s, "multi-word query requires ALL tokens");
+
+  // Fuzzy is too far (edit distance 5) — this case is the BROADENING pass's job.
+  assert.equal(isFuzzyNameMatch("Douglas Smith Soap Co.", "douglas smith soap company"), false);
+
+  // Broadening matches on shared content words present in search_text_norm.
+  const nameNorm = ` ${normalizeQuery("Douglas Smith Soap Co.")} `; // " douglas smith soap co "
+  const queryWords = normalizeQuery("douglas smith soap company").split(/\s+/).filter((w) => w.length >= 3);
+  assert.ok(queryWords.some((w) => nameNorm.includes(` ${w} `)), "broadening OR-of-words finds the brand");
+});
+
+test("fallback premise: 'think tank' must reach the camelCase brand 'thinkTANK' via fuzzy", () => {
+  const { isFuzzyNameMatch } = require("../_fuzzyMatch");
+  // Broadening can't help (no internal space in "thinktank"); fuzzy does
+  // (full-name edit distance 1 / compact distance 0), and a 4-char prefix retrieves it.
+  assert.equal(isFuzzyNameMatch("thinkTANK", "think tank"), true);
+  assert.ok("thinktank".startsWith("thin"));
+});
