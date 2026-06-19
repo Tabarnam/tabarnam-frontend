@@ -2530,11 +2530,11 @@ app.http("adminCompanies", {
   route: "xadmin-api-companies/{id?}",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
-  handler: (req, context) => adminCompaniesHandler(req, context),
+  handler: require("../_adminAuth").withAdminGuard(adminCompaniesHandler),
 });
 
 module.exports = {
-  handler: require("../_adminAuth").withAdminGuard(adminCompaniesHandler),
+  handler: adminCompaniesHandler,
   _test: {
     adminCompaniesHandler,
     adminCompanyHistoryFallbackHandler,
