@@ -393,7 +393,7 @@ app.http("proxy-xai", {
   route: "proxy-xai",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: proxyXaiHandler,
+  handler: require("../_adminAuth").withAdminGuard(proxyXaiHandler),
 });
 
 module.exports = { handler: proxyXaiHandler };

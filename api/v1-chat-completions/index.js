@@ -435,7 +435,7 @@ app.http("v1-chat-completions", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "v1/chat/completions",
-  handler: v1ChatCompletionsHandler,
+  handler: require("../_adminAuth").withAdminGuard(v1ChatCompletionsHandler),
 });
 
 module.exports = { handler: v1ChatCompletionsHandler };
