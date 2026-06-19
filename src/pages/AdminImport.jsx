@@ -177,6 +177,14 @@ export default function AdminImport() {
   const [successionQueue, setSuccessionQueue] = useState([]);
   const [successionIndex, setSuccessionIndex] = useState(-1);
   const [successionResults, setSuccessionResults] = useState([]);
+  // Phase 4.40 — settle tracking. A row's recorded result flips to "done" at
+  // enrichment-complete (which keeps slot dispatch fast), but scoring/logo/
+  // geocode backfills keep writing afterward. We keep polling each completed
+  // session's /import/status until its saved company reports settled === true,
+  // then upgrade the *display* status from "settling" to "done" (green
+  // checkmark = safe to edit). settledBySession maps session_id -> true.
+  const [settledBySession, setSettledBySession] = useState({});
+  const settleAttemptsRef = useRef({}); // session_id -> poll attempts (cap backstop)
   const successionTriggerRef = useRef(false);
   const successionCount = normalizeSuccessionCount(successionCountInput);
 
@@ -821,6 +829,15 @@ export default function AdminImport() {
         status = "waiting_for_xai";
       }
 
+      // Phase 4.40 — settle gate. A recorded "done" row displays as "settling"
+      // (scoring/logo/geocode backfills still writing) until its session
+      // reports settled; only then does the green "done" checkmark appear,
+      // meaning "safe to edit". Dispatch is unaffected — it keys on
+      // activeStatus / isRunStrictlyComplete, not this derived display status.
+      if (status === "done" && result?.sessionId && settledBySession[result.sessionId] !== true) {
+        status = "settling";
+      }
+
       // Timing data from run history
       let startedAt = null;
       let updatedAt = null;
@@ -882,6 +899,10 @@ export default function AdminImport() {
         startError: run?.start_error || null,
         startErrorDetails: run?.start_error_details || null,
         timedOut: Boolean(run?.timedOut),
+        // Phase 4.40 — which backfills are still pending (for the settling tooltip)
+        pendingBackfills: Array.isArray(run?.saved_companies?.[0]?.pending_backfills)
+          ? run.saved_companies[0].pending_backfills
+          : [],
       };
     });
   }, [
@@ -896,6 +917,7 @@ export default function AdminImport() {
     successionShadowIndex,
     shadowSessionId,
     activeSessionId, // Phase 4.25 — lock-holder election scopes to in-flight slot sessions
+    settledBySession, // Phase 4.40 — upgrade settling -> done when a session settles
   ]);
 
   useEffect(() => {
@@ -4953,6 +4975,64 @@ export default function AdminImport() {
     setTimeout(() => beginImportShadow(next.companyName, next.companyUrl), 1000);
   }, [shadowStatus, successionShadowIndex, successionQueue, shadowSessionId, beginImportShadow, stopShadowPolling, verifyEnrichment, isRunStrictlyComplete]);
 
+  // Phase 4.40 — settle poller. For each row that has completed enrichment
+  // (recorded result "done") but is not yet known-settled, keep polling
+  // /import/status until its saved company reports settled === true, then mark
+  // the session settled so the row's display upgrades from "settling" to the
+  // green "done" checkmark. Isolated from the main progress poller so it can't
+  // re-trigger resume-worker logic on already-finished sessions. Backstop: a
+  // per-session attempt cap force-settles a row so it can never hang in
+  // "settling" if a backfill never reports terminal (e.g. an import path that
+  // skips the logo job).
+  useEffect(() => {
+    const SETTLE_POLL_MS = 6000;
+    const SETTLE_TIMEOUT_MS = 12_000;
+    const SETTLE_MAX_ATTEMPTS = 40; // ~4 min of polling, then force-settle
+
+    const pendingIds = Array.from(
+      new Set(
+        successionResults
+          .filter((r) => r?.status === "done" && r?.sessionId && settledBySession[r.sessionId] !== true)
+          .map((r) => asString(r.sessionId).trim())
+          .filter(Boolean)
+      )
+    );
+    if (pendingIds.length === 0) return;
+
+    let cancelled = false;
+
+    const checkOne = async (sid) => {
+      const attempts = (settleAttemptsRef.current[sid] || 0) + 1;
+      settleAttemptsRef.current[sid] = attempts;
+      let settled = false;
+      try {
+        const { res } = await apiFetchWithFallback(
+          [`/import/status?session_id=${encodeURIComponent(sid)}`],
+          { signal: AbortSignal.timeout(SETTLE_TIMEOUT_MS) }
+        );
+        const body = await res.json();
+        const saved = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+        // Settled once every saved company for the session is settled. (In
+        // succession mode that's a single company.) An empty saved list means
+        // we can't confirm yet — leave it to the attempt-cap backstop.
+        settled = saved.length > 0 && saved.every((c) => c?.settled === true);
+      } catch {
+        // network/timeout — retry next tick (still counts toward the cap)
+      }
+      if (!settled && attempts >= SETTLE_MAX_ATTEMPTS) {
+        settled = true; // backstop: never hang in "settling"
+      }
+      if (settled && !cancelled) {
+        setSettledBySession((prev) => (prev[sid] === true ? prev : { ...prev, [sid]: true }));
+      }
+    };
+
+    const tick = () => { pendingIds.forEach((sid) => { checkOne(sid); }); };
+    tick();
+    const timer = setInterval(tick, SETTLE_POLL_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [successionResults, settledBySession]);
+
   // Phase 4.9 — slot-startedAt tracker. When a slot transitions to "running"
   // OR its session id changes while still "running", record Date.now() so
   // the watchdog can compare elapsed time against the timeout threshold.
@@ -5859,12 +5939,16 @@ export default function AdminImport() {
                           // path. The "currently X" suffix is preserved so
                           // operators can spot which row is in flight.
                           const totalCount = successionQueue.length;
+                          // Phase 4.40 — "done" now counts ONLY fully-settled rows
+                          // (safe to edit). Rows whose backfills are still writing
+                          // count as "settling" — in process, not done, not queued.
                           const doneCount = successionRunDetails.filter((it) => it.status === "done").length;
+                          const settlingCount = successionRunDetails.filter((it) => it.status === "settling").length;
                           const errorCount = successionRunDetails.filter((it) => it.status === "error").length;
                           const runningCount = successionRunDetails.filter(
                             (it) => it.status === "running" || it.status === "waiting_for_xai"
                           ).length;
-                          const queuedCount = Math.max(0, totalCount - doneCount - errorCount - runningCount);
+                          const queuedCount = Math.max(0, totalCount - doneCount - settlingCount - errorCount - runningCount);
 
                           const activeNames = [];
                           const seenIndices = new Set();
@@ -5885,7 +5969,8 @@ export default function AdminImport() {
                             : "";
 
                           const errorPart = errorCount > 0 ? ` · ${errorCount} error` : "";
-                          return `${doneCount} done · ${runningCount} running · ${queuedCount} queued${errorPart}${activeSuffix}`;
+                          const settlingPart = settlingCount > 0 ? ` · ${settlingCount} settling` : "";
+                          return `${doneCount} done · ${runningCount} running${settlingPart} · ${queuedCount} queued${errorPart}${activeSuffix}`;
                         })()
                       : `Succession complete: ${successionResults.length} imports processed`}
                   </div>
@@ -5899,7 +5984,7 @@ export default function AdminImport() {
                         onClick={() => {
                           const header = "Name\tWebsite\tDate\tStart\tEnd\tTRT";
                           const rows = successionRunDetails
-                            .filter((item) => item.status === "done" || item.status === "error")
+                            .filter((item) => item.status === "done" || item.status === "settling" || item.status === "error")
                             .map((item) => {
                               const date = item.startedAt ? item.startedAt.toLocaleDateString() : "";
                               const start = item.startedAt ? item.startedAt.toLocaleTimeString() : "";
@@ -5957,17 +6042,32 @@ export default function AdminImport() {
                           ? "bg-blue-100 dark:bg-blue-900/30"
                           : item.status === "waiting_for_xai"
                             ? "bg-amber-50 dark:bg-amber-900/20"
-                            : item.status === "done"
-                              ? "bg-white/60 dark:bg-white/5"
-                              : item.status === "error"
-                                ? "bg-red-50 dark:bg-red-900/20"
-                                : "opacity-50"
+                            : item.status === "settling"
+                              ? "bg-emerald-50/60 dark:bg-emerald-900/10"
+                              : item.status === "done"
+                                ? "bg-white/60 dark:bg-white/5"
+                                : item.status === "error"
+                                  ? "bg-red-50 dark:bg-red-900/20"
+                                  : "opacity-50"
                       }`}
                     >
                       {/* Status icon */}
                       <div className="shrink-0 w-5 text-center">
-                        {item.status === "done" ? (
-                          <span className="text-emerald-600 dark:text-emerald-400">&#10003;</span>
+                        {item.status === "settling" ? (
+                          // Phase 4.40 — enrichment is done but scoring/logo/
+                          // geocode backfills are still writing. Distinct from
+                          // the blue "running" spinner (emerald) and from the
+                          // static green check (this one spins): spinning =
+                          // still settling, NOT safe to edit yet.
+                          <Loader2
+                            className="inline h-3.5 w-3.5 animate-spin text-emerald-500 dark:text-emerald-400"
+                            title={`Finishing up${Array.isArray(item.pendingBackfills) && item.pendingBackfills.length ? ` (${item.pendingBackfills.join(", ")})` : ""} — not safe to edit yet`}
+                          />
+                        ) : item.status === "done" ? (
+                          <span
+                            className="text-emerald-600 dark:text-emerald-400"
+                            title="Fully settled — safe to edit"
+                          >&#10003;</span>
                         ) : item.status === "error" ? (
                           <span
                             className="text-red-600 dark:text-red-400"
