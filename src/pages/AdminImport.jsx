@@ -372,6 +372,16 @@ export default function AdminImport() {
   const successionCompleted = !isSuccessionRunning && successionResults.length > 0 && successionQueue.length > 0;
   const showSuccessionPanel = isSuccessionRunning || successionCompleted;
 
+  // Phase 4.37.B — 1-second tick that re-renders in-progress rows so
+  // the live elapsed time advances smoothly. Only runs while a succession
+  // batch is active; idles otherwise so we don't burn render cycles.
+  const [nowTickMs, setNowTickMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isSuccessionRunning) return;
+    const interval = setInterval(() => setNowTickMs(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [isSuccessionRunning]);
+
   // Audio notification on import / succession completion
   const { play: playNotification, replay: replayNotification, lastPlayed, muted: notificationMuted, toggleMuted: toggleNotificationMuted } = useNotificationSound();
   const prevActiveStatusRef = useRef(activeStatus);
@@ -5841,25 +5851,20 @@ export default function AdminImport() {
                   >
                     {isSuccessionRunning
                       ? (() => {
-                          // Phase 4.21 — header text reflects ACTUAL
-                          // completion count, not dispatched-slot index.
-                          //
-                          // Pre-4.21 we displayed `successionIndex + 1`
-                          // (the row Slot A is parked on), but with two
-                          // parallel slots Slot B routinely advances past
-                          // Slot A while Slot A is stuck on a slow row.
-                          // Empirical (2026-05-19): batch of 17 showed
-                          // "Importing 9 of 17" while 16 rows already had
-                          // green ✓ — Slot A was hung on Ban.do (row 9)
-                          // and Slot B had completed positions 10-17.
-                          //
-                          // New rule: "Imported X of N" uses the
-                          // ground-truth `successionResults.length`.
-                          // A parenthetical lists what's currently
-                          // in-flight by company name so the user can
-                          // see at a glance which rows are still working.
-                          const completedCount = successionResults.length;
+                          // Phase 4.37.B — header shows explicit queue state
+                          // instead of "Imported X of N". Operators wanted
+                          // to see at a glance: how many finished, how many
+                          // running, how many still queued. Errors only
+                          // surface when > 0 to avoid cluttering the happy
+                          // path. The "currently X" suffix is preserved so
+                          // operators can spot which row is in flight.
                           const totalCount = successionQueue.length;
+                          const doneCount = successionRunDetails.filter((it) => it.status === "done").length;
+                          const errorCount = successionRunDetails.filter((it) => it.status === "error").length;
+                          const runningCount = successionRunDetails.filter(
+                            (it) => it.status === "running" || it.status === "waiting_for_xai"
+                          ).length;
+                          const queuedCount = Math.max(0, totalCount - doneCount - errorCount - runningCount);
 
                           const activeNames = [];
                           const seenIndices = new Set();
@@ -5879,7 +5884,8 @@ export default function AdminImport() {
                             ? ` — currently ${activeNames.join(", ")}`
                             : "";
 
-                          return `Imported ${completedCount} of ${totalCount} companies${activeSuffix}`;
+                          const errorPart = errorCount > 0 ? ` · ${errorCount} error` : "";
+                          return `${doneCount} done · ${runningCount} running · ${queuedCount} queued${errorPart}${activeSuffix}`;
                         })()
                       : `Succession complete: ${successionResults.length} imports processed`}
                   </div>
@@ -6023,6 +6029,26 @@ export default function AdminImport() {
                             {item.companyUrl}
                           </span>
                         ) : null}
+                        {/* Phase 4.37.B — live elapsed time for in-progress rows.
+                            Replaces the missing TRT line for running / waiting
+                            rows so the operator can see how long the row has
+                            been working. The 1-second tick re-renders this
+                            block; completed rows fall through to the TRT
+                            block below. */}
+                        {(item.status === "running" || item.status === "waiting_for_xai") && item.startedAt ? (() => {
+                          const elapsedMs = Math.max(0, nowTickMs - item.startedAt.getTime());
+                          const totalSec = Math.floor(elapsedMs / 1000);
+                          const m = Math.floor(totalSec / 60);
+                          const s = totalSec % 60;
+                          return (
+                            <span
+                              className="ml-3 text-xs font-mono text-blue-600 dark:text-blue-400"
+                              title="Elapsed time since this row started."
+                            >
+                              {String(m).padStart(2, "0")}:{String(s).padStart(2, "0")}
+                            </span>
+                          );
+                        })() : null}
                         {item.startedAt && item.updatedAt && item.trt ? (
                           <span className="ml-3 text-xs text-slate-400 dark:text-muted-foreground">
                             {item.startedAt.toLocaleDateString()}{" "}
@@ -6032,8 +6058,12 @@ export default function AdminImport() {
                             <span
                               className="ml-1.5 font-mono text-emerald-600 dark:text-emerald-400"
                               title={(() => {
-                                // Phase 3.5.2 \u2014 tooltip shows what the TRT is
-                                // measuring + lock-wait context when present.
+                                // Phase 3.5.2 \u2014 tooltip retains the lock-wait
+                                // detail for the rare debugging case; the inline
+                                // (+X:XX lock-wait) suffix was removed in
+                                // Phase 4.37.B since it's engineering telemetry
+                                // (not an actionable operator signal) and
+                                // appears on every queued row at concurrency=1.
                                 if (item.trtSource === "canonical") {
                                   const lockSec = Number.isFinite(item.lockWaitMs) && item.lockWaitMs > 0
                                     ? Math.round(item.lockWaitMs / 1000)
@@ -6052,11 +6082,6 @@ export default function AdminImport() {
                               })()}
                             >
                               TRT: {item.trt}
-                              {item.trtSource === "canonical" && Number.isFinite(item.lockWaitMs) && item.lockWaitMs >= 5000 ? (
-                                <span className="ml-1 text-amber-600 dark:text-amber-400">
-                                  {" "}(+{Math.floor(item.lockWaitMs / 60000)}:{String(Math.floor((item.lockWaitMs % 60000) / 1000)).padStart(2, "0")} lock-wait)
-                                </span>
-                              ) : null}
                             </span>
                           </span>
                         ) : null}
