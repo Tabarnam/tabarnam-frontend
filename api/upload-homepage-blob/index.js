@@ -266,7 +266,7 @@ app.http("upload-homepage-blob", {
   route: "upload-homepage-blob",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: uploadHomepageBlobHandler,
+  handler: require("../_adminAuth").withAdminGuard(uploadHomepageBlobHandler),
 });
 
 module.exports = { handler: uploadHomepageBlobHandler };

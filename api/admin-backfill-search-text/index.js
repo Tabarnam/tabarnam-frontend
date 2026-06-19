@@ -135,9 +135,9 @@ app.http("admin-backfill-search-text", {
   route: "admin-backfill-search-text",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
+  handler: require("../_adminAuth").withAdminGuard(async (req, context) => {
     return backfillSearchText(req, context);
-  },
+  }),
 });
 
 module.exports = app;

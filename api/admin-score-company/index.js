@@ -179,7 +179,7 @@ app.http('adminScoreCompany', {
   route: 'xadmin-api-score-company',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminScoreCompanyHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminScoreCompanyHandler),
 });
 
 module.exports = { handler: adminScoreCompanyHandler };

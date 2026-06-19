@@ -540,7 +540,7 @@ app.http("adminBackfillLogosStart", {
   route: "xadmin-api-backfill-logos-start",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  handler: require("../_adminAuth").withAdminGuard(handler),
 });
 
 module.exports = { handler, processBackfillLogosBatch, createLogoBackfillJob };

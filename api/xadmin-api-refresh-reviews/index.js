@@ -1837,7 +1837,7 @@ app.http("xadminApiRefreshReviews", {
   route: "xadmin-api-refresh-reviews",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: safeHandler,
+  handler: require("../_adminAuth").withAdminGuard(safeHandler),
 });
 
 

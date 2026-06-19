@@ -129,7 +129,7 @@ app.http("adminDiagTriggers", {
   route: "xadmin-api-diag-triggers",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminDiagTriggersHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminDiagTriggersHandler),
 });
 
 module.exports = { handler: adminDiagTriggersHandler };

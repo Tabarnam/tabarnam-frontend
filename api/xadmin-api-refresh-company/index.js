@@ -198,7 +198,7 @@ app.http("xadminApiRefreshCompany", {
   route: "xadmin-api-refresh-company",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: safeHandler,
+  handler: require("../_adminAuth").withAdminGuard(safeHandler),
 });
 
 

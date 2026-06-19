@@ -182,7 +182,7 @@ app.http('adminNotes', {
   route: 'xadmin-api-notes',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminNotesHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminNotesHandler),
 });
 
 module.exports = { handler: adminNotesHandler };

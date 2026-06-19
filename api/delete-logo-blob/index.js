@@ -285,7 +285,7 @@ app.http("delete-logo-blob", {
   route: "delete-logo-blob",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: deleteLogoBlobHandler,
+  handler: require("../_adminAuth").withAdminGuard(deleteLogoBlobHandler),
 });
 
 module.exports = { handler: deleteLogoBlobHandler };

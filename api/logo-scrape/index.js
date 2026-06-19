@@ -68,7 +68,7 @@ app.http("logo-scrape", {
   route: "logo-scrape",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: logoScrapeHandler,
+  handler: require("../_adminAuth").withAdminGuard(logoScrapeHandler),
 });
 
 module.exports = { handler: logoScrapeHandler };

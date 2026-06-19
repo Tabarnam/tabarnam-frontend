@@ -138,7 +138,7 @@ app.http("adminBackfillHomepagesWorker", {
   route: "xadmin-api-backfill-homepages-worker",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  handler: require("../_adminAuth").withAdminGuard(handler),
 });
 
 module.exports = { handler };

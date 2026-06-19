@@ -249,7 +249,7 @@ app.http("adminScoreBatchWorker", {
   route: "xadmin-api-score-batch-worker",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminScoreBatchWorkerHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminScoreBatchWorkerHandler),
 });
 
 module.exports = { handler: adminScoreBatchWorkerHandler };

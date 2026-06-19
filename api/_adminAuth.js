@@ -172,9 +172,37 @@ function adminGuard(req, context) {
   };
 }
 
+/**
+ * Wrap an Azure Functions v4 handler so every non-OPTIONS request must pass
+ * adminGuard() before the handler runs. OPTIONS (CORS preflight) is passed
+ * straight through to the handler's own CORS response — preflight carries no
+ * principal, so guarding it would break CORS.
+ *
+ * Usage in app.http registration:
+ *   handler: require("../_adminAuth").withAdminGuard(myHandler)
+ *
+ * adminGuard's triple bypass (internal-job secret / TABARNAM_DEV_BYPASS /
+ * admin x-ms-client-principal) means workers, local dev, and the logged-in
+ * admin UI all continue to work unchanged.
+ */
+function withAdminGuard(handler) {
+  return async function guardedHandler(req, context) {
+    let method = "";
+    try {
+      method = String(req?.method || "").toUpperCase();
+    } catch {}
+    if (method !== "OPTIONS") {
+      const authError = adminGuard(req, context);
+      if (authError) return authError;
+    }
+    return handler(req, context);
+  };
+}
+
 module.exports = {
   requireAdmin,
   adminGuard,
+  withAdminGuard,
   decodeClientPrincipal,
   getAdminEmails,
   isLocalDev,

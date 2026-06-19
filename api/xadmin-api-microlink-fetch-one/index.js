@@ -109,7 +109,7 @@ app.http("adminMicrolinkFetchOne", {
   route: "xadmin-api-microlink-fetch-one",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  handler: require("../_adminAuth").withAdminGuard(handler),
 });
 
 module.exports = { handler };

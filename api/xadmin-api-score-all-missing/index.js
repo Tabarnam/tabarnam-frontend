@@ -727,7 +727,7 @@ app.http("adminScoreAllMissing", {
   route: "xadmin-api-score-all-missing",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminScoreAllMissingHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminScoreAllMissingHandler),
 });
 
 module.exports = {

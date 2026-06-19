@@ -159,7 +159,7 @@ app.http("xadmin-api-logos", {
   route: "xadmin-api-logos/{companyId}",
   methods: ["PUT", "OPTIONS"],
   authLevel: "anonymous",
-  handler: xadminApiLogosHandler,
+  handler: require("../_adminAuth").withAdminGuard(xadminApiLogosHandler),
 });
 
 module.exports = { handler: xadminApiLogosHandler };

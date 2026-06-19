@@ -53,7 +53,7 @@ app.http("review-scrape", {
   route: "review-scrape",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: reviewScrapeHandler,
+  handler: require("../_adminAuth").withAdminGuard(reviewScrapeHandler),
 });
 
 module.exports = { handler: reviewScrapeHandler };

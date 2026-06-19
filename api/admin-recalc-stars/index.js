@@ -147,7 +147,7 @@ app.http('adminRecalcStars', {
   route: 'xadmin-api-recalc-stars',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminRecalcStarsHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminRecalcStarsHandler),
 });
 
 module.exports = { handler: adminRecalcStarsHandler };

@@ -168,7 +168,7 @@ app.http("delete-homepage-blob", {
   route: "delete-homepage-blob",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: deleteHomepageBlobHandler,
+  handler: require("../_adminAuth").withAdminGuard(deleteHomepageBlobHandler),
 });
 
 module.exports = { handler: deleteHomepageBlobHandler };

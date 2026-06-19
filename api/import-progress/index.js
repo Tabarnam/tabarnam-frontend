@@ -198,7 +198,7 @@ app.http("import-progress", {
   route: "import/progress",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: importProgressHandler,
+  handler: require("../_adminAuth").withAdminGuard(importProgressHandler),
 });
 
 module.exports = { handler: importProgressHandler };

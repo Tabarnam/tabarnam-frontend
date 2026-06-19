@@ -452,7 +452,7 @@ app.http("admin-cleanup-seed-fallback-dups", {
   route: "xadmin-api-cleanup-seed-fallback-dups",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: cleanupHandler,
+  handler: require("../_adminAuth").withAdminGuard(cleanupHandler),
 });
 
 module.exports = {

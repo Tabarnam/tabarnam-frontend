@@ -80,7 +80,7 @@ app.http('adminImportStats', {
   route: 'xadmin-api-import-stats',
   methods: ['GET', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminImportStatsHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminImportStatsHandler),
 });
 
 module.exports = { handler: adminImportStatsHandler };

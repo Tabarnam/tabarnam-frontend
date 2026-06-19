@@ -342,7 +342,7 @@ if (!hasRoute(ROUTE)) {
     route: ROUTE,
     methods: ["GET", "POST", "OPTIONS"],
     authLevel: "anonymous",
-    handler,
+    handler: require("../_adminAuth").withAdminGuard(handler),
   });
 }
 

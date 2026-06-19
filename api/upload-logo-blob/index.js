@@ -391,7 +391,7 @@ app.http("upload-logo-blob", {
   route: "upload-logo-blob",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: uploadLogoBlobHandler,
+  handler: require("../_adminAuth").withAdminGuard(uploadLogoBlobHandler),
 });
 
 module.exports = { handler: uploadLogoBlobHandler };

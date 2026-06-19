@@ -122,7 +122,7 @@ app.http('adminAnalytics', {
   route: 'xadmin-api-analytics',
   methods: ['GET', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminAnalyticsHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminAnalyticsHandler),
 });
 
 module.exports = { handler: adminAnalyticsHandler };

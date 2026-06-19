@@ -47,7 +47,7 @@ app.http("adminRecentImports", {
   route: "xadmin-api-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminRecentImportsHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminRecentImportsHandler),
 });
 
 module.exports = { handler: adminRecentImportsHandler };

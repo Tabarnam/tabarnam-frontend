@@ -194,7 +194,7 @@ app.http('adminSaveDiagnostic', {
   route: 'xadmin-api-save-diagnostic',
   methods: ['GET', 'POST', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminSaveDiagnosticHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminSaveDiagnosticHandler),
 });
 
 module.exports = { handler: adminSaveDiagnosticHandler };

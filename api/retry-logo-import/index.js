@@ -165,7 +165,7 @@ app.http("retry-logo-import", {
   route: "retry-logo-import",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: retryLogoImportHandler,
+  handler: require("../_adminAuth").withAdminGuard(retryLogoImportHandler),
 });
 
 module.exports = { handler: retryLogoImportHandler };

@@ -96,9 +96,9 @@ app.http("admin-init-search-synonyms", {
   route: "admin-init-search-synonyms",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
+  handler: require("../_adminAuth").withAdminGuard(async (req, context) => {
     return initSearchSynonymsHandler(req, context);
-  },
+  }),
 });
 
 module.exports = app;

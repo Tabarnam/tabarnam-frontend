@@ -101,7 +101,7 @@ app.http('adminUndoHistory', {
   route: 'xadmin-api-undo-history',
   methods: ['GET', 'DELETE', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminUndoHistoryHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminUndoHistoryHandler),
 });
 
 module.exports = { handler: adminUndoHistoryHandler };
