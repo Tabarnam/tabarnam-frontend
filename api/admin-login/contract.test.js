@@ -107,11 +107,14 @@ test("POST with credentials but no ADMIN_CREDENTIALS env returns 500", async () 
 // 5. POST with valid credentials returns 200 with token
 // ---------------------------------------------------------------------------
 
-test("POST with valid plain credentials returns 200 with token", async () => {
+test("POST with valid plain credentials returns 200 with token (when ADMIN_JWT_SECRET configured)", async () => {
   const savedCreds = process.env.ADMIN_CREDENTIALS;
   const savedPlain = process.env.ADMIN_PLAIN_CREDENTIALS;
+  const savedSecret = process.env.ADMIN_JWT_SECRET;
   delete process.env.ADMIN_CREDENTIALS;
   process.env.ADMIN_PLAIN_CREDENTIALS = "test@admin.com:secretpass";
+  // A non-default secret must be configured for the endpoint to mint tokens.
+  process.env.ADMIN_JWT_SECRET = "test-jwt-secret-not-default";
 
   try {
     const req = makeReq({
@@ -132,6 +135,37 @@ test("POST with valid plain credentials returns 200 with token", async () => {
     else delete process.env.ADMIN_CREDENTIALS;
     if (savedPlain !== undefined) process.env.ADMIN_PLAIN_CREDENTIALS = savedPlain;
     else delete process.env.ADMIN_PLAIN_CREDENTIALS;
+    if (savedSecret !== undefined) process.env.ADMIN_JWT_SECRET = savedSecret;
+    else delete process.env.ADMIN_JWT_SECRET;
+  }
+});
+
+test("POST with valid credentials but no ADMIN_JWT_SECRET is disabled (503)", async () => {
+  const savedCreds = process.env.ADMIN_CREDENTIALS;
+  const savedPlain = process.env.ADMIN_PLAIN_CREDENTIALS;
+  const savedSecret = process.env.ADMIN_JWT_SECRET;
+  delete process.env.ADMIN_CREDENTIALS;
+  process.env.ADMIN_PLAIN_CREDENTIALS = "test@admin.com:secretpass";
+  delete process.env.ADMIN_JWT_SECRET; // unconfigured -> endpoint must refuse
+
+  try {
+    const req = makeReq({
+      method: "POST",
+      body: { email: "test@admin.com", password: "secretpass" },
+    });
+    const res = await handler(req, { log: () => {} });
+
+    assert.equal(res.status, 503);
+    const data = parseJson(res);
+    assert.equal(data.success, false);
+    assert.match(data.error, /disabled|not configured/i);
+  } finally {
+    if (savedCreds !== undefined) process.env.ADMIN_CREDENTIALS = savedCreds;
+    else delete process.env.ADMIN_CREDENTIALS;
+    if (savedPlain !== undefined) process.env.ADMIN_PLAIN_CREDENTIALS = savedPlain;
+    else delete process.env.ADMIN_PLAIN_CREDENTIALS;
+    if (savedSecret !== undefined) process.env.ADMIN_JWT_SECRET = savedSecret;
+    else delete process.env.ADMIN_JWT_SECRET;
   }
 });
 
