@@ -126,7 +126,19 @@ async function adminLoginHandler(req, context) {
     return json({ success: false, error: "Invalid password" }, 401, req);
   }
 
-  const secret = E("ADMIN_JWT_SECRET", "tabarnam_admin_secret");
+  // Refuse to mint tokens with the weak built-in default secret — a known
+  // secret means anyone could forge admin JWTs. This endpoint is also
+  // effectively dead (no handler validates the JWT; the app authenticates via
+  // SWA Easy Auth / x-ms-client-principal), so requiring a real secret here
+  // disables it unless explicitly configured.
+  const secret = E("ADMIN_JWT_SECRET", "");
+  if (!secret || secret === "tabarnam_admin_secret") {
+    return json(
+      { success: false, error: "admin-login is disabled (ADMIN_JWT_SECRET not configured)" },
+      503,
+      req,
+    );
+  }
   const now = Math.floor(Date.now() / 1000);
   const token = signToken({ sub: email, iat: now, exp: now + 60 * 60 * 8 }, secret);
 

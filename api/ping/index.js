@@ -18,6 +18,11 @@ async function pingHandler(req, context) {
     };
   }
 
+  // Anonymous health endpoint — expose only build_id (useful for verifying a
+  // deploy). The runtime block (website_site_name, hostname, worker runtime,
+  // swa_deployment_id) is infrastructure fingerprinting and is intentionally
+  // NOT returned to anonymous callers.
+  const bi = getBuildInfo();
   return {
     status: 200,
     headers: {
@@ -28,7 +33,8 @@ async function pingHandler(req, context) {
       ok: true,
       name: "ping",
       ts: new Date().toISOString(),
-      ...getBuildInfo(),
+      build_id: bi.build_id,
+      build_id_source: bi.build_id_source,
     }),
   };
 }
