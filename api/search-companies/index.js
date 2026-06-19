@@ -2194,7 +2194,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         {
           ok: true,
           success: true,
-          ...(cosmosTarget ? cosmosTarget : {}),
+          // Cosmos topology (db/container/partition-key/host) intentionally NOT
+          // echoed to clients — this is a public endpoint. It is logged
+          // server-side instead (see cosmos_target log above).
           items: paged,
           count: paged.length,
           hasMore,
@@ -2225,11 +2227,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         q_norm,
         limit,
       });
-      return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: e?.message || "query failed" }, 500, req);
+      return json({ ok: false, success: false, error: e?.message || "query failed" }, 500, req);
     }
   }
 
-  return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: "Cosmos DB not configured" }, 503, req);
+  return json({ ok: false, success: false, error: "Cosmos DB not configured" }, 503, req);
 }
 
 // Phase 4.29 — per-worker recycle code removed.
