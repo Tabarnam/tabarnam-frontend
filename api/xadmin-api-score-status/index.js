@@ -57,7 +57,7 @@ async function fireBatchWorker({ origin, jobId, context }) {
     // ms of the HTTP 200 — but if it doesn't, we abort and return.
     const fetchPromise = fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...require("../_internalJobAuth").buildInternalFetchHeaders() },
       body: JSON.stringify({ job_id: jobId }),
       signal: ctl.signal,
       // keepalive lets the request continue after the status handler returns,
