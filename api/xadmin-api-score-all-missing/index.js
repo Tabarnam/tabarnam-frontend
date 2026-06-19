@@ -70,7 +70,7 @@ async function fireScoreBatchWorker(jobId, logger) {
     await Promise.race([
       fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...require("../_internalJobAuth").buildInternalFetchHeaders() },
         body: JSON.stringify({ job_id: jobId }),
         signal: ctl.signal,
         keepalive: true,
