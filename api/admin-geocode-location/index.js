@@ -130,7 +130,7 @@ app.http("adminGeocodeLocation", {
   route: "xadmin-api-geocode-location",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminGeocodeLocationHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminGeocodeLocationHandler),
 });
 
 module.exports = { handler: adminGeocodeLocationHandler };

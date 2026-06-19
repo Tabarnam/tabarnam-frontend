@@ -2510,14 +2510,14 @@ app.http("import-status", {
   route: "import/status",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  handler: require("../_adminAuth").withAdminGuard(handler),
 });
 
 app.http("import-status-alt", {
   route: "import-status",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: deprecatedHandler,
+  handler: require("../_adminAuth").withAdminGuard(deprecatedHandler),
 });
 
 // Raw session diagnostic endpoint - uses the EXACT SAME read path as import-status
@@ -2529,6 +2529,9 @@ app.http("import-status-session-raw", {
   handler: async (req) => {
     const method = String(req?.method || "").toUpperCase();
     if (method === "OPTIONS") return { status: 200, headers: cors(req) };
+
+    const authError = require("../_adminAuth").adminGuard(req);
+    if (authError) return authError;
 
     const url = new URL(req.url);
     const sessionId = String(url.searchParams.get("session_id") || "").trim();

@@ -93,7 +93,7 @@ app.http('adminUpdateLogos', {
   route: 'xadmin-api-update-logos',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminUpdateLogosHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminUpdateLogosHandler),
 });
 
 module.exports = { handler: adminUpdateLogosHandler };

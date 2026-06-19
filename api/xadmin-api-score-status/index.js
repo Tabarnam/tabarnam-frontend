@@ -368,7 +368,7 @@ app.http("adminScoreStatus", {
   route: "xadmin-api-score-status",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminScoreStatusHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminScoreStatusHandler),
 });
 
 module.exports = { handler: adminScoreStatusHandler };

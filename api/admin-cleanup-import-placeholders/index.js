@@ -230,7 +230,7 @@ app.http("admin-cleanup-import-placeholders", {
   route: "admin/cleanup-import-placeholders",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: cleanupHandler,
+  handler: require("../_adminAuth").withAdminGuard(cleanupHandler),
 });
 
 module.exports = {

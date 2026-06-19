@@ -178,7 +178,7 @@ if (!hasRoute(ROUTE)) {
     route: ROUTE,
     methods: ["GET", "OPTIONS"],
     authLevel: "anonymous",
-    handler,
+    handler: require("../_adminAuth").withAdminGuard(handler),
   });
 }
 
@@ -187,7 +187,7 @@ if (!hasRoute(ALIAS_ROUTE)) {
     route: ALIAS_ROUTE,
     methods: ["GET", "OPTIONS"],
     authLevel: "anonymous",
-    handler,
+    handler: require("../_adminAuth").withAdminGuard(handler),
   });
 }
 

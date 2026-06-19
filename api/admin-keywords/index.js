@@ -143,7 +143,7 @@ app.http("adminKeywords", {
   route: "xadmin-api-keywords",
   methods: ["GET", "PUT", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminKeywordsHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminKeywordsHandler),
 });
 
 module.exports = adminKeywordsHandler;

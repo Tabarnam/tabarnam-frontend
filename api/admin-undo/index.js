@@ -114,7 +114,7 @@ app.http('adminUndo', {
   route: 'xadmin-api-undo',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminUndoHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminUndoHandler),
 });
 
 module.exports = { handler: adminUndoHandler };

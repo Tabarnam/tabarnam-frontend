@@ -2534,7 +2534,7 @@ app.http("adminCompanies", {
 });
 
 module.exports = {
-  handler: adminCompaniesHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminCompaniesHandler),
   _test: {
     adminCompaniesHandler,
     adminCompanyHistoryFallbackHandler,

@@ -172,7 +172,7 @@ app.http("xadminApiRecalcReviewCounts", {
   route: "xadmin-api-recalc-review-counts",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminRecalcReviewCountsHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminRecalcReviewCountsHandler),
 });
 
 module.exports = { handler: adminRecalcReviewCountsHandler };

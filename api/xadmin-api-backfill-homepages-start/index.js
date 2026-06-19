@@ -552,7 +552,7 @@ app.http("adminBackfillHomepagesStart", {
   route: "xadmin-api-backfill-homepages-start",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  handler: require("../_adminAuth").withAdminGuard(handler),
 });
 
 module.exports = { handler, processBackfillHomepagesBatch, createHomepageBackfillJob };

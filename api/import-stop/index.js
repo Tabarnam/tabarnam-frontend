@@ -227,7 +227,7 @@ app.http("import-stop", {
   route: "import/stop",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: importStopHandler,
+  handler: require("../_adminAuth").withAdminGuard(importStopHandler),
 });
 
 module.exports = { handler: importStopHandler };

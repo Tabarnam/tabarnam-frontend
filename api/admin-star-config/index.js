@@ -107,7 +107,7 @@ app.http('adminStarConfig', {
   route: 'xadmin-api-star-config',
   methods: ['GET', 'PUT', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminStarConfigHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminStarConfigHandler),
 });
 
 module.exports = { handler: adminStarConfigHandler };

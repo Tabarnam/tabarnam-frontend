@@ -174,7 +174,7 @@ app.http("adminBackfillLogosStatus", {
   route: "xadmin-api-backfill-logos-status",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  handler: require("../_adminAuth").withAdminGuard(handler),
 });
 
 module.exports = { handler };
