@@ -30,8 +30,21 @@ export function looksLikeUrlOrDomain(raw) {
   if (!s) return false;
   if (/\s/.test(s)) return false;
 
+  // Phase 4.37 — brand-name protection. Many real brand names look like
+  // domains because their TLD doubles as a word ("Pretti.Cool", "Buy.me",
+  // "Tools.io", "Hi.co", "Design.studio"). Mixed-case strings without an
+  // explicit scheme are almost always brand names typed in title case —
+  // route them to the bulk/import-start path, not the synchronous
+  // single-URL handler that times out at the SWA proxy.
+  // Real URLs people TYPE either include a scheme, start with www., or
+  // are written all-lowercase by convention.
+  const hasScheme = s.includes("://");
+  const startsWithWww = /^www\./i.test(s);
+  const isAllLower = s === s.toLowerCase();
+  if (!hasScheme && !startsWithWww && !isAllLower) return false;
+
   try {
-    const u = s.includes("://") ? new URL(s) : new URL(`https://${s}`);
+    const u = hasScheme ? new URL(s) : new URL(`https://${s}`);
     const host = (u.hostname || "").toLowerCase();
     if (!host || !host.includes(".")) return false;
     const parts = host.split(".").filter(Boolean);
