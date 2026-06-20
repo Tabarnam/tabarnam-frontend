@@ -1565,13 +1565,17 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const baseWhereStr = whereClauses.join(" AND ");
         const countPromise = container.items
           .query(
-            `SELECT VALUE c.id FROM c WHERE ${baseWhereStr}`,
+            // COUNT(1) aggregate — Cosmos computes per-partition counts and
+            // returns one integer, instead of materializing/transferring every
+            // id just to call .length. This blocks the GET response, so a cheap
+            // aggregate (vs a ~10k-id scan) is what keeps refresh fast.
+            `SELECT VALUE COUNT(1) FROM c WHERE ${baseWhereStr}`,
             { enableCrossPartitionQuery: true }
           )
           .fetchAll()
           .then((r) => {
-            const total = (r.resources || []).length;
-            context.log("[admin-companies-v2] totalCount (id-based):", total);
+            const total = (r.resources || [])[0] || 0;
+            context.log("[admin-companies-v2] totalCount (aggregate):", total);
             return total;
           })
           .catch((e) => {
@@ -1584,11 +1588,11 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         // display approved/pending counts across the full dataset.
         const approvedCountPromise = container.items
           .query(
-            `SELECT VALUE c.id FROM c WHERE ${baseWhereStr} AND IS_DEFINED(c.images_approved) AND c.images_approved = true`,
+            `SELECT VALUE COUNT(1) FROM c WHERE ${baseWhereStr} AND IS_DEFINED(c.images_approved) AND c.images_approved = true`,
             { enableCrossPartitionQuery: true }
           )
           .fetchAll()
-          .then((r) => (r.resources || []).length)
+          .then((r) => (r.resources || [])[0] || 0)
           .catch((e) => {
             context.log("[admin-companies-v2] approvedCount query error:", e?.message, e?.code);
             return null;
@@ -1642,11 +1646,11 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const filteredWhereStr = whereClauses.join(" AND ");
         const filteredCountPromise = container.items
           .query(
-            { query: `SELECT VALUE c.id FROM c WHERE ${filteredWhereStr}`, parameters: parameters.filter((p) => p.name !== "@take" && p.name !== "@skip") },
+            { query: `SELECT VALUE COUNT(1) FROM c WHERE ${filteredWhereStr}`, parameters: parameters.filter((p) => p.name !== "@take" && p.name !== "@skip") },
             { enableCrossPartitionQuery: true }
           )
           .fetchAll()
-          .then((r) => (r.resources || []).length)
+          .then((r) => (r.resources || [])[0] || 0)
           .catch((e) => {
             context.log("[admin-companies-v2] filteredTotalCount query error:", e?.message, e?.code);
             return null;
