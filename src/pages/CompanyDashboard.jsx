@@ -614,7 +614,6 @@ export default function CompanyDashboard() {
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
-  const [rowsPerPage, setRowsPerPage] = useState(100);
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState("desc");
   // Active server-side sort, read by loadCompanies so every refresh keeps the
@@ -4184,13 +4183,21 @@ export default function CompanyDashboard() {
               </div>
 
               <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-700 dark:text-muted-foreground">Take</label>
-                <Input
+                <label className="text-sm text-slate-700 dark:text-muted-foreground">Rows per page</label>
+                {/* Single source of truth for how many companies to load+show.
+                    Drives the backend fetch size `take` (auto-reloads via the
+                    [search, take] effect), replacing both the old "Take" input
+                    and the DataTable's bottom rows-per-page selector. */}
+                <select
                   value={String(take)}
-                  onChange={(e) => setTake(Number(e.target.value || DEFAULT_TAKE))}
-                  className="w-[100px]"
-                  inputMode="numeric"
-                />
+                  onChange={(e) => setTake(Number(e.target.value) || DEFAULT_TAKE)}
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                  aria-label="Rows per page"
+                >
+                  {[25, 50, 100, 250, 500, 1000].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
               </div>
 
               <Button
@@ -4260,10 +4267,11 @@ export default function CompanyDashboard() {
               progressPending={loading && items.length === 0}
               progressComponent={progressComponent}
               pagination
-              paginationPerPage={rowsPerPage}
-              paginationRowsPerPageOptions={[25, 50, 100, 250, 500, 1000]}
-              onChangeRowsPerPage={(newPerPage) => setRowsPerPage(newPerPage)}
-              paginationComponentOptions={{ selectAllRowsItem: true, selectAllRowsItemText: "All" }}
+              // Page size is the fetched count: the top "Rows per page" control
+              // sets `take`, so everything loaded shows on one page. The bottom
+              // rows-per-page selector is hidden to avoid a duplicate control.
+              paginationPerPage={take}
+              paginationComponentOptions={{ noRowsPerPage: true }}
               fixedHeader
               fixedHeaderScrollHeight="calc(100vh - 220px)"
               highlightOnHover
