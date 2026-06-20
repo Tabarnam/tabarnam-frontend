@@ -1,7 +1,12 @@
 import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
 import { normalizeExternalUrl } from "@/lib/externalUrl";
 
-export const DEFAULT_TAKE = 1000;
+// Default admin Companies page size. Kept small so a no-search refresh
+// "shortcuts" to the most-recent companies (the rows admins usually edit after
+// import) instead of pulling the whole window — sort defaults to created/_ts
+// DESC, so this is literally the N newest. The Take box raises it on demand;
+// an active search still fetches its top-N by relevance.
+export const DEFAULT_TAKE = 100;
 
 export function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
