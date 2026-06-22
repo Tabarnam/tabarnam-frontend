@@ -156,9 +156,8 @@ function getVariantClasses(variant: ToastVariant) {
 
 function getVariantStyle(variant: ToastVariant): React.CSSProperties | undefined {
   if (variant === 'branded') {
-    // Semi-transparent brand fill to match the other (wrapper-tinted)
-    // toasts; the wrapper's backdrop-blur keeps the black text legible.
-    return { backgroundColor: 'rgba(177, 221, 227, 0.95)', color: '#000000' };
+    // Solid brand fill — nothing behind the toast should show through.
+    return { backgroundColor: '#B1DDE3', color: '#000000' };
   }
   return undefined;
 }
@@ -186,7 +185,13 @@ function ToastContent({ id, variant, title, description }: ToastContentProps) {
   const paused = Boolean(st?.paused);
 
   return (
-    <div className={`flex w-full items-start gap-3 rounded-md border p-4 ${getVariantClasses(variant)}`} style={getVariantStyle(variant)}>
+    // bg-card + shadow here on the CUSTOM content (not just the Sonner
+    // wrapper): this app renders every toast via sonnerToast.custom(), and
+    // Sonner marks custom toasts data-styled="false" — so the wrapper's
+    // toastOptions.classNames.toast (background, shadow) does NOT apply to
+    // them. Without an opaque background on this div the page showed through
+    // the toast. The 'branded' variant overrides bg-card via inline style.
+    <div className={`flex w-full items-start gap-3 rounded-md border p-4 bg-card shadow-lg ${getVariantClasses(variant)}`} style={getVariantStyle(variant)}>
       <div className="min-w-0 flex-1">
         {title ? (
           <div className="text-sm font-medium leading-5">
