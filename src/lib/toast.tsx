@@ -22,7 +22,6 @@ type ToastTimerState = {
   remaining: number;
   startedAt: number;
   timeoutId: ReturnType<typeof setTimeout> | null;
-  paused: boolean;
 };
 
 const DEFAULT_DURATION_MS = 3000;
@@ -34,30 +33,6 @@ function generateToastId(): ToastId {
 }
 
 const stateById = new Map<ToastId, ToastTimerState>();
-const listenersById = new Map<ToastId, Set<() => void>>();
-
-function getSnapshot(id: ToastId) {
-  return stateById.get(id) ?? null;
-}
-
-function subscribe(id: ToastId, listener: () => void) {
-  const listeners = listenersById.get(id) ?? new Set<() => void>();
-  listeners.add(listener);
-  listenersById.set(id, listeners);
-
-  return () => {
-    const current = listenersById.get(id);
-    if (!current) return;
-    current.delete(listener);
-    if (current.size === 0) listenersById.delete(id);
-  };
-}
-
-function emit(id: ToastId) {
-  const listeners = listenersById.get(id);
-  if (!listeners) return;
-  listeners.forEach((l) => l());
-}
 
 function clearTimer(id: ToastId) {
   const st = stateById.get(id);
@@ -68,7 +43,7 @@ function clearTimer(id: ToastId) {
 
 function startTimer(id: ToastId) {
   const st = stateById.get(id);
-  if (!st || st.paused) return;
+  if (!st) return;
 
   clearTimer(id);
   st.startedAt = Date.now();
@@ -83,7 +58,6 @@ function ensureTimerState(id: ToastId, durationInput: number | typeof Infinity |
 
   if (durationInput === Infinity) {
     stateById.delete(id);
-    emit(id);
     return;
   }
 
@@ -93,31 +67,9 @@ function ensureTimerState(id: ToastId, durationInput: number | typeof Infinity |
     remaining: duration,
     startedAt: Date.now(),
     timeoutId: null,
-    paused: false,
   };
 
   stateById.set(id, next);
-  emit(id);
-  startTimer(id);
-}
-
-function pause(id: ToastId) {
-  const st = stateById.get(id);
-  if (!st || st.paused) return;
-
-  const elapsed = Date.now() - st.startedAt;
-  st.remaining = Math.max(0, st.remaining - elapsed);
-  st.paused = true;
-  clearTimer(id);
-  emit(id);
-}
-
-function resume(id: ToastId) {
-  const st = stateById.get(id);
-  if (!st || !st.paused) return;
-
-  st.paused = false;
-  emit(id);
   startTimer(id);
 }
 
@@ -131,7 +83,6 @@ function dismiss(id?: ToastId) {
 
   clearTimer(id);
   stateById.delete(id);
-  emit(id);
   sonnerToast.dismiss(id);
 }
 
@@ -176,14 +127,6 @@ type ToastContentProps = {
 };
 
 function ToastContent({ id, variant, title, description }: ToastContentProps) {
-  const st = React.useSyncExternalStore(
-    React.useCallback((l) => subscribe(id, l), [id]),
-    React.useCallback(() => getSnapshot(id), [id]),
-    React.useCallback(() => getSnapshot(id), [id])
-  );
-
-  const paused = Boolean(st?.paused);
-
   return (
     // bg-card + shadow here on the CUSTOM content (not just the Sonner
     // wrapper): this app renders every toast via sonnerToast.custom(), and
@@ -196,29 +139,12 @@ function ToastContent({ id, variant, title, description }: ToastContentProps) {
         {title ? (
           <div className="text-sm font-medium leading-5">
             {title}
-            {paused ? <span className="ml-2 text-xs font-normal text-muted-foreground">(paused)</span> : null}
           </div>
         ) : null}
         {description ? <div className="mt-1 text-sm text-muted-foreground">{description}</div> : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-sm leading-none transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
-            variant === 'branded'
-              ? `border-black/20 text-black ${paused ? 'bg-black/20' : 'bg-white/40'} hover:bg-white/60`
-              : `hover:bg-muted ${paused ? 'bg-muted' : 'bg-background'}`
-          }`}
-          aria-label={paused ? 'Resume auto-dismiss' : 'Pause auto-dismiss'}
-          onClick={() => {
-            if (paused) resume(id);
-            else pause(id);
-          }}
-        >
-          ||
-        </button>
-
         <button
           type="button"
           className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-sm leading-none transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
