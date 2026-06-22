@@ -5,8 +5,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { toast } from "@/lib/toast";
 
+const DEFAULT_LIST_ID = "saved";
+
 export default function BookmarkListPicker({ company, children, open, onOpenChange }) {
   const { lists, getListsForCompany, addToList, removeFromList, createList } = useBookmarks();
+  const subLists = lists.filter((l) => l.id !== DEFAULT_LIST_ID);
   const companyId = company.company_id || company.id;
   const companyListIds = getListsForCompany(companyId);
 
@@ -47,7 +50,7 @@ export default function BookmarkListPicker({ company, children, open, onOpenChan
       >
         <p className="text-sm font-medium mb-2">Bookmark to list</p>
         <div className="space-y-1.5 max-h-48 overflow-y-auto">
-          {lists.map((list) => {
+          {subLists.map((list) => {
             const checked = companyListIds.includes(list.id);
             return (
               <label

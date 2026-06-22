@@ -6,7 +6,7 @@ import { toast } from "@/lib/toast";
 
 const DEFAULT_LIST_ID = "saved";
 
-function ListSection({ list, items, onRemove, onNavigate, onDragStart, onDragEnd, dropTargetId, onDrop, onDragOverList, onDragLeaveList }) {
+function ListSection({ list, items, onRemove, onNavigate, onDragStart, onDragEnd, dropTargetId, onDrop, onDragOverList, onDragLeaveList, disableDrag }) {
   const [expanded, setExpanded] = useState(list.id === DEFAULT_LIST_ID);
   const [confirmingRemove, setConfirmingRemove] = useState(null);
   const isDropTarget = dropTargetId === list.id;
@@ -52,10 +52,10 @@ function ListSection({ list, items, onRemove, onNavigate, onDragStart, onDragEnd
             items.map((item) => (
               <div
                 key={item.company_id}
-                draggable={confirmingRemove !== item.company_id}
-                onDragStart={(e) => onDragStart(e, list.id, item)}
-                onDragEnd={onDragEnd}
-                className="flex items-center gap-1 px-6 py-1 group cursor-grab active:cursor-grabbing"
+                draggable={!disableDrag && confirmingRemove !== item.company_id}
+                onDragStart={disableDrag ? undefined : (e) => onDragStart(e, list.id, item)}
+                onDragEnd={disableDrag ? undefined : onDragEnd}
+                className={`flex items-center gap-1 px-6 py-1 group ${disableDrag ? "" : "cursor-grab active:cursor-grabbing"}`}
               >
                 {confirmingRemove === item.company_id ? (
                   <div className="flex items-center gap-1.5 w-full">
@@ -268,6 +268,7 @@ export default function BookmarksDrawer() {
     drawerOpen,
     setDrawerOpen,
     removeFromList,
+    removeFromAllLists,
     moveToList,
     copyItemsToList,
     createList,
@@ -288,7 +289,19 @@ export default function BookmarksDrawer() {
   const itemsByList = useMemo(() => {
     const map = {};
     for (const list of lists) {
-      map[list.id] = items.filter((i) => i.list_id === list.id);
+      if (list.id === DEFAULT_LIST_ID) {
+        const seen = new Set();
+        const all = [];
+        for (const item of items) {
+          if (!seen.has(item.company_id)) {
+            seen.add(item.company_id);
+            all.push(item);
+          }
+        }
+        map[DEFAULT_LIST_ID] = all;
+      } else {
+        map[list.id] = items.filter((i) => i.list_id === list.id);
+      }
     }
     return map;
   }, [lists, items]);
@@ -306,8 +319,13 @@ export default function BookmarksDrawer() {
   };
 
   const handleRemove = (listId, companyId, companyName, listName) => {
-    removeFromList(listId, companyId);
-    toast(`Removed ${companyName} from ${listName}`);
+    if (listId === DEFAULT_LIST_ID) {
+      removeFromAllLists(companyId);
+      toast(`Removed ${companyName} from all lists`);
+    } else {
+      removeFromList(listId, companyId);
+      toast(`Removed ${companyName} from ${listName}`);
+    }
   };
 
   const handleCreateList = () => {
@@ -501,6 +519,7 @@ export default function BookmarksDrawer() {
                       onDrop={handleDrop}
                       onDragOverList={handleDragOverList}
                       onDragLeaveList={handleDragLeaveList}
+                      disableDrag={list.id === DEFAULT_LIST_ID}
                     />
                   </div>
                   <ListHeader

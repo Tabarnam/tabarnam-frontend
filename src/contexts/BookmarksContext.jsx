@@ -31,9 +31,15 @@ function makeId() {
 }
 
 function ensureDefaultList(lists) {
-  if (lists.some((l) => l.id === DEFAULT_LIST_ID)) return lists;
+  const existing = lists.find((l) => l.id === DEFAULT_LIST_ID);
+  if (existing) {
+    if (existing.name === "Bookmarked" || existing.name === "Saved") {
+      return lists.map((l) => l.id === DEFAULT_LIST_ID ? { ...l, name: "All Bookmarks" } : l);
+    }
+    return lists;
+  }
   return [
-    { id: DEFAULT_LIST_ID, name: "Bookmarked", created_at: Date.now(), position: 0 },
+    { id: DEFAULT_LIST_ID, name: "All Bookmarks", created_at: Date.now(), position: 0 },
     ...lists.map((l) => ({ ...l, position: l.position + 1 })),
   ];
 }
@@ -50,7 +56,7 @@ function buildIndex(items) {
 export const BookmarksContext = createContext(null);
 
 export function BookmarksProvider({ children }) {
-  const [lists, setLists] = useState(() => loadFromStorage().lists);
+  const [lists, setLists] = useState(() => ensureDefaultList(loadFromStorage().lists));
   const [items, setItems] = useState(() => loadFromStorage().items);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -186,6 +192,15 @@ export function BookmarksProvider({ children }) {
     });
   }, []);
 
+  const removeFromAllLists = useCallback((companyId) => {
+    setItems((prev) => {
+      const next = prev.filter((i) => i.company_id !== companyId);
+      if (next.length === prev.length) return prev;
+      setLists((cl) => { persist(cl, next); return cl; });
+      return next;
+    });
+  }, []);
+
   const reorderLists = useCallback((orderedIds) => {
     setLists((prev) => {
       const next = orderedIds.map((id, i) => {
@@ -209,6 +224,7 @@ export function BookmarksProvider({ children }) {
       totalBookmarked,
       addToList,
       removeFromList,
+      removeFromAllLists,
       moveToList,
       copyItemsToList,
       createList,
@@ -226,6 +242,7 @@ export function BookmarksProvider({ children }) {
       totalBookmarked,
       addToList,
       removeFromList,
+      removeFromAllLists,
       moveToList,
       copyItemsToList,
       createList,
