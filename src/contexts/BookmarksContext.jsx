@@ -219,37 +219,51 @@ export function BookmarksProvider({ children }) {
     const params = new URLSearchParams(window.location.search);
     const encoded = params.get("bookmarks");
     if (!encoded) return;
-    try {
-      const json = decodeURIComponent(escape(atob(encoded)));
-      const data = JSON.parse(json);
-      if (!data.n || !Array.isArray(data.c) || data.c.length === 0) return;
-      const listId = makeId();
-      setLists((prev) => {
-        const maxPos = prev.reduce((m, l) => Math.max(m, l.position), -1);
-        const next = [...prev, { id: listId, name: data.n, created_at: Date.now(), position: maxPos + 1 }];
-        setItems((prevItems) => {
-          let nextItems = prevItems;
-          for (const c of data.c) {
-            if (nextItems.some((i) => i.company_id === c.i && i.list_id === listId)) continue;
-            nextItems = [...nextItems, {
-              company_id: c.i,
-              name: c.n,
-              normalized_domain: c.d || "",
-              list_id: listId,
-              added_at: Date.now(),
-            }];
-          }
-          persist(next, nextItems);
-          return nextItems;
+    (async () => {
+      try {
+        let json;
+        if (encoded.startsWith("z:")) {
+          const b64 = encoded.slice(2).replace(/-/g, "+").replace(/_/g, "/");
+          const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+          json = await new Response(stream).text();
+        } else {
+          json = decodeURIComponent(escape(atob(encoded)));
+        }
+        const data = JSON.parse(json);
+        if (!data.n || !Array.isArray(data.c) || data.c.length === 0) return;
+        const listId = makeId();
+        const isCompressed = Array.isArray(data.c[0]);
+        setLists((prev) => {
+          const maxPos = prev.reduce((m, l) => Math.max(m, l.position), -1);
+          const next = [...prev, { id: listId, name: data.n, created_at: Date.now(), position: maxPos + 1 }];
+          setItems((prevItems) => {
+            let nextItems = prevItems;
+            for (const c of data.c) {
+              const name = isCompressed ? c[0] : c.n;
+              const domain = isCompressed ? (c[1] || "") : (c.d || "");
+              const companyId = domain || name;
+              if (nextItems.some((i) => i.company_id === companyId && i.list_id === listId)) continue;
+              nextItems = [...nextItems, {
+                company_id: companyId,
+                name,
+                normalized_domain: domain,
+                list_id: listId,
+                added_at: Date.now(),
+              }];
+            }
+            persist(next, nextItems);
+            return nextItems;
+          });
+          return next;
         });
-        return next;
-      });
-      toast.success(`Imported list "${data.n}" with ${data.c.length} compan${data.c.length === 1 ? "y" : "ies"}`);
-      setDrawerOpen(true);
-    } catch { /* ignore malformed data */ }
-    const url = new URL(window.location.href);
-    url.searchParams.delete("bookmarks");
-    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+        toast.success(`Imported list "${data.n}" with ${data.c.length} compan${data.c.length === 1 ? "y" : "ies"}`);
+        setDrawerOpen(true);
+      } catch { /* ignore malformed data */ }
+      const url = new URL(window.location.href);
+      url.searchParams.delete("bookmarks");
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    })();
   }, []);
 
   const value = useMemo(

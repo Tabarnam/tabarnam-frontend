@@ -433,10 +433,20 @@ export default function BookmarksDrawer() {
     }
     const payload = {
       n: list?.name || "Bookmarks",
-      c: listItems.map((i) => ({ i: i.company_id, n: i.name, d: i.normalized_domain || "" })),
+      c: listItems.map((i) => [i.name, i.normalized_domain || ""]),
     };
-    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-    const shareUrl = `${window.location.origin}/?bookmarks=${encoded}`;
+    const json = JSON.stringify(payload);
+    let encoded;
+    try {
+      const blob = new Blob([json]);
+      const stream = blob.stream().pipeThrough(new CompressionStream("deflate-raw"));
+      const buf = await new Response(stream).arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      encoded = "z:" + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    } catch {
+      encoded = btoa(unescape(encodeURIComponent(json)));
+    }
+    const shareUrl = `${window.location.origin}/?bookmarks=${encodeURIComponent(encoded)}`;
     const shareTitle = `Check out my "${payload.n}" bookmark list on Tabarnam`;
     const shareText = `${shareTitle}\n\n${shareUrl}`;
 
