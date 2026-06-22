@@ -1,16 +1,33 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { toast } from "@/lib/toast";
 
 const DEFAULT_LIST_ID = "saved";
 
-function ListSection({ list, items, onRemove, onNavigate }) {
+function ListSection({ list, items, onRemove, onNavigate, onDragStart, onDragEnd, dropTargetId, onDrop, onDragOverList, onDragLeaveList }) {
   const [expanded, setExpanded] = useState(list.id === DEFAULT_LIST_ID);
+  const isDropTarget = dropTargetId === list.id;
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    onDragOverList(list.id);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    onDrop(list.id);
+  };
 
   return (
-    <div className="border-b border-border last:border-b-0">
+    <div
+      className={`border-b border-border last:border-b-0 transition-colors ${isDropTarget ? "bg-primary/10 ring-1 ring-primary/30 rounded-md" : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={() => onDragLeaveList(list.id)}
+      onDrop={handleDrop}
+    >
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
@@ -34,7 +51,10 @@ function ListSection({ list, items, onRemove, onNavigate }) {
             items.map((item) => (
               <div
                 key={item.company_id}
-                className="flex items-center gap-1 px-6 py-1 group"
+                draggable
+                onDragStart={(e) => onDragStart(e, list.id, item)}
+                onDragEnd={onDragEnd}
+                className="flex items-center gap-1 px-6 py-1 group cursor-grab active:cursor-grabbing"
               >
                 <button
                   type="button"
@@ -61,7 +81,7 @@ function ListSection({ list, items, onRemove, onNavigate }) {
   );
 }
 
-function ListHeader({ list, onRename, onDelete }) {
+function ListHeader({ list, onRename, onDelete, onCopy, onPaste, hasClipboard }) {
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [name, setName] = useState(list.name);
@@ -125,6 +145,24 @@ function ListHeader({ list, onRename, onDelete }) {
             <Pencil className="h-3.5 w-3.5 mr-2" />
             Rename
           </button>
+          <button
+            type="button"
+            onClick={() => { onCopy(list.id); setMenuOpen(false); }}
+            className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            <Copy className="h-3.5 w-3.5 mr-2" />
+            Copy
+          </button>
+          {hasClipboard && (
+            <button
+              type="button"
+              onClick={() => { onPaste(list.id); setMenuOpen(false); }}
+              className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              <ClipboardPaste className="h-3.5 w-3.5 mr-2" />
+              Paste
+            </button>
+          )}
           {list.id !== DEFAULT_LIST_ID && (
             <button
               type="button"
@@ -148,6 +186,8 @@ export default function BookmarksDrawer() {
     drawerOpen,
     setDrawerOpen,
     removeFromList,
+    moveToList,
+    copyItemsToList,
     createList,
     renameList,
     deleteList,
@@ -157,6 +197,11 @@ export default function BookmarksDrawer() {
 
   const [creatingList, setCreatingList] = useState(false);
   const [newListName, setNewListName] = useState("");
+  const [clipboard, setClipboard] = useState(null);
+
+  // Drag state
+  const dragRef = useRef(null);
+  const [dropTargetId, setDropTargetId] = useState(null);
 
   const itemsByList = useMemo(() => {
     const map = {};
@@ -199,6 +244,64 @@ export default function BookmarksDrawer() {
     deleteList(listId);
     toast(`Deleted list "${listName}"`);
   };
+
+  // Drag and drop
+  const handleDragStart = useCallback((e, listId, item) => {
+    dragRef.current = { listId, item };
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", item.name);
+    e.currentTarget.style.opacity = "0.4";
+  }, []);
+
+  const handleDragEnd = useCallback((e) => {
+    e.currentTarget.style.opacity = "";
+    dragRef.current = null;
+    setDropTargetId(null);
+  }, []);
+
+  const handleDragOverList = useCallback((listId) => {
+    if (!dragRef.current || dragRef.current.listId === listId) {
+      setDropTargetId(null);
+      return;
+    }
+    setDropTargetId(listId);
+  }, []);
+
+  const handleDragLeaveList = useCallback((listId) => {
+    setDropTargetId((prev) => (prev === listId ? null : prev));
+  }, []);
+
+  const handleDrop = useCallback((targetListId) => {
+    const drag = dragRef.current;
+    if (!drag || drag.listId === targetListId) {
+      setDropTargetId(null);
+      return;
+    }
+    const targetList = lists.find((l) => l.id === targetListId);
+    moveToList(drag.listId, drag.item.company_id, targetListId);
+    toast.success(`Moved ${drag.item.name} to ${targetList?.name || "list"}`);
+    dragRef.current = null;
+    setDropTargetId(null);
+  }, [lists, moveToList]);
+
+  // Copy / paste
+  const handleCopy = useCallback((listId) => {
+    const listItems = itemsByList[listId] || [];
+    if (listItems.length === 0) {
+      toast("Nothing to copy");
+      return;
+    }
+    const listName = lists.find((l) => l.id === listId)?.name || "list";
+    setClipboard({ listName, items: listItems });
+    toast.success(`Copied ${listItems.length} item${listItems.length > 1 ? "s" : ""} from ${listName}`);
+  }, [itemsByList, lists]);
+
+  const handlePaste = useCallback((targetListId) => {
+    if (!clipboard) return;
+    const targetList = lists.find((l) => l.id === targetListId);
+    copyItemsToList(targetListId, clipboard.items);
+    toast.success(`Pasted into ${targetList?.name || "list"}`);
+  }, [clipboard, lists, copyItemsToList]);
 
   return (
     <>
@@ -281,12 +384,21 @@ export default function BookmarksDrawer() {
                       items={itemsByList[list.id] || []}
                       onRemove={handleRemove}
                       onNavigate={handleNavigate}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      dropTargetId={dropTargetId}
+                      onDrop={handleDrop}
+                      onDragOverList={handleDragOverList}
+                      onDragLeaveList={handleDragLeaveList}
                     />
                   </div>
                   <ListHeader
                     list={list}
                     onRename={renameList}
                     onDelete={handleDeleteList}
+                    onCopy={handleCopy}
+                    onPaste={handlePaste}
+                    hasClipboard={!!clipboard}
                   />
                 </div>
               </div>

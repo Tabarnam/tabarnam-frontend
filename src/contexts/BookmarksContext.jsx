@@ -1,4 +1,4 @@
-import React, { createContext, useState, useCallback, useMemo, useEffect } from "react";
+import React, { createContext, useState, useCallback, useMemo } from "react";
 import { toast } from "@/lib/toast";
 
 const STORAGE_KEY = "tabarnam_bookmarks_v1";
@@ -154,6 +154,38 @@ export function BookmarksProvider({ children }) {
     });
   }, []);
 
+  const moveToList = useCallback((fromListId, companyId, toListId) => {
+    setItems((prev) => {
+      const item = prev.find((i) => i.company_id === companyId && i.list_id === fromListId);
+      if (!item) return prev;
+      if (prev.some((i) => i.company_id === companyId && i.list_id === toListId)) {
+        const next = prev.filter((i) => !(i.company_id === companyId && i.list_id === fromListId));
+        setLists((cl) => { persist(cl, next); return cl; });
+        return next;
+      }
+      const next = prev
+        .filter((i) => !(i.company_id === companyId && i.list_id === fromListId))
+        .concat({ ...item, list_id: toListId, added_at: Date.now() });
+      setLists((cl) => { persist(cl, next); return cl; });
+      return next;
+    });
+  }, []);
+
+  const copyItemsToList = useCallback((targetListId, sourceItems) => {
+    setItems((prev) => {
+      let next = prev;
+      let added = 0;
+      for (const src of sourceItems) {
+        if (next.some((i) => i.company_id === src.company_id && i.list_id === targetListId)) continue;
+        next = [...next, { ...src, list_id: targetListId, added_at: Date.now() }];
+        added++;
+      }
+      if (added === 0) return prev;
+      setLists((cl) => { persist(cl, next); return cl; });
+      return next;
+    });
+  }, []);
+
   const reorderLists = useCallback((orderedIds) => {
     setLists((prev) => {
       const next = orderedIds.map((id, i) => {
@@ -177,6 +209,8 @@ export function BookmarksProvider({ children }) {
       totalBookmarked,
       addToList,
       removeFromList,
+      moveToList,
+      copyItemsToList,
       createList,
       renameList,
       deleteList,
@@ -192,6 +226,8 @@ export function BookmarksProvider({ children }) {
       totalBookmarked,
       addToList,
       removeFromList,
+      moveToList,
+      copyItemsToList,
       createList,
       renameList,
       deleteList,
