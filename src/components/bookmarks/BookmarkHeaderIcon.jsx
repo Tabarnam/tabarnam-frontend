@@ -15,9 +15,7 @@ export default function BookmarkHeaderIcon() {
     >
       <Bookmark className="h-5 w-5 text-muted-foreground" />
       {totalBookmarked > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground rounded-full text-[10px] font-medium min-w-[16px] h-4 px-1 flex items-center justify-center leading-none">
-          {totalBookmarked > 99 ? "99+" : totalBookmarked}
-        </span>
+        <span className="absolute -top-0.5 -right-0.5 bg-primary rounded-full w-2 h-2" />
       )}
     </button>
   );
