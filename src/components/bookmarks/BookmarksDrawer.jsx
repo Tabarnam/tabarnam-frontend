@@ -421,11 +421,12 @@ export default function BookmarksDrawer() {
     };
     const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
     const shareUrl = `${window.location.origin}/?bookmarks=${encoded}`;
-    const shareTitle = `Check out my Tabarnam list "${payload.n}"`;
+    const shareTitle = `Check out my "${payload.n}" bookmark list on Tabarnam`;
+    const shareText = `${shareTitle}\n\n${shareUrl}`;
 
     if (navigator.share) {
       try {
-        await navigator.share({ title: shareTitle, text: shareTitle, url: shareUrl });
+        await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
         return;
       } catch (error) {
         if (error.name === "AbortError") return;
