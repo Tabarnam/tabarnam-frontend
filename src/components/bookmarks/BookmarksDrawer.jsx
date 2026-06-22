@@ -29,7 +29,7 @@ function ListSection({ list, items, onRemove, onNavigate }) {
       {expanded && (
         <div className="pb-2">
           {items.length === 0 ? (
-            <p className="text-xs text-muted-foreground px-6 py-1.5">No companies saved</p>
+            <p className="text-xs text-muted-foreground px-6 py-1.5">No companies bookmarked</p>
           ) : (
             items.map((item) => (
               <div
@@ -212,14 +212,14 @@ export default function BookmarksDrawer() {
       {/* Panel */}
       <div
         role="dialog"
-        aria-label="Saved Companies"
+        aria-label="Bookmarked Companies"
         className={`fixed inset-y-0 right-0 z-[100] w-80 sm:w-96 bg-card border-l border-border shadow-lg flex flex-col transition-transform duration-300 ease-in-out ${
           drawerOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-3 border-b border-border shrink-0">
-          <h2 className="text-lg font-semibold text-foreground">Saved Companies</h2>
+          <h2 className="text-lg font-semibold text-foreground">Bookmarked Companies</h2>
           <button
             type="button"
             onClick={() => setDrawerOpen(false)}
@@ -230,40 +230,8 @@ export default function BookmarksDrawer() {
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-4 py-3">
-          {totalBookmarked === 0 && lists.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center px-4">
-              <p className="text-sm text-muted-foreground">No bookmarks yet</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Click the bookmark icon on any company to save it here
-              </p>
-            </div>
-          ) : (
-            lists.map((list) => (
-              <div key={list.id} className="relative">
-                <div className="flex items-center">
-                  <div className="flex-1 min-w-0">
-                    <ListSection
-                      list={list}
-                      items={itemsByList[list.id] || []}
-                      onRemove={handleRemove}
-                      onNavigate={handleNavigate}
-                    />
-                  </div>
-                  <ListHeader
-                    list={list}
-                    onRename={renameList}
-                    onDelete={handleDeleteList}
-                  />
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="shrink-0 border-t border-border px-4 py-3">
+        {/* New List */}
+        <div className="shrink-0 border-b border-border px-4 py-2.5">
           {creatingList ? (
             <div className="flex items-center gap-2">
               <input
@@ -291,6 +259,38 @@ export default function BookmarksDrawer() {
               <Plus className="h-4 w-4" />
               New List
             </button>
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          {totalBookmarked === 0 && lists.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-4">
+              <p className="text-sm text-muted-foreground">No bookmarks yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Click the bookmark icon on any company to add it here
+              </p>
+            </div>
+          ) : (
+            lists.map((list) => (
+              <div key={list.id} className="relative">
+                <div className="flex items-center">
+                  <div className="flex-1 min-w-0">
+                    <ListSection
+                      list={list}
+                      items={itemsByList[list.id] || []}
+                      onRemove={handleRemove}
+                      onNavigate={handleNavigate}
+                    />
+                  </div>
+                  <ListHeader
+                    list={list}
+                    onRename={renameList}
+                    onDelete={handleDeleteList}
+                  />
+                </div>
+              </div>
+            ))
           )}
         </div>
       </div>

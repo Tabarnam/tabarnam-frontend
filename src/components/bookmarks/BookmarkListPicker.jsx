@@ -45,7 +45,7 @@ export default function BookmarkListPicker({ company, children, open, onOpenChan
         style={{ zoom: 1.1111111 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-sm font-medium mb-2">Save to list</p>
+        <p className="text-sm font-medium mb-2">Bookmark to list</p>
         <div className="space-y-1.5 max-h-48 overflow-y-auto">
           {lists.map((list) => {
             const checked = companyListIds.includes(list.id);

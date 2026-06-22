@@ -33,7 +33,7 @@ function makeId() {
 function ensureDefaultList(lists) {
   if (lists.some((l) => l.id === DEFAULT_LIST_ID)) return lists;
   return [
-    { id: DEFAULT_LIST_ID, name: "Saved", created_at: Date.now(), position: 0 },
+    { id: DEFAULT_LIST_ID, name: "Bookmarked", created_at: Date.now(), position: 0 },
     ...lists.map((l) => ({ ...l, position: l.position + 1 })),
   ];
 }

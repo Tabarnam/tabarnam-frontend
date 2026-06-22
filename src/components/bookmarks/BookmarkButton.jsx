@@ -20,7 +20,7 @@ const BookmarkButton = memo(function BookmarkButton({ company }) {
       setPickerOpen(true);
     } else {
       addToList(DEFAULT_LIST_ID, company);
-      toast.success("Saved to Saved");
+      toast.success("Bookmarked");
     }
   };
 
@@ -57,8 +57,8 @@ const BookmarkButton = memo(function BookmarkButton({ company }) {
       type="button"
       onClick={handleClick}
       className="bookmark-button-container inline-flex items-center justify-center w-7 h-7 min-w-0 min-h-0 rounded-md hover:bg-muted transition-colors"
-      aria-label="Save company"
-      title="Save"
+      aria-label="Bookmark company"
+      title="Bookmark"
     >
       {icon}
     </button>

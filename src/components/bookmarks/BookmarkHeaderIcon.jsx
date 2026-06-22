@@ -10,8 +10,8 @@ export default function BookmarkHeaderIcon() {
       type="button"
       onClick={() => setDrawerOpen(true)}
       className="relative inline-flex items-center justify-center w-9 h-9 rounded-md hover:bg-muted transition-colors"
-      aria-label="Open saved companies"
-      title="Saved companies"
+      aria-label="Open bookmarked companies"
+      title="Bookmarked companies"
     >
       <Bookmark className="h-5 w-5 text-muted-foreground" />
       {totalBookmarked > 0 && (
