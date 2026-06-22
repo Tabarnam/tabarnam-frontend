@@ -188,7 +188,7 @@ function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, hasCli
   }
 
   return (
-    <div className="relative shrink-0" ref={menuRef}>
+    <div className="relative shrink-0 mt-1.5" ref={menuRef}>
       <button
         type="button"
         onClick={() => setMenuOpen(!menuOpen)}
