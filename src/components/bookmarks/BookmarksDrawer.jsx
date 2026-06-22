@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { toast } from "@/lib/toast";
 
@@ -8,6 +8,7 @@ const DEFAULT_LIST_ID = "saved";
 
 function ListSection({ list, items, onRemove, onNavigate, onDragStart, onDragEnd, dropTargetId, onDrop, onDragOverList, onDragLeaveList }) {
   const [expanded, setExpanded] = useState(list.id === DEFAULT_LIST_ID);
+  const [confirmingRemove, setConfirmingRemove] = useState(null);
   const isDropTarget = dropTargetId === list.id;
 
   const handleDragOver = (e) => {
@@ -51,27 +52,49 @@ function ListSection({ list, items, onRemove, onNavigate, onDragStart, onDragEnd
             items.map((item) => (
               <div
                 key={item.company_id}
-                draggable
+                draggable={confirmingRemove !== item.company_id}
                 onDragStart={(e) => onDragStart(e, list.id, item)}
                 onDragEnd={onDragEnd}
                 className="flex items-center gap-1 px-6 py-1 group cursor-grab active:cursor-grabbing"
               >
-                <button
-                  type="button"
-                  onClick={() => onNavigate(item.name)}
-                  className="text-sm text-foreground hover:text-primary hover:underline truncate text-left flex-1"
-                  title={item.name}
-                >
-                  {item.name}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onRemove(list.id, item.company_id, item.name, list.name)}
-                  className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded hover:bg-destructive/10 transition-opacity"
-                  aria-label={`Remove ${item.name} from ${list.name}`}
-                >
-                  <X className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                </button>
+                {confirmingRemove === item.company_id ? (
+                  <div className="flex items-center gap-1.5 w-full">
+                    <span className="text-xs text-muted-foreground truncate flex-1">Remove {item.name}?</span>
+                    <button
+                      type="button"
+                      onClick={() => { onRemove(list.id, item.company_id, item.name, list.name); setConfirmingRemove(null); }}
+                      className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-white bg-destructive hover:bg-destructive/90 transition-colors"
+                    >
+                      Remove
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingRemove(null)}
+                      className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium hover:bg-accent transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate(item.name)}
+                      className="text-sm text-foreground hover:text-primary hover:underline truncate text-left flex-1"
+                      title={item.name}
+                    >
+                      {item.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingRemove(item.company_id)}
+                      className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded hover:bg-destructive/10 transition-opacity"
+                      aria-label={`Remove ${item.name} from ${list.name}`}
+                    >
+                      <X className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                    </button>
+                  </>
+                )}
               </div>
             ))
           )}
@@ -81,14 +104,42 @@ function ListSection({ list, items, onRemove, onNavigate, onDragStart, onDragEnd
   );
 }
 
-function ListHeader({ list, onRename, onDelete, onCopy, onPaste, hasClipboard }) {
+async function copyToClipboard(text) {
+  const value = (text || "").toString();
+  if (!value.trim()) return false;
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    try {
+      const el = document.createElement("textarea");
+      el.value = value;
+      el.setAttribute("readonly", "");
+      el.style.position = "absolute";
+      el.style.left = "-9999px";
+      document.body.appendChild(el);
+      el.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(el);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, hasClipboard, itemCount }) {
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [name, setName] = useState(list.name);
   const menuRef = useRef(null);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen) {
+      setConfirmingDelete(false);
+      return;
+    }
     const handleClick = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
     };
@@ -153,6 +204,14 @@ function ListHeader({ list, onRename, onDelete, onCopy, onPaste, hasClipboard })
             <Copy className="h-3.5 w-3.5 mr-2" />
             Copy
           </button>
+          <button
+            type="button"
+            onClick={() => { onShare(list.id); setMenuOpen(false); }}
+            className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            <Share className="h-3.5 w-3.5 mr-2" />
+            Share
+          </button>
           {hasClipboard && (
             <button
               type="button"
@@ -163,15 +222,38 @@ function ListHeader({ list, onRename, onDelete, onCopy, onPaste, hasClipboard })
               Paste
             </button>
           )}
-          {list.id !== DEFAULT_LIST_ID && (
+          {list.id !== DEFAULT_LIST_ID && !confirmingDelete && (
             <button
               type="button"
-              onClick={() => { onDelete(list.id, list.name); setMenuOpen(false); }}
+              onClick={() => setConfirmingDelete(true)}
               className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5 mr-2" />
               Delete
             </button>
+          )}
+          {confirmingDelete && (
+            <div className="px-2 py-1.5 space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                Delete "{list.name}"{itemCount > 0 ? ` and ${itemCount} bookmark${itemCount > 1 ? "s" : ""}` : ""}?
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { onDelete(list.id, list.name); setMenuOpen(false); setConfirmingDelete(false); }}
+                  className="flex-1 rounded-sm px-2 py-1 text-xs font-medium text-white bg-destructive hover:bg-destructive/90 transition-colors"
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  className="flex-1 rounded-sm px-2 py-1 text-xs font-medium hover:bg-accent transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -303,6 +385,35 @@ export default function BookmarksDrawer() {
     toast.success(`Pasted into ${targetList?.name || "list"}`);
   }, [clipboard, lists, copyItemsToList]);
 
+  const handleShare = useCallback(async (listId) => {
+    const list = lists.find((l) => l.id === listId);
+    const listItems = itemsByList[listId] || [];
+    if (listItems.length === 0) {
+      toast("Nothing to share — list is empty");
+      return;
+    }
+    const names = listItems.map((i) => i.name).join(", ");
+    const shareTitle = `My Tabarnam list "${list?.name || "Bookmarks"}"`;
+    const shareText = `${shareTitle}: ${names}`;
+    const shareUrl = window.location.origin;
+    const shareFullText = `${shareText}. More at ${shareUrl}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: shareTitle, text: shareFullText, url: shareUrl });
+        return;
+      } catch (error) {
+        if (error.name === "AbortError") return;
+      }
+    }
+    const ok = await copyToClipboard(shareFullText);
+    if (ok) {
+      toast.success("List copied to clipboard");
+    } else {
+      toast.error("Failed to copy");
+    }
+  }, [lists, itemsByList]);
+
   return (
     <>
       {/* Overlay */}
@@ -398,7 +509,9 @@ export default function BookmarksDrawer() {
                     onDelete={handleDeleteList}
                     onCopy={handleCopy}
                     onPaste={handlePaste}
+                    onShare={handleShare}
                     hasClipboard={!!clipboard}
+                    itemCount={(itemsByList[list.id] || []).length}
                   />
                 </div>
               </div>
