@@ -156,7 +156,9 @@ function getVariantClasses(variant: ToastVariant) {
 
 function getVariantStyle(variant: ToastVariant): React.CSSProperties | undefined {
   if (variant === 'branded') {
-    return { backgroundColor: '#B1DDE3', color: '#000000' };
+    // Semi-transparent brand fill to match the other (wrapper-tinted)
+    // toasts; the wrapper's backdrop-blur keeps the black text legible.
+    return { backgroundColor: 'rgba(177, 221, 227, 0.85)', color: '#000000' };
   }
   return undefined;
 }
