@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, lazy, Suspense } from "react";
 import { HelmetProvider } from "react-helmet-async";
 import {
   BrowserRouter as Router,
@@ -38,6 +38,8 @@ import ThemeToggle from "@/components/ThemeToggle";
 import PrivacyBadge from "@/components/PrivacyBadge";
 import TourController from "@/components/tour/TourController";
 import ScrollToHashOrTop from "@/components/ScrollToHashOrTop";
+import { BookmarksProvider } from "@/contexts/BookmarksContext";
+const BookmarksDrawer = lazy(() => import("@/components/bookmarks/BookmarksDrawer"));
 
 // Main application component with routing, layout management, and error handling
 // Simple error boundary
@@ -112,9 +114,11 @@ export default function App() {
       <ThemeProvider>
       <ErrorBoundary>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <BookmarksProvider>
           <AuthKeepAlive />
           <ScrollToHashOrTop />
           <TourController />
+          <Suspense fallback={null}><BookmarksDrawer /></Suspense>
           <Layout>
             <Routes>
               {/* public */}
@@ -207,6 +211,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Layout>
+          </BookmarksProvider>
         </Router>
         <Toaster />
       </ErrorBoundary>

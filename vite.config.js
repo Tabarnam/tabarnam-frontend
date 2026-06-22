@@ -478,8 +478,14 @@ export default defineConfig(({ mode }) => {
         "@components": resolve(__dirname, "src/components"),
         "@contexts": resolve(__dirname, "src/contexts"),
         "@lib": resolve(__dirname, "src/lib"),
+        react: resolve(__dirname, "node_modules/react"),
+        "react-dom": resolve(__dirname, "node_modules/react-dom"),
       },
+      dedupe: ["react", "react-dom"],
       extensions: [".js", ".jsx", ".ts", ".tsx"],
+    },
+    optimizeDeps: {
+      include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
     },
     server: {
       host: "127.0.0.1",

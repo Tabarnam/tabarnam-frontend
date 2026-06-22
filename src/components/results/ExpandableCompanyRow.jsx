@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Copy } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
+import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import ReviewsWidget from "@/components/ReviewsWidget";
 import useInView from "@/hooks/useInView";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -613,7 +614,7 @@ export default function ExpandableCompanyRow({
   // propagation in its own onClick.
   const INTERACTIVE_BASE =
     "a, button, [role='button'], input, textarea, select, label, " +
-    ".reviews-widget, .share-button-container, " +
+    ".reviews-widget, .share-button-container, .bookmark-button-container, " +
     ".location-sources-container, .affiliate-links-zone, .social-links-zone";
 
   const EXPAND_INTERACTIVE_SELECTOR = INTERACTIVE_BASE + ", .keywordsRow";
@@ -934,6 +935,7 @@ export default function ExpandableCompanyRow({
             <span className="font-semibold text-[1.2em]">{highlightExactPhrase(displayName, query)}</span>
           )}
           <span className="inline-flex items-center gap-0 share-button-container">
+            <BookmarkButton company={company} />
             <ShareButton company={company} className="!w-7 !h-7 !min-w-0 !min-h-0" />
             <button
               type="button"
