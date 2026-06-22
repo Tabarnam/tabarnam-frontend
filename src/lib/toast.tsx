@@ -158,7 +158,7 @@ function getVariantStyle(variant: ToastVariant): React.CSSProperties | undefined
   if (variant === 'branded') {
     // Semi-transparent brand fill to match the other (wrapper-tinted)
     // toasts; the wrapper's backdrop-blur keeps the black text legible.
-    return { backgroundColor: 'rgba(177, 221, 227, 0.85)', color: '#000000' };
+    return { backgroundColor: 'rgba(177, 221, 227, 0.95)', color: '#000000' };
   }
   return undefined;
 }
