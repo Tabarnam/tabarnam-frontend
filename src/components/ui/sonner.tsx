@@ -18,13 +18,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
       gap={8}
       toastOptions={{
         classNames: {
-          // Semi-transparent background + backdrop blur: the toast lets the
-          // page show through faintly while the blur keeps the text legible
-          // over busy content. 0.95 alpha on the card/accent surface colors;
-          // tune the /_0.95 value to taste. (The underscore is Tailwind's
-          // space escape inside an arbitrary value → "hsl(var(--card) / 0.95)".)
           toast:
-            'group toast group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg group-[.toaster]:backdrop-blur-md group-[.toaster]:[background:hsl(var(--card)_/_0.95)] group-[.toaster]:hover:[background:hsl(var(--accent)_/_0.95)]',
+            'group toast group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg group-[.toaster]:bg-card group-[.toaster]:hover:bg-accent',
           description: 'group-[.toast]:text-muted-foreground',
           actionButton:
             'group-[.toast]:bg-primary group-[.toast]:text-primary-foreground group-[.toast]:hover:bg-primary/90',
