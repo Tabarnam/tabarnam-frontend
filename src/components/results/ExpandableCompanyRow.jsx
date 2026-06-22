@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { normalizeExternalUrl } from "@/lib/externalUrl";
 import { getCompanyCanonicalName, getCompanyDisplayName } from "@/lib/companyDisplayName";
+import { highlightExactPhrase, isExactChipMatch } from "@/lib/highlightMatch";
 import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQScore } from "@/lib/stars/qqRating";
@@ -220,6 +221,11 @@ export default function ExpandableCompanyRow({
   // lazy-fetch the row's reviews instead of bulk-fetching all rows at
   // page mount. Optional — falsy parents skip lazy fetching entirely.
   onInView,
+  // The searched term to highlight in name / tagline / industries /
+  // products. Already resolved to the effective form (corrected query
+  // when typo correction fired, else what the user typed). Empty when
+  // there's no active query (browse-by-location).
+  query = "",
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -647,10 +653,10 @@ export default function ExpandableCompanyRow({
                   href={withAmazonAffiliate(websiteUrl)}
                   className="text-[1.2em] text-blue-700 hover:underline"
                 >
-                  {websiteLabel}
+                  {highlightExactPhrase(websiteLabel, query)}
                 </CompanyNameWithUrlTooltip>
               ) : (
-                <span className="text-[1.2em] text-foreground">{displayName}</span>
+                <span className="text-[1.2em] text-foreground">{highlightExactPhrase(displayName, query)}</span>
               )}
               <span className="inline-flex items-center gap-0 share-button-container">
                 <ShareButton company={company} />
@@ -666,7 +672,7 @@ export default function ExpandableCompanyRow({
               </span>
             </h2>
             {company.tagline && (
-              <div className="text-base text-primary mt-2">&ldquo;{company.tagline}&rdquo;</div>
+              <div className="text-base text-primary mt-2">&ldquo;{highlightExactPhrase(company.tagline, query)}&rdquo;</div>
             )}
 
             {debugScores && (
@@ -827,7 +833,7 @@ export default function ExpandableCompanyRow({
                         onKeywordSearch(ind);
                       }}
                     >
-                      {ind}
+                      {isExactChipMatch(ind, query) ? <mark>{ind}</mark> : ind}
                     </a>
                   </li>
                 ))}
@@ -852,7 +858,7 @@ export default function ExpandableCompanyRow({
                         onKeywordSearch(kw);
                       }}
                     >
-                      {kw}
+                      {isExactChipMatch(kw, query) ? <mark>{kw}</mark> : kw}
                     </a>
                   </li>
                 ))}
@@ -922,10 +928,10 @@ export default function ExpandableCompanyRow({
               className="font-semibold text-[1.2em] text-blue-700 hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
-              {websiteLabel}
+              {highlightExactPhrase(websiteLabel, query)}
             </CompanyNameWithUrlTooltip>
           ) : (
-            <span className="font-semibold text-[1.2em]">{displayName}</span>
+            <span className="font-semibold text-[1.2em]">{highlightExactPhrase(displayName, query)}</span>
           )}
           <span className="inline-flex items-center gap-0 share-button-container">
             <ShareButton company={company} className="!w-7 !h-7 !min-w-0 !min-h-0" />
@@ -941,7 +947,7 @@ export default function ExpandableCompanyRow({
           </span>
         </h2>
         {company.tagline && (
-          <div className="text-sm text-primary mt-2">&ldquo;{company.tagline}&rdquo;</div>
+          <div className="text-sm text-primary mt-2">&ldquo;{highlightExactPhrase(company.tagline, query)}&rdquo;</div>
         )}
 
         {debugScores && (
@@ -1009,7 +1015,7 @@ export default function ExpandableCompanyRow({
                     }}
                     className="text-blue-600 dark:text-blue-400 hover:underline"
                   >
-                    {ind}
+                    {isExactChipMatch(ind, query) ? <mark>{ind}</mark> : ind}
                   </button>
                 </React.Fragment>
               ))}
@@ -1107,7 +1113,7 @@ export default function ExpandableCompanyRow({
                   }}
                   className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
                 >
-                  {kw}
+                  {isExactChipMatch(kw, query) ? <mark>{kw}</mark> : kw}
                 </button>
               ))}
               {hiddenCount > 0 && (
