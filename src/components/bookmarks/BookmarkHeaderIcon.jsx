@@ -3,7 +3,7 @@ import { Bookmark } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 
 export default function BookmarkHeaderIcon() {
-  const { totalBookmarked, setDrawerOpen } = useBookmarks();
+  const { setDrawerOpen } = useBookmarks();
 
   return (
     <button
@@ -14,9 +14,6 @@ export default function BookmarkHeaderIcon() {
       title="Bookmarked companies"
     >
       <Bookmark className="h-5 w-5 text-muted-foreground" />
-      {totalBookmarked > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 bg-primary rounded-full w-2 h-2" />
-      )}
     </button>
   );
 }

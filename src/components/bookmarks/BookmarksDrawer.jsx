@@ -410,23 +410,25 @@ export default function BookmarksDrawer() {
       toast("Nothing to share — list is empty");
       return;
     }
-    const names = listItems.map((i) => i.name).join(", ");
-    const shareTitle = `My Tabarnam list "${list?.name || "Bookmarks"}"`;
-    const shareText = `${shareTitle}: ${names}`;
-    const shareUrl = window.location.origin;
-    const shareFullText = `${shareText}. More at ${shareUrl}`;
+    const payload = {
+      n: list?.name || "Bookmarks",
+      c: listItems.map((i) => ({ i: i.company_id, n: i.name, d: i.normalized_domain || "" })),
+    };
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    const shareUrl = `${window.location.origin}/?bookmarks=${encoded}`;
+    const shareTitle = `Check out my Tabarnam list "${payload.n}"`;
 
     if (navigator.share) {
       try {
-        await navigator.share({ title: shareTitle, text: shareFullText, url: shareUrl });
+        await navigator.share({ title: shareTitle, text: shareTitle, url: shareUrl });
         return;
       } catch (error) {
         if (error.name === "AbortError") return;
       }
     }
-    const ok = await copyToClipboard(shareFullText);
+    const ok = await copyToClipboard(shareUrl);
     if (ok) {
-      toast.success("List copied to clipboard");
+      toast.success("Share link copied to clipboard");
     } else {
       toast.error("Failed to copy");
     }
