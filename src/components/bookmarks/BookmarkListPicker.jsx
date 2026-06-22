@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, BookmarkX } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useBookmarks } from "@/hooks/useBookmarks";
@@ -8,7 +8,7 @@ import { toast } from "@/lib/toast";
 const DEFAULT_LIST_ID = "saved";
 
 export default function BookmarkListPicker({ company, children, open, onOpenChange }) {
-  const { lists, getListsForCompany, addToList, removeFromList, createList } = useBookmarks();
+  const { lists, getListsForCompany, addToList, removeFromList, removeFromAllLists, createList } = useBookmarks();
   const subLists = lists.filter((l) => l.id !== DEFAULT_LIST_ID);
   const companyId = company.company_id || company.id;
   const companyListIds = getListsForCompany(companyId);
@@ -94,6 +94,20 @@ export default function BookmarkListPicker({ company, children, open, onOpenChan
               New list
             </button>
           )}
+        </div>
+        <div className="border-t border-border mt-2 pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              removeFromAllLists(companyId);
+              onOpenChange(false);
+              toast("Bookmark removed");
+            }}
+            className="flex items-center gap-1.5 text-sm text-destructive hover:text-destructive/80 transition-colors"
+          >
+            <BookmarkX className="h-3.5 w-3.5" />
+            Remove bookmark
+          </button>
         </div>
       </PopoverContent>
     </Popover>
