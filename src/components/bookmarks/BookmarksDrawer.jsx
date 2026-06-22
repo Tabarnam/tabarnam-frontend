@@ -378,11 +378,16 @@ export default function BookmarksDrawer() {
       return;
     }
     const targetList = lists.find((l) => l.id === targetListId);
-    moveToList(drag.listId, drag.item.company_id, targetListId);
-    toast.success(`Moved ${drag.item.name} to ${targetList?.name || "list"}`);
+    if (drag.listId === DEFAULT_LIST_ID) {
+      copyItemsToList(targetListId, [drag.item]);
+      toast.success(`Copied ${drag.item.name} to ${targetList?.name || "list"}`);
+    } else {
+      moveToList(drag.listId, drag.item.company_id, targetListId);
+      toast.success(`Moved ${drag.item.name} to ${targetList?.name || "list"}`);
+    }
     dragRef.current = null;
     setDropTargetId(null);
-  }, [lists, moveToList]);
+  }, [lists, moveToList, copyItemsToList]);
 
   // Copy / paste
   const handleCopy = useCallback((listId) => {
@@ -521,7 +526,7 @@ export default function BookmarksDrawer() {
                       onDrop={handleDrop}
                       onDragOverList={handleDragOverList}
                       onDragLeaveList={handleDragLeaveList}
-                      disableDrag={list.id === DEFAULT_LIST_ID}
+                      disableDrag={false}
                     />
                   </div>
                   <ListHeader
