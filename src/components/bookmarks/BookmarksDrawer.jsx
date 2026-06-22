@@ -513,7 +513,7 @@ export default function BookmarksDrawer() {
           ) : (
             lists.map((list) => (
               <div key={list.id} className="relative">
-                <div className="flex items-center">
+                <div className="flex items-start">
                   <div className="flex-1 min-w-0">
                     <ListSection
                       list={list}
