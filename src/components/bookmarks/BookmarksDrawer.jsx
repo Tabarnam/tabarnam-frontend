@@ -6,7 +6,7 @@ import { toast } from "@/lib/toast";
 
 const DEFAULT_LIST_ID = "saved";
 
-function ListSection({ list, items, onRemove, onNavigate, onDragStart, onDragEnd, dropTargetId, onDrop, onDragOverList, onDragLeaveList, disableDrag }) {
+function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDragStart, onDragEnd, dropTargetId, onDrop, onDragOverList, onDragLeaveList, disableDrag }) {
   const [expanded, setExpanded] = useState(list.id === DEFAULT_LIST_ID);
   const [confirmingRemove, setConfirmingRemove] = useState(null);
   const isDropTarget = dropTargetId === list.id;
@@ -58,22 +58,33 @@ function ListSection({ list, items, onRemove, onNavigate, onDragStart, onDragEnd
                 className={`flex items-center gap-1 px-6 py-1 group ${disableDrag ? "" : "cursor-grab active:cursor-grabbing"}`}
               >
                 {confirmingRemove === item.company_id ? (
-                  <div className="flex items-center gap-1.5 w-full">
-                    <span className="text-xs text-muted-foreground truncate flex-1">Remove {item.name}?</span>
-                    <button
-                      type="button"
-                      onClick={() => { onRemove(list.id, item.company_id, item.name, list.name); setConfirmingRemove(null); }}
-                      className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-white bg-destructive hover:bg-destructive/90 transition-colors"
-                    >
-                      Remove
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmingRemove(null)}
-                      className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium hover:bg-accent transition-colors"
-                    >
-                      Cancel
-                    </button>
+                  <div className="w-full space-y-1">
+                    <span className="text-xs text-muted-foreground">Remove {item.name}?</span>
+                    <div className="flex items-center gap-1.5">
+                      {list.id !== DEFAULT_LIST_ID && (
+                        <button
+                          type="button"
+                          onClick={() => { onRemove(list.id, item.company_id, item.name, list.name); setConfirmingRemove(null); }}
+                          className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-white bg-destructive hover:bg-destructive/90 transition-colors"
+                        >
+                          This list
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => { onRemoveFromAll(item.company_id, item.name); setConfirmingRemove(null); }}
+                        className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-white bg-destructive hover:bg-destructive/90 transition-colors"
+                      >
+                        All lists
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingRemove(null)}
+                        className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium hover:bg-accent transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -328,6 +339,11 @@ export default function BookmarksDrawer() {
     }
   };
 
+  const handleRemoveFromAll = (companyId, companyName) => {
+    removeFromAllLists(companyId);
+    toast(`Removed ${companyName} from all lists`);
+  };
+
   const handleCreateList = () => {
     const trimmed = newListName.trim();
     if (!trimmed) {
@@ -520,6 +536,7 @@ export default function BookmarksDrawer() {
                       list={list}
                       items={itemsByList[list.id] || []}
                       onRemove={handleRemove}
+                      onRemoveFromAll={handleRemoveFromAll}
                       onNavigate={handleNavigate}
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
