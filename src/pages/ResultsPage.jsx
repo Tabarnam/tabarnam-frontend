@@ -237,6 +237,11 @@ export default function ResultsPage() {
   const debugScores = searchParams.get("debug") === "scores";
 
   const [results, setResults] = useState([]);
+  // The term to highlight on result cards. Defaults to what the user typed
+  // (qParam); when the backend typo-corrected the query, we highlight the
+  // CORRECTED form instead — that's what actually appears in the company
+  // data. Set from the search response meta in doSearch.
+  const [correctedHighlight, setCorrectedHighlight] = useState("");
   // Start in loading state when the page mounts with a query/location already
   // in the URL (e.g. navigation from the home page, or a shared link). The
   // URL effect runs after the first render, so without this the very first
@@ -677,6 +682,9 @@ export default function ResultsPage() {
       setResults([]);
       setHasMore(false);
       setNoResults(false); // the search is running — show skeleton, not empty-state
+      // Clear any prior typo-correction highlight so a stale corrected term
+      // can't briefly highlight the new search's results before its response.
+      setCorrectedHighlight("");
       // Only invalidate totalPages when the QUERY/FILTERS change — not on
       // page navigation. Walking pages 1 → 2 → 3 within the same query keeps
       // the previously-computed total visible the whole time.
@@ -767,6 +775,9 @@ export default function ResultsPage() {
       if (gen !== searchGenRef.current) return;
 
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
+      // Capture a typo-corrected query (if any) for result highlighting —
+      // we highlight the corrected term since that's what's in the data.
+      setCorrectedHighlight(meta?.correctedQuery?.corrected || "");
       const distanced = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
 
       // Proximity sorts (sort=manu by nearest manufacturing, sort=hq by
@@ -1306,6 +1317,7 @@ export default function ResultsPage() {
                     rightColsOrder={rightColsOrder}
                     debugScores={debugScores}
                     onInView={requestReviewsForCompany}
+                    query={correctedHighlight || qParam}
                   />
                 );
               }
