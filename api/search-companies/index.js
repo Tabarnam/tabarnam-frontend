@@ -650,8 +650,31 @@ function isSynonymOnlyMatch(company, q_norm, q_compact) {
  * original query) get a 60% score reduction so direct matches always rank higher.
  */
 function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndustries = []) {
-  const nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
-  const keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
+  let nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
+  let keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
+
+  // Singular/plural equivalence. Candidate RETRIEVAL already ORs each query
+  // word with its stem (so "bras" fetches the same token candidates as
+  // "bra"), but SCORING used only the literal query. The result: a company
+  // retrieved via the stem could score below MIN_RELEVANCE for the inflected
+  // form and get filtered out — so "bras" returned fewer results than "bra"
+  // even though it should match at least as many. Score the stemmed query
+  // too and take the max of each component, so an inflected query clears the
+  // cutoff (and ranks) identically to its base form. This only ever RAISES a
+  // score, so it can never drop a match that the literal query already had.
+  const stemmedNorm = stemWords(q_norm);
+  if (stemmedNorm && stemmedNorm !== q_norm) {
+    const stemmedCompact = stemmedNorm.replace(/\s+/g, "");
+    nameScore = Math.max(
+      nameScore,
+      computeNameMatchScore(company, stemmedNorm, stemmedNorm, stemmedCompact)
+    );
+    keywordScore = Math.max(
+      keywordScore,
+      computeKeywordMatchScore(company, stemmedNorm, stemmedCompact)
+    );
+  }
+
   const nameBonus = nameScore >= 60 ? 20 : 0;
 
   // Industry match bonus — fires when the query appears in any of the

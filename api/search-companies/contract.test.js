@@ -823,6 +823,31 @@ test("computeRelevanceScore boosts keyword weight when no name match", () => {
   assert.equal(scores._relevanceScore, 60, "keyword-only match should use 60% weight");
 });
 
+test("computeRelevanceScore: plural query scores a singular keyword as well as the singular query (bras→bra)", () => {
+  // The 2026 "bras returns fewer pages than bra" report. Retrieval stems the
+  // query (so "bras" fetches the same candidates as "bra"), but scoring used
+  // only the literal query, so a company whose keyword is the SINGULAR "bra"
+  // scored lower for "bras" and could drop below MIN_RELEVANCE. Scoring is
+  // now stem-aware: the plural query must score the singular-keyword company
+  // at least as high as the singular query does.
+  const company = { company_name: "Acme", product_keywords: ["bra"] };
+  const singular = _test.computeRelevanceScore(company, "bra", "bra", "bra");
+  const plural = _test.computeRelevanceScore(company, "bras", "bras", "bras");
+  assert.ok(
+    plural._relevanceScore >= singular._relevanceScore,
+    `plural "bras" (R=${plural._relevanceScore}) must score the singular-keyword company at least as high as "bra" (R=${singular._relevanceScore})`
+  );
+  assert.ok(plural._relevanceScore > 0, "plural query must produce a positive score for a singular-keyword match");
+});
+
+test("computeRelevanceScore: stem-aware scoring never LOWERS a literal match", () => {
+  // Safety: the max() with the stemmed form can only raise a score. A company
+  // that matches the literal plural keyword exactly must keep its full score.
+  const company = { company_name: "Acme", product_keywords: ["bras"] };
+  const scores = _test.computeRelevanceScore(company, "bras", "bras", "bras");
+  assert.equal(scores._keywordMatchScore, 100, "exact literal keyword match keeps its 100 score");
+});
+
 test("computeRelevanceScore: exact robes keyword ranks above bathrobes compound", () => {
   const robesCo = { company_name: "Robe Shop", product_keywords: ["robes"] };
   const bathrobesCo = { company_name: "Hotel Supplies", product_keywords: ["bathrobes"] };
