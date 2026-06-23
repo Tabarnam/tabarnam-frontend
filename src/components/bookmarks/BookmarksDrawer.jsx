@@ -589,7 +589,7 @@ export default function BookmarksDrawer() {
 
     if (navigator.share) {
       try {
-        await navigator.share({ title: shareTitle, text: shareText });
+        await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
         return;
       } catch (error) {
         if (error.name === "AbortError") return;
