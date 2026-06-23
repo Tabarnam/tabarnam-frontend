@@ -12,6 +12,7 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
   const isDropTarget = dropTargetId === list.id;
   const itemDragRef = useRef(null);
   const [itemDropIdx, setItemDropIdx] = useState(null);
+  const sectionRef = useRef(null);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -67,6 +68,7 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
 
   return (
     <div
+      ref={sectionRef}
       className={`border-b border-border last:border-b-0 transition-colors ${isDropTarget ? "bg-primary/10 ring-1 ring-primary/30 rounded-md" : ""}`}
       onDragOver={handleDragOver}
       onDragLeave={() => onDragLeaveList(list.id)}
@@ -74,7 +76,15 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
     >
       <button
         type="button"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          const willExpand = !expanded;
+          setExpanded(willExpand);
+          if (willExpand && sectionRef.current) {
+            requestAnimationFrame(() => {
+              sectionRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            });
+          }
+        }}
         className="flex items-center w-full px-1 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50 rounded-md transition-colors"
       >
         {expanded ? (
