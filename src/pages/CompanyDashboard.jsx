@@ -2735,6 +2735,12 @@ export default function CompanyDashboard() {
         logo_approved: Boolean(draftForSave.logo_approved),
         homepage_image_url: asString(draftForSave.homepage_image_url).trim(),
         homepage_approved: Boolean(draftForSave.homepage_approved),
+        // Master flag /admin/images reads to determine "Approved" row state.
+        // Mirrors AdminImages.jsx persistMasterApproval's AND semantics so
+        // edit-dialog approvals reach the images page without requiring a
+        // second click on the master row checkbox.
+        images_approved:
+          Boolean(draftForSave.logo_approved) && Boolean(draftForSave.homepage_approved),
         homepage_issue_cleared: Boolean(draftForSave.homepage_issue_cleared),
         amazon_url: asString(draftForSave.amazon_url).trim(),
         amazon_url_approved: Boolean(draftForSave.amazon_url_approved),
