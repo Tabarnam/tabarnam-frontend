@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share, GripVertical, ArrowDownAZ, ArrowUpZA, LayoutGrid, List } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share, GripVertical, ArrowDownAZ, ArrowUpZA, LayoutGrid, List, ExternalLink } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { toast } from "@/lib/toast";
 
@@ -48,10 +48,11 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
   };
 
   const handleItemDrop = (e, toIdx) => {
+    const fromIdx = itemDragRef.current;
+    if (fromIdx === null) return;
     e.preventDefault();
     e.stopPropagation();
-    const fromIdx = itemDragRef.current;
-    if (fromIdx === null || fromIdx === toIdx) {
+    if (fromIdx === toIdx) {
       itemDragRef.current = null;
       setItemDropIdx(null);
       return;
@@ -206,7 +207,7 @@ async function copyToClipboard(text) {
   }
 }
 
-function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, onSort, hasClipboard, itemCount }) {
+function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, onSort, onOpenInResults, hasClipboard, itemCount }) {
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -301,6 +302,16 @@ function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, onSort
             <Share className="h-3.5 w-3.5 mr-2" />
             Share
           </button>
+          {itemCount > 0 && (
+            <button
+              type="button"
+              onClick={() => { onOpenInResults(list.id); setMenuOpen(false); }}
+              className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              <ExternalLink className="h-3.5 w-3.5 mr-2" />
+              Open in Results
+            </button>
+          )}
           {itemCount > 1 && (
             <>
               <button
@@ -765,6 +776,10 @@ export default function BookmarksDrawer() {
                     onPaste={handlePaste}
                     onShare={handleShare}
                     onSort={sortListItems}
+                    onOpenInResults={(listId) => {
+                      setDrawerOpen(false);
+                      navigate(`/results?list=${listId}`);
+                    }}
                     hasClipboard={!!clipboard}
                     itemCount={(itemsByList[list.id] || []).length}
                   />
