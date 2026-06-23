@@ -7,20 +7,32 @@ const DEFAULT_LIST_ID = "saved";
 function loadFromStorage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { lists: [], items: [] };
+    if (!raw) return { lists: [], items: [], allOrder: [] };
     const data = JSON.parse(raw);
     if (!Array.isArray(data.lists) || !Array.isArray(data.items)) {
-      return { lists: [], items: [] };
+      return { lists: [], items: [], allOrder: [] };
     }
-    return data;
+    return { ...data, allOrder: Array.isArray(data.allOrder) ? data.allOrder : [] };
   } catch {
-    return { lists: [], items: [] };
+    return { lists: [], items: [], allOrder: [] };
   }
 }
 
 function persist(lists, items) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ lists, items }));
+    const existing = localStorage.getItem(STORAGE_KEY);
+    const prev = existing ? JSON.parse(existing) : {};
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ lists, items, allOrder: prev.allOrder || [] }));
+  } catch {
+    toast.error("Storage full — could not save bookmark");
+  }
+}
+
+function persistAllOrder(allOrder) {
+  try {
+    const existing = localStorage.getItem(STORAGE_KEY);
+    const prev = existing ? JSON.parse(existing) : { lists: [], items: [] };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...prev, allOrder }));
   } catch {
     toast.error("Storage full — could not save bookmark");
   }
@@ -58,6 +70,7 @@ export const BookmarksContext = createContext(null);
 export function BookmarksProvider({ children }) {
   const [lists, setLists] = useState(() => ensureDefaultList(loadFromStorage().lists));
   const [items, setItems] = useState(() => loadFromStorage().items);
+  const [allOrder, setAllOrder] = useState(() => loadFromStorage().allOrder);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const companyIndex = useMemo(() => buildIndex(items), [items]);
@@ -202,6 +215,11 @@ export function BookmarksProvider({ children }) {
   }, []);
 
   const reorderItems = useCallback((listId, orderedCompanyIds) => {
+    if (listId === DEFAULT_LIST_ID) {
+      setAllOrder(orderedCompanyIds);
+      persistAllOrder(orderedCompanyIds);
+      return;
+    }
     setItems((prev) => {
       const inList = prev.filter((i) => i.list_id === listId);
       const rest = prev.filter((i) => i.list_id !== listId);
@@ -216,6 +234,21 @@ export function BookmarksProvider({ children }) {
   }, []);
 
   const sortListItems = useCallback((listId, direction) => {
+    if (listId === DEFAULT_LIST_ID) {
+      const seen = new Set();
+      const all = [];
+      for (const item of items) {
+        if (!seen.has(item.company_id)) { seen.add(item.company_id); all.push(item); }
+      }
+      const sorted = [...all].sort((a, b) => {
+        const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        return direction === "asc" ? cmp : -cmp;
+      });
+      const order = sorted.map((i) => i.company_id);
+      setAllOrder(order);
+      persistAllOrder(order);
+      return;
+    }
     setItems((prev) => {
       const inList = prev.filter((i) => i.list_id === listId);
       const rest = prev.filter((i) => i.list_id !== listId);
@@ -227,7 +260,7 @@ export function BookmarksProvider({ children }) {
       setLists((cl) => { persist(cl, next); return cl; });
       return next;
     });
-  }, []);
+  }, [items]);
 
   const reorderLists = useCallback((orderedIds) => {
     setLists((prev) => {
@@ -312,6 +345,7 @@ export function BookmarksProvider({ children }) {
       reorderLists,
       reorderItems,
       sortListItems,
+      allOrder,
       drawerOpen,
       setDrawerOpen,
     }),
@@ -332,6 +366,7 @@ export function BookmarksProvider({ children }) {
       reorderLists,
       reorderItems,
       sortListItems,
+      allOrder,
       drawerOpen,
     ]
   );

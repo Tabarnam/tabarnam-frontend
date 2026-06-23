@@ -63,7 +63,7 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
     setItemDropIdx(null);
   };
 
-  const canReorderItems = list.id !== DEFAULT_LIST_ID && !disableDrag;
+  const canReorderItems = !disableDrag;
 
   return (
     <div
@@ -104,15 +104,12 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
                 <div
                   draggable={!disableDrag && confirmingRemove !== item.company_id}
                   onDragStart={disableDrag ? undefined : (e) => {
-                    if (canReorderItems && !e.dataTransfer.types.includes("text/x-item-reorder")) {
-                      handleItemDragStart(e, idx, item);
-                    } else if (!canReorderItems) {
-                      onDragStart(e, list.id, item);
-                    }
+                    handleItemDragStart(e, idx, item);
+                    onDragStart(e, list.id, item);
                   }}
                   onDragEnd={disableDrag ? undefined : (e) => {
-                    if (canReorderItems) handleItemDragEnd(e);
-                    else onDragEnd(e);
+                    handleItemDragEnd(e);
+                    onDragEnd(e);
                   }}
                   className={`flex items-center gap-1 px-6 py-1 group ${disableDrag ? "" : "cursor-grab active:cursor-grabbing"}`}
                 >
@@ -368,6 +365,7 @@ export default function BookmarksDrawer() {
     reorderLists,
     reorderItems,
     sortListItems,
+    allOrder,
     totalBookmarked,
   } = useBookmarks();
   const navigate = useNavigate();
@@ -396,13 +394,20 @@ export default function BookmarksDrawer() {
             all.push(item);
           }
         }
-        map[DEFAULT_LIST_ID] = all;
+        if (allOrder.length > 0) {
+          const byId = new Map(all.map((i) => [i.company_id, i]));
+          const ordered = allOrder.map((cid) => byId.get(cid)).filter(Boolean);
+          const rest = all.filter((i) => !allOrder.includes(i.company_id));
+          map[DEFAULT_LIST_ID] = [...ordered, ...rest];
+        } else {
+          map[DEFAULT_LIST_ID] = all;
+        }
       } else {
         map[list.id] = items.filter((i) => i.list_id === list.id);
       }
     }
     return map;
-  }, [lists, items]);
+  }, [lists, items, allOrder]);
 
   useEffect(() => {
     if (!drawerOpen) return;
