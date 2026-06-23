@@ -200,6 +200,7 @@ function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, onSort
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
   const [name, setName] = useState(list.name);
   const menuRef = useRef(null);
 
@@ -248,14 +249,24 @@ function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, onSort
     <div className="relative shrink-0 mt-2" ref={menuRef}>
       <button
         type="button"
-        onClick={() => setMenuOpen(!menuOpen)}
+        onClick={() => {
+          if (!menuOpen && menuRef.current) {
+            const scrollParent = menuRef.current.closest("[role='dialog']");
+            if (scrollParent) {
+              const btnRect = menuRef.current.getBoundingClientRect();
+              const parentRect = scrollParent.getBoundingClientRect();
+              setFlipUp(btnRect.bottom + 200 > parentRect.bottom);
+            }
+          }
+          setMenuOpen(!menuOpen);
+        }}
         className="p-1 rounded hover:bg-muted transition-colors"
         aria-label={`Options for ${list.name}`}
       >
         <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
       </button>
       {menuOpen && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-36 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className={`absolute right-0 z-50 w-36 rounded-md border bg-popover p-1 text-popover-foreground shadow-md ${flipUp ? "bottom-full mb-1" : "top-full mt-1"}`}>
           <button
             type="button"
             onClick={() => { setEditing(true); setMenuOpen(false); }}
