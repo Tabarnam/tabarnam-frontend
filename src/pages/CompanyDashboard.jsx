@@ -5397,6 +5397,20 @@ export default function CompanyDashboard() {
                             badge={Array.isArray(editorDraft.curated_reviews) ? editorDraft.curated_reviews.length : 0}
                           >
                           <div className="space-y-5 px-1 pt-1">
+                          {/* "No reviews" — like No Amazon Store / Unknown HQ / MFG.
+                              Setting no_reviews clears the "reviews" tag from the Issues
+                              column (getContractMissingFields strips it on this flag),
+                              both live in the header and in the table row after save. */}
+                          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground">
+                            <Checkbox
+                              checked={Boolean(editorDraft.no_reviews)}
+                              onCheckedChange={(v) =>
+                                setEditorDraft((d) => ({ ...(d || {}), no_reviews: Boolean(v) }))
+                              }
+                              disabled={editorSaving}
+                            />
+                            <span>No reviews found</span>
+                          </label>
                           <ReviewLinkFetcher
                             onAddReview={(review) => {
                               setEditorDraft((d) => ({

@@ -688,6 +688,13 @@ function isRealValue(field, value, doc) {
   }
 
   if (f === "reviews" || f === "curated_reviews") {
+    // Admin "no reviews" flag wins: treat reviews as resolved so the field
+    // stops counting as missing in computeMissingFields (→ enrichment_health,
+    // import_missing_fields) and the resume-worker stops re-fetching reviews.
+    // Mirrors the no_reviews gate in the frontend getContractMissingFields and
+    // _sortKeys.computeIssueTags. Single flag — no translation layer needed.
+    if (isTrueish(doc?.no_reviews)) return true;
+
     const curated = Array.isArray(doc?.curated_reviews)
       ? doc.curated_reviews.filter((r) => r && typeof r === "object")
       : [];
