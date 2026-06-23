@@ -1,15 +1,17 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share, GripVertical } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share, GripVertical, ArrowDownAZ, ArrowUpZA } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { toast } from "@/lib/toast";
 
 const DEFAULT_LIST_ID = "saved";
 
-function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDragStart, onDragEnd, dropTargetId, onDrop, onDragOverList, onDragLeaveList, disableDrag }) {
+function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDragStart, onDragEnd, dropTargetId, onDrop, onDragOverList, onDragLeaveList, disableDrag, onReorderItems }) {
   const [expanded, setExpanded] = useState(list.id === DEFAULT_LIST_ID);
   const [confirmingRemove, setConfirmingRemove] = useState(null);
   const isDropTarget = dropTargetId === list.id;
+  const itemDragRef = useRef(null);
+  const [itemDropIdx, setItemDropIdx] = useState(null);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -21,6 +23,47 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
     e.preventDefault();
     onDrop(list.id);
   };
+
+  const handleItemDragStart = (e, idx, item) => {
+    itemDragRef.current = idx;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/x-item-reorder", "1");
+    e.currentTarget.style.opacity = "0.4";
+    e.stopPropagation();
+  };
+
+  const handleItemDragEnd = (e) => {
+    e.currentTarget.style.opacity = "";
+    itemDragRef.current = null;
+    setItemDropIdx(null);
+  };
+
+  const handleItemDragOver = (e, idx) => {
+    if (itemDragRef.current === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    setItemDropIdx(idx);
+  };
+
+  const handleItemDrop = (e, toIdx) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const fromIdx = itemDragRef.current;
+    if (fromIdx === null || fromIdx === toIdx) {
+      itemDragRef.current = null;
+      setItemDropIdx(null);
+      return;
+    }
+    const ids = items.map((i) => i.company_id);
+    const [moved] = ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, moved);
+    onReorderItems(list.id, ids);
+    itemDragRef.current = null;
+    setItemDropIdx(null);
+  };
+
+  const canReorderItems = list.id !== DEFAULT_LIST_ID && !disableDrag;
 
   return (
     <div
@@ -49,63 +92,80 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
           {items.length === 0 ? (
             <p className="text-xs text-muted-foreground px-6 py-1.5">No companies bookmarked</p>
           ) : (
-            items.map((item) => (
+            items.map((item, idx) => (
               <div
                 key={item.company_id}
-                draggable={!disableDrag && confirmingRemove !== item.company_id}
-                onDragStart={disableDrag ? undefined : (e) => onDragStart(e, list.id, item)}
-                onDragEnd={disableDrag ? undefined : onDragEnd}
-                className={`flex items-center gap-1 px-6 py-1 group ${disableDrag ? "" : "cursor-grab active:cursor-grabbing"}`}
+                onDragOver={canReorderItems ? (e) => handleItemDragOver(e, idx) : undefined}
+                onDrop={canReorderItems ? (e) => handleItemDrop(e, idx) : undefined}
               >
-                {confirmingRemove === item.company_id ? (
-                  <div className="w-full space-y-1">
-                    <span className="text-xs text-muted-foreground">Remove {item.name}?</span>
-                    <div className="flex items-center gap-1.5">
-                      {list.id !== DEFAULT_LIST_ID && (
+                {itemDropIdx === idx && itemDragRef.current !== null && itemDragRef.current !== idx && (
+                  <div className="h-0.5 bg-primary mx-6 rounded-full" />
+                )}
+                <div
+                  draggable={!disableDrag && confirmingRemove !== item.company_id}
+                  onDragStart={disableDrag ? undefined : (e) => {
+                    if (canReorderItems && !e.dataTransfer.types.includes("text/x-item-reorder")) {
+                      handleItemDragStart(e, idx, item);
+                    } else if (!canReorderItems) {
+                      onDragStart(e, list.id, item);
+                    }
+                  }}
+                  onDragEnd={disableDrag ? undefined : (e) => {
+                    if (canReorderItems) handleItemDragEnd(e);
+                    else onDragEnd(e);
+                  }}
+                  className={`flex items-center gap-1 px-6 py-1 group ${disableDrag ? "" : "cursor-grab active:cursor-grabbing"}`}
+                >
+                  {confirmingRemove === item.company_id ? (
+                    <div className="w-full space-y-1">
+                      <span className="text-xs text-muted-foreground">Remove {item.name}?</span>
+                      <div className="flex items-center gap-1.5">
+                        {list.id !== DEFAULT_LIST_ID && (
+                          <button
+                            type="button"
+                            onClick={() => { onRemove(list.id, item.company_id, item.name, list.name); setConfirmingRemove(null); }}
+                            className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-white bg-destructive hover:bg-destructive/90 transition-colors"
+                          >
+                            This list
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => { onRemove(list.id, item.company_id, item.name, list.name); setConfirmingRemove(null); }}
+                          onClick={() => { onRemoveFromAll(item.company_id, item.name); setConfirmingRemove(null); }}
                           className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-white bg-destructive hover:bg-destructive/90 transition-colors"
                         >
-                          This list
+                          All lists
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => { onRemoveFromAll(item.company_id, item.name); setConfirmingRemove(null); }}
-                        className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-white bg-destructive hover:bg-destructive/90 transition-colors"
-                      >
-                        All lists
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmingRemove(null)}
-                        className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium hover:bg-accent transition-colors"
-                      >
-                        Cancel
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingRemove(null)}
+                          className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium hover:bg-accent transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => onNavigate(item.name)}
-                      className="text-sm text-foreground hover:text-primary hover:underline truncate text-left flex-1"
-                      title={item.name}
-                    >
-                      {item.name}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmingRemove(item.company_id)}
-                      className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded hover:bg-destructive/10 transition-opacity"
-                      aria-label={`Remove ${item.name} from ${list.name}`}
-                    >
-                      <X className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                    </button>
-                  </>
-                )}
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(item.name)}
+                        className="text-sm text-foreground hover:text-primary hover:underline truncate text-left flex-1"
+                        title={item.name}
+                      >
+                        {item.name}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingRemove(item.company_id)}
+                        className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded hover:bg-destructive/10 transition-opacity"
+                        aria-label={`Remove ${item.name} from ${list.name}`}
+                      >
+                        <X className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             ))
           )}
@@ -139,7 +199,7 @@ async function copyToClipboard(text) {
   }
 }
 
-function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, hasClipboard, itemCount }) {
+function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, onSort, hasClipboard, itemCount }) {
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -223,6 +283,26 @@ function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, hasCli
             <Share className="h-3.5 w-3.5 mr-2" />
             Share
           </button>
+          {itemCount > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() => { onSort(list.id, "asc"); setMenuOpen(false); }}
+                className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+              >
+                <ArrowDownAZ className="h-3.5 w-3.5 mr-2" />
+                Sort A→Z
+              </button>
+              <button
+                type="button"
+                onClick={() => { onSort(list.id, "desc"); setMenuOpen(false); }}
+                className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+              >
+                <ArrowUpZA className="h-3.5 w-3.5 mr-2" />
+                Sort Z→A
+              </button>
+            </>
+          )}
           {hasClipboard && (
             <button
               type="button"
@@ -286,6 +366,8 @@ export default function BookmarksDrawer() {
     renameList,
     deleteList,
     reorderLists,
+    reorderItems,
+    sortListItems,
     totalBookmarked,
   } = useBookmarks();
   const navigate = useNavigate();
@@ -591,12 +673,15 @@ export default function BookmarksDrawer() {
             lists.map((list) => (
               <div
                 key={list.id}
-                className={`relative transition-colors ${listDropTargetId === list.id ? "bg-primary/10 ring-1 ring-primary/30 rounded-md" : ""}`}
+                className="relative"
                 data-list-id={list.id}
                 onDragOver={(e) => { if (listDragRef.current) handleListDragOver(e, list.id); }}
                 onDragLeave={() => { if (listDragRef.current) handleListDragLeave(list.id); }}
                 onDrop={(e) => { if (listDragRef.current) handleListDrop(e, list.id); }}
               >
+                {listDropTargetId === list.id && listDragRef.current && (
+                  <div className="h-0.5 bg-primary mx-2 rounded-full" />
+                )}
                 <div className="flex items-start">
                   {list.id !== DEFAULT_LIST_ID && (
                     <div
@@ -623,6 +708,7 @@ export default function BookmarksDrawer() {
                       onDragOverList={handleDragOverList}
                       onDragLeaveList={handleDragLeaveList}
                       disableDrag={false}
+                      onReorderItems={reorderItems}
                     />
                   </div>
                   <ListHeader
@@ -632,6 +718,7 @@ export default function BookmarksDrawer() {
                     onCopy={handleCopy}
                     onPaste={handlePaste}
                     onShare={handleShare}
+                    onSort={sortListItems}
                     hasClipboard={!!clipboard}
                     itemCount={(itemsByList[list.id] || []).length}
                   />

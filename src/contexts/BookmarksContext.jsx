@@ -201,6 +201,34 @@ export function BookmarksProvider({ children }) {
     });
   }, []);
 
+  const reorderItems = useCallback((listId, orderedCompanyIds) => {
+    setItems((prev) => {
+      const inList = prev.filter((i) => i.list_id === listId);
+      const rest = prev.filter((i) => i.list_id !== listId);
+      const sorted = orderedCompanyIds
+        .map((cid) => inList.find((i) => i.company_id === cid))
+        .filter(Boolean);
+      const missing = inList.filter((i) => !orderedCompanyIds.includes(i.company_id));
+      const next = [...rest, ...sorted, ...missing];
+      setLists((cl) => { persist(cl, next); return cl; });
+      return next;
+    });
+  }, []);
+
+  const sortListItems = useCallback((listId, direction) => {
+    setItems((prev) => {
+      const inList = prev.filter((i) => i.list_id === listId);
+      const rest = prev.filter((i) => i.list_id !== listId);
+      const sorted = [...inList].sort((a, b) => {
+        const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        return direction === "asc" ? cmp : -cmp;
+      });
+      const next = [...rest, ...sorted];
+      setLists((cl) => { persist(cl, next); return cl; });
+      return next;
+    });
+  }, []);
+
   const reorderLists = useCallback((orderedIds) => {
     setLists((prev) => {
       const next = orderedIds.map((id, i) => {
@@ -282,6 +310,8 @@ export function BookmarksProvider({ children }) {
       renameList,
       deleteList,
       reorderLists,
+      reorderItems,
+      sortListItems,
       drawerOpen,
       setDrawerOpen,
     }),
@@ -300,6 +330,8 @@ export function BookmarksProvider({ children }) {
       renameList,
       deleteList,
       reorderLists,
+      reorderItems,
+      sortListItems,
       drawerOpen,
     ]
   );
