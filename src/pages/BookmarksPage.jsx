@@ -17,7 +17,7 @@ function LogoCell({ item }) {
   if (url) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-700 overflow-hidden">
-        <img src={url} alt="" className="w-3/4 h-3/4 object-contain" loading="lazy" />
+        <img src={url} alt="" className="w-full h-full object-contain" loading="lazy" />
       </div>
     );
   }
