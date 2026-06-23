@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share, GripVertical } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { toast } from "@/lib/toast";
 
@@ -285,6 +285,7 @@ export default function BookmarksDrawer() {
     createList,
     renameList,
     deleteList,
+    reorderLists,
     totalBookmarked,
   } = useBookmarks();
   const navigate = useNavigate();
@@ -293,9 +294,13 @@ export default function BookmarksDrawer() {
   const [newListName, setNewListName] = useState("");
   const [clipboard, setClipboard] = useState(null);
 
-  // Drag state
+  // Item drag state (move items between lists)
   const dragRef = useRef(null);
   const [dropTargetId, setDropTargetId] = useState(null);
+
+  // List drag state (reorder lists)
+  const listDragRef = useRef(null);
+  const [listDropTargetId, setListDropTargetId] = useState(null);
 
   const itemsByList = useMemo(() => {
     const map = {};
@@ -404,6 +409,51 @@ export default function BookmarksDrawer() {
     dragRef.current = null;
     setDropTargetId(null);
   }, [lists, moveToList, copyItemsToList]);
+
+  // List reorder drag
+  const handleListDragStart = useCallback((e, listId) => {
+    listDragRef.current = listId;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", listId);
+    e.currentTarget.closest("[data-list-id]").style.opacity = "0.4";
+  }, []);
+
+  const handleListDragEnd = useCallback((e) => {
+    const el = e.currentTarget.closest("[data-list-id]");
+    if (el) el.style.opacity = "";
+    listDragRef.current = null;
+    setListDropTargetId(null);
+  }, []);
+
+  const handleListDragOver = useCallback((e, listId) => {
+    if (!listDragRef.current || listDragRef.current === listId || listId === DEFAULT_LIST_ID) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setListDropTargetId(listId);
+  }, []);
+
+  const handleListDragLeave = useCallback((listId) => {
+    setListDropTargetId((prev) => (prev === listId ? null : prev));
+  }, []);
+
+  const handleListDrop = useCallback((e, targetListId) => {
+    e.preventDefault();
+    const sourceId = listDragRef.current;
+    if (!sourceId || sourceId === targetListId || targetListId === DEFAULT_LIST_ID) {
+      listDragRef.current = null;
+      setListDropTargetId(null);
+      return;
+    }
+    const orderedIds = lists.map((l) => l.id);
+    const fromIdx = orderedIds.indexOf(sourceId);
+    const toIdx = orderedIds.indexOf(targetListId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    orderedIds.splice(fromIdx, 1);
+    orderedIds.splice(toIdx, 0, sourceId);
+    reorderLists(orderedIds);
+    listDragRef.current = null;
+    setListDropTargetId(null);
+  }, [lists, reorderLists]);
 
   // Copy / paste
   const handleCopy = useCallback((listId) => {
@@ -539,8 +589,26 @@ export default function BookmarksDrawer() {
             </div>
           ) : (
             lists.map((list) => (
-              <div key={list.id} className="relative">
+              <div
+                key={list.id}
+                className={`relative transition-colors ${listDropTargetId === list.id ? "bg-primary/10 ring-1 ring-primary/30 rounded-md" : ""}`}
+                data-list-id={list.id}
+                onDragOver={(e) => { if (listDragRef.current) handleListDragOver(e, list.id); }}
+                onDragLeave={() => { if (listDragRef.current) handleListDragLeave(list.id); }}
+                onDrop={(e) => { if (listDragRef.current) handleListDrop(e, list.id); }}
+              >
                 <div className="flex items-start">
+                  {list.id !== DEFAULT_LIST_ID && (
+                    <div
+                      draggable
+                      onDragStart={(e) => handleListDragStart(e, list.id)}
+                      onDragEnd={handleListDragEnd}
+                      className="mt-2.5 cursor-grab active:cursor-grabbing shrink-0"
+                      title="Drag to reorder"
+                    >
+                      <GripVertical className="h-4 w-4 text-muted-foreground/50 hover:text-muted-foreground" />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <ListSection
                       list={list}
