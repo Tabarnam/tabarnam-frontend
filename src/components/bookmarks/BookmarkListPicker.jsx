@@ -109,6 +109,13 @@ export default function BookmarkListPicker({ company, children, open, onOpenChan
             Remove bookmark
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className="w-full mt-2 py-1 text-xs font-medium text-center rounded bg-muted hover:bg-muted/80 text-muted-foreground transition-colors"
+        >
+          Done
+        </button>
       </PopoverContent>
     </Popover>
   );

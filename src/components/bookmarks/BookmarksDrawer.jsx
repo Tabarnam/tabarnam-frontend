@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share, GripVertical, ArrowDownAZ, ArrowUpZA, LayoutGrid, List, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Share, GripVertical, ArrowDownAZ, ArrowUpZA, LayoutGrid, List, ExternalLink } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { toast } from "@/lib/toast";
 
@@ -207,7 +207,7 @@ async function copyToClipboard(text) {
   }
 }
 
-function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, onSort, onOpenInResults, hasClipboard, itemCount }) {
+function ListHeader({ list, onRename, onDelete, onShare, onSort, onOpenInResults, itemCount }) {
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -288,14 +288,6 @@ function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, onSort
           </button>
           <button
             type="button"
-            onClick={() => { onCopy(list.id); setMenuOpen(false); }}
-            className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
-          >
-            <Copy className="h-3.5 w-3.5 mr-2" />
-            Copy
-          </button>
-          <button
-            type="button"
             onClick={() => { onShare(list.id); setMenuOpen(false); }}
             className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
           >
@@ -331,16 +323,6 @@ function ListHeader({ list, onRename, onDelete, onCopy, onPaste, onShare, onSort
                 Sort Z→A
               </button>
             </>
-          )}
-          {hasClipboard && (
-            <button
-              type="button"
-              onClick={() => { onPaste(list.id); setMenuOpen(false); }}
-              className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
-            >
-              <ClipboardPaste className="h-3.5 w-3.5 mr-2" />
-              Paste
-            </button>
           )}
           {list.id !== DEFAULT_LIST_ID && !confirmingDelete && (
             <button
@@ -404,8 +386,6 @@ export default function BookmarksDrawer() {
 
   const [creatingList, setCreatingList] = useState(false);
   const [newListName, setNewListName] = useState("");
-  const [clipboard, setClipboard] = useState(null);
-
   // Item drag state (move items between lists)
   const dragRef = useRef(null);
   const [dropTargetId, setDropTargetId] = useState(null);
@@ -573,25 +553,6 @@ export default function BookmarksDrawer() {
     listDragRef.current = null;
     setListDropTargetId(null);
   }, [lists, reorderLists]);
-
-  // Copy / paste
-  const handleCopy = useCallback((listId) => {
-    const listItems = itemsByList[listId] || [];
-    if (listItems.length === 0) {
-      toast("Nothing to copy");
-      return;
-    }
-    const listName = lists.find((l) => l.id === listId)?.name || "list";
-    setClipboard({ listName, items: listItems });
-    toast.success(`Copied ${listItems.length} item${listItems.length > 1 ? "s" : ""} from ${listName}`);
-  }, [itemsByList, lists]);
-
-  const handlePaste = useCallback((targetListId) => {
-    if (!clipboard) return;
-    const targetList = lists.find((l) => l.id === targetListId);
-    copyItemsToList(targetListId, clipboard.items);
-    toast.success(`Pasted into ${targetList?.name || "list"}`);
-  }, [clipboard, lists, copyItemsToList]);
 
   const handleShare = useCallback(async (listId) => {
     const list = lists.find((l) => l.id === listId);
@@ -772,15 +733,12 @@ export default function BookmarksDrawer() {
                     list={list}
                     onRename={renameList}
                     onDelete={handleDeleteList}
-                    onCopy={handleCopy}
-                    onPaste={handlePaste}
                     onShare={handleShare}
                     onSort={sortListItems}
                     onOpenInResults={(listId) => {
                       setDrawerOpen(false);
                       navigate(`/results?list=${listId}`);
                     }}
-                    hasClipboard={!!clipboard}
                     itemCount={(itemsByList[list.id] || []).length}
                   />
                 </div>
