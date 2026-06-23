@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share, GripVertical, ArrowDownAZ, ArrowUpZA } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Copy, ClipboardPaste, Share, GripVertical, ArrowDownAZ, ArrowUpZA, LayoutGrid, List } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { toast } from "@/lib/toast";
 
@@ -644,14 +644,34 @@ export default function BookmarksDrawer() {
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-3 border-b border-border shrink-0">
           <h2 className="text-lg font-semibold text-foreground">Bookmarked Companies</h2>
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(false)}
-            className="rounded-sm opacity-70 hover:opacity-100 transition-opacity"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5 bg-muted rounded-lg p-0.5">
+              <button
+                type="button"
+                onClick={() => { setDrawerOpen(false); navigate("/bookmarks"); }}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                title="Folder view"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className="p-1 rounded-md bg-card shadow-sm"
+                title="List view"
+                disabled
+              >
+                <List className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(false)}
+              className="rounded-sm opacity-70 hover:opacity-100 transition-opacity"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* New List */}

@@ -109,6 +109,7 @@ export function BookmarksProvider({ children }) {
               company_id: cid,
               name: company.name || company.display_name || company.company_name || "",
               normalized_domain: company.normalized_domain || "",
+              logo_url: company.logo_url || "",
               list_id: listId,
               added_at: Date.now(),
             },
@@ -210,6 +211,17 @@ export function BookmarksProvider({ children }) {
       const next = prev.filter((i) => i.company_id !== companyId);
       if (next.length === prev.length) return prev;
       setLists((cl) => { persist(cl, next); return cl; });
+      return next;
+    });
+  }, []);
+
+  const setListCoverImage = useCallback((listId, coverImage) => {
+    setLists((prev) => {
+      const next = prev.map((l) => l.id === listId ? { ...l, cover_image: coverImage } : l);
+      setItems((currentItems) => {
+        persist(next, currentItems);
+        return currentItems;
+      });
       return next;
     });
   }, []);
@@ -345,6 +357,7 @@ export function BookmarksProvider({ children }) {
       reorderLists,
       reorderItems,
       sortListItems,
+      setListCoverImage,
       allOrder,
       drawerOpen,
       setDrawerOpen,
@@ -366,6 +379,7 @@ export function BookmarksProvider({ children }) {
       reorderLists,
       reorderItems,
       sortListItems,
+      setListCoverImage,
       allOrder,
       drawerOpen,
     ]

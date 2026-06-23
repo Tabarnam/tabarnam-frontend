@@ -15,6 +15,7 @@ import { getQQScore } from "@/lib/stars/qqRating";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import ShareButton from "@/components/ShareButton";
+import { useBookmarks } from "@/hooks/useBookmarks";
 
 // Phase 4.28 — PAGE_SIZE reduced 50 → 25. Halves the per-page row count
 // and the upper-bound fan-out for any lazy-on-mount fetches; combined with
@@ -235,6 +236,9 @@ export default function ResultsPage() {
   const hqCountryParam = searchParams.get("hqCountry") || "";
   const mfgCountryParam = searchParams.get("mfgCountry") || "";
   const debugScores = searchParams.get("debug") === "scores";
+  const listParam = searchParams.get("list") || "";
+
+  const bookmarks = useBookmarks();
 
   const [results, setResults] = useState([]);
   // The term to highlight on result cards. Defaults to what the user typed
@@ -386,11 +390,47 @@ export default function ResultsPage() {
     requestedReviewsRef.current = new Set();
   }, [qParam, sortBy, countryParam, stateParam, cityParam, pageParam]);
 
+  // Bookmark list mode: fetch each bookmarked company individually
+  const [listModeName, setListModeName] = useState("");
+  useEffect(() => {
+    if (!listParam || !bookmarks) return;
+    const list = bookmarks.lists.find((l) => l.id === listParam);
+    if (!list) { setListModeName(""); return; }
+    setListModeName(list.name);
+    const listItems = list.id === "saved"
+      ? (() => { const seen = new Set(); return bookmarks.items.filter((i) => { if (seen.has(i.company_id)) return false; seen.add(i.company_id); return true; }); })()
+      : bookmarks.items.filter((i) => i.list_id === list.id);
+    if (listItems.length === 0) { setResults([]); setNoResults(true); setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    setNoResults(false);
+    (async () => {
+      const fetched = [];
+      for (const item of listItems.slice(0, 50)) {
+        if (cancelled) return;
+        try {
+          const res = await searchCompanies({ q: item.name, take: 1, quick: true });
+          const companies = Array.isArray(res) ? res : res?.companies || res?.items || [];
+          if (companies.length > 0) fetched.push(normalizeStars(companies[0]));
+        } catch { /* skip */ }
+      }
+      if (!cancelled) {
+        setResults(fetched);
+        setNoResults(fetched.length === 0);
+        setLoading(false);
+        setHasMore(false);
+        setTotalPages(1);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [listParam]);
+
   // Skip-flag: when handleInlineSearch fires doSearch directly, skip the URL-watching effect
   const skipUrlEffectRef = useRef(false);
 
   // Resolve a center location (from lat/lng or geocoding) and run the search
   useEffect(() => {
+    if (listParam) return;
     if (skipUrlEffectRef.current) {
       skipUrlEffectRef.current = false;
       return;
@@ -1127,6 +1167,22 @@ export default function ResultsPage() {
           userCountryCode={userCountryCode}
         />
       </div>
+
+      {/* Bookmark list mode banner */}
+      {listParam && listModeName && (
+        <div className="flex items-center gap-3 px-4 py-2.5 mb-3 rounded-lg bg-primary/10 border border-primary/20">
+          <span className="text-sm text-foreground">
+            Viewing: <span className="font-semibold">{listModeName}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => navigate("/bookmarks")}
+            className="text-xs text-primary hover:text-primary/80 hover:underline ml-auto"
+          >
+            ← Back to Bookmarks
+          </button>
+        </div>
+      )}
 
       {/* Filter chips */}
       {activeFilters.length > 0 && (

@@ -40,6 +40,7 @@ import TourController from "@/components/tour/TourController";
 import ScrollToHashOrTop from "@/components/ScrollToHashOrTop";
 import { BookmarksProvider } from "@/contexts/BookmarksContext";
 const BookmarksDrawer = lazy(() => import("@/components/bookmarks/BookmarksDrawer"));
+const BookmarksPage = lazy(() => import("@/pages/BookmarksPage"));
 
 // Main application component with routing, layout management, and error handling
 // Simple error boundary
@@ -124,6 +125,7 @@ export default function App() {
               {/* public */}
               <Route path="/" element={<HomePage />} />
               <Route path="/results" element={<ResultsPage />} />
+              <Route path="/bookmarks" element={<Suspense fallback={null}><BookmarksPage /></Suspense>} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/how-it-works" element={<HelpPage />} />
