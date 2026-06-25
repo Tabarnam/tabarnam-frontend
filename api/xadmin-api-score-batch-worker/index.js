@@ -43,7 +43,7 @@ async function fireNextCycle(jobId, context) {
     context.log(`[score-batch-worker] self-chain skipped: WEBSITE_HOSTNAME not set`);
     return;
   }
-  const url = `https://${host}/api/xadmin-api-score-batch-worker`;
+  const url = require("../_internalJobAuth").buildSelfInvokeUrl("/api/xadmin-api-score-batch-worker");
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 5000);
   try {

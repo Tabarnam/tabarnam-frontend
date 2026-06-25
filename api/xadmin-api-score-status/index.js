@@ -34,12 +34,10 @@ function getSelfOrigin(req) {
   if (fwdHost) {
     return `${fwdProto || "https"}://${fwdHost}`;
   }
-  try {
-    const u = new URL(req.url);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return "http://localhost";
-  }
+  // Fallback when there's no forwarded-host (non-browser-triggered): use the
+  // configured self-invoke base (SWA front door once SELF_INVOKE_BASE is set)
+  // rather than the direct host, which EasyAuth would 401.
+  return require("../_internalJobAuth").getSelfInvokeBase();
 }
 
 async function fireBatchWorker({ origin, jobId, context }) {
