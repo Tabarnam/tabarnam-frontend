@@ -560,14 +560,6 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-login");
-  require("./admin-login/index.js");
-  console.log("[api] ✓ admin-login registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-login:", e?.message || e);
-}
-
-try {
   console.log("[api] Registering: admin-notes");
   require("./admin-notes/index.js");
   console.log("[api] ✓ admin-notes registered");

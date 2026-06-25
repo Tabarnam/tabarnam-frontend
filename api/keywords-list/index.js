@@ -172,7 +172,7 @@ app.http("keywords-list", {
   route: "keywords-list",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
-  handler: keywordsListHandler,
+  handler: require("../_adminAuth").withAdminGuard(keywordsListHandler),
 });
 console.log("[keywords-list] ✅ Successfully registered app.http with route: keywords-list");
 

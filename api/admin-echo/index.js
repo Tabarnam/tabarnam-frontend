@@ -35,7 +35,7 @@ app.http("adminEcho", {
   route: "xadmin-api-echo",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminEchoHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminEchoHandler),
 });
 
 module.exports = { handler: adminEchoHandler };

@@ -122,7 +122,7 @@ app.http("adminBulkImportConfig", {
   route: "xadmin-api-bulk-import-config",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminBulkImportConfigHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminBulkImportConfigHandler),
 });
 
 module.exports = { handler: adminBulkImportConfigHandler };

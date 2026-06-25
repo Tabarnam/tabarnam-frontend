@@ -213,7 +213,7 @@ app.http("refreshStatus", {
   route: "refresh-status",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: refreshStatusHandler,
+  handler: require("../_adminAuth").withAdminGuard(refreshStatusHandler),
 });
 
 module.exports = { handler: refreshStatusHandler };

@@ -107,7 +107,7 @@ app.http("xadminApiStorageConfig", {
   route: "xadmin-api-storage-config",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminStorageConfigHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminStorageConfigHandler),
 });
 
 module.exports = { handler: adminStorageConfigHandler };

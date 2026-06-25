@@ -281,7 +281,10 @@ app.http("bulk-import-worker", {
   route: "bulk-import/worker",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: bulkImportWorkerHandler,
+  // Workers are invoked by the queue trigger / internal self-calls (which carry
+  // the function key or internal-job secret) — withAdminGuard lets those through
+  // its internal-job bypass while blocking anonymous HTTP callers.
+  handler: require("../_adminAuth").withAdminGuard(bulkImportWorkerHandler),
 });
 
 // Storage Queue trigger for automatic processing

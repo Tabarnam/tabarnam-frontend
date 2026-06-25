@@ -245,7 +245,7 @@ app.http("admin-company", {
   route: "admin/company",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: adminCompanyHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminCompanyHandler),
 });
 
 module.exports = { handler: adminCompanyHandler };
