@@ -68,45 +68,22 @@ jobs:
           package: api
           # No publish-profile needed - uses Azure Login credentials
 
-      - name: Validate dedicated diag endpoint
+      - name: Validate diag endpoint (front door)
         shell: bash
         run: |
           set -euo pipefail
-
-          URL="${TABARNAM_DIAG_XAI_V2_URL:-}"
-
-          if [ -z "$URL" ]; then
-            echo "ERROR: TABARNAM_DIAG_XAI_V2_URL is not set"
-            exit 1
-          fi
-
-          case "$URL" in
-            https://*.azurewebsites.net/api/diag*)
-              echo "Using dedicated diag endpoint: $URL"
-              ;;
-            *)
-              echo "ERROR: TABARNAM_DIAG_XAI_V2_URL does not point to the dedicated Functions host"
-              echo "Value: $URL"
-              exit 1
-              ;;
-          esac
-        env:
-          TABARNAM_DIAG_XAI_V2_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
+          # Smoke tests go through the SWA front door (tabarnam.com), not the
+          # dedicated Function App host: that host is locked behind EasyAuth and
+          # 401s direct ?code= calls. diag/xai-v2 is authLevel:anonymous, so it
+          # needs no function key when reached through SWA.
+          echo "Using front-door diag endpoint: https://tabarnam.com/api/diag/xai-v2"
 
       - name: Smoke test xAI endpoint (dedicated only)
         shell: bash
         run: |
           set -euo pipefail
 
-          url="${TABARNAM_DIAG_XAI_V2_URL}"
-          if [ -n "${TABARNAM_FUNCTION_KEY:-}" ]; then
-            if echo "$url" | grep -q '\?'; then
-              url="${url}&code=${TABARNAM_FUNCTION_KEY}"
-            else
-              url="${url}?code=${TABARNAM_FUNCTION_KEY}"
-            fi
-          fi
-
+          url="https://tabarnam.com/api/diag/xai-v2"
           echo "GET $url"
           # --retry-all-errors so timeouts get retried (default --retry only
           # covers 408/429/500/502/503/504 — not connection timeouts).
