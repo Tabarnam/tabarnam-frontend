@@ -78,7 +78,7 @@ async function fireBatchWorker(jobId, logger) {
     logger?.log?.(`[backfill-homepages-start] worker fire skipped: WEBSITE_HOSTNAME not set`);
     return;
   }
-  const url = `https://${host}/api/xadmin-api-backfill-homepages-worker`;
+  const url = require("../_internalJobAuth").buildSelfInvokeUrl("/api/xadmin-api-backfill-homepages-worker");
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 5000);
   try {

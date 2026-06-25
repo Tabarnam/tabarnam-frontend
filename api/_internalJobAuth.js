@@ -193,6 +193,28 @@ function isInternalJobRequest(req) {
   return Boolean(getInternalAuthDecision(req).auth_ok);
 }
 
+// ── Self-invocation base URL ─────────────────────────────────────────
+// Where internal HTTP self-fires (worker self-chains, primary/resume-worker
+// triggers) should POST. Defaults to the app's OWN host (WEBSITE_HOSTNAME) —
+// today's behavior — so deploying the helper is a no-op until SELF_INVOKE_BASE
+// is set. Once the dedicated Function App is locked behind SWA EasyAuth, set
+// SELF_INVOKE_BASE=https://tabarnam.com so self-fires traverse the SWA front
+// door (which attaches the EasyAuth token) instead of hitting the now-401'd
+// direct host. The internal-secret headers (buildInternalFetchHeaders) survive
+// the SWA proxy and still satisfy the in-code admin guard's internal bypass.
+function getSelfInvokeBase() {
+  const cfg = (process.env.SELF_INVOKE_BASE || "").trim().replace(/\/+$/, "");
+  if (cfg) return cfg;
+  const host = (process.env.WEBSITE_HOSTNAME || "").trim();
+  if (host && !host.startsWith("localhost")) return `https://${host}`;
+  return "http://localhost:7071";
+}
+
+function buildSelfInvokeUrl(path) {
+  const p = String(path || "");
+  return `${getSelfInvokeBase()}${p.startsWith("/") ? "" : "/"}${p}`;
+}
+
 module.exports = {
   getInternalJobSecret,
   getInternalJobSecretInfo,
@@ -202,4 +224,6 @@ module.exports = {
   buildInternalFetchRequest,
   getInternalAuthDecision,
   isInternalJobRequest,
+  getSelfInvokeBase,
+  buildSelfInvokeUrl,
 };

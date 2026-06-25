@@ -44,7 +44,9 @@ function getSelfOrigin(req) {
   const fwdHost = typeof hdrs.get === "function" ? hdrs.get("x-forwarded-host") : hdrs["x-forwarded-host"];
   const fwdProto = typeof hdrs.get === "function" ? hdrs.get("x-forwarded-proto") : hdrs["x-forwarded-proto"];
   if (fwdHost) return `${fwdProto || "https"}://${fwdHost}`;
-  try { const u = new URL(req.url); return `${u.protocol}//${u.host}`; } catch { return "http://localhost"; }
+  // Fallback (non-browser-triggered): use the self-invoke base (SWA front door
+  // once SELF_INVOKE_BASE is set), not the direct host that EasyAuth would 401.
+  return require("../_internalJobAuth").getSelfInvokeBase();
 }
 
 async function fireBatchWorker({ origin, jobId, context }) {

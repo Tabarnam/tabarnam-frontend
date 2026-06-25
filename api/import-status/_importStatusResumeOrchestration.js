@@ -658,15 +658,21 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
   // (import-resume-worker-queue-trigger) has NoOpListener in SWA-managed
   // apps and never fires.
 
-  const hostname = process.env.WEBSITE_HOSTNAME || "localhost:7071";
-  const protocol = hostname.includes("localhost") ? "http" : "https";
-  const workerUrl = `${protocol}://${hostname}/api/import/resume-worker`;
+  const workerUrl = require("../_internalJobAuth").buildSelfInvokeUrl("/api/import/resume-worker");
 
   const enrichmentBody = {
     session_id: ctx.sessionId,
   };
 
-  // Fire-and-forget HTTP POST — creates a tracked invocation
+  // Fire-and-forget HTTP POST — creates a tracked invocation. Once
+  // SELF_INVOKE_BASE points at the SWA front door (EasyAuth lock), this hop
+  // traverses SWA, so bound it with an AbortController instead of leaving the
+  // promise unbounded: we only need the worker to ack (claim its lock), after
+  // which it runs on its own invocation. Without a timeout the SWA proxy could
+  // hold the connection for the worker's full functionTimeout and stall the
+  // status response.
+  const resumeCtl = new AbortController();
+  const resumeTimer = setTimeout(() => resumeCtl.abort(), 8000);
   fetch(workerUrl, {
     method: "POST",
     headers: {
@@ -674,11 +680,13 @@ async function runResumeTriggerExecution(ctx, { watchdog_stuck_queued, watchdog_
       ...(workerRequest?.headers || {}),
     },
     body: JSON.stringify(enrichmentBody),
+    signal: resumeCtl.signal,
+    keepalive: true,
   }).then(res => {
     console.log(`[import-status] session=${ctx.sessionId} resume-worker HTTP invocation accepted status=${res.status}`);
   }).catch(err => {
     console.error(`[import-status] session=${ctx.sessionId} resume-worker HTTP POST failed: ${err?.message || err}`);
-  });
+  }).finally(() => clearTimeout(resumeTimer));
 
   ctx.resume_triggered = true;
   ctx.resume_gateway_key_attached = Boolean(workerRequest?.gateway_key_attached);

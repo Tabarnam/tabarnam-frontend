@@ -1914,8 +1914,7 @@ const importStartHandlerInner = async (req, context) => {
               await upsertImportPrimaryJob({ jobDoc, cosmosEnabled }).catch(() => null);
 
               try {
-                const base = new URL(req.url);
-                const triggerUrl = new URL("/api/import/primary-worker", base.origin);
+                const triggerUrl = new URL(require("../_internalJobAuth").buildSelfInvokeUrl("/api/import/primary-worker"));
                 triggerUrl.searchParams.set("session_id", sessionId);
                 if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
@@ -3754,8 +3753,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               }
 
               try {
-                const base = new URL(req.url);
-                const triggerUrl = new URL("/api/import/primary-worker", base.origin);
+                const triggerUrl = new URL(require("../_internalJobAuth").buildSelfInvokeUrl("/api/import/primary-worker"));
                 triggerUrl.searchParams.set("session_id", sessionId);
                 if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
