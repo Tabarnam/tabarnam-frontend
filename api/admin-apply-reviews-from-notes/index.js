@@ -675,7 +675,7 @@ app.http("adminApplyReviewsFromNotes", {
   route: "xadmin-api-apply-reviews-from-notes",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: (req, context) => adminApplyReviewsFromNotesHandler(req, context),
+  handler: require("../_adminAuth").withAdminGuard(adminApplyReviewsFromNotesHandler),
 });
 
 module.exports = {

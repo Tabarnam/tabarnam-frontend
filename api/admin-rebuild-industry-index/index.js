@@ -125,7 +125,7 @@ app.http("admin-rebuild-industry-index", {
   route: "admin-rebuild-industry-index",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => handleRebuild(req, context),
+  handler: require("../_adminAuth").withAdminGuard(async (req, context) => handleRebuild(req, context)),
 });
 
 module.exports = app;

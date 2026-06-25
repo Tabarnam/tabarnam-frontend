@@ -147,7 +147,7 @@ app.http("cosmos-smoke", {
   route: "cosmos/smoke",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: cosmosSmokeHandler,
+  handler: require("../_adminAuth").withAdminGuard(cosmosSmokeHandler),
 });
 
 module.exports = {

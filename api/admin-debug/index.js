@@ -18,7 +18,7 @@ app.http('adminDebug', {
   route: 'xadmin-api-debug',
   methods: ['GET'],
   authLevel: 'anonymous',
-  handler: adminDebugHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminDebugHandler),
 });
 
 module.exports = { handler: adminDebugHandler };

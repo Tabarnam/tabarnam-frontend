@@ -905,7 +905,7 @@ app.http("companies-list", {
   route: "companies-list",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
-  handler: companiesListHandler,
+  handler: require("../_adminAuth").withAdminGuard(companiesListHandler),
 });
 
 console.log("[companies-list] ✅ Handler registered successfully with app.http v2");

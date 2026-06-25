@@ -36,11 +36,6 @@ async function xaiHandler(req, context) {
       error: "Endpoint deprecated",
       message: "The /api/xai endpoint is deprecated and should not be used",
       note: "Use /api/xadmin-api-bulk-import-config for configuration status or call /api/proxy-xai for XAI operations",
-      configuration: {
-        XAI_EXTERNAL_BASE: (process.env.XAI_EXTERNAL_BASE || "").trim() || "not set",
-        XAI_EXTERNAL_KEY: (process.env.XAI_EXTERNAL_KEY || "").trim() ? "configured" : "not set",
-        FUNCTION_URL: (process.env.FUNCTION_URL || "").trim() ? "legacy (deprecated)" : "not set",
-      },
     },
     410,
     req

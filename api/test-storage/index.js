@@ -136,7 +136,7 @@ app.http("test-storage", {
   route: "test-storage",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: testStorageHandler,
+  handler: require("../_adminAuth").withAdminGuard(testStorageHandler),
 });
 
 module.exports = { handler: testStorageHandler };

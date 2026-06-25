@@ -65,7 +65,10 @@ app.http("import-primary-worker", {
   route: "import/primary-worker",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  // Worker endpoint: invoked by the queue trigger / internal self-calls carrying
+  // the function key or internal-job secret. withAdminGuard lets those through its
+  // internal-job bypass while blocking anonymous HTTP callers.
+  handler: require("../../_adminAuth").withAdminGuard(handler),
 });
 
 module.exports = { handler, _test: { handler } };

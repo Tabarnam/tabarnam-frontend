@@ -405,7 +405,7 @@ app.http('adminReviews', {
   route: 'xadmin-api-reviews',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   authLevel: 'anonymous',
-  handler: adminReviewsHandler,
+  handler: require("../_adminAuth").withAdminGuard(adminReviewsHandler),
 });
 
 module.exports = { handler: adminReviewsHandler };

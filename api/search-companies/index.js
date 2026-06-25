@@ -1369,7 +1369,8 @@ function mapCompanyToPublic(doc) {
     manufacturing_geocodes: Array.isArray(doc.manufacturing_geocodes) ? doc.manufacturing_geocodes : [],
     hq_lat: doc.hq_lat,
     hq_lng: doc.hq_lng,
-    _ts: doc._ts,
+    // _ts (raw Cosmos system timestamp) intentionally omitted from the public
+    // response — created_at/updated_at above already cover any UI need.
 
     // Rating schema fields consumed by the public results page.
     // Dropped from this response (used only by the admin dashboard, which
