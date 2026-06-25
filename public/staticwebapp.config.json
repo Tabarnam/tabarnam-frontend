@@ -72,20 +72,6 @@
       "headers": { "X-Robots-Tag": "noindex, nofollow" }
     }
   ],
-  "auth": {
-    "identityProviders": {
-      "azureActiveDirectory": {
-        "registration": {
-          "openIdIssuer": "https://login.microsoftonline.com/8bd8a7df-9d7b-4409-9208-3ae7f79764dd/v2.0",
-          "clientIdSettingName": "AAD_LOGIN_CLIENT_ID",
-          "clientSecretSettingName": "AAD_LOGIN_CLIENT_SECRET"
-        },
-        "login": {
-          "loginParameters": ["prompt=select_account"]
-        }
-      }
-    }
-  },
   "platform": {
     "apiRuntime": "node:20"
   }
