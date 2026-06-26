@@ -312,12 +312,10 @@ try {
   console.error("[api] ❌ Failed to load import-preflight:", e?.message || e);
 }
 
-try {
-  console.log("[api] Registering: import/primary-worker");
-  require("./import/primary-worker/index.js");
-} catch (e) {
-  console.error("[api] Failed to load import/primary-worker:", e?.message || e);
-}
+// NOTE: the import/primary-worker HTTP route was removed — it never registered
+// in production (404) and was redundant. Primary-job enrichment runs in-process
+// via runPrimaryJob (api/_importPrimaryWorker.js), driven by import-status's poll
+// and import-one; only the unused HTTP wrapper was deleted.
 
 try {
   console.log("[api] Registering: import/resume-worker (HTTP endpoint only)");

@@ -57,7 +57,6 @@ const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
 const {
-  buildInternalFetchHeaders,
   buildInternalFetchRequest,
   getInternalJobSecretInfo,
   getAcceptableInternalSecretsInfo,
@@ -1913,19 +1912,10 @@ const importStartHandlerInner = async (req, context) => {
 
               await upsertImportPrimaryJob({ jobDoc, cosmosEnabled }).catch(() => null);
 
-              try {
-                const triggerUrl = new URL(require("../_internalJobAuth").buildSelfInvokeUrl("/api/import/primary-worker"));
-                triggerUrl.searchParams.set("session_id", sessionId);
-                if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
-
-                setTimeout(() => {
-                  fetch(triggerUrl.toString(), {
-                    method: "POST",
-                    headers: buildInternalFetchHeaders(),
-                    body: JSON.stringify({ session_id: sessionId }),
-                  }).catch(() => {});
-                }, 0);
-              } catch {}
+              // Primary-job enrichment runs in-process via import-status's poll
+              // (runPrimaryJob); the legacy fire-and-forget to the
+              // import/primary-worker HTTP route was removed — that route never
+              // registered in production (404) and the enrichment happens anyway.
             }
           })().catch(() => null);
         }
@@ -3752,19 +3742,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 })().catch(() => null);
               }
 
-              try {
-                const triggerUrl = new URL(require("../_internalJobAuth").buildSelfInvokeUrl("/api/import/primary-worker"));
-                triggerUrl.searchParams.set("session_id", sessionId);
-                if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
-
-                setTimeout(() => {
-                  fetch(triggerUrl.toString(), {
-                    method: "POST",
-                    headers: buildInternalFetchHeaders(),
-                    body: JSON.stringify({ session_id: sessionId }),
-                  }).catch(() => {});
-                }, 0);
-              } catch {}
+              // Primary-job enrichment runs in-process via import-status's poll
+              // (runPrimaryJob); the legacy fire-and-forget to the
+              // import/primary-worker HTTP route was removed — that route never
+              // registered in production (404) and the enrichment happens anyway.
 
               return jsonWithRequestId(
                 {
