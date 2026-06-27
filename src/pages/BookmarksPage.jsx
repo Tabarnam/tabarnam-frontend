@@ -4,10 +4,12 @@ import { Helmet } from "react-helmet-async";
 import {
   ArrowLeft, LayoutGrid, List, Building2, MoreHorizontal,
   X, ExternalLink, Pencil, Trash2, Share, ArrowDownAZ, ArrowUpZA,
-  ImagePlus, ChevronRight,
+  ImagePlus, ChevronRight, Loader2,
 } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
+import { searchCompanies } from "@/lib/searchCompanies";
+import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { toast } from "@/lib/toast";
 
 const DEFAULT_LIST_ID = "saved";
@@ -72,6 +74,36 @@ function ExpandedFolder({
   const [name, setName] = useState(list.name);
   const menuRef = useRef(null);
   const containerRef = useRef(null);
+  const [openProfiles, setOpenProfiles] = useState(new Set());
+  const [profileData, setProfileData] = useState(new Map());
+  const [loadingProfiles, setLoadingProfiles] = useState(new Set());
+
+  const toggleProfile = useCallback(async (item) => {
+    const cid = item.company_id;
+    if (openProfiles.has(cid)) {
+      setOpenProfiles((prev) => { const next = new Set(prev); next.delete(cid); return next; });
+      return;
+    }
+    if (profileData.has(cid)) {
+      setOpenProfiles((prev) => new Set(prev).add(cid));
+      return;
+    }
+    setLoadingProfiles((prev) => new Set(prev).add(cid));
+    try {
+      const res = await searchCompanies({ q: item.name, take: 1, quick: true });
+      const companies = Array.isArray(res) ? res : res?.companies || res?.items || [];
+      if (companies.length > 0) {
+        setProfileData((prev) => new Map(prev).set(cid, companies[0]));
+        setOpenProfiles((prev) => new Set(prev).add(cid));
+      } else {
+        toast("Company not found");
+      }
+    } catch {
+      toast.error("Failed to load company");
+    } finally {
+      setLoadingProfiles((prev) => { const next = new Set(prev); next.delete(cid); return next; });
+    }
+  }, [openProfiles, profileData]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -212,33 +244,52 @@ function ExpandedFolder({
         ) : (
           items.map((item) => {
             const logoUrl = item.logo_url ? getCompanyLogoUrl({ logo_url: item.logo_url }, "light") : null;
+            const isOpen = openProfiles.has(item.company_id);
+            const isLoading = loadingProfiles.has(item.company_id);
             return (
-              <div key={item.company_id} className="flex items-center gap-3 py-2 group">
-                <div className="w-8 h-8 rounded-md overflow-hidden shrink-0 bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-                  {logoUrl ? (
-                    <img src={logoUrl} alt="" className="w-6 h-6 object-contain" />
-                  ) : (
-                    <Building2 className="w-4 h-4 text-muted-foreground/40" />
-                  )}
+              <div key={item.company_id}>
+                <div
+                  className={`flex items-center gap-3 py-2 group cursor-pointer rounded-md px-1 transition-colors ${isOpen ? "bg-muted/50" : "hover:bg-muted/30"}`}
+                  onClick={() => toggleProfile(item)}
+                >
+                  <div className="w-8 h-8 rounded-md overflow-hidden shrink-0 bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+                    {isLoading ? (
+                      <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+                    ) : logoUrl ? (
+                      <img src={logoUrl} alt="" className="w-6 h-6 object-contain" />
+                    ) : (
+                      <Building2 className="w-4 h-4 text-muted-foreground/40" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm text-foreground truncate block">{item.name}</span>
+                    {item.tagline && (
+                      <p className="text-xs text-muted-foreground truncate">{item.tagline}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open(`/results?q=${encodeURIComponent(item.name)}`, "_blank");
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted transition-opacity shrink-0"
+                    title="Open in new tab"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
                 </div>
-                <Link
-                  to={`/results?q=${encodeURIComponent(item.name)}`}
-                  className="text-sm text-foreground hover:text-primary hover:underline truncate flex-1"
-                  title={item.name}
-                >
-                  {item.name}
-                </Link>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    window.open(`/results?q=${encodeURIComponent(item.name)}`, "_blank");
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted transition-opacity shrink-0"
-                  title="Open in new tab"
-                >
-                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
+                {isOpen && profileData.has(item.company_id) && (
+                  <div className="mt-1 mb-2">
+                    <ExpandableCompanyRow
+                      company={profileData.get(item.company_id)}
+                      unit="mi"
+                      onKeywordSearch={(kw) => navigate(`/results?q=${encodeURIComponent(kw)}`)}
+                      rightColsOrder={["stars", "manu", "hq"]}
+                      sortBy="stars"
+                    />
+                  </div>
+                )}
               </div>
             );
           })

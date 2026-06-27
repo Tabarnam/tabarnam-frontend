@@ -110,6 +110,7 @@ export function BookmarksProvider({ children }) {
               name: company.name || company.display_name || company.company_name || "",
               normalized_domain: company.normalized_domain || "",
               logo_url: company.logo_url || "",
+              tagline: company.tagline || "",
               list_id: listId,
               added_at: Date.now(),
             },

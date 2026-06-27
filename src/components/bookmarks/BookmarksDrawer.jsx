@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Share, GripVertical, ArrowDownAZ, ArrowUpZA, LayoutGrid, List, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Plus, MoreHorizontal, Pencil, Trash2, Share, GripVertical, ArrowDownAZ, ArrowUpZA, LayoutGrid, List, ExternalLink, Loader2 } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { searchCompanies } from "@/lib/searchCompanies";
+import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { toast } from "@/lib/toast";
 
 const DEFAULT_LIST_ID = "saved";
@@ -12,6 +14,37 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
   const isDropTarget = dropTargetId === list.id;
   const itemDragRef = useRef(null);
   const [itemDropIdx, setItemDropIdx] = useState(null);
+  const navigate = useNavigate();
+  const [openProfiles, setOpenProfiles] = useState(new Set());
+  const [profileData, setProfileData] = useState(new Map());
+  const [loadingProfiles, setLoadingProfiles] = useState(new Set());
+
+  const toggleProfile = useCallback(async (item) => {
+    const cid = item.company_id;
+    if (openProfiles.has(cid)) {
+      setOpenProfiles((prev) => { const next = new Set(prev); next.delete(cid); return next; });
+      return;
+    }
+    if (profileData.has(cid)) {
+      setOpenProfiles((prev) => new Set(prev).add(cid));
+      return;
+    }
+    setLoadingProfiles((prev) => new Set(prev).add(cid));
+    try {
+      const res = await searchCompanies({ q: item.name, take: 1, quick: true });
+      const companies = Array.isArray(res) ? res : res?.companies || res?.items || [];
+      if (companies.length > 0) {
+        setProfileData((prev) => new Map(prev).set(cid, companies[0]));
+        setOpenProfiles((prev) => new Set(prev).add(cid));
+      } else {
+        toast("Company not found");
+      }
+    } catch {
+      toast.error("Failed to load company");
+    } finally {
+      setLoadingProfiles((prev) => { const next = new Set(prev); next.delete(cid); return next; });
+    }
+  }, [openProfiles, profileData]);
   const sectionRef = useRef(null);
 
   const handleDragOver = (e) => {
@@ -155,14 +188,22 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
                     </div>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => onNavigate(item.name)}
-                        className="text-sm text-foreground hover:text-primary hover:underline truncate text-left flex-1"
-                        title={item.name}
-                      >
-                        {item.name}
-                      </button>
+                      {loadingProfiles.has(item.company_id) && (
+                        <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => toggleProfile(item)}
+                          className={`text-sm text-foreground hover:text-primary hover:underline truncate text-left w-full ${openProfiles.has(item.company_id) ? "text-primary" : ""}`}
+                          title={item.name}
+                        >
+                          {item.name}
+                        </button>
+                        {item.tagline && (
+                          <p className="text-xs text-muted-foreground truncate">{item.tagline}</p>
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={() => setConfirmingRemove(item.company_id)}
@@ -174,6 +215,17 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
                     </>
                   )}
                 </div>
+                {openProfiles.has(item.company_id) && profileData.has(item.company_id) && (
+                  <div className="px-2 pb-2">
+                    <ExpandableCompanyRow
+                      company={profileData.get(item.company_id)}
+                      unit="mi"
+                      onKeywordSearch={(kw) => { navigate(`/results?q=${encodeURIComponent(kw)}`); }}
+                      rightColsOrder={["stars", "manu", "hq"]}
+                      sortBy="stars"
+                    />
+                  </div>
+                )}
               </div>
             ))
           )}
