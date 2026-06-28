@@ -37,6 +37,25 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+// Mirror of PARTIAL_PRODUCTS_THRESHOLD / countProductKeywords in
+// dashboardUtils.js — "thin products" = a populated-but-sparse product list.
+const PARTIAL_PRODUCTS_THRESHOLD = 5;
+function countProductKeywords(company) {
+  if (!company || typeof company !== "object") return 0;
+  const keywords = company.keywords;
+  if (Array.isArray(keywords)) {
+    return keywords.filter((k) => typeof k === "string" && k.trim()).length;
+  }
+  const pk = company.product_keywords;
+  if (typeof pk === "string" && pk.trim()) {
+    return pk.split(",").map((s) => s.trim()).filter(Boolean).length;
+  }
+  if (Array.isArray(pk)) {
+    return pk.filter((k) => typeof k === "string" && k.trim()).length;
+  }
+  return 0;
+}
+
 // Mirror of getComputedReviewCount in dashboardUtils.js. Older records may
 // have review_count missing/stale, so we pick the best available signal.
 function getComputedReviewCount(company) {
@@ -252,6 +271,21 @@ function computeIssueTags(company) {
   const approvalPending = company?.amazon_url_approved === false;
   if (!noAmazonStore && (!hasAmazonUrl || approvalPending)) {
     fields.push("amazon_url");
+  }
+
+  // Thin-products: products present but sparse (< PARTIAL_PRODUCTS_THRESHOLD) →
+  // "products_partial". Suppressed once the admin acknowledges via
+  // keywords_complete_acknowledged ("Products Complete"). Mirrors the frontend
+  // toIssueTags so the stored issues_count matches the Issues column AND powers
+  // the DB-wide Incomplete filter (issues_count > 0).
+  const productsAlreadyMissing = fields.some(
+    (t) => t === "product_keywords" || t === "products" || t === "keywords"
+  );
+  if (!productsAlreadyMissing && !company?.keywords_complete_acknowledged) {
+    const productCount = countProductKeywords(company);
+    if (productCount > 0 && productCount < PARTIAL_PRODUCTS_THRESHOLD) {
+      fields.push("products_partial");
+    }
   }
 
   // Reviews: filter out if no_reviews; add if zero reviews otherwise.

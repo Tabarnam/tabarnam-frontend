@@ -735,8 +735,8 @@ export function formatContractMissingField(field) {
 // comma-separated string forms. Cosmos schema uses strings via the
 // canonical canonicalImport path; legacy paths and admin edits use
 // arrays. Normalize to a single count.
-const PARTIAL_PRODUCTS_THRESHOLD = 5;
-function countProductKeywords(company) {
+export const PARTIAL_PRODUCTS_THRESHOLD = 5;
+export function countProductKeywords(company) {
   if (!company || typeof company !== "object") return 0;
   const keywords = company.keywords;
   if (Array.isArray(keywords)) {
@@ -771,7 +771,10 @@ export function toIssueTags(company) {
   const productsAlreadyMissing = tags.some(
     (t) => t === "product_keywords" || t === "products" || t === "keywords"
   );
-  if (!productsAlreadyMissing) {
+  // Suppressed once the admin acknowledges via keywords_complete_acknowledged
+  // ("Products Complete" checkbox) — they've confirmed the short list is the
+  // company's full product range. Mirrors api/_sortKeys.computeIssueTags.
+  if (!productsAlreadyMissing && !company?.keywords_complete_acknowledged) {
     const productCount = countProductKeywords(company);
     if (productCount > 0 && productCount < PARTIAL_PRODUCTS_THRESHOLD) {
       tags.push("products_partial");

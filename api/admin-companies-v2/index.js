@@ -1598,6 +1598,22 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             return null;
           });
 
+        // DB-wide "Incomplete" count: companies with any issue tag, via the
+        // stored issues_count scalar (kept current by applySortKeys on save/
+        // import + a one-time backfill). This counts across the WHOLE database,
+        // unlike the old client-side count over the loaded window.
+        const incompleteCountPromise = container.items
+          .query(
+            `SELECT VALUE COUNT(1) FROM c WHERE ${baseWhereStr} AND IS_DEFINED(c.issues_count) AND c.issues_count > 0`,
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll()
+          .then((r) => (r.resources || [])[0] || 0)
+          .catch((e) => {
+            context.log("[admin-companies-v2] incompleteCount query error:", e?.message, e?.code);
+            return null;
+          });
+
         // Optional filter: restrict the items list to approved or pending only.
         // images_approved=true → only approved
         // images_approved=false → only pending (i.e. flag missing or false)
@@ -1606,6 +1622,14 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           whereClauses.push("IS_DEFINED(c.images_approved) AND c.images_approved = true");
         } else if (imagesApprovedRaw === "false") {
           whereClauses.push("(NOT IS_DEFINED(c.images_approved) OR c.images_approved != true)");
+        }
+
+        // Optional filter: incomplete=true → only companies with issues
+        // (stored issues_count > 0). Server-side so it spans the whole DB
+        // regardless of page size.
+        const incompleteRaw = String(req.query?.incomplete || "").toLowerCase().trim();
+        if (incompleteRaw === "true" || incompleteRaw === "1") {
+          whereClauses.push("IS_DEFINED(c.issues_count) AND c.issues_count > 0");
         }
 
         if (search) {
@@ -1807,6 +1831,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         let totalCount = await countPromise;
         const approvedCount = await approvedCountPromise;
         const filteredTotalCount = await filteredCountPromise;
+        const incompleteCount = await incompleteCountPromise;
 
         // Fallback: if id-based count query returned 0 or null but data query found items,
         // use the deduplicated items count (guaranteed non-zero when companies exist).
@@ -1821,6 +1846,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           ...(totalCount != null && totalCount > 0 ? { totalCount } : {}),
           ...(filteredTotalCount != null ? { filteredTotalCount } : {}),
           ...(approvedCount != null ? { approvedCount } : {}),
+          ...(incompleteCount != null ? { incompleteCount } : {}),
           skip, take,
           ...(cosmosTarget ? cosmosTarget : {}),
         }, 200);

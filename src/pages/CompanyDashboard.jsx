@@ -97,6 +97,8 @@ import {
   getContractMissingFields,
   formatContractMissingField,
   toIssueTags,
+  countProductKeywords,
+  PARTIAL_PRODUCTS_THRESHOLD,
   toDisplayDate,
   toShortDate,
   toFullDate,
@@ -614,6 +616,9 @@ export default function CompanyDashboard() {
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
+  // DB-wide count of companies with issues (issues_count > 0), returned by the
+  // server each load. Powers the Incomplete button label across the whole DB.
+  const [incompleteTotal, setIncompleteTotal] = useState(null);
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState("desc");
   // Active server-side sort, read by loadCompanies so every refresh keeps the
@@ -820,9 +825,12 @@ export default function CompanyDashboard() {
     setEditorScrollEl((prev) => (prev === node ? prev : node));
   }, []);
 
+  // DB-wide incomplete count from the server (issues_count > 0). Falls back to a
+  // client count over the loaded rows until the first response lands.
   const incompleteCount = useMemo(() => {
+    if (incompleteTotal != null) return incompleteTotal;
     return items.reduce((sum, c) => sum + (toIssueTags(c).length > 0 ? 1 : 0), 0);
-  }, [items]);
+  }, [items, incompleteTotal]);
 
   const filteredItems = useMemo(() => {
     if (!onlyIncomplete) return items;
@@ -869,6 +877,9 @@ export default function CompanyDashboard() {
           params.set("sort_by", sortBy);
           params.set("sort_dir", sortDir || "desc");
         }
+        // Server-side "Incomplete" filter — issues_count > 0 across the whole DB,
+        // not just the loaded window.
+        if (onlyIncomplete) params.set("incomplete", "true");
 
         const res = await apiFetch(`/xadmin-api-companies?${params.toString()}`, { signal: controller.signal });
         const body = await res.json().catch(() => ({}));
@@ -894,6 +905,7 @@ export default function CompanyDashboard() {
         // Only accept positive counts — a 0 from a flaky count query shouldn't
         // override a previously valid count.
         if (body?.totalCount > 0) setTotalCount(body.totalCount);
+        if (typeof body?.incompleteCount === "number") setIncompleteTotal(body.incompleteCount);
         setItems(nextItems);
 
         // Phase 3.5 — auto-graduate rows out of the active-imports map.
@@ -945,7 +957,7 @@ export default function CompanyDashboard() {
         if (seq === requestSeqRef.current) setLoading(false);
       }
     },
-    [search, take]
+    [search, take, onlyIncomplete]
   );
 
   useEffect(() => {
@@ -960,7 +972,7 @@ export default function CompanyDashboard() {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [loadCompanies, search, take]);
+  }, [loadCompanies, search, take, onlyIncomplete]);
 
   // Phase 2.13.A — auto-refetch the list when the tab becomes visible again
   // and on a 60-second interval while the tab is visible.
@@ -3818,10 +3830,13 @@ export default function CompanyDashboard() {
       {
         id: "issues",
         name: "Issues",
-        selector: (row) => getContractMissingFields(row).length,
+        // toIssueTags = contract missing-fields + the thin-products ("+ products")
+        // signal, so the column matches the Incomplete count and the stored
+        // issues_count (api/_sortKeys.computeIssueTags mirrors this).
+        selector: (row) => toIssueTags(row).length,
         sortable: true,
         cell: (row) => {
-          const tags = getContractMissingFields(row);
+          const tags = toIssueTags(row);
           const dupCount = Number(row?._duplicates_count || 0);
 
           if (tags.length === 0 && dupCount === 0) return <span className="text-xs text-emerald-700">OK</span>;
@@ -5379,7 +5394,16 @@ export default function CompanyDashboard() {
                             placeholder="Add a product…"
                           />
 
-                          {editorDraft.keywords_completeness === "incomplete" && (
+                          {/* Show "Products Complete" when the pipeline flagged
+                              keywords incomplete OR the list is thin (1–4 products).
+                              Checking it (keywords_complete_acknowledged) confirms
+                              the short list is the full range and clears both the
+                              "+ products" and thin-products chips from Issues. */}
+                          {(editorDraft.keywords_completeness === "incomplete" ||
+                            (() => {
+                              const pc = countProductKeywords(editorDraft);
+                              return pc > 0 && pc < PARTIAL_PRODUCTS_THRESHOLD;
+                            })()) && (
                             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground mt-1 ml-1">
                               <Checkbox
                                 checked={Boolean(editorDraft.keywords_complete_acknowledged)}
