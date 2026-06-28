@@ -2095,6 +2095,19 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           context.log("[admin-companies-v2] amazon_url_normalize_failed", { error: e?.message });
         }
 
+        // Lock-in: once a human approved an Amazon URL, it stays approved as long
+        // as the URL is unchanged. Editor round-trips were silently dropping the
+        // approval; this makes a previously-approved, unchanged URL immune to
+        // that. A CHANGED url, an empty url, or no_amazon_store still leaves the
+        // incoming value in force (those are real re-approval triggers).
+        if (existingDoc && existingDoc.amazon_url_approved === true) {
+          const newUrl = String(doc.amazon_url || "").trim();
+          const oldUrl = String(existingDoc.amazon_url || "").trim();
+          if (newUrl && newUrl === oldUrl && !doc.no_amazon_store) {
+            doc.amazon_url_approved = true;
+          }
+        }
+
         try {
           const completeness = computeProfileCompleteness(doc);
           doc.profile_completeness = completeness.profile_completeness;

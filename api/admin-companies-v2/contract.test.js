@@ -730,3 +730,81 @@ test("xadmin-api-companies: persists rating_icon_type and per-star icon_type", a
   assert.equal(stored.rating_icon_type, "star");
   assert.equal(stored.rating?.star1?.icon_type, "star");
 });
+
+// Amazon URL approval lock-in — a human-approved URL stays approved across
+// edits as long as the URL is unchanged (the "recurring un-approval" bug).
+test("xadmin-api-companies: keeps amazon_url_approved when URL unchanged on save", async () => {
+  const container = makeMemoryContainer();
+  const companyId = "company_amz_lock";
+  const url = "https://www.amazon.com/s?k=siggis";
+
+  await _test.adminCompaniesHandler(
+    makeReq({
+      method: "POST",
+      url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({
+        id: companyId, company_id: companyId,
+        company_name: "Amz Lock Co", name: "Amz Lock Co",
+        website_url: "https://example.com",
+        amazon_url: url, amazon_url_approved: true,
+      }),
+    }),
+    { log() {} }, { container }
+  );
+
+  // Editor round-trip sends approved:false but the URL is unchanged → stays true.
+  await _test.adminCompaniesHandler(
+    makeReq({
+      method: "PUT",
+      url: `https://example.test/api/xadmin-api-companies/${encodeURIComponent(companyId)}`,
+      json: async () => ({
+        id: companyId, company_id: companyId,
+        company_name: "Amz Lock Co", name: "Amz Lock Co",
+        website_url: "https://example.com",
+        amazon_url: url, amazon_url_approved: false,
+      }),
+    }),
+    { log() {}, bindingData: { id: companyId } }, { container }
+  );
+  const stored = container._dump().find((d) => d && d.id === companyId);
+  assert.ok(stored);
+  assert.equal(stored.amazon_url_approved, true);
+});
+
+test("xadmin-api-companies: a CHANGED amazon_url requires re-approval (not locked)", async () => {
+  const container = makeMemoryContainer();
+  const companyId = "company_amz_changed";
+
+  await _test.adminCompaniesHandler(
+    makeReq({ method: "POST", url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({ id: companyId, company_id: companyId, company_name: "Amz Chg Co", name: "Amz Chg Co", website_url: "https://example.com", amazon_url: "https://www.amazon.com/s?k=old", amazon_url_approved: true }) }),
+    { log() {} }, { container }
+  );
+  await _test.adminCompaniesHandler(
+    makeReq({ method: "PUT", url: `https://example.test/api/xadmin-api-companies/${encodeURIComponent(companyId)}`,
+      json: async () => ({ id: companyId, company_id: companyId, company_name: "Amz Chg Co", name: "Amz Chg Co", website_url: "https://example.com", amazon_url: "https://www.amazon.com/s?k=new", amazon_url_approved: false }) }),
+    { log() {}, bindingData: { id: companyId } }, { container }
+  );
+  const stored = container._dump().find((d) => d && d.id === companyId);
+  assert.ok(stored);
+  assert.equal(stored.amazon_url_approved, false);
+});
+
+test("xadmin-api-companies: no_amazon_store does not force-keep approval", async () => {
+  const container = makeMemoryContainer();
+  const companyId = "company_amz_nostore";
+  const url = "https://www.amazon.com/s?k=x";
+  await _test.adminCompaniesHandler(
+    makeReq({ method: "POST", url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({ id: companyId, company_id: companyId, company_name: "Amz NoStore Co", name: "Amz NoStore Co", website_url: "https://example.com", amazon_url: url, amazon_url_approved: true }) }),
+    { log() {} }, { container }
+  );
+  await _test.adminCompaniesHandler(
+    makeReq({ method: "PUT", url: `https://example.test/api/xadmin-api-companies/${encodeURIComponent(companyId)}`,
+      json: async () => ({ id: companyId, company_id: companyId, company_name: "Amz NoStore Co", name: "Amz NoStore Co", website_url: "https://example.com", amazon_url: "", amazon_url_approved: false, no_amazon_store: true }) }),
+    { log() {}, bindingData: { id: companyId } }, { container }
+  );
+  const stored = container._dump().find((d) => d && d.id === companyId);
+  assert.ok(stored);
+  assert.equal(stored.amazon_url_approved, false);
+});
