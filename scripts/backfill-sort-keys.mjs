@@ -20,6 +20,9 @@ import { CosmosClient } from "@azure/cosmos";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { applySortKeys, computeQqScore, computeIssuesCount } = require("../api/_sortKeys.js");
+// Refresh enrichment_health from the live contract (same fn the admin GET uses)
+// so issues_count is computed from current fields, not a stale stored value.
+const { computeContractEnrichmentHealth } = require("../api/admin-companies-v2/index.js");
 
 const ENDPOINT = process.env.COSMOS_DB_ENDPOINT || "";
 const KEY = process.env.COSMOS_DB_KEY || "";
@@ -60,6 +63,12 @@ while (queryIterator.hasMoreResults()) {
   const { resources } = await queryIterator.fetchNext();
   for (const doc of resources || []) {
     total++;
+    // Refresh enrichment_health first so issues_count reflects the current
+    // contract (stored health can be stale → inflated issues_count).
+    try {
+      const freshHealth = computeContractEnrichmentHealth(doc);
+      if (freshHealth && typeof freshHealth === "object") doc.enrichment_health = freshHealth;
+    } catch { /* keep existing enrichment_health on failure */ }
     const beforeQq = typeof doc.qq_score === "number" ? doc.qq_score : null;
     const beforeIc = typeof doc.issues_count === "number" ? doc.issues_count : null;
     const newQq = computeQqScore(doc);

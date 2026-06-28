@@ -2171,9 +2171,21 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           }
         }
 
+        // Refresh enrichment_health from the live contract BEFORE computing sort
+        // keys. issues_count (via applySortKeys → _sortKeys.computeIssueTags) is
+        // derived from doc.enrichment_health.missing_fields; if that's stale,
+        // issues_count over-counts and the DB-wide Incomplete filter disagrees
+        // with the Issues column (which uses this same fresh computation in the
+        // GET response). Recomputing here keeps the stored value accurate.
+        try {
+          const freshHealth = computeContractEnrichmentHealth(doc);
+          if (freshHealth && typeof freshHealth === "object") doc.enrichment_health = freshHealth;
+        } catch (e) {
+          context.log("[admin-companies-v2] enrichment_health refresh failed (non-fatal)", { error: e?.message });
+        }
+
         // Persist the two scalar sort keys (qq_score, issues_count) so the
-        // admin Companies list can ORDER BY them across the whole DB. Computed
-        // from the now-final doc state (rating, enrichment_health, all fields).
+        // admin Companies list can ORDER BY / filter them across the whole DB.
         // Keep in sync with src/pages/company-dashboard/dashboardUtils.js#getContractMissingFields.
         try {
           applySortKeys(doc);
@@ -2565,6 +2577,10 @@ app.http("adminCompanies", {
 
 module.exports = {
   handler: adminCompaniesHandler,
+  // Exported so the issues_count backfill (scripts/backfill-sort-keys.mjs) can
+  // refresh enrichment_health from the same contract the GET response uses,
+  // before applySortKeys computes issues_count.
+  computeContractEnrichmentHealth,
   _test: {
     adminCompaniesHandler,
     adminCompanyHistoryFallbackHandler,

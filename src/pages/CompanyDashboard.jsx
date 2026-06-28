@@ -832,10 +832,11 @@ export default function CompanyDashboard() {
     return items.reduce((sum, c) => sum + (toIssueTags(c).length > 0 ? 1 : 0), 0);
   }, [items, incompleteTotal]);
 
-  const filteredItems = useMemo(() => {
-    if (!onlyIncomplete) return items;
-    return items.filter((c) => toIssueTags(c).length > 0);
-  }, [items, onlyIncomplete]);
+  // The server applies the Incomplete filter (incomplete=true → issues_count>0
+  // across the whole DB), so we render its result directly. No client-side
+  // re-filter — it used a slightly different computation and was hiding
+  // server-incomplete rows (the "Showing 1 of 448" bug).
+  const filteredItems = items;
 
   const loadCompanies = useCallback(
     async (opts = {}) => {
