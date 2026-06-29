@@ -5,6 +5,10 @@
 html {
   zoom: 0.9;
   min-height: calc(100vh / 0.9);
+  /* Leave room for the sticky SiteHeader (h-10 logo + p-3 padding + border ≈ 65px)
+     so anchor scrolls (TOC links, scrollIntoView) don't hide the target heading
+     behind it. Applies to <a href="#…"> and element.scrollIntoView() globally. */
+  scroll-padding-top: 80px;
 }
 
 @layer base {
