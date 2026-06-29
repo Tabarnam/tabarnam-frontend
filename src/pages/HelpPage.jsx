@@ -11,7 +11,7 @@ export default function HelpPage() {
         <title>How Tabarnam Works – Help</title>
         <meta
           name="description"
-          content="A quick guide to searching Tabarnam, targeting a location, sorting results, reading a company profile, sharing, and giving feedback."
+          content="A quick guide to searching Tabarnam, targeting a location, sorting results, reading a company profile, saving bookmarks, sharing, and giving feedback."
         />
       </Helmet>
 
@@ -40,6 +40,7 @@ export default function HelpPage() {
             <li><a href="#qq" className="text-primary underline underline-offset-4">The QQ score</a></li>
             <li><a href="#row" className="text-primary underline underline-offset-4">Reading a result</a></li>
             <li><a href="#profile" className="text-primary underline underline-offset-4">Company profile</a></li>
+            <li><a href="#bookmarks" className="text-primary underline underline-offset-4">Bookmarks</a></li>
             <li><a href="#share" className="text-primary underline underline-offset-4">Sharing</a></li>
             <li><a href="#feedback" className="text-primary underline underline-offset-4">Feedback</a></li>
             <li><a href="#privacy" className="text-primary underline underline-offset-4">Privacy</a></li>
@@ -155,11 +156,38 @@ export default function HelpPage() {
             </ul>
           </section>
 
+          <section id="bookmarks">
+            <h2 className="text-xl font-semibold text-foreground mb-3">Bookmarks</h2>
+            <p className="mb-3">
+              Save companies to come back to later. Bookmarks are stored on <strong className="text-foreground">your
+              device only</strong> — there's no account, and we never see what you've saved.
+            </p>
+            <ul className="list-disc pl-6 space-y-1.5 mb-3">
+              <li><strong className="text-foreground">Save a company</strong> — Click the bookmark icon on any result row. It turns blue when saved.</li>
+              <li><strong className="text-foreground">Open your bookmarks</strong> — Click the bookmark icon at the top of the page; a drawer slides in with your saved companies.</li>
+              <li><strong className="text-foreground">Organize into lists</strong> — Click an already-saved bookmark to assign it to multiple lists (e.g. <em>Coffee brands</em>, <em>Holiday gifts</em>), or create a new list on the fly. Switch to the folder view for an Instagram-style grid with cover images you can set per folder.</li>
+              <li><strong className="text-foreground">Rearrange</strong> — Drag companies within a list, drag lists to reorder them, or sort A→Z from a list's menu.</li>
+            </ul>
+            <p className="mb-3">
+              <strong className="text-foreground">Sharing, transferring, and backing up.</strong> Because your
+              bookmarks live only on your device, sharing is also how you move them around:
+            </p>
+            <ul className="list-disc pl-6 space-y-1.5 mb-3">
+              <li><strong className="text-foreground">Send to another device</strong> — From a list's menu, choose <em>Share</em>. Email or message yourself the link, then open it on the other device to import the list.</li>
+              <li><strong className="text-foreground">Back up before clearing browser data</strong> — Share the list to yourself first. When you open the link later, your bookmarks come back.</li>
+              <li><strong className="text-foreground">Send to a friend</strong> — Same flow. Anyone with the link can import the list into their own Tabarnam bookmarks.</li>
+            </ul>
+            <p>
+              We do it this way because your data is yours. With no server-side bookmark history there is nothing for
+              us to lose, leak, or hand over. The trade-off: you decide what gets transferred or backed up.
+            </p>
+          </section>
+
           <section id="share">
             <h2 className="text-xl font-semibold text-foreground mb-3">Sharing</h2>
             <p className="mb-3">
-              Use the share button to send a link to a search results page or a single company profile. The share
-              dialog includes:
+              Use the share button to send a link to a search results page, a single company profile, or a bookmark
+              list. The share dialog includes:
             </p>
             <ul className="list-disc pl-6 space-y-1.5 mb-3">
               <li><strong className="text-foreground">Copy link</strong> — copy the URL to your clipboard.</li>

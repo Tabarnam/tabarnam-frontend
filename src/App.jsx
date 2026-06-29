@@ -11,15 +11,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { initializeAzureUser } from "@/lib/azureAuth";
 import { logWiringDiagnostics } from "@/lib/diagnostics";
 
-import AdminPanel from "@pages/AdminPanel";
-import CompanyDashboard from "@pages/CompanyDashboard";
-import AdminImport from "@pages/AdminImport";
-import AdminLogoReview from "@pages/AdminLogoReview";
-import AdminImages from "@pages/AdminImages";
-import AdminSearchEdit from "@pages/AdminSearchEdit";
-import AdminBackfillScores from "@pages/AdminBackfillScores";
-import AdminBackfillHomepages from "@pages/AdminBackfillHomepages";
-import AdminBackfillLogos from "@pages/AdminBackfillLogos";
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
 import Login from "@pages/Login";
@@ -39,6 +30,18 @@ import PrivacyBadge from "@/components/PrivacyBadge";
 import TourController from "@/components/tour/TourController";
 import ScrollToHashOrTop from "@/components/ScrollToHashOrTop";
 import { BookmarksProvider } from "@/contexts/BookmarksContext";
+
+// Admin pages are lazy-loaded — they're only reachable at /admin/* and
+// shouldn't ship in the main bundle for every public visitor.
+const AdminPanel = lazy(() => import("@pages/AdminPanel"));
+const CompanyDashboard = lazy(() => import("@pages/CompanyDashboard"));
+const AdminImport = lazy(() => import("@pages/AdminImport"));
+const AdminLogoReview = lazy(() => import("@pages/AdminLogoReview"));
+const AdminImages = lazy(() => import("@pages/AdminImages"));
+const AdminSearchEdit = lazy(() => import("@pages/AdminSearchEdit"));
+const AdminBackfillScores = lazy(() => import("@pages/AdminBackfillScores"));
+const AdminBackfillHomepages = lazy(() => import("@pages/AdminBackfillHomepages"));
+const AdminBackfillLogos = lazy(() => import("@pages/AdminBackfillLogos"));
 const BookmarksDrawer = lazy(() => import("@/components/bookmarks/BookmarksDrawer"));
 const BookmarksPage = lazy(() => import("@/pages/BookmarksPage"));
 
@@ -121,6 +124,7 @@ export default function App() {
           <TourController />
           <Suspense fallback={null}><BookmarksDrawer /></Suspense>
           <Layout>
+            <Suspense fallback={null}>
             <Routes>
               {/* public */}
               <Route path="/" element={<HomePage />} />
@@ -212,6 +216,7 @@ export default function App() {
               {/* fallback */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </Suspense>
           </Layout>
           </BookmarksProvider>
         </Router>
