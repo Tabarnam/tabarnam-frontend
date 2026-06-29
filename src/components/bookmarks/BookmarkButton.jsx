@@ -44,6 +44,7 @@ const BookmarkButton = memo(function BookmarkButton({ company }) {
             className="bookmark-button-container inline-flex items-center justify-center w-7 h-7 min-w-0 min-h-0 rounded-md hover:bg-muted transition-colors"
             aria-label="Manage bookmark"
             title="Manage bookmark"
+            data-tour-step="bookmark-button"
           >
             {icon}
           </button>
@@ -59,6 +60,7 @@ const BookmarkButton = memo(function BookmarkButton({ company }) {
       className="bookmark-button-container inline-flex items-center justify-center w-7 h-7 min-w-0 min-h-0 rounded-md hover:bg-muted transition-colors"
       aria-label="Bookmark company"
       title="Bookmark"
+      data-tour-step="bookmark-button"
     >
       {icon}
     </button>

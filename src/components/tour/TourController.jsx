@@ -7,6 +7,7 @@ import {
   CANNED_QUERY,
   RESULTS_PATH,
 } from './decideTourMode';
+import { useBookmarks } from '@/hooks/useBookmarks';
 
 function safeRead(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -69,7 +70,27 @@ function buildHomeSteps(tour, onHandoff) {
   ];
 }
 
-function buildResultsSteps(tour) {
+function waitForElement(selector, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const el = document.querySelector(selector);
+    if (el) return resolve(el);
+    const observer = new MutationObserver(() => {
+      const match = document.querySelector(selector);
+      if (match) {
+        observer.disconnect();
+        clearTimeout(timer);
+        resolve(match);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    const timer = setTimeout(() => { observer.disconnect(); resolve(null); }, timeoutMs);
+  });
+}
+
+function buildResultsSteps(tour, drawerRef) {
+  const openDrawer = () => { try { drawerRef.current?.(true); } catch {} };
+  const closeDrawer = () => { try { drawerRef.current?.(false); } catch {} };
+
   return [
     {
       id: 'sort',
@@ -93,7 +114,52 @@ function buildResultsSteps(tour) {
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         { text: 'Back', action: () => tour.back(), secondary: true },
         learnMore('#row'),
-        { text: 'Done', action: () => tour.complete() },
+        { text: 'Next', action: () => tour.next() },
+      ],
+    },
+    {
+      id: 'bookmark-save',
+      title: 'Save it for later',
+      text: 'Tap the bookmark icon to save any company. Tap it again to file it under a custom list.',
+      attachTo: { element: '[data-tour-step="bookmark-button"]', on: 'left' },
+      scrollTo: { behavior: 'smooth', block: 'center' },
+      buttons: [
+        { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
+        { text: 'Back', action: () => tour.back(), secondary: true },
+        learnMore('#bookmarks'),
+        { text: 'Next', action: () => tour.next() },
+      ],
+    },
+    {
+      id: 'bookmark-header',
+      title: 'Find them anytime',
+      text: 'Your saved companies live behind this bookmark icon in the header.',
+      attachTo: { element: '[data-tour-step="bookmark-header-icon"]', on: 'bottom' },
+      scrollTo: { behavior: 'smooth', block: 'nearest' },
+      buttons: [
+        { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
+        { text: 'Back', action: () => tour.back(), secondary: true },
+        learnMore('#bookmarks'),
+        { text: 'Next', action: () => tour.next() },
+      ],
+    },
+    {
+      id: 'bookmark-drawer',
+      title: 'Organize and share',
+      text: 'Group bookmarks into named lists, drag to reorder, and share a list as a compressed link — no account required.',
+      attachTo: { element: '[data-tour-step="bookmark-drawer-root"]', on: 'left' },
+      scrollTo: false,
+      beforeShowPromise: async () => {
+        openDrawer();
+        // Wait for the drawer panel to mount and slide in before Shepherd measures it.
+        await waitForElement('[data-tour-step="bookmark-drawer-root"]');
+        await new Promise((r) => setTimeout(r, 350));
+      },
+      buttons: [
+        { text: 'Skip tour', action: () => { closeDrawer(); tour.cancel(); }, secondary: true },
+        { text: 'Back', action: () => { closeDrawer(); tour.back(); }, secondary: true },
+        learnMore('#bookmarks'),
+        { text: 'Done', action: () => { closeDrawer(); tour.complete(); } },
       ],
     },
   ];
@@ -134,6 +200,11 @@ export default function TourController() {
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const tourRef = useRef(null);
+  // Bridge: stash the latest setDrawerOpen in a ref so step callbacks
+  // captured in the closure below always invoke the current setter.
+  const { setDrawerOpen } = useBookmarks();
+  const setDrawerOpenRef = useRef(setDrawerOpen);
+  setDrawerOpenRef.current = setDrawerOpen;
 
   useEffect(() => {
     const mode = decideTourMode({
@@ -153,6 +224,9 @@ export default function TourController() {
         safeWrite(TOUR_SEEN_KEY, '1');
         safeRemove(TOUR_PROGRESS_KEY);
       }
+      // If a step left the bookmark drawer open (e.g. cancelled during the
+      // last results step), close it so the user lands back on the page.
+      try { setDrawerOpenRef.current?.(false); } catch {}
       tourRef.current = null;
     };
 
@@ -188,7 +262,7 @@ export default function TourController() {
         return;
       }
       const tour = makeTour(Shepherd);
-      buildResultsSteps(tour).forEach((step) => tour.addStep(step));
+      buildResultsSteps(tour, setDrawerOpenRef).forEach((step) => tour.addStep(step));
       tour.on('complete', finalize);
       tour.on('cancel', finalize);
       tourRef.current = tour;

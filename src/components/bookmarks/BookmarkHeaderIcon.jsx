@@ -12,6 +12,7 @@ export default function BookmarkHeaderIcon() {
       className="relative inline-flex items-center justify-center w-9 h-9 rounded-md hover:bg-muted transition-colors"
       aria-label="Open bookmarked companies"
       title="Bookmarked companies"
+      data-tour-step="bookmark-header-icon"
     >
       <Bookmark className="h-5 w-5 text-muted-foreground" />
     </button>

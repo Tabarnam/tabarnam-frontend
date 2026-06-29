@@ -1,6 +1,6 @@
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
-import { Compass } from 'lucide-react';
+import { Compass, Play } from 'lucide-react';
 
 export default function HelpPage() {
   const contactEmail = 'duh@tabarnam.com';
@@ -16,16 +16,25 @@ export default function HelpPage() {
       </Helmet>
 
       <main className="max-w-3xl mx-auto px-4 py-16">
-        <div className="flex items-start gap-4 mb-8">
-          <div className="rounded-2xl border border-border bg-card p-3">
-            <Compass size={32} className="text-primary" />
+        <div className="flex items-start justify-between gap-4 mb-8">
+          <div className="flex items-start gap-4">
+            <div className="rounded-2xl border border-border bg-card p-3">
+              <Compass size={32} className="text-primary" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold">How Tabarnam Works</h1>
+              <p className="text-sm text-muted-foreground mt-2 italic">
+                ...but where was it made?
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-3xl font-bold">How Tabarnam Works</h1>
-            <p className="text-sm text-muted-foreground mt-2 italic">
-              ...but where was it made?
-            </p>
-          </div>
+          <Link
+            to="/?tour=1"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors whitespace-nowrap"
+          >
+            <Play size={14} className="text-primary" />
+            Take the tour
+          </Link>
         </div>
 
         <nav aria-label="On this page" className="mb-10 rounded-lg border border-border bg-card p-4">
@@ -161,6 +170,10 @@ export default function HelpPage() {
             <p className="mb-3">
               Save companies to come back to later. Bookmarks are stored on <strong className="text-foreground">your
               device only</strong> — there's no account, and we never see what you've saved.
+            </p>
+            <p className="mb-3">
+              Prefer to see it in motion? Click <em>Take the tour</em> at the top of this page for a quick walkthrough that
+              ends in the bookmarks panel.
             </p>
             <ul className="list-disc pl-6 space-y-1.5 mb-3">
               <li><strong className="text-foreground">Save a company</strong> — Click the bookmark icon on any result row. It turns blue when saved.</li>
