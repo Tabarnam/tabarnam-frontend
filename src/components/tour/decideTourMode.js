@@ -19,20 +19,24 @@ export const RESULTS_PATH = '/results';
  * @returns {'home'|'results'|null} which tour leg to start, or null for none
  */
 export function decideTourMode({ pathname, search, seen, progress }) {
-  // Already completed or dismissed — never auto-fire again.
-  if (seen) return null;
-
   const isHome = pathname === HOME_PATH;
   const isResults = pathname === RESULTS_PATH;
   if (!isHome && !isResults) return null;
 
+  // Force-start via ?tour=1 — used by the "Take the tour" affordance on the
+  // help page so returning visitors can replay without our needing to bump
+  // the seen-key on every tour update.
+  const tourParam = new URLSearchParams(search || '').get('tour') === '1';
+
   if (isHome) {
+    if (tourParam) return 'home';
+    // Already completed or dismissed — never auto-fire again.
+    if (seen) return null;
     // Mid-flight (handoff to /results underway) — don't restart from home.
     return progress ? null : 'home';
   }
 
   // On /results: only resume if mid-tour, or via an explicit ?tour=1 deep link.
-  const tourParam = new URLSearchParams(search || '').get('tour') === '1';
   if (!progress && !tourParam) return null;
   return 'results';
 }

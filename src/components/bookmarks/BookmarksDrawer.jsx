@@ -661,6 +661,7 @@ export default function BookmarksDrawer() {
       <div
         role="dialog"
         aria-label="Bookmarked Companies"
+        data-tour-step="bookmark-drawer-root"
         className={`fixed inset-y-0 right-0 z-[100] w-80 sm:w-96 bg-card border-l border-border shadow-lg flex flex-col transition-transform duration-300 ease-in-out ${
           drawerOpen ? "translate-x-0" : "translate-x-full"
         }`}

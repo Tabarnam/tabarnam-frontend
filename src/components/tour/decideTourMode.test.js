@@ -6,11 +6,8 @@ describe('decideTourMode — first-visit tour gate', () => {
     expect(decideTourMode({ pathname: '/', search: '', seen: null, progress: null })).toBe('home');
   });
 
-  test('returns null once the tour has been seen, regardless of path', () => {
+  test('returns null on / once the tour has been seen', () => {
     expect(decideTourMode({ pathname: '/', search: '', seen: '1', progress: null })).toBeNull();
-    expect(
-      decideTourMode({ pathname: '/results', search: '?tour=1', seen: '1', progress: null }),
-    ).toBeNull();
   });
 
   test('returns null on routes other than / and /results', () => {
@@ -46,10 +43,16 @@ describe('decideTourMode — first-visit tour gate', () => {
     ).toBe('results');
   });
 
-  test('seen flag overrides an explicit ?tour=1 deep link', () => {
+  test('?tour=1 force-starts the home leg even when seen is set', () => {
+    expect(
+      decideTourMode({ pathname: '/', search: '?tour=1', seen: '1', progress: null }),
+    ).toBe('home');
+  });
+
+  test('?tour=1 force-starts the results leg even when seen is set', () => {
     expect(
       decideTourMode({ pathname: '/results', search: '?tour=1', seen: '1', progress: null }),
-    ).toBeNull();
+    ).toBe('results');
   });
 
   test('tolerates an undefined search string', () => {
