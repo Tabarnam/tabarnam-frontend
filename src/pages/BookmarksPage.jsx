@@ -217,7 +217,7 @@ function ExpandedFolder({
                   onClick={() => { onSetCover(list.id); setMenuOpen(false); }}
                   className="flex items-center w-full rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
                 >
-                  <ImagePlus className="h-3.5 w-3.5 mr-2" /> Set Cover
+                  <ImagePlus className="h-3.5 w-3.5 mr-2" /> Set Cover Image
                 </button>
                 {list.id !== DEFAULT_LIST_ID && (
                   <button
