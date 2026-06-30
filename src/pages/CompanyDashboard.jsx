@@ -4205,7 +4205,7 @@ export default function CompanyDashboard() {
               </div>
 
               <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-700 dark:text-muted-foreground">Rows per page</label>
+                <label className="text-sm text-slate-700 dark:text-muted-foreground">Companies per page</label>
                 {/* Single source of truth for how many companies to load+show.
                     Drives the backend fetch size `take` (auto-reloads via the
                     [search, take] effect), replacing both the old "Take" input
@@ -4214,7 +4214,7 @@ export default function CompanyDashboard() {
                   value={String(take)}
                   onChange={(e) => setTake(Number(e.target.value) || DEFAULT_TAKE)}
                   className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
-                  aria-label="Rows per page"
+                  aria-label="Companies per page"
                 >
                   {[25, 50, 100, 250, 500, 1000].map((n) => (
                     <option key={n} value={n}>{n}</option>
@@ -4231,9 +4231,11 @@ export default function CompanyDashboard() {
                 Incomplete ({incompleteCount})
               </Button>
 
-              <div className="text-sm text-slate-600 dark:text-muted-foreground">
-                Showing {filteredItems.length} companies{loading ? " · Loading…" : ""}
-              </div>
+              {loading && (
+                <div className="text-sm text-slate-600 dark:text-muted-foreground">
+                  Loading…
+                </div>
+              )}
 
               {totalCount != null && (
                 <div className="ml-auto">

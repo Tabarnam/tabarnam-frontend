@@ -142,10 +142,21 @@ function computeIssueTags(company) {
   }
 
   // Drop keywords / product_keywords when populated. Prefer the backend's
-  // cached _kwRelevantCount (real keywords after sanitization).
+  // cached _kwRelevantCount, but only trust it when the live keyword data still
+  // matches the cache key — otherwise the admin edited the field since the count
+  // was computed and the cache is stale. Mirrors the frontend
+  // getContractMissingFields so the stored issues_count matches the Issues column.
+  const _kwCacheValid = (() => {
+    if (typeof company?._kwCacheKey !== "string" || company._kwCacheKey === "") return false;
+    const pk = company?.product_keywords;
+    const rawStr = typeof pk === "string" ? pk : Array.isArray(pk) ? pk.join(", ") : "";
+    const kw = company?.keywords;
+    const kwArrStr = Array.isArray(kw) ? kw.join("|") : "";
+    return `${rawStr}|||${kwArrStr}` === company._kwCacheKey;
+  })();
   const kwRelevantCount =
     typeof company?._kwRelevantCount === "number" ? company._kwRelevantCount : null;
-  const hasKeywords = kwRelevantCount != null
+  const hasKeywords = (_kwCacheValid && kwRelevantCount != null)
     ? kwRelevantCount >= 1
     : (
         (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
@@ -248,6 +259,14 @@ function computeIssueTags(company) {
       );
   if (!hasKeywordsData && !fields.includes("keywords") && !fields.includes("product_keywords")) {
     fields.push("keywords");
+  }
+
+  // Add logo if missing. Mirrors the frontend getContractMissingFields so the
+  // stored issues_count (and the Incomplete badge) reflects the same "logo"
+  // chip the Issues column shows.
+  const hasLogo = Boolean(asString(company?.logo_url).trim());
+  if (!hasLogo && !fields.includes("logo") && !fields.includes("logo_url")) {
+    fields.push("logo");
   }
 
   // Add homepage if missing (unless admin cleared).
