@@ -120,6 +120,11 @@ const PRODUCT_SYNONYM_GROUPS = [
   ["jerky", "dried meat"],
   ["jam", "jelly", "preserves"],
   ["granola", "muesli", "cereal"],
+  // Wine ↔ winery — interchangeable so a "wine" search surfaces wineries
+  // and a "winery" search surfaces wine sellers. Plural forms paired too;
+  // stemming bridges wine↔wines and winery↔wineries on top of these.
+  ["wine", "winery"],
+  ["wines", "wineries"],
   // Materials
   ["cloth", "fabric", "textile"],
   ["leather", "hide"],
