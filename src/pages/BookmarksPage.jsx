@@ -30,7 +30,7 @@ function LogoCell({ item }) {
   );
 }
 
-function FolderCard({ list, items, isOpen, onClick }) {
+function FolderCard({ list, items, isOpen, onClick, dataTourStep }) {
   const top4 = items.slice(-4);
   const hasCover = list.cover_image && list.cover_image.value;
 
@@ -38,6 +38,7 @@ function FolderCard({ list, items, isOpen, onClick }) {
     <button
       type="button"
       onClick={onClick}
+      data-tour-step={dataTourStep}
       className={`group text-left w-full rounded-xl overflow-hidden transition-all ${
         isOpen ? "ring-2 ring-primary" : "hover:ring-1 hover:ring-border"
       }`}
@@ -562,6 +563,7 @@ export default function BookmarksPage() {
                   items={entry.items}
                   isOpen={openFolderId === entry.list.id}
                   onClick={() => setOpenFolderId(openFolderId === entry.list.id ? null : entry.list.id)}
+                  dataTourStep={entry.list.id !== DEFAULT_LIST_ID ? "bookmark-folder-card" : undefined}
                 />
               ) : (
                 <ExpandedFolder
