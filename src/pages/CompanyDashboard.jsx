@@ -3585,7 +3585,7 @@ export default function CompanyDashboard() {
         // right-hand columns (Issues, Delete) off-screen. Names are generally
         // concise; the rare long one wraps to a second row.
         grow: 0,
-        width: "175px",
+        width: "215px",
         cell: (row) => {
           const name = getCompanyName(row);
           return (
