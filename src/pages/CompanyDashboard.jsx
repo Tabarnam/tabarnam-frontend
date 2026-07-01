@@ -4174,81 +4174,75 @@ export default function CompanyDashboard() {
         <AdminHeader />
 
         <main className="max-w-[1800px] mx-auto py-6 px-4 space-y-4">
-          <header className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h1 className="text-3xl font-bold text-slate-900 dark:text-foreground">Companies</h1>
+          {/* Single-line header: title + controls on the left, and the
+              Refresh / + Company actions grouped just left of the Published
+              counter on the right. Keeps the table taller (more rows visible). */}
+          <header className="flex flex-wrap items-center gap-3">
+            <h1 className="text-base font-bold text-slate-900 dark:text-foreground">Companies</h1>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" onClick={() => loadCompanies({ search: search.trim(), take })} disabled={loading}>
-                  <RefreshCcw className="h-4 w-4 mr-2" />
-                  {loading ? "Loading…" : "Refresh"}
-                </Button>
-                <Button onClick={createNewCompany}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  New company
-                </Button>
-              </div>
+            <div className="relative">
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search companies (server-side)…"
+                className="w-[320px] pr-9"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-muted-foreground dark:hover:text-foreground transition-colors cursor-pointer"
+                  aria-label="Clear search"
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search companies (server-side)…"
-                    className="w-[320px] pr-9"
-                  />
-                  {search && (
-                    <button
-                      type="button"
-                      onClick={() => setSearch("")}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-muted-foreground dark:hover:text-foreground transition-colors cursor-pointer"
-                      aria-label="Clear search"
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-700 dark:text-muted-foreground">Companies per page</label>
-                {/* Single source of truth for how many companies to load+show.
-                    Drives the backend fetch size `take` (auto-reloads via the
-                    [search, take] effect), replacing both the old "Take" input
-                    and the DataTable's bottom rows-per-page selector. */}
-                <select
-                  value={String(take)}
-                  onChange={(e) => setTake(Number(e.target.value) || DEFAULT_TAKE)}
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
-                  aria-label="Companies per page"
-                >
-                  {[25, 50, 100, 250, 500, 1000].map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-              </div>
-
-              <Button
-                variant={onlyIncomplete ? "default" : "outline"}
-                onClick={() => setOnlyIncomplete((v) => !v)}
-                title="Show only companies missing key fields"
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-700 dark:text-muted-foreground">Companies per page</label>
+              {/* Single source of truth for how many companies to load+show.
+                  Drives the backend fetch size `take` (auto-reloads via the
+                  [search, take] effect), replacing both the old "Take" input
+                  and the DataTable's bottom rows-per-page selector. */}
+              <select
+                value={String(take)}
+                onChange={(e) => setTake(Number(e.target.value) || DEFAULT_TAKE)}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                aria-label="Companies per page"
               >
-                <AlertTriangle className="h-4 w-4 mr-2" />
-                Incomplete ({incompleteCount})
+                {[25, 50, 100, 250, 500, 1000].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+
+            <Button
+              variant={onlyIncomplete ? "default" : "outline"}
+              onClick={() => setOnlyIncomplete((v) => !v)}
+              title="Show only companies missing key fields"
+            >
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              Incomplete ({incompleteCount})
+            </Button>
+
+            {loading && (
+              <div className="text-sm text-slate-600 dark:text-muted-foreground">
+                Loading…
+              </div>
+            )}
+
+            <div className="ml-auto flex items-center gap-2">
+              <Button variant="outline" onClick={() => loadCompanies({ search: search.trim(), take })} disabled={loading}>
+                <RefreshCcw className="h-4 w-4 mr-2" />
+                {loading ? "Loading…" : "Refresh"}
               </Button>
-
-              {loading && (
-                <div className="text-sm text-slate-600 dark:text-muted-foreground">
-                  Loading…
-                </div>
-              )}
-
+              <Button onClick={createNewCompany}>
+                <Plus className="h-4 w-4 mr-2" />
+                Company
+              </Button>
               {totalCount != null && (
-                <div className="ml-auto">
-                  <TallyCounter value={totalCount} label="Published" />
-                </div>
+                <TallyCounter value={totalCount} label="Published" />
               )}
             </div>
           </header>
