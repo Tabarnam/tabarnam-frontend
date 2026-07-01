@@ -4299,7 +4299,7 @@ export default function CompanyDashboard() {
               paginationPerPage={take}
               paginationComponentOptions={{ noRowsPerPage: true }}
               fixedHeader
-              fixedHeaderScrollHeight="calc(100vh - 220px)"
+              fixedHeaderScrollHeight="calc(100vh - 120px)"
               highlightOnHover
               dense
               // sortServer: trust the server's ORDER BY result; the DataTable
