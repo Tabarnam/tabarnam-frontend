@@ -138,13 +138,12 @@ export default function AdminHeader() {
 
   return (
     <div className="bg-slate-900 border-b border-slate-800">
-      <div className="p-4 flex items-end justify-between gap-4">
-        <div className="flex items-end gap-4">
-          <Link to="/" className="flex items-end" aria-label="Tabarnam home">
-            <img src="/tabarnam.png" alt="Tabarnam" className="h-[5rem] w-auto" />
+      <div className="px-4 py-2 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Link to="/" className="flex items-center" aria-label="Tabarnam home">
+            <img src="/tabarnam.png" alt="Tabarnam" className="h-9 w-auto" />
           </Link>
-          <div className="flex flex-col gap-2">
-            <span className="text-2xl font-bold text-white">Admin</span>
+          <div className="flex flex-col">
             <nav className="flex flex-wrap items-center gap-1">
               <NavLink to="/admin" end className={navLinkClass}>
                 Companies
