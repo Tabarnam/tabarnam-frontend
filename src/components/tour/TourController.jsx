@@ -87,9 +87,10 @@ function waitForElement(selector, timeoutMs = 1500) {
   });
 }
 
-function buildResultsSteps(tour, drawerRef) {
+function buildResultsSteps(tour, drawerRef, navigateRef) {
   const openDrawer = () => { try { drawerRef.current?.(true); } catch {} };
   const closeDrawer = () => { try { drawerRef.current?.(false); } catch {} };
+  const go = (path) => { try { navigateRef.current?.(path); } catch {} };
 
   return [
     {
@@ -159,7 +160,32 @@ function buildResultsSteps(tour, drawerRef) {
         { text: 'Skip tour', action: () => { closeDrawer(); tour.cancel(); }, secondary: true },
         { text: 'Back', action: () => { closeDrawer(); tour.back(); }, secondary: true },
         learnMore('#bookmarks'),
-        { text: 'Done', action: () => { closeDrawer(); tour.complete(); } },
+        { text: 'Next', action: () => tour.next() },
+      ],
+    },
+    {
+      id: 'bookmark-folder-cover',
+      title: 'Set a cover image',
+      text: 'Give any list a personal cover. Open the folder, then choose <strong>⋯ → Set Cover Image</strong> to upload one or paste a URL.',
+      attachTo: { element: '[data-tour-step="bookmark-folder-card"]', on: 'right' },
+      scrollTo: { behavior: 'smooth', block: 'center' },
+      beforeShowPromise: async () => {
+        // Close the drawer (the previous step left it open) before switching pages,
+        // then land on the folder grid. If the visitor has no custom lists yet, the
+        // anchor won't be found and Shepherd falls back to a centered modal — which
+        // still teaches the feature.
+        closeDrawer();
+        go('/bookmarks');
+        await Promise.race([
+          waitForElement('[data-tour-step="bookmark-folder-card"]', 1500),
+          new Promise((r) => setTimeout(r, 800)),
+        ]);
+      },
+      buttons: [
+        { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
+        { text: 'Back', action: () => tour.back(), secondary: true },
+        learnMore('#bookmarks'),
+        { text: 'Done', action: () => tour.complete() },
       ],
     },
   ];
@@ -205,6 +231,8 @@ export default function TourController() {
   const { setDrawerOpen } = useBookmarks();
   const setDrawerOpenRef = useRef(setDrawerOpen);
   setDrawerOpenRef.current = setDrawerOpen;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
 
   useEffect(() => {
     const mode = decideTourMode({
@@ -262,7 +290,7 @@ export default function TourController() {
         return;
       }
       const tour = makeTour(Shepherd);
-      buildResultsSteps(tour, setDrawerOpenRef).forEach((step) => tour.addStep(step));
+      buildResultsSteps(tour, setDrawerOpenRef, navigateRef).forEach((step) => tour.addStep(step));
       tour.on('complete', finalize);
       tour.on('cancel', finalize);
       tourRef.current = tour;
