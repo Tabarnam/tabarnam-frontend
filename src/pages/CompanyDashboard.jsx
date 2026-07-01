@@ -3581,7 +3581,11 @@ export default function CompanyDashboard() {
         selector: (row) => getCompanyName(row),
         sortable: true,
         wrap: true,
-        grow: 1.5,
+        // Fixed, compact width so the Name column can't balloon and push the
+        // right-hand columns (Issues, Delete) off-screen. Names are generally
+        // concise; the rare long one wraps.
+        grow: 0,
+        width: "150px",
         cell: (row) => {
           const name = getCompanyName(row);
           return (
