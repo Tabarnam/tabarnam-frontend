@@ -3583,9 +3583,9 @@ export default function CompanyDashboard() {
         wrap: true,
         // Fixed, compact width so the Name column can't balloon and push the
         // right-hand columns (Issues, Delete) off-screen. Names are generally
-        // concise; the rare long one wraps.
+        // concise; the rare long one wraps to a second row.
         grow: 0,
-        width: "150px",
+        width: "175px",
         cell: (row) => {
           const name = getCompanyName(row);
           return (
@@ -3619,6 +3619,10 @@ export default function CompanyDashboard() {
         name: "URL",
         selector: (row) => getCompanyUrl(row) || asString(row?.normalized_domain).trim(),
         sortable: true,
+        // Fixed width to match Name so URL can't balloon and push the right-hand
+        // columns off-screen. The cell's `truncate` span ellipsizes overflow.
+        grow: 0,
+        width: "175px",
         cell: (row) => {
           const fullUrl = getCompanyUrl(row);
           const display = fullUrl || asString(row?.normalized_domain).trim();
