@@ -626,9 +626,14 @@ function isSynonymOnlyMatch(company, q_norm, q_compact) {
 
   // Multi-word partial-match rule: if any query word appears at a word
   // boundary in any of the company's fields, it's a real (partial) match,
-  // not a synonym-only match.
+  // not a synonym-only match. Fires for any multi-word query (original has a
+  // space) with >=1 surviving word — NOT just 2+. Without this, "pre-x"
+  // (normalizes to "pre x"; the 1-char "x" is dropped, leaving "pre") skipped
+  // this block, so Nutricost (search_text_norm contains " pre ") was wrongly
+  // flagged synonym-only and hit with a 0.4x penalty (R 30 → 12), sinking it
+  // to rank 38. With the block firing, "pre" is found → not synonym-only.
   const queryWords = q_norm.split(/\s+/).filter((w) => w.length >= 2);
-  if (queryWords.length >= 2) {
+  if (queryWords.length >= 1 && q_norm.includes(" ")) {
     for (const w of queryWords) {
       for (const kw of allKeywords) {
         if (
