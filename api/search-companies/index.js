@@ -8,7 +8,7 @@ try {
 const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
-const { parseQuery, foldDiacritics } = require("../_queryNormalizer");
+const { parseQuery, foldDiacritics, normalizeQuery } = require("../_queryNormalizer");
 const { expandQueryTermsForFTS, expandProductSynonyms } = require("../_searchSynonyms");
 const { isFuzzyNameMatch, damerauLevenshtein } = require("../_fuzzyMatch");
 const { simpleStem, stemWords } = require("../_stemmer");
@@ -705,8 +705,17 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndust
   // includes() check is cheap. Combined with the relevance tier sort, this
   // promotes specialty companies into tier 0 — where they should be when
   // the user is searching for their specific product category.
-  const industries = normalizeStringArray(company.industries).map((s) => asString(s).toLowerCase().trim());
-  const qLower = (q_norm || "").toLowerCase().trim();
+  // Normalize each industry the SAME way the query was normalized (hyphens/
+  // punctuation → space, diacritics folded, collapsed) so a stored industry
+  // like "pre-x" compares equal to the normalized query "pre x". Without
+  // this, an exact industry match ("pre-x" industry vs a "pre-x" search that
+  // normalizes to "pre x") missed the bonus on a raw hyphen-vs-space mismatch,
+  // leaving the company tied with every generic "pre" match instead of
+  // standing out.
+  const industries = normalizeStringArray(company.industries)
+    .map((s) => normalizeQuery(asString(s)))
+    .filter(Boolean);
+  const qLower = (q_norm || "").trim();
   const industryBonus =
     qLower && industries.some((ind) =>
       ind === qLower ||

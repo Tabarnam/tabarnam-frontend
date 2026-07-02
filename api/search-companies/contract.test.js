@@ -866,6 +866,32 @@ test("computeKeywordMatchScore: multi-word query with a dropped short word still
   );
 });
 
+test("computeRelevanceScore: exact hyphenated industry match gets the bonus (pre-x industry vs 'pre x' query)", () => {
+  // The query "pre-x" normalizes to "pre x"; the stored industry is "pre-x"
+  // (with a hyphen). industryBonus now normalizes each industry the same way
+  // the query is normalized, so "pre-x" -> "pre x" matches and fires the +30
+  // bonus. A company with the EXACT industry must outscore one that only has
+  // the generic "pre workout" industry.
+  const withPreX = {
+    company_name: "Nutricost",
+    industries: ["Sports Nutrition Products", "pre workout", "pre-x"],
+    keywords: ["creatine"],
+    search_text_norm: " nutricost sports nutrition pre workout pre x ",
+  };
+  const genericPre = {
+    company_name: "Generic",
+    industries: ["Sports Nutrition Products", "pre workout"],
+    keywords: ["pre workout blend"],
+    search_text_norm: " generic sports nutrition pre workout ",
+  };
+  const a = _test.computeRelevanceScore(withPreX, "pre x", "pre x", "prex");
+  const b = _test.computeRelevanceScore(genericPre, "pre x", "pre x", "prex");
+  assert.ok(
+    a._relevanceScore > b._relevanceScore,
+    `company with exact "pre-x" industry (R=${a._relevanceScore}) must outscore a generic pre-workout company (R=${b._relevanceScore})`
+  );
+});
+
 test("computeKeywordMatchScore: dropped-short-word fix does NOT match unrelated companies", () => {
   // Guard: the per-word relaxation must not surface companies that share
   // neither surviving word. A widget company scores 0 for "pre x".
