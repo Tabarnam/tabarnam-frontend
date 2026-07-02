@@ -848,6 +848,31 @@ test("computeRelevanceScore: stem-aware scoring never LOWERS a literal match", (
   assert.equal(scores._keywordMatchScore, 100, "exact literal keyword match keeps its 100 score");
 });
 
+test("computeKeywordMatchScore: multi-word query with a dropped short word still matches per-word (pre-x → pre)", () => {
+  // The 2026 "pre-x" report. normalizeQuery("pre-x") = "pre x"; the 1-char "x"
+  // is dropped by the length>=2 filter, leaving "pre". The whole-phrase
+  // queryTerms ("pre x"/"prex") match no keyword, and the per-word fallback
+  // used to require 2+ surviving words — so a company whose industry is
+  // "pre workout" / "pre-x" scored 0 for "pre x" even though it ranked #1 for
+  // plain "pre". The per-word fallback now fires for any multi-word query
+  // with >=1 surviving word.
+  const company = { industries: ["pre workout", "pre-x"], product_keywords: [], keywords: [] };
+  const scorePre = _test.computeKeywordMatchScore(company, "pre", "pre");
+  const scorePreX = _test.computeKeywordMatchScore(company, "pre x", "prex");
+  assert.ok(scorePre > 0, `sanity: "pre" should match (got ${scorePre})`);
+  assert.ok(
+    scorePreX > 0,
+    `multi-word "pre x" must still match the "pre workout"/"pre-x" keywords per-word (got ${scorePreX})`
+  );
+});
+
+test("computeKeywordMatchScore: dropped-short-word fix does NOT match unrelated companies", () => {
+  // Guard: the per-word relaxation must not surface companies that share
+  // neither surviving word. A widget company scores 0 for "pre x".
+  const company = { industries: ["Widgets"], product_keywords: ["widget"], keywords: [] };
+  assert.equal(_test.computeKeywordMatchScore(company, "pre x", "prex"), 0);
+});
+
 test("computeRelevanceScore: exact robes keyword ranks above bathrobes compound", () => {
   const robesCo = { company_name: "Robe Shop", product_keywords: ["robes"] };
   const bathrobesCo = { company_name: "Hotel Supplies", product_keywords: ["bathrobes"] };

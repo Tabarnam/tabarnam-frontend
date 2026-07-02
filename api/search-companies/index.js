@@ -512,8 +512,17 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
         }
       }
       // Per-word matching: for multi-word queries, check individual query words
-      // against each keyword. "watson farms beef" → "beef" matches keyword "Beef Brisket"
-      if (!matched && queryWords.length >= 2) {
+      // against each keyword. "watson farms beef" → "beef" matches keyword "Beef Brisket".
+      // Fires whenever the ORIGINAL query is multi-word (has a space) and at
+      // least one word survives the length filter — NOT just when 2+ survive.
+      // Without this, a query like "pre-x" (normalizes to "pre x", then the
+      // 1-char "x" is dropped, leaving only "pre") matched NOTHING: the whole-
+      // phrase queryTerms "pre x"/"prex" don't appear in any keyword, and the
+      // per-word fallback used to require 2+ surviving words. Result: Nutricost
+      // (industries "pre-x" / "pre workout") scored 0 and vanished, even though
+      // plain "pre" ranked it #1. Same class of bug for "vitamin c", "omega-3".
+      const queryIsMultiWord = (q_norm || "").includes(" ");
+      if (!matched && queryWords.length >= 1 && queryIsMultiWord) {
         for (const w of queryWords) {
           if (kw === w) {
             best = Math.max(best, 60);
