@@ -208,13 +208,34 @@ function isEnrichmentComplete(doc) {
 
 // Check if company already exists by normalized domain / company name.
 // IMPORTANT: Dedupe only against active companies (ignore soft-deleted rows).
-async function findExistingCompany(container, normalizedDomain, companyName, canonicalUrl) {
+//
+// Phase 4.38 — optional `parentCompanyIdHint` opts the caller into the
+// sub-brand override: when a match is found AND its id equals the hint,
+// return null (no duplicate) so the caller proceeds with the import. The
+// new record gets persisted with `parent_company_id` set to the hint.
+async function findExistingCompany(container, normalizedDomain, companyName, canonicalUrl, parentCompanyIdHint) {
   if (!container) return null;
 
   const domain = String(normalizedDomain || "").trim();
   const nameValue = String(companyName || "").trim().toLowerCase();
+  const hint = typeof parentCompanyIdHint === "string" ? parentCompanyIdHint.trim() : "";
 
   const notDeletedClause = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
+
+  // Local helper: given a matched doc, decide whether it's an accidental
+  // duplicate or a legitimate sub-brand of the declared parent.
+  function subBrandOverride(matched, matchKind) {
+    if (!hint) return null;
+    if (String(matched?.id || "").trim() !== hint) return null;
+    console.log("[import-start] sub_brand_allowed", {
+      parent_id: hint,
+      parent_name: matched?.company_name,
+      match_kind: matchKind,
+      new_domain: domain,
+      new_name: companyName,
+    });
+    return { matched: true, parent_id: hint };
+  }
 
   try {
     if (domain && domain !== "unknown") {
@@ -232,6 +253,7 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
         .fetchAll();
 
       if (Array.isArray(resources) && resources[0]) {
+        if (subBrandOverride(resources[0], "normalized_domain")) return null;
         return {
           ...resources[0],
           duplicate_match_key: "normalized_domain",
@@ -286,6 +308,7 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
         .fetchAll();
 
       if (Array.isArray(resources) && resources[0]) {
+        if (subBrandOverride(resources[0], "canonical_url")) return null;
         return {
           ...resources[0],
           duplicate_match_key: "canonical_url",
@@ -309,6 +332,7 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
         .fetchAll();
 
       if (Array.isArray(resources) && resources[0]) {
+        if (subBrandOverride(resources[0], "company_name")) return null;
         return {
           ...resources[0],
           duplicate_match_key: "company_name",
@@ -586,7 +610,21 @@ async function saveCompaniesToCosmos({
             // so enrichment fields get persisted atomically.
             const canonicalUrlForDedupe = String(company.canonical_url || company.website_url || company.url || "").trim();
 
-            const existing = await findExistingCompany(container, normalizedDomain, companyName, canonicalUrlForDedupe);
+            // Phase 4.38 — thread the row's optional parent_company_id
+            // declaration into the dup-check. When set and it matches the
+            // existing doc's id, findExistingCompany returns null and we
+            // proceed with the import as a sub-brand.
+            const parentCompanyIdHint = String(
+              company.parent_company_id || company.parentCompanyId || ""
+            ).trim();
+
+            const existing = await findExistingCompany(
+              container,
+              normalizedDomain,
+              companyName,
+              canonicalUrlForDedupe,
+              parentCompanyIdHint
+            );
             let existingDoc = null;
             let shouldUpdateExisting = false;
 
@@ -838,6 +876,9 @@ async function saveCompaniesToCosmos({
                 finalNormalizedDomain && finalNormalizedDomain !== "unknown"
                   ? `https://${finalNormalizedDomain}/`
                   : company.canonical_url || company.website_url || company.url || "",
+              // Phase 4.38 — persist sub-brand link when the caller declared
+              // a parent for this row and the dup-check allowed the import.
+              ...(parentCompanyIdHint ? { parent_company_id: parentCompanyIdHint } : {}),
               industries: industriesNormalized,
               product_keywords: productKeywordsString,
               keywords: keywordsNormalized,

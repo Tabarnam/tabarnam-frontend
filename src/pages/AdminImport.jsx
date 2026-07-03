@@ -298,6 +298,16 @@ export default function AdminImport() {
   const [spreadsheetPasteOpen, setSpreadsheetPasteOpen] = useState(false);
   const [spreadsheetPasteText, setSpreadsheetPasteText] = useState("");
 
+  // Phase 4.38 — row indices the admin has explicitly confirmed as
+  // sub-brands (via the "Import as sub-brand" button on the exact_match
+  // chip). Rows in this set skip the confirm dialog and their payloads
+  // carry parent_company_id so the backend allows the domain overlap.
+  const [subBrandOptIns, setSubBrandOptIns] = useState(() => new Set());
+  // Parent id for whichever row the primary slot is currently dispatching.
+  // Ref (not state) so beginImport can read the freshest value without
+  // re-render churn. Updated in the succession-queue setup / advance code.
+  const currentPrimaryParentIdRef = useRef("");
+
   const importConfigured = Boolean(API_BASE);
 
   const [runs, setRuns] = useState([]);
@@ -2443,6 +2453,10 @@ export default function AdminImport() {
         fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
         batch_industries: batchIndustries.trim() || undefined,
         batch_keywords: batchKeywords.trim() || undefined,
+        // Phase 4.38 — sub-brand declaration for this row. Backend accepts
+        // and uses to override the duplicate check when the id matches an
+        // existing catalog record.
+        parent_company_id: (currentPrimaryParentIdRef.current || options.parent_company_id || "").trim() || undefined,
       };
 
       // Pre-warm: fire a lightweight request to wake up the Function App before the heavy import.
@@ -3424,7 +3438,7 @@ export default function AdminImport() {
 
   // Shadow import (slot B) — simplified version of beginImport for concurrent succession.
   // Does NOT touch activeSessionId, activeStatus, or primary poll state.
-  const beginImportShadow = useCallback(async (shadowCompanyName, shadowCompanyUrl) => {
+  const beginImportShadow = useCallback(async (shadowCompanyName, shadowCompanyUrl, shadowParentCompanyId = "") => {
     if (!importConfigured) return;
 
     const sid = globalThis.crypto?.randomUUID
@@ -3504,6 +3518,8 @@ export default function AdminImport() {
         fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
         batch_industries: batchIndustries.trim() || undefined,
         batch_keywords: batchKeywords.trim() || undefined,
+        // Phase 4.38 — sub-brand declaration for the shadow slot's row.
+        parent_company_id: String(shadowParentCompanyId || "").trim() || undefined,
       };
 
       setRuns((prev) =>
@@ -4638,9 +4654,14 @@ export default function AdminImport() {
   const handleStartSuccession = useCallback(() => {
     if (startImportDisabled) return;
 
-    // Check if preflight found any duplicate matches
+    // Check if preflight found any duplicate matches. Phase 4.38 —
+    // rows the admin explicitly confirmed as sub-brands (Set of row
+    // indices) are excluded; the backend will accept them via the
+    // parent_company_id override so they don't need to gate here.
     const hasDuplicates = Array.isArray(preflightResults) &&
-      preflightResults.some((r) => r.status === "exact_match" || r.status === "fuzzy_match");
+      preflightResults.some(
+        (r) => (r.status === "exact_match" || r.status === "fuzzy_match") && !subBrandOptIns.has(r.index)
+      );
 
     if (hasDuplicates) {
       setDuplicateDialogOpen(true);
@@ -4652,9 +4673,20 @@ export default function AdminImport() {
       return;
     }
 
-    const validRows = successionRows.filter(
-      (row) => row.companyName.trim() || row.companyUrl.trim()
-    );
+    // Phase 4.38 — enhance each row with its parent_company_id if the
+    // admin confirmed it as a sub-brand. Reads from preflightResults +
+    // subBrandOptIns Set. Rows without opt-in get an empty string.
+    const validRows = successionRows
+      .filter((row) => row.companyName.trim() || row.companyUrl.trim())
+      .map((row, filteredIdx) => {
+        // successionRows retains original indices before the filter, so
+        // walk the source array to find the matching preflight row.
+        const originalIdx = successionRows.indexOf(row);
+        if (originalIdx < 0 || !subBrandOptIns.has(originalIdx)) return { ...row };
+        const pf = (preflightResults || []).find((r) => r.index === originalIdx);
+        const parentId = pf?.match?.id ? String(pf.match.id).trim() : "";
+        return { ...row, parent_company_id: parentId };
+      });
 
     if (validRows.length === 0) {
       toast.error("Enter at least one company name or URL.");
@@ -4677,16 +4709,17 @@ export default function AdminImport() {
     const first = validRows[0];
     setQuery(first.companyName);
     setCompanyUrl(first.companyUrl);
+    currentPrimaryParentIdRef.current = String(first.parent_company_id || "").trim();
     successionTriggerRef.current = true;
 
     // Launch shadow slot (slot B) for second company with 2s stagger
     if (SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1) {
       const second = validRows[1];
       setTimeout(() => {
-        beginImportShadow(second.companyName, second.companyUrl);
+        beginImportShadow(second.companyName, second.companyUrl, second.parent_company_id || "");
       }, 2000);
     }
-  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged, preflightResults, beginImportShadow, SUCCESSION_CONCURRENCY]);
+  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged, preflightResults, subBrandOptIns, beginImportShadow, SUCCESSION_CONCURRENCY]);
 
   // Import Now: proceeds with import after duplicate dialog confirmation
   const handleImportNow = useCallback(() => {
@@ -4697,9 +4730,16 @@ export default function AdminImport() {
       return;
     }
 
-    const validRows = successionRows.filter(
-      (row) => row.companyName.trim() || row.companyUrl.trim()
-    );
+    // Phase 4.38 — mirror handleStartSuccession's sub-brand annotation.
+    const validRows = successionRows
+      .filter((row) => row.companyName.trim() || row.companyUrl.trim())
+      .map((row) => {
+        const originalIdx = successionRows.indexOf(row);
+        if (originalIdx < 0 || !subBrandOptIns.has(originalIdx)) return { ...row };
+        const pf = (preflightResults || []).find((r) => r.index === originalIdx);
+        const parentId = pf?.match?.id ? String(pf.match.id).trim() : "";
+        return { ...row, parent_company_id: parentId };
+      });
 
     if (validRows.length === 0) {
       toast.error("Enter at least one company name or URL.");
@@ -4719,16 +4759,17 @@ export default function AdminImport() {
     const first = validRows[0];
     setQuery(first.companyName);
     setCompanyUrl(first.companyUrl);
+    currentPrimaryParentIdRef.current = String(first.parent_company_id || "").trim();
     successionTriggerRef.current = true;
 
     // Launch shadow slot (slot B) for second company with 2s stagger
     if (SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1) {
       const second = validRows[1];
       setTimeout(() => {
-        beginImportShadow(second.companyName, second.companyUrl);
+        beginImportShadow(second.companyName, second.companyUrl, second.parent_company_id || "");
       }, 2000);
     }
-  }, [successionCount, successionRows, handleStartImportStaged, beginImportShadow, SUCCESSION_CONCURRENCY]);
+  }, [successionCount, successionRows, preflightResults, subBrandOptIns, handleStartImportStaged, beginImportShadow, SUCCESSION_CONCURRENCY]);
 
   // Succession import: trigger effect — fires the import after state has updated
   useEffect(() => {
@@ -4884,6 +4925,9 @@ export default function AdminImport() {
     const next = successionQueue[nextIdx];
     setQuery(next.companyName);
     setCompanyUrl(next.companyUrl);
+    // Phase 4.38 — update the primary-slot parent-id ref so beginImport
+    // reads the right value for the next row's request payload.
+    currentPrimaryParentIdRef.current = String(next.parent_company_id || "").trim();
     setSuccessionIndex(nextIdx);
     successionTriggerRef.current = true;
   }, [activeStatus, successionIndex, successionQueue, activeSessionId, verifyEnrichment, isRunStrictlyComplete]);
@@ -4950,7 +4994,9 @@ export default function AdminImport() {
     const next = successionQueue[nextIdx];
     setSuccessionShadowIndex(nextIdx);
     setShadowStatus("idle"); // briefly idle to allow next status flip
-    setTimeout(() => beginImportShadow(next.companyName, next.companyUrl), 1000);
+    // Phase 4.38 — forward the row's parent_company_id (empty string for
+    // non-sub-brand rows). beginImportShadow includes it in the payload.
+    setTimeout(() => beginImportShadow(next.companyName, next.companyUrl, next.parent_company_id || ""), 1000);
   }, [shadowStatus, successionShadowIndex, successionQueue, shadowSessionId, beginImportShadow, stopShadowPolling, verifyEnrichment, isRunStrictlyComplete]);
 
   // Phase 4.9 — slot-startedAt tracker. When a slot transitions to "running"
@@ -5531,30 +5577,110 @@ export default function AdminImport() {
                                 <X className="h-3.5 w-3.5" />
                               </button>
                             </div>
-                          ) : pfResult.status === "exact_match" ? (
-                            <div className="flex flex-col gap-0.5 min-w-0">
-                              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400 whitespace-nowrap">
-                                <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                                Exact match
-                              </span>
-                              <a
-                                href={`/admin?company_id=${encodeURIComponent(pfResult.match?.id || "")}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[160px]"
-                                title={pfResult.match?.company_name}
-                              >
-                                {pfResult.match?.company_name || pfResult.match?.normalized_domain || "View"}
-                              </a>
-                              <button
-                                type="button"
-                                className="text-xs text-red-600 dark:text-red-400 hover:underline text-left"
-                                onClick={() => removeSuccessionRow(i)}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ) : pfResult.status === "fuzzy_match" ? (
+                          ) : pfResult.status === "exact_match" ? (() => {
+                            // Phase 4.38 — sub-brand candidate detection. If
+                            // the pasted name differs from the matched name,
+                            // this is a sub-brand candidate (e.g. HP
+                            // Calculators typed against existing HP). Same
+                            // name means accidental re-import — keep the
+                            // hard red chip.
+                            const pastedName = String(row.companyName || "").trim().toLowerCase();
+                            const matchedName = String(pfResult.match?.company_name || "").trim().toLowerCase();
+                            const isSubBrandCandidate = pastedName && matchedName && pastedName !== matchedName;
+                            const isConfirmedSubBrand = subBrandOptIns.has(i);
+
+                            if (isConfirmedSubBrand) {
+                              return (
+                                <div className="flex flex-col gap-0.5 min-w-0">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                                    <Check className="h-3 w-3" />
+                                    Sub-brand of {pfResult.match?.company_name || "parent"}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="text-xs text-slate-500 dark:text-muted-foreground hover:underline text-left"
+                                    onClick={() => {
+                                      setSubBrandOptIns((prev) => {
+                                        const next = new Set(prev);
+                                        next.delete(i);
+                                        return next;
+                                      });
+                                    }}
+                                    title="Undo — restore this row's 'Exact match' state."
+                                  >
+                                    Undo
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            if (isSubBrandCandidate) {
+                              return (
+                                <div className="flex flex-col gap-0.5 min-w-0">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-400 whitespace-nowrap">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+                                    Sub-brand of {pfResult.match?.company_name || "?"}?
+                                  </span>
+                                  <a
+                                    href={`/admin?company_id=${encodeURIComponent(pfResult.match?.id || "")}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[160px]"
+                                    title={pfResult.match?.company_name}
+                                  >
+                                    {pfResult.match?.company_name || pfResult.match?.normalized_domain || "View"}
+                                  </a>
+                                  <button
+                                    type="button"
+                                    className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline text-left font-medium"
+                                    onClick={() => {
+                                      setSubBrandOptIns((prev) => {
+                                        const next = new Set(prev);
+                                        next.add(i);
+                                        return next;
+                                      });
+                                    }}
+                                    title={`Import "${row.companyName}" as a sub-brand under ${pfResult.match?.company_name || "the parent record"}.`}
+                                  >
+                                    Import as sub-brand
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="text-xs text-red-600 dark:text-red-400 hover:underline text-left"
+                                    onClick={() => removeSuccessionRow(i)}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            // Same-name true duplicate — legacy behavior.
+                            return (
+                              <div className="flex flex-col gap-0.5 min-w-0">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400 whitespace-nowrap">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                                  Exact match
+                                </span>
+                                <a
+                                  href={`/admin?company_id=${encodeURIComponent(pfResult.match?.id || "")}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[160px]"
+                                  title={pfResult.match?.company_name}
+                                >
+                                  {pfResult.match?.company_name || pfResult.match?.normalized_domain || "View"}
+                                </a>
+                                <button
+                                  type="button"
+                                  className="text-xs text-red-600 dark:text-red-400 hover:underline text-left"
+                                  onClick={() => removeSuccessionRow(i)}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            );
+                          })() : pfResult.status === "fuzzy_match" ? (
                             <div className="flex flex-col gap-0.5 min-w-0">
                               <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400 whitespace-nowrap">
                                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
