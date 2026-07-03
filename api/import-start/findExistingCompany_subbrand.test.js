@@ -114,3 +114,65 @@ test("Phase 4.38 bulk: no match found + hint set → clean pass-through", async 
   );
   assert.equal(result, null);
 });
+
+test("Phase 4.38 bulk: EXACT canonical_url match STILL BLOCKS with matching parent hint (defense-in-depth)", async () => {
+  // Simulate the URL-tier (tier 2) branch: no domain match but the
+  // canonical_url matches. This is a same-URL accidental double-import,
+  // not a legitimate sub-brand — the hint must NOT let it through.
+  const container = {
+    items: {
+      query(spec) {
+        const domainParam = (spec.parameters || []).find((p) => p.name === "@domain");
+        const canonParams = (spec.parameters || []).filter((p) => p.name.startsWith("@canon"));
+        return {
+          async fetchAll() {
+            if (domainParam) return { resources: [] }; // no domain match
+            if (canonParams.length > 0) return { resources: [hpMatch] };
+            return { resources: [] };
+          },
+        };
+      },
+    },
+  };
+  const result = await findExistingCompany(
+    container,
+    "cdn-different-domain.example",
+    "HP Calculators",
+    "https://hp.com/", // exact match to hpMatch.canonical_url via variants
+    "company_hp_1234"
+  );
+  assert.ok(result, "exact canonical_url match must block even with matching parent hint");
+  assert.equal(result.id, "company_hp_1234");
+  assert.equal(result.duplicate_match_key, "canonical_url");
+});
+
+test("Phase 4.38 bulk: EXACT company_name match STILL BLOCKS with matching parent hint (defense-in-depth)", async () => {
+  // Simulate the name-tier (tier 3) branch: no domain match, no URL
+  // variant match, but the name matches. Same-name is a strong duplication
+  // signal — the hint must NOT let it through.
+  const container = {
+    items: {
+      query(spec) {
+        const domainParam = (spec.parameters || []).find((p) => p.name === "@domain");
+        const nameParam = (spec.parameters || []).find((p) => p.name === "@name");
+        return {
+          async fetchAll() {
+            if (domainParam) return { resources: [] };
+            if (nameParam) return { resources: [hpMatch] };
+            return { resources: [] };
+          },
+        };
+      },
+    },
+  };
+  const result = await findExistingCompany(
+    container,
+    "some-other-domain.example",
+    "HP", // matches hpMatch.company_name exactly
+    "https://some-other-domain.example/",
+    "company_hp_1234"
+  );
+  assert.ok(result, "exact company_name match must block even with matching parent hint");
+  assert.equal(result.id, "company_hp_1234");
+  assert.equal(result.duplicate_match_key, "company_name");
+});

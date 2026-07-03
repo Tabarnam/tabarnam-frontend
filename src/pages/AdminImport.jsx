@@ -5582,11 +5582,28 @@ export default function AdminImport() {
                             // the pasted name differs from the matched name,
                             // this is a sub-brand candidate (e.g. HP
                             // Calculators typed against existing HP). Same
-                            // name means accidental re-import — keep the
-                            // hard red chip.
+                            // name OR same URL means accidental re-import
+                            // — keep the hard red chip.
                             const pastedName = String(row.companyName || "").trim().toLowerCase();
                             const matchedName = String(pfResult.match?.company_name || "").trim().toLowerCase();
-                            const isSubBrandCandidate = pastedName && matchedName && pastedName !== matchedName;
+                            // Normalize URLs before comparing: lowercase, strip
+                            // scheme, strip trailing slash, strip leading "www.".
+                            const normalizeUrlForCompare = (u) => {
+                              const s = String(u || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "");
+                              return s.endsWith("/") ? s.slice(0, -1) : s;
+                            };
+                            const pastedUrl = normalizeUrlForCompare(row.companyUrl);
+                            const matchedUrl = normalizeUrlForCompare(
+                              pfResult.match?.website_url || pfResult.match?.url || pfResult.match?.canonical_url
+                            );
+                            const nameMatches = pastedName && matchedName && pastedName === matchedName;
+                            const urlMatches = pastedUrl && matchedUrl && pastedUrl === matchedUrl;
+                            // Sub-brand candidate: at least one of name or
+                            // URL is distinct from the matched record. The
+                            // match must be domain-level only, not a
+                            // same-name-or-same-URL true duplicate.
+                            const isSubBrandCandidate =
+                              pastedName && matchedName && !nameMatches && !urlMatches;
                             const isConfirmedSubBrand = subBrandOptIns.has(i);
 
                             if (isConfirmedSubBrand) {

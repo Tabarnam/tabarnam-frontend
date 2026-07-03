@@ -102,8 +102,12 @@ test("Phase 4.38: empty / whitespace parent_company_id behaves as no hint", asyn
   }
 });
 
-test("Phase 4.38: sub-brand override fires on URL variant match too", async () => {
+test("Phase 4.38: exact URL match STILL BLOCKS even with parent hint (defense-in-depth)", async () => {
   // No domain match; only the URL-variant tier 2 finds a match.
+  // A sub-brand by definition has a distinct URL from its parent, so an
+  // exact URL match is an accidental double-import — the hint must NOT
+  // let it through. This guards against a client that skipped the
+  // frontend name/URL comparison from bypassing dedup.
   const container = makeContainer({
     byUrl: { "https://hp.com/us-en/calculators": hpMatch },
   });
@@ -113,9 +117,10 @@ test("Phase 4.38: sub-brand override fires on URL variant match too", async () =
     container,
     parentCompanyIdHint: "company_hp_1234",
   });
-  assert.equal(result.exists, false, "URL-tier match should also honor the sub-brand override");
-  assert.ok(result.sub_brand_of);
-  assert.equal(result.sub_brand_of.id, "company_hp_1234");
+  assert.equal(result.exists, true, "exact URL match must block even with parent hint");
+  assert.equal(result.match_type, "url");
+  assert.equal(result.existing_company.id, "company_hp_1234");
+  assert.equal(result.sub_brand_of, undefined);
 });
 
 test("Phase 4.38: no match found + hint set → clean pass-through (no duplicate)", async () => {

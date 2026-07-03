@@ -308,7 +308,18 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
         .fetchAll();
 
       if (Array.isArray(resources) && resources[0]) {
-        if (subBrandOverride(resources[0], "canonical_url")) return null;
+        // Phase 4.38 — no sub-brand override on EXACT canonical URL match.
+        // Same-URL matches are accidental double-imports; a sub-brand
+        // always has a distinct URL from its parent. Defense-in-depth:
+        // even if the request carried a matching parent hint, the URL
+        // exactness signal wins.
+        if (hint && hint === String(resources[0].id || "").trim()) {
+          console.log("[import-start] sub_brand_hint_ignored_exact_url", {
+            canonical_variants: canonicalVariants,
+            parent_id: hint,
+            reason: "exact_url_match_is_not_a_sub_brand",
+          });
+        }
         return {
           ...resources[0],
           duplicate_match_key: "canonical_url",
@@ -332,7 +343,16 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
         .fetchAll();
 
       if (Array.isArray(resources) && resources[0]) {
-        if (subBrandOverride(resources[0], "company_name")) return null;
+        // Phase 4.38 — no sub-brand override on EXACT company_name match.
+        // Sub-brands have distinct names ("HP Calculators" vs "HP");
+        // a same-name match on domain-mismatch is accidental duplication.
+        if (hint && hint === String(resources[0].id || "").trim()) {
+          console.log("[import-start] sub_brand_hint_ignored_exact_name", {
+            company_name: nameValue,
+            parent_id: hint,
+            reason: "exact_name_match_is_not_a_sub_brand",
+          });
+        }
         return {
           ...resources[0],
           duplicate_match_key: "company_name",

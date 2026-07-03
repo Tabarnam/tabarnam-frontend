@@ -219,23 +219,19 @@ async function checkExistingCompanyByDomain({ domain, url, container, parentComp
         .fetchAll();
 
       if (Array.isArray(urlResources) && urlResources[0]) {
-        // Phase 4.38 — sub-brand override on URL variant match.
+        // Phase 4.38 — no sub-brand override on EXACT URL match. A sub-brand
+        // by definition has a distinct URL from its parent (e.g. hp.com vs
+        // hp.com/calculators). If the URL exactly matches an existing
+        // record, this is an accidental double-import and must be blocked
+        // even if the request declared a parent hint. Defense-in-depth
+        // against a stray hint being sent from a client that skipped the
+        // frontend name/URL comparison.
         if (hint && hint === String(urlResources[0].id || "").trim()) {
-          console.log("[import-one] sub_brand_allowed", {
+          console.log("[import-one] sub_brand_hint_ignored_exact_url", {
             url: urlLower,
             parent_id: hint,
-            parent_name: urlResources[0].company_name,
-            match_type: "url",
+            reason: "exact_url_match_is_not_a_sub_brand",
           });
-          return {
-            exists: false,
-            sub_brand_of: {
-              id: urlResources[0].id,
-              company_id: urlResources[0].company_id,
-              company_name: urlResources[0].company_name,
-              normalized_domain: urlResources[0].normalized_domain,
-            },
-          };
         }
 
         return {
