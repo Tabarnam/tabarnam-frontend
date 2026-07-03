@@ -2935,13 +2935,22 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               try {
                 const container = getCompaniesCosmosContainer();
 
+                // Phase 4.38 — sub-brand hint from the request body. If the
+                // caller declared a parent and it matches the record the
+                // dup check would return, findExistingCompany yields null
+                // so we fall through to the normal save/enrichment path.
+                const preEnrichParentIdHint = String(
+                  bodyObj?.parent_company_id || bodyObj?.parentCompanyId || ""
+                ).trim();
+
                 // Dedupe rule (imports): normalized_domain is the primary key; canonical_url is a secondary matcher.
                 // This prevents "seed-fallback" duplicates accumulating when URL formatting differs.
                 const existingRow = await findExistingCompany(
                   container,
                   seed.normalized_domain,
                   seed.company_name,
-                  seed.canonical_url
+                  seed.canonical_url,
+                  preEnrichParentIdHint
                 ).catch(() => null);
 
                 const duplicateOfId = existingRow && existingRow.id ? String(existingRow.id).trim() : "";
