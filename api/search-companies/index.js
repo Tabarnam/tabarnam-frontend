@@ -1236,27 +1236,51 @@ function deduplicateByDomain(companies) {
     byDomain.get(domain).push(c);
   }
 
+  // Pick the best record among true duplicates: most reviews → highest
+  // profile_completeness → newest _ts.
+  const bestFirst = (a, b) => {
+    const ra = Number(a?.review_count || 0);
+    const rb = Number(b?.review_count || 0);
+    if (rb !== ra) return rb - ra;
+
+    const pa = Number(a?.profile_completeness || 0);
+    const pb = Number(b?.profile_completeness || 0);
+    if (pb !== pa) return pb - pa;
+
+    const ta = Number(a?._ts || 0);
+    const tb = Number(b?._ts || 0);
+    return tb - ta;
+  };
+
   const result = [...noDomain];
   for (const [, group] of byDomain) {
     if (group.length === 1) {
       result.push(group[0]);
       continue;
     }
-    // Pick the best record: most reviews → highest profile_completeness → newest _ts
-    group.sort((a, b) => {
-      const ra = Number(a?.review_count || 0);
-      const rb = Number(b?.review_count || 0);
-      if (rb !== ra) return rb - ra;
-
-      const pa = Number(a?.profile_completeness || 0);
-      const pb = Number(b?.profile_completeness || 0);
-      if (pb !== pa) return pb - pa;
-
-      const ta = Number(a?._ts || 0);
-      const tb = Number(b?._ts || 0);
-      return tb - ta;
-    });
-    result.push(group[0]);
+    // Collapse only records with the SAME normalized company name (true
+    // re-imports / duplicates). DISTINCT names sharing a domain are kept —
+    // these are legitimate sub-brands (HP + "HP Calculators" on hp.com,
+    // Canon + "Canon Calculator" on usa.canon.com). Before this, the whole
+    // domain group collapsed to one record and the sub-brand vanished from
+    // results entirely, before it was even scored.
+    const byName = new Map();
+    for (const c of group) {
+      const nameKey =
+        normalizeQuery(
+          asString(c?.company_name || c?.display_name || c?.name || "")
+        ) || `__id_${c?.id || c?.company_id || Math.random()}`;
+      if (!byName.has(nameKey)) byName.set(nameKey, []);
+      byName.get(nameKey).push(c);
+    }
+    for (const [, sameName] of byName) {
+      if (sameName.length === 1) {
+        result.push(sameName[0]);
+      } else {
+        sameName.sort(bestFirst);
+        result.push(sameName[0]);
+      }
+    }
   }
 
   return result;
@@ -2223,6 +2247,53 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         });
       }
 
+      // Brand-family grouping: when a search clearly targets one brand — the
+      // top result is a strong name match (exact or startsWith, nameScore
+      // >= 80) with a real domain — pull that brand's same-domain sub-
+      // companies up to immediately follow it. So "HP" → [HP, HP Calculators,
+      // …others] and "Canon" → [Canon, Canon Calculator, …others] instead of
+      // unrelated higher-QQ companies interleaving between a parent and its
+      // sub-brands. Scoped narrowly: fires ONLY on a strong-name-match top
+      // result, and only moves that one brand's own same-domain siblings —
+      // it does NOT globally cluster every domain. Skipped for proximity
+      // sorts (manu/hq), which express "nearest first", a different intent.
+      if (
+        q_norm &&
+        !sortField &&
+        sort !== "manu" &&
+        sort !== "hq" &&
+        deduped.length > 1
+      ) {
+        const parent = deduped[0];
+        const parentDomain = String(parent?.normalized_domain || "")
+          .trim()
+          .toLowerCase();
+        const parentNameScore = computeNameMatchScore(
+          parent,
+          q_raw,
+          q_norm,
+          q_compact
+        );
+        if (
+          parentNameScore >= 80 &&
+          parentDomain &&
+          parentDomain !== "unknown"
+        ) {
+          const family = [];
+          const rest = [];
+          for (let i = 1; i < deduped.length; i++) {
+            const c = deduped[i];
+            const dom = String(c?.normalized_domain || "").trim().toLowerCase();
+            if (dom === parentDomain) family.push(c);
+            else rest.push(c);
+          }
+          if (family.length > 0) {
+            // family preserves its relevance-sorted relative order.
+            deduped = [parent, ...family, ...rest];
+          }
+        }
+      }
+
       // countOnly mode: return just the total count, no items (used for async pagination info)
       if (countOnly) {
         const totalCount = deduped.length;
@@ -2427,5 +2498,6 @@ module.exports._test = {
   computeRelevanceScore,
   companyMatchesAllConcepts,
   isSynonymOnlyMatch,
+  deduplicateByDomain,
   _getResponseCache,
 };

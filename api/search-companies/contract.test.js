@@ -2277,3 +2277,95 @@ test("Pass 4 fires for q.startsWith(name) brand+qualifier pattern (alo yoga)", a
     `Pass 4 must fire for nameScore-70 brand+qualifier match. SQLs: ${sqlsIssued.map((s) => s.replace(/\s+/g, " ").trim().slice(0, 60)).join(" || ")}`
   );
 });
+
+// ── brand-family: dedup keeps distinct sub-brands, groups them after parent ──
+// The 2026 "HP → HP Calculators" report. HP and "HP Calculators" both have
+// normalized_domain "hp.com"; the old dedup collapsed the whole domain to one
+// record, so the sub-brand vanished. Now dedup collapses only same-NAME
+// duplicates, and a family-grouping pass clusters the sub-brand right after
+// the parent on a strong-name-match brand search.
+
+test("deduplicateByDomain: distinct-named companies on one domain BOTH survive", () => {
+  const hp = { id: "hp1", company_name: "HP", normalized_domain: "hp.com", review_count: 50, _ts: 2 };
+  const hpCalc = { id: "hp2", company_name: "HP Calculators", normalized_domain: "hp.com", review_count: 3, _ts: 1 };
+  const out = _test.deduplicateByDomain([hp, hpCalc]);
+  const names = out.map((c) => c.company_name).sort();
+  assert.deepEqual(names, ["HP", "HP Calculators"], `both distinct names must survive; got ${JSON.stringify(names)}`);
+});
+
+test("deduplicateByDomain: true same-name duplicates on one domain collapse to one", () => {
+  const a = { id: "a", company_name: "HP", normalized_domain: "hp.com", review_count: 80, _ts: 5 };
+  const b = { id: "b", company_name: "HP", normalized_domain: "hp.com", review_count: 10, _ts: 9 };
+  const out = _test.deduplicateByDomain([a, b]);
+  assert.equal(out.length, 1, "same normalized name + same domain must collapse to one");
+  assert.equal(out[0].id, "a", "the higher-review-count record wins");
+});
+
+test("deduplicateByDomain: case/spacing differences in the same name still collapse", () => {
+  const a = { id: "a", company_name: "HP", normalized_domain: "hp.com", review_count: 80 };
+  const b = { id: "b", company_name: "  hp  ", normalized_domain: "hp.com", review_count: 10 };
+  const out = _test.deduplicateByDomain([a, b]);
+  assert.equal(out.length, 1, "'HP' and '  hp  ' normalize equal → collapse");
+});
+
+test("family grouping: sub-brand follows the strong-name parent, ahead of an unrelated higher-QQ company", async () => {
+  // All three carry the "hp" token so the token query returns them together.
+  const hp = {
+    id: "hp_parent", company_name: "HP", normalized_domain: "hp.com",
+    industries: ["Computers"], search_text_norm: " hp computers ", _ts: 3,
+    // high review/QQ signals irrelevant here; parent wins on nameScore 100 (tier -1)
+  };
+  const hpCalc = {
+    id: "hp_calc", company_name: "HP Calculators", normalized_domain: "hp.com",
+    industries: ["Calculators"], search_text_norm: " hp calculators ", _ts: 2,
+  };
+  // Unrelated company that also has an "hp" token (e.g. a keyword) and a very
+  // high QQ, so under a plain stars sort it would outrank HP Calculators.
+  const unrelated = {
+    id: "unrelated", company_name: "Plugable", normalized_domain: "plugable.com",
+    industries: ["Electronics"], keywords: ["hp dock"], search_text_norm: " plugable electronics hp dock ",
+    star_rating: 5, review_count: 999, _ts: 1,
+  };
+
+  const companiesContainer = makeContainer(async (spec) => {
+    const params = spec.parameters || [];
+    if (params.some((p) => p.name.startsWith("@tok"))) return [hp, hpCalc, unrelated];
+    return [];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=hp&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+
+  assert.equal(res.status, 200);
+  const ids = JSON.parse(res.body).items.map((i) => i.id);
+  const iParent = ids.indexOf("hp_parent");
+  const iCalc = ids.indexOf("hp_calc");
+  const iOther = ids.indexOf("unrelated");
+  assert.equal(iParent, 0, `HP (parent) must be #1; got order ${JSON.stringify(ids)}`);
+  assert.ok(iCalc === 1, `HP Calculators must immediately follow the parent; got order ${JSON.stringify(ids)}`);
+  assert.ok(iOther > iCalc, `the unrelated company must fall below the family; got order ${JSON.stringify(ids)}`);
+});
+
+test("family grouping: does NOT fire when the top result is not a strong name match", async () => {
+  // Generic query "calculator": top result matches only by keyword/industry
+  // (nameScore < 80), so family grouping must not reorder anything.
+  const a = { id: "a", company_name: "Casio", normalized_domain: "casio.com", industries: ["Calculators"], search_text_norm: " casio calculators ", star_rating: 5, _ts: 3 };
+  const b = { id: "b", company_name: "TI", normalized_domain: "ti.com", industries: ["Calculators"], search_text_norm: " ti calculators ", star_rating: 4, _ts: 2 };
+  const companiesContainer = makeContainer(async (spec) => {
+    const params = spec.parameters || [];
+    if (params.some((p) => p.name.startsWith("@tok"))) return [a, b];
+    return [];
+  });
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=calculator&sort=stars&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  // Just assert it returns both without error; no family reorder applies.
+  const ids = JSON.parse(res.body).items.map((i) => i.id).sort();
+  assert.deepEqual(ids, ["a", "b"]);
+});
