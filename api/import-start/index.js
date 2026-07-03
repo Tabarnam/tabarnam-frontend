@@ -5387,8 +5387,26 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             const isExplicitCompanyImportMain =
               String(bodyObj?.queryType || "").trim() === "company_url" ||
               Boolean(String(bodyObj?.company_url_hint || "").trim());
+
+            // Phase 4.38 — stamp parent_company_id from the request body
+            // onto each enriched company doc so findExistingCompany's
+            // sub-brand override sees the hint at dup-check time. The
+            // frontend sends it top-level per request (one row = one
+            // request in bulk mode), so every enriched item gets the same
+            // hint.
+            const requestParentCompanyId = String(
+              bodyObj?.parent_company_id || bodyObj?.parentCompanyId || ""
+            ).trim();
+            const enrichedForSave = requestParentCompanyId
+              ? enriched.map((c) =>
+                  c && typeof c === "object" && !c.parent_company_id
+                    ? { ...c, parent_company_id: requestParentCompanyId }
+                    : c
+                )
+              : enriched;
+
             const saveResultRaw = await saveCompaniesToCosmos({
-              companies: enriched,
+              companies: enrichedForSave,
               sessionId,
               requestId,
               sessionCreatedAt: sessionCreatedAtIso,
