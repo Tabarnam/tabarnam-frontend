@@ -47,7 +47,7 @@ function toNormalizedDomain(urlStr) {
 }
 
 // Seed a single company to Cosmos companies container
-async function seedCompanyToCosmos({ company, sessionId, container, fieldsToEnrich }) {
+async function seedCompanyToCosmos({ company, sessionId, container, fieldsToEnrich, parentCompanyId }) {
   if (!container || !company) return { ok: false, error: "missing_args" };
 
   const companyName = String(company.company_name || company.name || "").trim();
@@ -61,6 +61,8 @@ async function seedCompanyToCosmos({ company, sessionId, container, fieldsToEnri
   const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   const nowIso = new Date().toISOString();
 
+  const trimmedParentId = typeof parentCompanyId === "string" ? parentCompanyId.trim() : "";
+
   const companyDoc = {
     id: companyId,
     company_id: companyId,
@@ -69,6 +71,8 @@ async function seedCompanyToCosmos({ company, sessionId, container, fieldsToEnri
     website_url: websiteUrl,
     normalized_domain: normalizedDomain,
     partition_key: normalizedDomain,
+    // Phase 4.38 — sub-brand link when the caller declared a parent.
+    ...(trimmedParentId ? { parent_company_id: trimmedParentId } : {}),
 
     // Session tracking - this is how resume-worker finds companies to enrich
     session_id: sessionId,
@@ -131,10 +135,20 @@ function getCompaniesCosmosContainer() {
   }
 }
 
-// Check if a company with the given domain already exists in the database
-async function checkExistingCompanyByDomain({ domain, url, container }) {
+// Check if a company with the given domain already exists in the database.
+//
+// Phase 4.38 — accepts an optional `parentCompanyIdHint`. When the caller
+// declares a parent (e.g. importing "HP Calculators" and explicitly saying
+// its parent is the existing HP record), and the id of the matched
+// existing doc equals that hint, we treat the incoming row as a legitimate
+// sub-brand and report `exists: false` so the caller proceeds with the
+// import. The match info is echoed back as `sub_brand_of` for logging
+// / persistence. When no hint is passed, behavior is 100% unchanged.
+async function checkExistingCompanyByDomain({ domain, url, container, parentCompanyIdHint }) {
   if (!container) return { exists: false, error: "no_container" };
   if (!domain || domain === "unknown") return { exists: false };
+
+  const hint = typeof parentCompanyIdHint === "string" ? parentCompanyIdHint.trim() : "";
 
   const notDeletedClause = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
@@ -150,6 +164,25 @@ async function checkExistingCompanyByDomain({ domain, url, container }) {
       .fetchAll();
 
     if (Array.isArray(resources) && resources[0]) {
+      // Phase 4.38 — sub-brand override on domain match.
+      if (hint && hint === String(resources[0].id || "").trim()) {
+        console.log("[import-one] sub_brand_allowed", {
+          domain,
+          parent_id: hint,
+          parent_name: resources[0].company_name,
+          match_type: "normalized_domain",
+        });
+        return {
+          exists: false,
+          sub_brand_of: {
+            id: resources[0].id,
+            company_id: resources[0].company_id,
+            company_name: resources[0].company_name,
+            normalized_domain: resources[0].normalized_domain,
+          },
+        };
+      }
+
       return {
         exists: true,
         match_type: "normalized_domain",
@@ -186,6 +219,25 @@ async function checkExistingCompanyByDomain({ domain, url, container }) {
         .fetchAll();
 
       if (Array.isArray(urlResources) && urlResources[0]) {
+        // Phase 4.38 — sub-brand override on URL variant match.
+        if (hint && hint === String(urlResources[0].id || "").trim()) {
+          console.log("[import-one] sub_brand_allowed", {
+            url: urlLower,
+            parent_id: hint,
+            parent_name: urlResources[0].company_name,
+            match_type: "url",
+          });
+          return {
+            exists: false,
+            sub_brand_of: {
+              id: urlResources[0].id,
+              company_id: urlResources[0].company_id,
+              company_name: urlResources[0].company_name,
+              normalized_domain: urlResources[0].normalized_domain,
+            },
+          };
+        }
+
         return {
           exists: true,
           match_type: "url",
@@ -314,6 +366,14 @@ async function handleImportOne(req, context) {
       }, 400);
     }
 
+    // Phase 4.38 — optional sub-brand declaration. When the caller passes
+    // parent_company_id AND the duplicate check finds a matching doc with
+    // that id, the incoming URL imports as a sub-brand (persisted with the
+    // parent_company_id link) instead of being rejected as a duplicate.
+    const parentCompanyIdHint = String(
+      body.parent_company_id || body.parentCompanyId || ""
+    ).trim();
+
     const normalizedUrl = normalizeUrl(url);
     if (!normalizedUrl) {
       return json({
@@ -335,6 +395,7 @@ async function handleImportOne(req, context) {
             domain: normalizedDomainForCheck,
             url: normalizedUrl,
             container,
+            parentCompanyIdHint,
           });
 
           if (existingCheck.exists) {
@@ -587,7 +648,13 @@ async function handleImportOne(req, context) {
             });
 
             for (const company of companiesFromJob.slice(0, 5)) {
-              const seedResult = await seedCompanyToCosmos({ company, sessionId, container, fieldsToEnrich });
+              const seedResult = await seedCompanyToCosmos({
+                company,
+                sessionId,
+                container,
+                fieldsToEnrich,
+                parentCompanyId: parentCompanyIdHint,
+              });
               if (seedResult.ok) {
                 seededCompanyIds.push(seedResult.company_id);
                 console.log("[import-one] company_seeded", {
@@ -819,4 +886,6 @@ app.http("import-one", {
 
 module.exports = {
   handleImportOne,
+  // Phase 4.38 — exported for direct unit tests of the sub-brand override.
+  _test: { checkExistingCompanyByDomain, seedCompanyToCosmos },
 };

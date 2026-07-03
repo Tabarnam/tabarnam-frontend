@@ -1,0 +1,116 @@
+// Phase 4.38 — sub-brand override tests for the bulk-path duplicate check
+// in api/import-start/_importStartSaveCompanies.js:findExistingCompany.
+//
+// Mirrors the /api/import-one contract: when a `parentCompanyIdHint` is
+// passed AND it matches the id of the existing doc that fires the
+// duplicate, return null so the bulk save flow proceeds with the import.
+// Without the hint (or with a mismatched hint), the existing behavior is
+// preserved — the caller sees the match and blocks with
+// save_outcome: "duplicate_detected".
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const { findExistingCompany } = require("./_importStartSaveCompanies.js");
+
+// Minimal in-memory container that returns canned matching docs based on
+// the query's @domain parameter. Emulates Cosmos's items.query().fetchAll()
+// closely enough to exercise the dup-check helper.
+function makeContainer(matches) {
+  return {
+    items: {
+      query(spec) {
+        const domainParam = (spec.parameters || []).find((p) => p.name === "@domain");
+        const nameParam = (spec.parameters || []).find((p) => p.name === "@name");
+        return {
+          async fetchAll() {
+            if (domainParam && matches.byDomain && matches.byDomain[domainParam.value]) {
+              return { resources: [matches.byDomain[domainParam.value]] };
+            }
+            if (nameParam && matches.byName && matches.byName[nameParam.value]) {
+              return { resources: [matches.byName[nameParam.value]] };
+            }
+            return { resources: [] };
+          },
+        };
+      },
+    },
+  };
+}
+
+const hpMatch = {
+  id: "company_hp_1234",
+  company_name: "HP",
+  normalized_domain: "hp.com",
+  partition_key: "hp.com",
+  canonical_url: "https://hp.com/",
+  website_url: "https://hp.com/",
+};
+
+test("Phase 4.38 bulk: without hint, existing domain returns match (blocks import)", async () => {
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  const result = await findExistingCompany(container, "hp.com", "HP Calculators", "https://hp.com/us-en/calculators.html");
+  assert.ok(result, "expected match without hint");
+  assert.equal(result.id, "company_hp_1234");
+  assert.equal(result.duplicate_match_key, "normalized_domain");
+});
+
+test("Phase 4.38 bulk: matching parent_company_id triggers sub-brand override → null", async () => {
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  const result = await findExistingCompany(
+    container,
+    "hp.com",
+    "HP Calculators",
+    "https://hp.com/us-en/calculators.html",
+    "company_hp_1234"
+  );
+  assert.equal(result, null, "sub-brand path must return null (no duplicate)");
+});
+
+test("Phase 4.38 bulk: MISMATCHED parent_company_id still blocks (regression guard)", async () => {
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  const result = await findExistingCompany(
+    container,
+    "hp.com",
+    "HP Calculators",
+    "https://hp.com/us-en/calculators.html",
+    "company_someone_else_5678"
+  );
+  assert.ok(result, "wrong parent id must NOT allow the import through");
+  assert.equal(result.id, "company_hp_1234");
+});
+
+test("Phase 4.38 bulk: empty / whitespace parent hint behaves as no hint", async () => {
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  for (const bad of ["", "   ", null, undefined]) {
+    const result = await findExistingCompany(
+      container,
+      "hp.com",
+      "HP Calculators",
+      "https://hp.com/",
+      bad
+    );
+    assert.ok(result, `hint=${JSON.stringify(bad)} must not bypass the dup check`);
+  }
+});
+
+test("Phase 4.38 bulk: same-name true-duplicate blocked even WITH hint mismatch (regression)", async () => {
+  // Admin retries importing "HP" (same name as existing) and accidentally
+  // pastes some wrong parent id. Must still block.
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  const result = await findExistingCompany(container, "hp.com", "HP", "https://hp.com/", "company_random_9999");
+  assert.ok(result, "true duplicate must still be caught");
+  assert.equal(result.id, "company_hp_1234");
+});
+
+test("Phase 4.38 bulk: no match found + hint set → clean pass-through", async () => {
+  const container = makeContainer({}); // no matches
+  const result = await findExistingCompany(
+    container,
+    "totally-new-brand.example",
+    "New Brand",
+    "https://totally-new-brand.example/",
+    "company_hp_1234"
+  );
+  assert.equal(result, null);
+});
