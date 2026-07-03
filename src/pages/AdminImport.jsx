@@ -479,8 +479,13 @@ export default function AdminImport() {
     );
     return preflightResults
       .filter((r) => r.status === "exact_match" && !completedSet.has(r.index))
+      // Phase 4.38 — rows the admin explicitly confirmed as sub-brands
+      // are going to import legitimately. Exclude them from the
+      // "Remove matches" bulk-drop so a single click doesn't wipe out
+      // the sub-brand rows alongside true duplicates.
+      .filter((r) => !subBrandOptIns.has(r.index))
       .map((r) => r.index);
-  }, [preflightResults, successionResults]);
+  }, [preflightResults, successionResults, subBrandOptIns]);
 
   const exactMatchCount = eligibleExactMatchIndices.length;
 
