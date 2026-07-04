@@ -486,14 +486,43 @@ export default function AdminImport() {
     const completedSet = new Set(
       successionResults.filter((sr) => sr?.status === "done").map((sr) => sr.index)
     );
+    // Phase 4.38.C — same URL normalizer used in the row render. Kept
+    // inline here to avoid coupling the memo to a stable-identity helper.
+    const normalizeUrl = (u) => {
+      const s = String(u || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "");
+      return s.endsWith("/") ? s.slice(0, -1) : s;
+    };
     return preflightResults
       .filter((r) => r.status === "exact_match" && !completedSet.has(r.index))
       // Phase 4.38 — rows the admin explicitly confirmed as sub-brands
       // or as "import as new company" are going to import legitimately.
       // Exclude both from the "Remove matches" bulk-drop.
       .filter((r) => !subBrandOptIns.has(r.index) && !forceNewOptIns.has(r.index))
+      // Phase 4.38.C — UNCONFIRMED sub-brand candidates (the row shows
+      // the blue "Sub-brand of X?" chip because pasted name differs
+      // from matched name AND URL differs from matched URL) also stay.
+      // Admin needs to scrutinize each one and pick sub-brand / new /
+      // remove per-row. Bulk-drop only wipes true "same-name-or-URL"
+      // duplicates.
+      .filter((r) => {
+        const row = successionRows[r.index];
+        if (!row) return true; // no row data — treat as eligible
+        const pastedName = String(row.companyName || "").trim().toLowerCase();
+        const matchedName = String(r.match?.company_name || "").trim().toLowerCase();
+        const pastedUrl = normalizeUrl(row.companyUrl);
+        const matchedUrl = normalizeUrl(
+          r.match?.website_url || r.match?.url || r.match?.canonical_url
+        );
+        const nameMatches = pastedName && matchedName && pastedName === matchedName;
+        const urlMatches = pastedUrl && matchedUrl && pastedUrl === matchedUrl;
+        // Sub-brand candidate: at least one of name / URL is distinct.
+        // Keep — don't include in the bulk-drop set.
+        const isSubBrandCandidate =
+          pastedName && matchedName && !nameMatches && !urlMatches;
+        return !isSubBrandCandidate;
+      })
       .map((r) => r.index);
-  }, [preflightResults, successionResults, subBrandOptIns, forceNewOptIns]);
+  }, [preflightResults, successionResults, subBrandOptIns, forceNewOptIns, successionRows]);
 
   const exactMatchCount = eligibleExactMatchIndices.length;
 
