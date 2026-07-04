@@ -213,8 +213,20 @@ function isEnrichmentComplete(doc) {
 // sub-brand override: when a match is found AND its id equals the hint,
 // return null (no duplicate) so the caller proceeds with the import. The
 // new record gets persisted with `parent_company_id` set to the hint.
-async function findExistingCompany(container, normalizedDomain, companyName, canonicalUrl, parentCompanyIdHint) {
+async function findExistingCompany(container, normalizedDomain, companyName, canonicalUrl, parentCompanyIdHint, forceNew) {
   if (!container) return null;
+
+  // Phase 4.38.C — admin-authorized bypass. When forceNew is true, skip
+  // the entire dup check. The row imports as a standalone new record even
+  // if its domain / URL / name collides with an existing catalog entry.
+  if (forceNew === true) {
+    console.log("[import-start] force_new_import", {
+      domain: normalizedDomain,
+      name: companyName,
+      canonical_url: canonicalUrl,
+    });
+    return null;
+  }
 
   const domain = String(normalizedDomain || "").trim();
   const nameValue = String(companyName || "").trim().toLowerCase();
@@ -637,13 +649,16 @@ async function saveCompaniesToCosmos({
             const parentCompanyIdHint = String(
               company.parent_company_id || company.parentCompanyId || ""
             ).trim();
+            // Phase 4.38.C — force-new bypass.
+            const forceNewFlag = company.force_new === true || company.forceNew === true;
 
             const existing = await findExistingCompany(
               container,
               normalizedDomain,
               companyName,
               canonicalUrlForDedupe,
-              parentCompanyIdHint
+              parentCompanyIdHint,
+              forceNewFlag
             );
             let existingDoc = null;
             let shouldUpdateExisting = false;

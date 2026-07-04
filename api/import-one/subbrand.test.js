@@ -135,3 +135,56 @@ test("Phase 4.38: no match found + hint set → clean pass-through (no duplicate
   // sub_brand_of is only set when we actually found a match AND overrode it.
   assert.equal(result.sub_brand_of, undefined);
 });
+
+// Phase 4.38.C — "Import as new company" force bypass tests.
+test("Phase 4.38.C: forceNew=true bypasses domain match entirely", async () => {
+  const container = makeContainer({ byDomain: { "sierracantabria.com": hpMatch } });
+  const result = await checkExistingCompanyByDomain({
+    domain: "sierracantabria.com",
+    url: "https://www.sierracantabria.com/",
+    container,
+    forceNew: true,
+  });
+  assert.equal(result.exists, false, "forceNew should skip the dup check");
+  assert.equal(result.force_new, true, "response marks force_new for telemetry");
+});
+
+test("Phase 4.38.C: forceNew=true bypasses URL-variant match", async () => {
+  const container = makeContainer({
+    byUrl: { "https://sierracantabria.com": hpMatch },
+  });
+  const result = await checkExistingCompanyByDomain({
+    domain: "cdn.example",
+    url: "https://sierracantabria.com",
+    container,
+    forceNew: true,
+  });
+  assert.equal(result.exists, false, "forceNew short-circuits before URL check");
+  assert.equal(result.force_new, true);
+});
+
+test("Phase 4.38.C: forceNew=false (default) preserves the existing behavior", async () => {
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  const result = await checkExistingCompanyByDomain({
+    domain: "hp.com",
+    url: "https://hp.com/",
+    container,
+    forceNew: false,
+  });
+  assert.equal(result.exists, true, "forceNew=false must NOT bypass");
+});
+
+test("Phase 4.38.C: forceNew takes precedence over parentCompanyIdHint", async () => {
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  const result = await checkExistingCompanyByDomain({
+    domain: "hp.com",
+    url: "https://hp.com/",
+    container,
+    forceNew: true,
+    parentCompanyIdHint: "company_hp_1234",
+  });
+  // With both set, admin intent "make new" wins.
+  assert.equal(result.exists, false);
+  assert.equal(result.force_new, true);
+  assert.equal(result.sub_brand_of, undefined);
+});

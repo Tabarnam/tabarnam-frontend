@@ -144,9 +144,19 @@ function getCompaniesCosmosContainer() {
 // sub-brand and report `exists: false` so the caller proceeds with the
 // import. The match info is echoed back as `sub_brand_of` for logging
 // / persistence. When no hint is passed, behavior is 100% unchanged.
-async function checkExistingCompanyByDomain({ domain, url, container, parentCompanyIdHint }) {
+async function checkExistingCompanyByDomain({ domain, url, container, parentCompanyIdHint, forceNew }) {
   if (!container) return { exists: false, error: "no_container" };
   if (!domain || domain === "unknown") return { exists: false };
+
+  // Phase 4.38.C — admin-authorized bypass. The frontend "Import as new
+  // company" button sets this flag when the admin has explicitly declared
+  // the row is a distinct company that happens to share a domain with an
+  // existing record (e.g. new record IS the parent, or is a sibling brand).
+  // Skip the dup check entirely — the row imports as a standalone new doc.
+  if (forceNew === true) {
+    console.log("[import-one] force_new_import", { domain, url });
+    return { exists: false, force_new: true };
+  }
 
   const hint = typeof parentCompanyIdHint === "string" ? parentCompanyIdHint.trim() : "";
 
@@ -369,6 +379,8 @@ async function handleImportOne(req, context) {
     const parentCompanyIdHint = String(
       body.parent_company_id || body.parentCompanyId || ""
     ).trim();
+    // Phase 4.38.C — force-new bypass. When true, skip dup check entirely.
+    const forceNew = body.force_new === true || body.forceNew === true;
 
     const normalizedUrl = normalizeUrl(url);
     if (!normalizedUrl) {
@@ -392,6 +404,7 @@ async function handleImportOne(req, context) {
             url: normalizedUrl,
             container,
             parentCompanyIdHint,
+            forceNew,
           });
 
           if (existingCheck.exists) {

@@ -2942,6 +2942,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 const preEnrichParentIdHint = String(
                   bodyObj?.parent_company_id || bodyObj?.parentCompanyId || ""
                 ).trim();
+                // Phase 4.38.C — force-new bypass at the pre-enrichment gate too.
+                const preEnrichForceNew = bodyObj?.force_new === true || bodyObj?.forceNew === true;
 
                 // Dedupe rule (imports): normalized_domain is the primary key; canonical_url is a secondary matcher.
                 // This prevents "seed-fallback" duplicates accumulating when URL formatting differs.
@@ -2950,7 +2952,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   seed.normalized_domain,
                   seed.company_name,
                   seed.canonical_url,
-                  preEnrichParentIdHint
+                  preEnrichParentIdHint,
+                  preEnrichForceNew
                 ).catch(() => null);
 
                 const duplicateOfId = existingRow && existingRow.id ? String(existingRow.id).trim() : "";
@@ -5397,22 +5400,30 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               String(bodyObj?.queryType || "").trim() === "company_url" ||
               Boolean(String(bodyObj?.company_url_hint || "").trim());
 
-            // Phase 4.38 — stamp parent_company_id from the request body
-            // onto each enriched company doc so findExistingCompany's
-            // sub-brand override sees the hint at dup-check time. The
-            // frontend sends it top-level per request (one row = one
-            // request in bulk mode), so every enriched item gets the same
-            // hint.
+            // Phase 4.38 — stamp parent_company_id and/or force_new from
+            // the request body onto each enriched company doc so the
+            // post-enrichment findExistingCompany sees the correct hints.
+            // Frontend sends these top-level per request (one row = one
+            // request in bulk mode), so all enriched items get the same
+            // values.
             const requestParentCompanyId = String(
               bodyObj?.parent_company_id || bodyObj?.parentCompanyId || ""
             ).trim();
-            const enrichedForSave = requestParentCompanyId
-              ? enriched.map((c) =>
-                  c && typeof c === "object" && !c.parent_company_id
-                    ? { ...c, parent_company_id: requestParentCompanyId }
-                    : c
-                )
-              : enriched;
+            const requestForceNew = bodyObj?.force_new === true || bodyObj?.forceNew === true;
+            const enrichedForSave =
+              requestParentCompanyId || requestForceNew
+                ? enriched.map((c) => {
+                    if (!c || typeof c !== "object") return c;
+                    const patch = {};
+                    if (requestParentCompanyId && !c.parent_company_id) {
+                      patch.parent_company_id = requestParentCompanyId;
+                    }
+                    if (requestForceNew && c.force_new !== true) {
+                      patch.force_new = true;
+                    }
+                    return Object.keys(patch).length ? { ...c, ...patch } : c;
+                  })
+                : enriched;
 
             const saveResultRaw = await saveCompaniesToCosmos({
               companies: enrichedForSave,

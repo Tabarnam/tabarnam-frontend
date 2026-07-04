@@ -146,6 +146,42 @@ test("Phase 4.38 bulk: EXACT canonical_url match STILL BLOCKS with matching pare
   assert.equal(result.duplicate_match_key, "canonical_url");
 });
 
+// Phase 4.38.C — force-new bypass tests for the bulk-path helper.
+test("Phase 4.38.C bulk: forceNew=true bypasses domain match", async () => {
+  const container = makeContainer({ byDomain: { "sierracantabria.com": hpMatch } });
+  const result = await findExistingCompany(
+    container,
+    "sierracantabria.com",
+    "Sierra Cantabria",
+    "https://sierracantabria.com/",
+    "", // no parent hint
+    true // forceNew
+  );
+  assert.equal(result, null, "forceNew must short-circuit BEFORE any tier match runs");
+});
+
+test("Phase 4.38.C bulk: forceNew=true bypasses same-name true duplicate too", async () => {
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  // Same name, matching parent hint, forceNew set — admin explicitly overrode.
+  const result = await findExistingCompany(
+    container,
+    "hp.com",
+    "HP",
+    "https://hp.com/",
+    "company_hp_1234",
+    true
+  );
+  assert.equal(result, null, "admin-authorized bypass must win over dup signals");
+});
+
+test("Phase 4.38.C bulk: forceNew=false / undefined preserves legacy behavior", async () => {
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  const noFlag = await findExistingCompany(container, "hp.com", "HP Calc", "https://hp.com/", "");
+  assert.ok(noFlag, "no flag: dup check runs");
+  const falseFlag = await findExistingCompany(container, "hp.com", "HP Calc", "https://hp.com/", "", false);
+  assert.ok(falseFlag, "false flag: dup check runs");
+});
+
 test("Phase 4.38 bulk: EXACT company_name match STILL BLOCKS with matching parent hint (defense-in-depth)", async () => {
   // Simulate the name-tier (tier 3) branch: no domain match, no URL
   // variant match, but the name matches. Same-name is a strong duplication
