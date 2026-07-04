@@ -20,9 +20,11 @@ import { CosmosClient } from "@azure/cosmos";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { applySortKeys, computeQqScore, computeIssuesCount } = require("../api/_sortKeys.js");
-// Refresh enrichment_health from the live contract (same fn the admin GET uses)
-// so issues_count is computed from current fields, not a stale stored value.
-const { computeContractEnrichmentHealth } = require("../api/admin-companies-v2/index.js");
+// Refresh enrichment_health from the live contract (same fn the admin GET and
+// the import worker use) so issues_count is computed from current fields, not a
+// stale stored value. Sourced from the shared module to avoid loading the admin
+// Function's app.http registration in this script.
+const { computeContractEnrichmentHealth } = require("../api/_contractHealth.js");
 
 const ENDPOINT = process.env.COSMOS_DB_ENDPOINT || "";
 const KEY = process.env.COSMOS_DB_KEY || "";

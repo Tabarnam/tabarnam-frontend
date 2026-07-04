@@ -16,7 +16,8 @@ const {
 } = require("../../_internalJobAuth");
 
 const { getBuildInfo } = require("../../_buildInfo");
-const { applySortKeys } = require("../../_sortKeys");
+const { applySortKeys, looksLikeCompanyDoc } = require("../../_sortKeys");
+const { computeContractEnrichmentHealth } = require("../../_contractHealth");
 const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../../_shared");
 const {
   computeMissingFields,
@@ -849,6 +850,19 @@ async function upsertDoc(container, doc) {
   // Apply admin-sort scalar keys for company docs (no-op for control/job docs).
   // Keeps newly imported / enriched companies sortable in /admin without a
   // separate backfill run.
+  //
+  // Refresh enrichment_health from the live contract FIRST — issues_count (via
+  // applySortKeys -> _sortKeys.computeIssueTags) is derived from
+  // doc.enrichment_health.missing_fields. Without this the worker persists a
+  // stale/empty issues_count, so the DB-wide Incomplete badge under-counts vs.
+  // the live Issues column (which the admin GET recomputes fresh). Mirrors the
+  // admin save path in admin-companies-v2.
+  if (looksLikeCompanyDoc(doc)) {
+    try {
+      const freshHealth = computeContractEnrichmentHealth(doc);
+      if (freshHealth && typeof freshHealth === "object") doc.enrichment_health = freshHealth;
+    } catch { /* non-fatal: keep existing enrichment_health */ }
+  }
   try { applySortKeys(doc); } catch { /* non-fatal */ }
 
   const containerPkPath = await getCompaniesPkPath(container);
