@@ -114,7 +114,7 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
         type="button"
         onClick={() => setReviewOpen(true)}
         title="submit a review"
-        className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
+        className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-md border border-border bg-transparent px-3 py-2 text-sm font-medium text-foreground hover:bg-foreground/5 transition-colors"
       >
         <Pencil className="h-4 w-4" />
         Review
