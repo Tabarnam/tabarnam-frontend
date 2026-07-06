@@ -184,6 +184,19 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
                       </div>
                     )}
 
+                    {r.contact_email && (
+                      <div className="text-xs mb-2">
+                        <a
+                          href={`mailto:${r.contact_email}`}
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Reviewer chose to share their email with the community"
+                        >
+                          {r.contact_email}
+                        </a>
+                      </div>
+                    )}
+
                     {normalizedSourceUrl && (
                       <div className="text-xs mt-1">
                         <a

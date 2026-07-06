@@ -83,6 +83,10 @@ async function submitReviewHandler(req, ctx) {
   const user_name = String(body?.user_name || "").trim();
   const user_location = String(body?.user_location || "").trim();
   const user_email = String(body?.user_email || body?.email || "").trim();
+  // Opt-in: only when the reviewer both left an email and checked the box do we
+  // ever expose it publicly. Default is private.
+  const show_email =
+    (body?.show_email === true || String(body?.show_email).toLowerCase() === "true");
 
   const companyDoc = await findCompanyByIdOrName(companiesContainer, {
     companyId: companyIdInput,
@@ -154,6 +158,7 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
     user_name: user_name || null,
     user_location: user_location || null,
     user_email: user_email || null,
+    show_email: user_email ? show_email : false,
     is_public: false,
     status: "pending",
     flagged_bot,

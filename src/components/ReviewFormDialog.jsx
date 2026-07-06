@@ -37,7 +37,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
     reset,
     formState: { errors, isSubmitting },
   } = useForm({
-    defaultValues: { subject: "", rating: "", text: "", name: "", email: "", hp_field: "" },
+    defaultValues: { subject: "", rating: "", text: "", name: "", email: "", show_email: false, hp_field: "" },
   });
 
   const ratingWatch = watch("rating");
@@ -48,6 +48,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
 
   const MIN_TEXT = 10;
   const textLen = String(watch("text") || "").trim().length;
+  const emailFilled = Boolean(String(watch("email") || "").trim());
 
   const titleName = String(displayName || companyName || "").trim();
 
@@ -73,6 +74,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           text: data.text.trim(),
           user_name: data.name?.trim() || null,
           user_email: hasEmail ? data.email.trim() : null,
+          show_email: hasEmail ? Boolean(data.show_email) : false,
         },
       });
       const result = await r.json().catch(() => ({}));
@@ -212,6 +214,20 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
               })}
             />
             {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+            {emailFilled && (
+              <label htmlFor="review-show-email" className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  id="review-show-email"
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-border accent-primary"
+                  {...register("show_email")}
+                />
+                Show my email address to Tabarnam community.
+              </label>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Your email is private by default and only used to update you on your review.
+            </p>
           </div>
 
           <DialogFooter>
