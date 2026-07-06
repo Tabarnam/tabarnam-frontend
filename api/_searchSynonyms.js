@@ -538,7 +538,8 @@ async function expandQueryTermsForFTS(q_norm, q_compact) {
       haircare: "hair care", skincare: "skin care", facewash: "face wash",
       facecare: "face care", eyecare: "eye care", eyewash: "eye wash",
       handwash: "hand wash", handcare: "hand care", lipscare: "lips care",
-      lipcare: "lip care",
+      lipcare: "lip care", lipgloss: "lip gloss", lipglosses: "lip gloss",
+      lipbalm: "lip balm", lipliner: "lip liner",
     };
     if (knownSplits[q_norm]) {
       phrases.add(knownSplits[q_norm]);
