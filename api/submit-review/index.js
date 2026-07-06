@@ -62,11 +62,11 @@ async function submitReviewHandler(req, ctx) {
     return json({ error: "Invalid JSON" }, 400, req);
   }
 
-  // Honeypot — if the hidden field is filled, it's a bot. Silently pretend
-  // success so bots don't learn. Field renamed _phone → hp_field so browser
-  // autofill stops tripping the trap for real users (was silently dropping
-  // legit submissions); accept both names for safety.
-  if (body?.hp_field || body?._phone) return json({ ok: true }, 200, req);
+  // Honeypot — a filled hidden field means a bot (or aggressive autofill). We
+  // no longer silently drop it; instead we FLAG it and still store it pending
+  // (applied to the doc below), so a real user whose field got autofilled never
+  // loses their review. Accept both the current and legacy field names.
+  const honeypot_tripped = Boolean(body?.hp_field || body?._phone);
 
   const companyIdInput = String(body?.company_id || body?.companyId || body?.id || "").trim();
   const companyNameInput = String(body?.company_name || body?.company || "").trim();
@@ -115,7 +115,9 @@ async function submitReviewHandler(req, ctx) {
   let flagged_bot = false,
     bot_reason = "";
   try {
-    if (process.env.XAI_API_KEY || process.env.XAI_EXTERNAL_KEY) {
+    // Skip the LLM bot-check for honeypot trips — it's already a known bot, no
+    // need to spend tokens.
+    if (!honeypot_tripped && (process.env.XAI_API_KEY || process.env.XAI_EXTERNAL_KEY)) {
       const prompt = `Return strictly JSON: {"likely_bot": true|false, "reason": "short reason"} for this review:
 Review: ${JSON.stringify(text)}
 Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length: ${
@@ -143,6 +145,11 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
     ctx?.log?.warn?.(`Bot check failed: ${e?.message || e}`);
   }
 
+  if (honeypot_tripped) {
+    flagged_bot = true;
+    if (!bot_reason) bot_reason = "Hidden honeypot field was filled (likely bot or aggressive autofill).";
+  }
+
   // ---- write
   // Pending-by-default: nothing is public or score-affecting until an admin
   // approves it in /admin/review-queue. is_public stays false so get-reviews
@@ -166,6 +173,7 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
     status: "pending",
     flagged_bot,
     bot_reason,
+    honeypot_tripped,
     created_at: new Date().toISOString(),
   };
 
@@ -177,8 +185,10 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
     return json({ error: e?.message || "Insert failed" }, 500, req);
   }
 
-  // ---- best-effort emails (never block the response)
-  if (isEmailConfigured()) {
+  // ---- best-effort emails (never block the response).
+  // Skip emails entirely for honeypot trips so bot spam can't flood the inbox
+  // or send receipts to forged addresses; the review still lands in the queue.
+  if (isEmailConfigured() && !honeypot_tripped) {
     const scoreLine =
       rating != null ? `<p><strong>Your score:</strong> ${escapeHtml(rating)} / 5</p>` : "";
     const subjLine = subject
