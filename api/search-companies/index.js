@@ -663,7 +663,7 @@ function isSynonymOnlyMatch(company, q_norm, q_compact) {
  * Synonym-only penalty: companies matching only via synonym expansion (not the
  * original query) get a 60% score reduction so direct matches always rank higher.
  */
-function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndustries = []) {
+function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndustries = [], synonymPhrases = []) {
   let nameScore = computeNameMatchScore(company, q_raw, q_norm, q_compact);
   let keywordScore = computeKeywordMatchScore(company, q_norm, q_compact);
 
@@ -687,6 +687,23 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndust
       keywordScore,
       computeKeywordMatchScore(company, stemmedNorm, stemmedCompact)
     );
+  }
+
+  // Synonym-expanded equivalence. Candidate RETRIEVAL ORs each query word with
+  // its product synonyms (fridge→refrigerator, wine→winery, lipgloss→"lip
+  // gloss") so synonym docs are FETCHED — but scoring used only the literal
+  // query. A brand tagged only the synonym ("refrigerator", never "fridge")
+  // therefore scored 0 on both name and keyword, fell below MIN_RELEVANCE, and
+  // was filtered right back out: "fridge" retrieved KitchenAid then dropped it.
+  // Score each synonym phrase too and take the max per component so the synonym
+  // doc clears the cutoff and ranks. Only ever RAISES a score (never drops a
+  // literal match). The synonym-only ×0.4 penalty below still keeps literal
+  // "fridge" matches ranked above "refrigerator"-only brands.
+  for (const phrase of synonymPhrases) {
+    if (!phrase || phrase === q_norm) continue;
+    const pc = String(phrase).replace(/\s+/g, "");
+    nameScore = Math.max(nameScore, computeNameMatchScore(company, phrase, phrase, pc));
+    keywordScore = Math.max(keywordScore, computeKeywordMatchScore(company, phrase, pc));
   }
 
   const nameBonus = nameScore >= 60 ? 20 : 0;
@@ -2167,7 +2184,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             company._matchType = "fuzzy";
             delete company._fuzzyMatch;
           } else {
-            const scores = computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndustries);
+            const scores = computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndustries, ftsPhrases);
             company._nameMatchScore = scores._nameMatchScore;
             company._keywordMatchScore = scores._keywordMatchScore;
             company._relevanceScore = scores._relevanceScore;

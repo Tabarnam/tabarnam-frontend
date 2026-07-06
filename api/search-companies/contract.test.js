@@ -2369,3 +2369,38 @@ test("family grouping: does NOT fire when the top result is not a strong name ma
   const ids = JSON.parse(res.body).items.map((i) => i.id).sort();
   assert.deepEqual(ids, ["a", "b"]);
 });
+
+test("computeRelevanceScore credits synonym-phrase keyword matches (fridge → refrigerator)", () => {
+  // A brand tagged only "refrigerator" scores 0 against the literal "fridge"
+  // and would be dropped by MIN_RELEVANCE. Passing the synonym-expanded
+  // phrases lets it clear the cutoff while the synonym-only ×0.4 penalty keeps
+  // it ranked below any direct "fridge" match.
+  const brand = { company_name: "KitchenAid", keywords: ["refrigerator"], industries: ["Appliances"], product_keywords: [] };
+  const noSyn = _test.computeRelevanceScore(brand, "fridge", "fridge", "fridge", []);
+  assert.equal(noSyn._relevanceScore, 0, "literal-only scoring drops the synonym-tagged brand");
+  const withSyn = _test.computeRelevanceScore(brand, "fridge", "fridge", "fridge", [], ["fridge", "refrigerator"]);
+  assert.equal(withSyn._keywordMatchScore, 100, "synonym phrase 'refrigerator' scores the keyword");
+  assert.ok(withSyn._relevanceScore >= 5, "synonym match clears MIN_RELEVANCE");
+  assert.ok(withSyn._relevanceScore < noSyn._relevanceScore + 60, "synonym-only penalty keeps it modest");
+  assert.equal(withSyn._synonymOnly, true, "still flagged synonym-only (no literal 'fridge' match)");
+});
+
+test("fridge query surfaces a refrigerator-only brand end-to-end", async () => {
+  // Retrieval broadens fridge→refrigerator; scoring must keep the refrigerator-
+  // only brand above MIN_RELEVANCE so it appears in results.
+  const brand = { id: "ka", company_name: "KitchenAid", keywords: ["refrigerator"], industries: ["Appliances"], search_text_norm: " kitchenaid refrigerator appliances ", search_tokens: ["kitchenaid", "refrigerator", "appliances"], star_rating: 5, _ts: 5 };
+  const companiesContainer = makeContainer(async (spec) => {
+    const params = spec.parameters || [];
+    // Token query OR'd with the refrigerator synonym clause returns the brand.
+    if (params.some((p) => p.name.startsWith("@tok"))) return [brand];
+    return [];
+  });
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=fridge&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const ids = JSON.parse(res.body).items.map((i) => i.id);
+  assert.ok(ids.includes("ka"), "refrigerator-only brand survives for a fridge query");
+});
