@@ -539,25 +539,28 @@ export default function ExpandableCompanyRow({
             <span className="text-xs text-muted-foreground whitespace-nowrap opacity-0 group-hover/qq:opacity-100 transition-opacity">{score % 1 === 0 ? score : score.toFixed(1)}/5</span>
           </div>
 
+          {/* Review button sits directly beneath the QQ scores in BOTH collapsed
+              and expanded views. w-[106px] matches the bubbles above (5 dots ×
+              18px + 4 gaps × 4px) for a symmetric stack. */}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setReviewOpen(true); }}
+            title="submit a review"
+            className="w-[106px] inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-transparent py-1 text-xs font-medium text-foreground hover:bg-foreground/5 transition-colors"
+          >
+            <Pencil className="h-3 w-3" />
+            Review
+          </button>
+          <ReviewFormDialog
+            open={reviewOpen}
+            onOpenChange={setReviewOpen}
+            companyId={company.company_id || company.id}
+            companyName={canonicalName}
+            displayName={displayName}
+          />
+
           {showReviewPreview && (
             <>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setReviewOpen(true); }}
-                title="submit a review"
-                /* w-[106px] matches the QQ bubbles above (5 dots × 18px + 4 gaps × 4px) and the "Features & Reviews" label below, for a symmetric stack. */
-                className="w-[106px] inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-transparent py-1 text-xs font-medium text-foreground hover:bg-foreground/5 transition-colors"
-              >
-                <Pencil className="h-3 w-3" />
-                Review
-              </button>
-              <ReviewFormDialog
-                open={reviewOpen}
-                onOpenChange={setReviewOpen}
-                companyId={company.company_id || company.id}
-                companyName={canonicalName}
-                displayName={displayName}
-              />
               <div className="text-xs font-semibold text-foreground">Features & Reviews</div>
 
               {reviews.length > 0 ? (
