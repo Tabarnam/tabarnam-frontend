@@ -214,15 +214,6 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
                     )}
                   </div>
 
-                  {r.type === "user" && r.source.includes("(") && (
-                    <div className="mt-2 text-xs text-muted-foreground">User submitted</div>
-                  )}
-
-                  {r.flagged_bot && (
-                    <div className="mt-2 text-xs text-amber-700 bg-amber-50 inline-block px-2 py-1 rounded">
-                      Flagged: {r.bot_reason || "possible automated content"}
-                    </div>
-                  )}
                 </li>
               );
             })}
