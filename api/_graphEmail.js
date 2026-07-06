@@ -9,13 +9,6 @@
 //   GRAPH_TENANT_ID / GRAPH_CLIENT_ID / GRAPH_CLIENT_SECRET — Azure AD app
 //   SENDER_EMAIL — the mailbox that sends (e.g. noreply@tabarnam.com)
 
-require("isomorphic-fetch");
-const { ClientSecretCredential } = require("@azure/identity");
-const { Client } = require("@microsoft/microsoft-graph-client");
-const {
-  TokenCredentialAuthenticationProvider,
-} = require("@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials");
-
 let cachedClient;
 
 function getGraphClient() {
@@ -25,6 +18,17 @@ function getGraphClient() {
 
   if (!tenantId || !clientId || !clientSecret) return null;
   if (cachedClient) return cachedClient;
+
+  // Lazy-load the Graph SDK only when email is actually configured. Keeping these
+  // out of the module's top-level require chain means importing this helper (e.g.
+  // from submit-review) never pulls isomorphic-fetch / @microsoft/microsoft-graph-client
+  // / @azure/identity — deps that aren't installed in the API contract-test env.
+  require("isomorphic-fetch");
+  const { ClientSecretCredential } = require("@azure/identity");
+  const { Client } = require("@microsoft/microsoft-graph-client");
+  const {
+    TokenCredentialAuthenticationProvider,
+  } = require("@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials");
 
   const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
   const authProvider = new TokenCredentialAuthenticationProvider(credential, {
