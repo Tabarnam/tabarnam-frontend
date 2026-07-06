@@ -551,13 +551,6 @@ export default function ExpandableCompanyRow({
             <Pencil className="h-3 w-3" />
             Review
           </button>
-          <ReviewFormDialog
-            open={reviewOpen}
-            onOpenChange={setReviewOpen}
-            companyId={company.company_id || company.id}
-            companyName={canonicalName}
-            displayName={displayName}
-          />
 
           {showReviewPreview && (
             <>
@@ -663,8 +656,23 @@ export default function ExpandableCompanyRow({
     setIsExpanded((prev) => !prev);
   };
 
+  // Rendered once as a SIBLING of the card (below), never inside it. React portals
+  // bubble events through the React tree, so if this lived inside the card a click
+  // on the dialog overlay would bubble to the card's expand/collapse handler and
+  // remount the dialog — a visible close→reopen flash. As a sibling it stays put.
+  const reviewDialog = (
+    <ReviewFormDialog
+      open={reviewOpen}
+      onOpenChange={setReviewOpen}
+      companyId={company.company_id || company.id}
+      companyName={canonicalName}
+      displayName={displayName}
+    />
+  );
+
   if (isExpanded) {
     return (
+      <>
       <div
         ref={rowRef}
         onClick={handleExpandedClick}
@@ -935,10 +943,13 @@ export default function ExpandableCompanyRow({
           </button>
         </div>
       </div>
+      {reviewDialog}
+      </>
     );
   }
 
   return (
+    <>
     <div
       ref={rowRef}
       onClick={handleRowClick}
@@ -1183,5 +1194,7 @@ export default function ExpandableCompanyRow({
         </div>
       )}
     </div>
+    {reviewDialog}
+    </>
   );
 }
