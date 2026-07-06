@@ -391,8 +391,8 @@ async function getReviewsHandler(req, context, deps = {}) {
               url: null,
               rating: r.rating,
               created_at: r.created_at,
-              flagged_bot: r.flagged_bot,
-              bot_reason: r.bot_reason,
+              // flagged_bot / bot_reason are internal moderation signals — never
+              // exposed publicly. They live in the admin queue only.
             };
           });
 
