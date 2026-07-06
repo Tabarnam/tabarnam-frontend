@@ -125,6 +125,7 @@ import ReviewsImportPanel from "./company-dashboard/ReviewsImportPanel";
 import ImportedReviewsPanel from "./company-dashboard/ImportedReviewsPanel";
 import WebReviewFetcher from "./company-dashboard/WebReviewFetcher";
 import CuratedReviewsEditor from "./company-dashboard/CuratedReviewsEditor";
+import UserReviewsPanel from "./company-dashboard/UserReviewsPanel";
 import ReviewLinkFetcher from "./company-dashboard/ReviewLinkFetcher";
 import RatingEditor from "./company-dashboard/RatingEditor";
 import CompanyNotesEditor from "./company-dashboard/CompanyNotesEditor";
@@ -5461,6 +5462,13 @@ export default function CompanyDashboard() {
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), curated_reviews: next }))}
                             disabled={editorSaving}
                           />
+
+                          {(editorDraft?.company_id || editorDraft?.id) && (
+                            <UserReviewsPanel
+                              companyId={editorDraft?.company_id || editorDraft?.id}
+                              companyName={editorDraft?.company_name || editorDraft?.name}
+                            />
+                          )}
                           </div>
                           </CollapsibleSection>
 

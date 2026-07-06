@@ -606,6 +606,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-user-reviews");
+  require("./admin-user-reviews/index.js");
+  console.log("[api] ✓ admin-user-reviews registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-user-reviews:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-save-diagnostic");
   require("./admin-save-diagnostic/index.js");
   console.log("[api] ✓ admin-save-diagnostic registered");
