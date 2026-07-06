@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Pencil } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import ReviewsWidget from "@/components/ReviewsWidget";
+import ReviewFormDialog from "@/components/ReviewFormDialog";
 import useInView from "@/hooks/useInView";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
@@ -229,6 +230,9 @@ export default function ExpandableCompanyRow({
   query = "",
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  // Review submission dialog for the collapsed-card "Review" button. The
+  // expanded view has its own button inside ReviewsWidget.
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   // Phase 4.28 — attach this ref to the outer container of whichever
   // return branch renders (collapsed or expanded). The `once: true`
@@ -537,6 +541,22 @@ export default function ExpandableCompanyRow({
 
           {showReviewPreview && (
             <>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setReviewOpen(true); }}
+                title="submit a review"
+                className="w-full inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+              >
+                <Pencil className="h-3 w-3" />
+                Review
+              </button>
+              <ReviewFormDialog
+                open={reviewOpen}
+                onOpenChange={setReviewOpen}
+                companyId={company.company_id || company.id}
+                companyName={canonicalName}
+                displayName={displayName}
+              />
               <div className="text-xs font-semibold text-foreground">Features & Reviews</div>
 
               {reviews.length > 0 ? (

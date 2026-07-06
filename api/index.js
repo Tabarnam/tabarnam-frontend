@@ -590,6 +590,22 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-review-queue");
+  require("./admin-review-queue/index.js");
+  console.log("[api] ✓ admin-review-queue registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-review-queue:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-review-decide");
+  require("./admin-review-decide/index.js");
+  console.log("[api] ✓ admin-review-decide registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-review-decide:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-save-diagnostic");
   require("./admin-save-diagnostic/index.js");
   console.log("[api] ✓ admin-save-diagnostic registered");
