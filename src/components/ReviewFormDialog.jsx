@@ -62,13 +62,10 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
   const titleName = String(displayName || companyName || "").trim();
 
   const onSubmit = async (data) => {
-    // Honeypot — bots fill this hidden field. Named neutrally (not "phone"/
-    // "email"/"name") so browser autofill won't populate it for real users.
-    if (data.hp_field) {
-      onOpenChange?.(false);
-      return;
-    }
-
+    // Honeypot is NOT dropped client-side anymore. We forward its value so the
+    // server can FLAG the submission (stored pending + flagged) rather than
+    // silently discard it — so a real user whose field got autofilled never
+    // loses their review. The user still sees a normal success either way.
     const hasEmail = Boolean(data.email && data.email.trim());
     const ratingStr = String(data.rating ?? "").trim();
 
@@ -85,6 +82,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           user_name: data.name?.trim() || null,
           user_email: hasEmail ? data.email.trim() : null,
           show_email: hasEmail ? Boolean(data.show_email) : false,
+          hp_field: data.hp_field || undefined,
         },
       });
       const result = await r.json().catch(() => ({}));
@@ -139,10 +137,14 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
         <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="grid gap-4">
           {/* Honeypot - hidden from real users. Neutral name + ignore hints so
               browser/password-manager autofill leaves it empty (a filled value
-              means a bot). */}
+              means a bot). readOnly-until-focus blocks autofill from writing to
+              it (a real user never focuses an off-screen field); a fill-everything
+              bot sets .value directly and still trips it. */}
           <input
             {...register("hp_field")}
             type="text"
+            readOnly
+            onFocus={(e) => e.currentTarget.removeAttribute("readonly")}
             tabIndex={-1}
             autoComplete="off"
             aria-hidden="true"

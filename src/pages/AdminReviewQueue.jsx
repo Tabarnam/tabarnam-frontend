@@ -174,7 +174,15 @@ export default function AdminReviewQueue() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {review.flagged_bot && (
+                      {review.honeypot_tripped && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/30 dark:text-red-300"
+                          title={review.bot_reason || "Hidden honeypot field was filled — almost certainly a bot (or aggressive autofill)."}
+                        >
+                          <Bot className="h-3 w-3" /> honeypot
+                        </span>
+                      )}
+                      {review.flagged_bot && !review.honeypot_tripped && (
                         <span
                           className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
                           title={review.bot_reason || "Flagged as possible automated content"}
