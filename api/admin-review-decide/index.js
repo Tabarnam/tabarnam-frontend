@@ -40,20 +40,20 @@ function nonNegInt(v) {
 // Normalize an approved user review into the shape buildReviewsSummary()
 // (api/_companyScoring.js) reads when scoring, and get-reviews-style display.
 function toEmbeddedReview(review, nowIso) {
-  const sourceName = review.user_name
-    ? `${review.user_name}${review.user_location ? ` (${review.user_location})` : ""}`
-    : "Tabarnam user";
   return {
     review_id: review.id,
     type: "user",
-    source_name: sourceName,
-    source: sourceName,
-    author: review.user_name || "Anonymous",
+    // Uniform public attribution label. The reviewer's real name/email are NOT
+    // embedded in the company doc (which can be returned to clients) — they live
+    // only in the reviews container for admin use.
+    source_name: "Tabarnam Transparency Advocate",
+    source: "Tabarnam Transparency Advocate",
     title: review.subject || "",
     text: review.text,
     rating: review.rating ?? null,
     is_public: true,
     show_to_users: true,
+    // Display date = submission date, not approval date.
     created_at: review.created_at || nowIso,
     approved_at: nowIso,
   };
