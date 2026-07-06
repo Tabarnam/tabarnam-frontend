@@ -142,7 +142,10 @@ async function handleGet(req, reviewsContainer) {
 
   if (!companyId && !company) return json({ error: "company_id or company required" }, 400);
 
-  const where = ["c.type != 'curated'"];
+  // User-submitted reviews have no `type` field. In Cosmos, `c.type != 'curated'`
+  // is UNDEFINED (not true) when the field is absent, which would drop every
+  // user review — so guard with IS_DEFINED.
+  const where = ["(NOT IS_DEFINED(c.type) OR c.type != 'curated')"];
   const parameters = [];
   const idOrName = [];
   if (companyId) {
