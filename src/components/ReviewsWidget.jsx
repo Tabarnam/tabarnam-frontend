@@ -1,10 +1,11 @@
 // src/components/ReviewsWidget.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowDownUp } from "lucide-react";
+import { ArrowDownUp, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { normalizeExternalUrl } from "@/lib/externalUrl";
 import { RatingDots } from "@/components/Stars";
+import ReviewFormDialog from "@/components/ReviewFormDialog";
 
 function pickReviewDate(review) {
   if (!review || typeof review !== "object") return "";
@@ -56,12 +57,8 @@ function parseReviewTimestamp(value) {
 export default function ReviewsWidget({ companyId, companyName, displayName }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [rating, setRating] = useState(5);
-  const [text, setText] = useState("");
-  const [userName, setUserName] = useState("");
-  const [userLocation, setUserLocation] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [reviewOpen, setReviewOpen] = useState(false);
   // "newest" | "oldest". The pre-2026-07-XX cycle had a third "null"
   // (unsorted "Sort by date" prompt) state — user feedback said that
   // option was useless and confusing, so reviews now always show in a
@@ -97,32 +94,6 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
-  async function submit() {
-    setError("");
-    if (!companyName) { setError("No company selected."); return; }
-    if (!text.trim() || text.trim().length < 10) {
-      setError("Please write a longer review (at least 10 characters)."); return;
-    }
-    setSubmitting(true);
-    try {
-      const r = await apiFetch("/submit-review", {
-        method: "POST",
-        body: {
-          company_name: companyName,
-          rating: Number(rating),
-          text: text.trim(),
-          user_name: userName.trim() || null,
-          user_location: userLocation.trim() || null,
-        },
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data?.ok) throw new Error(data?.error || r.statusText || "Submit failed");
-      setList(prev => [data.review, ...prev]);
-      setText(""); setUserName(""); setUserLocation(""); setRating(5);
-    } catch (e) { setError(e?.message || "Submit failed"); }
-    finally { setSubmitting(false); }
-  }
-
   const titleName = String(displayName || companyName || "").trim();
 
   const sortedList = useMemo(() => {
@@ -139,6 +110,22 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
 
   return (
     <div className="mt-3 border border-border rounded p-3 bg-muted/50">
+      <button
+        type="button"
+        onClick={() => setReviewOpen(true)}
+        title="submit a review"
+        className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
+      >
+        <Pencil className="h-4 w-4" />
+        Review
+      </button>
+      <ReviewFormDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        companyId={companyId}
+        companyName={companyName}
+        displayName={displayName}
+      />
       <div className="flex items-center justify-between mb-2">
         <div className="font-semibold">{titleName ? `Features & Reviews for ${titleName}` : "Features & Reviews"}</div>
         {list.length > 1 && (

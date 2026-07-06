@@ -86,10 +86,14 @@ function asString(v) {
 function buildReviewsSummary(company) {
   const reviews = [];
 
-  // Prefer curated_reviews (editorial), then fall back to reviews
+  // Include BOTH admin-approved user reviews (company.reviews) and editorial
+  // curated_reviews so a freshly approved community review actually moves the
+  // score. User reviews come first: they're the fresh signal we approve to
+  // "incorporate the new review", and the sample is capped at 5 / REVIEWS_CHAR_LIMIT.
+  // For existing data company.reviews is typically empty, so this is a no-op there.
   const curated = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
   const raw = Array.isArray(company.reviews) ? company.reviews : [];
-  const all = curated.length > 0 ? curated : raw;
+  const all = [...raw, ...curated];
 
   for (const r of all.slice(0, 5)) {
     const parts = [];

@@ -10,11 +10,15 @@ const {
   getCompaniesContainer,
   getReviewsContainer,
   findCompanyByIdOrName,
-  incrementCompanyReviewCounts,
 } = require("../_reviewCounts");
 const { xaiResponses } = require("../_xai");
 // Phase 4.0 — centralized default xAI model.
 const { DEFAULT_XAI_MODEL } = require("../_shared");
+const { isEmailConfigured, sendEmail, escapeHtml } = require("../_graphEmail");
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Admin inbox that gets a heads-up when a new review lands in the queue.
+const REVIEW_ADMIN_INBOX = "duh@tabarnam.com";
 
 // -------- helpers ----------
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
@@ -42,17 +46,6 @@ const safeUuid = () => {
   }
 };
 
-
-function normalizeBool(value, defaultValue = true) {
-  if (value === undefined || value === null) return defaultValue;
-  if (value === true || value === false) return value;
-  const v = String(value).trim().toLowerCase();
-  if (!v) return defaultValue;
-  if (["true", "1", "yes", "y", "on"].includes(v)) return true;
-  if (["false", "0", "no", "n", "off"].includes(v)) return false;
-  return defaultValue;
-}
-
 async function submitReviewHandler(req, ctx) {
   if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
@@ -69,14 +62,25 @@ async function submitReviewHandler(req, ctx) {
     return json({ error: "Invalid JSON" }, 400, req);
   }
 
+  // Honeypot — if the hidden _phone field is filled, it's a bot. Silently
+  // pretend success (same trap as the Contact Us form) so bots don't learn.
+  if (body?._phone) return json({ ok: true }, 200, req);
+
   const companyIdInput = String(body?.company_id || body?.companyId || body?.id || "").trim();
   const companyNameInput = String(body?.company_name || body?.company || "").trim();
 
-  const rating = Number(body?.rating);
+  // Score is OPTIONAL and may be any number 0–5 including tenths (e.g. 4.3).
+  // Absent/blank → null (a review with no numeric score).
+  const rawRating = body?.rating;
+  const hasRating =
+    rawRating !== undefined && rawRating !== null && String(rawRating).trim() !== "";
+  const ratingNum = hasRating ? Number(rawRating) : null;
+
+  const subject = String(body?.subject || "").trim();
   const text = String(body?.text || "").trim();
   const user_name = String(body?.user_name || "").trim();
   const user_location = String(body?.user_location || "").trim();
-  const is_public = normalizeBool(body?.is_public, true);
+  const user_email = String(body?.user_email || body?.email || "").trim();
 
   const companyDoc = await findCompanyByIdOrName(companiesContainer, {
     companyId: companyIdInput,
@@ -90,10 +94,14 @@ async function submitReviewHandler(req, ctx) {
     String(companyDoc?.company_name || companyDoc?.name || companyNameInput || "").trim() || null;
 
   if (!resolvedCompanyName) return json({ error: "company_name required" }, 400, req);
-  if (!(rating >= 1 && rating <= 5))
-    return json({ error: "rating must be 1..5" }, 400, req);
+  if (hasRating && !(Number.isFinite(ratingNum) && ratingNum >= 0 && ratingNum <= 5))
+    return json({ error: "rating must be a number between 0 and 5" }, 400, req);
   if (text.length < 10)
     return json({ error: "review text too short" }, 400, req);
+  if (user_email && !EMAIL_RE.test(user_email))
+    return json({ error: "invalid email address" }, 400, req);
+
+  const rating = hasRating ? ratingNum : null;
 
   // ---- optional bot check (best effort)
   let flagged_bot = false,
@@ -128,17 +136,24 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
   }
 
   // ---- write
+  // Pending-by-default: nothing is public or score-affecting until an admin
+  // approves it in /admin/review-queue. is_public stays false so get-reviews
+  // excludes it, and company review counts are NOT bumped here — that happens
+  // on approval. This neutralizes the score-poisoning vector for bot spam.
   const doc = {
     id: safeUuid(),
     // NOTE: our reviews container is assumed to use /company as the partition key.
     company: resolvedCompanyName,
     company_name: resolvedCompanyName,
     ...(resolvedCompanyId ? { company_id: resolvedCompanyId } : {}),
+    subject: subject || null,
     rating,
     text,
     user_name: user_name || null,
     user_location: user_location || null,
-    is_public,
+    user_email: user_email || null,
+    is_public: false,
+    status: "pending",
     flagged_bot,
     bot_reason,
     created_at: new Date().toISOString(),
@@ -148,20 +163,59 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
     await reviewsContainer.items.upsert(doc, {
       partitionKey: doc.company || "reviews",
     });
-
-    if (companyDoc && companiesContainer) {
-      const delta = {
-        review_count: 1,
-        public_review_count: is_public ? 1 : 0,
-        private_review_count: is_public ? 0 : 1,
-      };
-      await incrementCompanyReviewCounts(companiesContainer, companyDoc, delta).catch(() => null);
-    }
-
-    return json({ ok: true, review: doc }, 200, req);
   } catch (e) {
     return json({ error: e?.message || "Insert failed" }, 500, req);
   }
+
+  // ---- best-effort emails (never block the response)
+  if (isEmailConfigured()) {
+    const scoreLine =
+      rating != null ? `<p><strong>Your score:</strong> ${escapeHtml(rating)} / 5</p>` : "";
+    const subjLine = subject
+      ? `<p><strong>Subject:</strong> ${escapeHtml(subject)}</p>`
+      : "";
+    const reviewBlock = `${subjLine}${scoreLine}
+<blockquote style="border-left:3px solid #ccc;padding-left:12px;margin:12px 0;color:#555;">${escapeHtml(text).replace(/\n/g, "<br />")}</blockquote>`;
+
+    // 1) Receipt to the submitter (only if they gave an email)
+    if (user_email) {
+      const receiptHtml = `<p>Hi${user_name ? " " + escapeHtml(user_name) : ""},</p>
+<p>Thanks for reviewing <strong>${escapeHtml(resolvedCompanyName)}</strong> on Tabarnam. We've received your submission and it's pending approval by our team. You'll get another email once it's been reviewed.</p>
+<p>Here's a copy of what you submitted:</p>
+${reviewBlock}
+<p>Best,<br />The Tabarnam Team</p>`;
+      try {
+        await sendEmail({
+          to: user_email,
+          toName: user_name || undefined,
+          subject: `We received your review of ${resolvedCompanyName}`,
+          html: receiptHtml,
+        });
+      } catch (mailErr) {
+        ctx?.log?.warn?.(`submit-review receipt email failed: ${mailErr?.message || mailErr}`);
+      }
+    }
+
+    // 2) Heads-up to the admin inbox that a review is waiting in the queue
+    const adminHtml = `<p>A new user review is pending approval.</p>
+<p><strong>Company:</strong> ${escapeHtml(resolvedCompanyName)}</p>
+<p><strong>From:</strong> ${escapeHtml(user_name || "Anonymous")}${user_email ? ` (${escapeHtml(user_email)})` : ""}${flagged_bot ? " — ⚠ flagged as possible bot" : ""}</p>
+${reviewBlock}
+<p>Review it in the admin Review Queue.</p>`;
+    try {
+      await sendEmail({
+        to: REVIEW_ADMIN_INBOX,
+        subject: `[Review pending] ${resolvedCompanyName}`,
+        html: adminHtml,
+        replyTo: user_email || undefined,
+        replyToName: user_name || undefined,
+      });
+    } catch (mailErr) {
+      ctx?.log?.warn?.(`submit-review admin notice failed: ${mailErr?.message || mailErr}`);
+    }
+  }
+
+  return json({ ok: true, review: doc }, 200, req);
 }
 
 app.http("submit-review", {

@@ -163,6 +163,9 @@ export default function AdminHeader() {
               <NavLink to="/admin/backfill-scores" className={navLinkClass}>
                 Scores
               </NavLink>
+              <NavLink to="/admin/review-queue" className={navLinkClass}>
+                Reviews
+              </NavLink>
               <NavLink to="/admin/backfill-homepages" className={navLinkClass}>
                 Backfill Pages
               </NavLink>

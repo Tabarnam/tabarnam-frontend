@@ -6,12 +6,7 @@ try {
   app = { http() {} };
 }
 
-require("isomorphic-fetch");
-const { ClientSecretCredential } = require("@azure/identity");
-const { Client } = require("@microsoft/microsoft-graph-client");
-const {
-  TokenCredentialAuthenticationProvider,
-} = require("@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials");
+const { isEmailConfigured, sendEmail } = require("../_graphEmail");
 
 // -------- helpers ----------
 const cors = (req) => {
@@ -36,21 +31,6 @@ const SUBJECT_LABELS = {
   "report-issue": "Report an issue / Bug",
   "general-inquiry": "General inquiry",
 };
-
-function getGraphClient() {
-  const tenantId = process.env.GRAPH_TENANT_ID;
-  const clientId = process.env.GRAPH_CLIENT_ID;
-  const clientSecret = process.env.GRAPH_CLIENT_SECRET;
-
-  if (!tenantId || !clientId || !clientSecret) return null;
-
-  const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
-  const authProvider = new TokenCredentialAuthenticationProvider(credential, {
-    scopes: ["https://graph.microsoft.com/.default"],
-  });
-
-  return Client.initWithMiddleware({ authProvider });
-}
 
 async function contactSendHandler(req, context) {
   if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
@@ -88,11 +68,8 @@ async function contactSendHandler(req, context) {
   const displaySubject =
     subject === "other" ? customSubject : SUBJECT_LABELS[subject] || subject;
 
-  // Send via Microsoft Graph API
-  const senderEmail = process.env.SENDER_EMAIL;
-  const graphClient = getGraphClient();
-
-  if (!graphClient || !senderEmail)
+  // Send via Microsoft Graph API (shared helper — see api/_graphEmail.js)
+  if (!isEmailConfigured())
     return json({ error: "Email service not configured" }, 503, req);
 
   try {
@@ -102,32 +79,15 @@ async function contactSendHandler(req, context) {
              <hr />
              <p>${message.replace(/\n/g, "<br />")}</p>`;
 
-    context?.log?.("Contact send: calling Graph API for sender:", senderEmail);
+    context?.log?.("Contact send: calling Graph API");
 
-    const sendMailBody = {
-      message: {
-        subject: `[User] ${displaySubject}`,
-        toRecipients: [
-          { emailAddress: { address: "duh@tabarnam.com" } },
-        ],
-        replyTo: [
-          { emailAddress: { address: email, name: fromName } },
-        ],
-        body: {
-          contentType: "HTML",
-          content: htmlBody,
-        },
-      },
-      saveToSentItems: true,
-    };
-
-    context?.log?.("Contact send: request body:", JSON.stringify(sendMailBody));
-
-    const response = await graphClient
-      .api(`/users/${senderEmail}/sendMail`)
-      .post(sendMailBody);
-
-    context?.log?.("Contact send: Graph response:", JSON.stringify(response));
+    await sendEmail({
+      to: "duh@tabarnam.com",
+      subject: `[User] ${displaySubject}`,
+      html: htmlBody,
+      replyTo: email,
+      replyToName: fromName,
+    });
 
     // Send auto-response to the submitter
     const autoResponseHtml = `<p>Hi ${fromName},</p>
@@ -139,18 +99,11 @@ async function contactSendHandler(req, context) {
 <p>Best,<br />The Tabarnam Team</p>`;
 
     try {
-      await graphClient.api(`/users/${senderEmail}/sendMail`).post({
-        message: {
-          subject: `Thanks for contacting Tabarnam`,
-          toRecipients: [
-            { emailAddress: { address: email, name: fromName } },
-          ],
-          body: {
-            contentType: "HTML",
-            content: autoResponseHtml,
-          },
-        },
-        saveToSentItems: true,
+      await sendEmail({
+        to: email,
+        toName: fromName,
+        subject: `Thanks for contacting Tabarnam`,
+        html: autoResponseHtml,
       });
       context?.log?.("Contact send: auto-response sent to", email);
     } catch (autoErr) {
