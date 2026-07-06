@@ -46,6 +46,9 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
     return Number.isFinite(n) && ratingWatch !== "" ? Math.max(0, Math.min(5, n)) : null;
   })();
 
+  const MIN_TEXT = 10;
+  const textLen = String(watch("text") || "").trim().length;
+
   const titleName = String(displayName || companyName || "").trim();
 
   const onSubmit = async (data) => {
@@ -89,6 +92,17 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
     }
   };
 
+  // Fired when the user hits Submit but client-side validation fails (e.g. the
+  // review is too short). Surface a toast so the reason isn't easy to miss.
+  const onInvalid = (formErrors) => {
+    const msg =
+      formErrors?.text?.message ||
+      formErrors?.rating?.message ||
+      formErrors?.email?.message ||
+      "Please fix the highlighted fields before submitting.";
+    toast.error(msg);
+  };
+
   const handleCancel = () => {
     reset();
     onOpenChange?.(false);
@@ -109,7 +123,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4">
+        <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="grid gap-4">
           {/* Honeypot - hidden from real users */}
           <input
             {...register("_phone")}
@@ -166,10 +180,14 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
               rows={5}
               {...register("text", {
                 required: "Please write a review",
-                minLength: { value: 10, message: "Review must be at least 10 characters" },
+                minLength: { value: MIN_TEXT, message: `Review must be at least ${MIN_TEXT} characters` },
               })}
             />
-            {errors.text && <p className="text-sm text-destructive">{errors.text.message}</p>}
+            <p className={`text-xs ${textLen > 0 && textLen < MIN_TEXT ? "text-destructive" : "text-muted-foreground"}`}>
+              {textLen < MIN_TEXT
+                ? `At least ${MIN_TEXT} characters needed (${textLen}/${MIN_TEXT}).`
+                : `${textLen} characters`}
+            </p>
           </div>
 
           <div className="grid gap-2">
