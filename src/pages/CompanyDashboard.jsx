@@ -128,6 +128,7 @@ import CuratedReviewsEditor from "./company-dashboard/CuratedReviewsEditor";
 import UserReviewsPanel from "./company-dashboard/UserReviewsPanel";
 import ReviewLinkFetcher from "./company-dashboard/ReviewLinkFetcher";
 import RatingEditor from "./company-dashboard/RatingEditor";
+import ScoreHistoryViewer from "./company-dashboard/ScoreHistoryViewer";
 import CompanyNotesEditor from "./company-dashboard/CompanyNotesEditor";
 import StructuredLocationListEditor from "./company-dashboard/StructuredLocationListEditor";
 import { parseBulkPasteText } from "./company-dashboard/parseBulkPaste";
@@ -5802,6 +5803,11 @@ export default function CompanyDashboard() {
 
                           <CollapsibleSection title="Stars" isOpen={sidebarSections.stars} onToggle={() => toggleSidebarSection("stars")}>
                           <RatingEditor ref={ratingEditorRef} draft={editorDraft} onChange={(next) => setEditorDraft(next)} StarNotesEditor={StarNotesEditor} />
+                          {editorOriginalId ? (
+                            <div className="mt-3">
+                              <ScoreHistoryViewer companyId={editorOriginalId} />
+                            </div>
+                          ) : null}
                           </CollapsibleSection>
 
                           <CollapsibleSection title="Fetch Reviews From Web" isOpen={sidebarSections.webReviewFetcher} onToggle={() => toggleSidebarSection("webReviewFetcher")}>

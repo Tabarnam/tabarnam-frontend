@@ -22,6 +22,7 @@ const {
 const { withAdminGuard } = require("../_adminAuth");
 const { computeReputationQualityScores } = require("../_companyScoring");
 const { isEmailConfigured, sendEmail, escapeHtml } = require("../_graphEmail");
+const { writeCompanyEditHistoryEntry } = require("../_companyEditHistory");
 
 const cors = () => ({
   "Access-Control-Allow-Origin": "*",
@@ -205,6 +206,8 @@ async function adminReviewDecideHandler(req, context) {
     }).catch(() => null);
 
     if (company && String(company.normalized_domain || "").trim()) {
+      // Snapshot before any mutation so the score-history diff shows old→new.
+      const companyBefore = JSON.parse(JSON.stringify(company));
       const existingReviews = Array.isArray(company.reviews) ? company.reviews : [];
       // Drop any prior embed of this same review so re-decisions stay idempotent.
       const withoutThis = existingReviews.filter((r) => r && r.review_id !== review.id);
@@ -231,6 +234,28 @@ async function adminReviewDecideHandler(req, context) {
         companyUpdated = true;
       } catch (e) {
         context?.log?.(`[admin-review-decide] company upsert failed: ${e?.message || e}`);
+      }
+
+      // Best-effort score-history entry (never blocks the decision).
+      if (companyUpdated) {
+        try {
+          await writeCompanyEditHistoryEntry({
+            company_id: String(company.company_id || company.id || review.company_id || "").trim(),
+            actor_email: decidedBy || undefined,
+            actor_user_id: decidedBy || undefined,
+            action: "score_rescore",
+            source: `review-${decision}`,
+            before: companyBefore,
+            after: company,
+            trigger: {
+              type: `review_${decision}`,
+              review_id: review.id,
+              review_subject: review.subject || null,
+            },
+          });
+        } catch (e) {
+          context?.log?.(`[admin-review-decide] history write failed: ${e?.message || e}`);
+        }
       }
     } else {
       context?.log?.(

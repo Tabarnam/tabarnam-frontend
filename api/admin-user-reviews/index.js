@@ -23,6 +23,7 @@ const {
 } = require("../_reviewCounts");
 const { withAdminGuard } = require("../_adminAuth");
 const { computeReputationQualityScores } = require("../_companyScoring");
+const { writeCompanyEditHistoryEntry } = require("../_companyEditHistory");
 
 const cors = () => ({
   "Access-Control-Allow-Origin": "*",
@@ -95,7 +96,7 @@ async function rescoreCompany(company, nowIso, context) {
 
 // Re-sync the company doc after a review edit/removal: replace/drop the embed,
 // adjust public counts, rescore, and upsert. Returns { scoring, companyUpdated }.
-async function syncCompany(companiesContainer, review, mode, nowIso, context) {
+async function syncCompany(companiesContainer, review, mode, nowIso, context, actor) {
   const out = { scoring: null, companyUpdated: false };
   if (!companiesContainer) return out;
 
@@ -109,6 +110,8 @@ async function syncCompany(companiesContainer, review, mode, nowIso, context) {
     return out;
   }
 
+  // Snapshot before any mutation so the score-history diff shows old→new.
+  const companyBefore = JSON.parse(JSON.stringify(company));
   const existing = Array.isArray(company.reviews) ? company.reviews : [];
   const withoutThis = existing.filter((r) => r && r.review_id !== review.id);
   const wasEmbedded = existing.length !== withoutThis.length;
@@ -130,6 +133,28 @@ async function syncCompany(companiesContainer, review, mode, nowIso, context) {
     out.companyUpdated = true;
   } catch (e) {
     context?.log?.(`[admin-user-reviews] company upsert failed: ${e?.message || e}`);
+  }
+
+  // Best-effort score-history entry (never blocks the edit/remove).
+  if (out.companyUpdated) {
+    try {
+      await writeCompanyEditHistoryEntry({
+        company_id: String(company.company_id || company.id || review.company_id || "").trim(),
+        actor_email: actor || undefined,
+        actor_user_id: actor || undefined,
+        action: "score_rescore",
+        source: `review-${mode === "remove" ? "removed" : "edited"}`,
+        before: companyBefore,
+        after: company,
+        trigger: {
+          type: mode === "remove" ? "review_removed" : "review_edited",
+          review_id: review.id,
+          review_subject: review.subject || null,
+        },
+      });
+    } catch (e) {
+      context?.log?.(`[admin-user-reviews] history write failed: ${e?.message || e}`);
+    }
   }
   return out;
 }
@@ -218,7 +243,7 @@ async function adminUserReviewsHandler(req, context) {
     } catch (e) {
       return json({ error: `Failed to update review: ${e?.message || e}` }, 500);
     }
-    const { scoring, companyUpdated } = await syncCompany(companiesContainer, review, "remove", nowIso, context);
+    const { scoring, companyUpdated } = await syncCompany(companiesContainer, review, "remove", nowIso, context, (req && req.__admin_email) || null);
     return json({
       ok: true,
       id,
@@ -261,7 +286,7 @@ async function adminUserReviewsHandler(req, context) {
   let scoring = null;
   let companyUpdated = false;
   if (review.status === "approved" && review.is_public) {
-    ({ scoring, companyUpdated } = await syncCompany(companiesContainer, review, "edit", nowIso, context));
+    ({ scoring, companyUpdated } = await syncCompany(companiesContainer, review, "edit", nowIso, context, (req && req.__admin_email) || null));
   }
 
   return json({

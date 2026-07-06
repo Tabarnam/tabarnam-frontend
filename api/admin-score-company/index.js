@@ -1,6 +1,7 @@
 const { app } = require('@azure/functions');
 const { CosmosClient } = require('@azure/cosmos');
 const { computeReputationQualityScores } = require("../_companyScoring");
+const { writeCompanyEditHistoryEntry } = require("../_companyEditHistory");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -85,6 +86,9 @@ async function adminScoreCompanyHandler(req, context) {
       company.rating = {};
     }
 
+    // Snapshot before scoring mutates rating, for the score-history diff.
+    const companyBefore = JSON.parse(JSON.stringify(company));
+
     // Idempotency: skip if star4 already has a value (unless force or propose).
     // Propose mode always runs — it returns a non-persistent proposal for admin review.
     const existingStar4Value = company.rating?.star4?.value;
@@ -156,6 +160,22 @@ async function adminScoreCompanyHandler(req, context) {
     await companiesContainer.items.upsert(company, { partitionKey: partitionKeyValue });
 
     context.log(`[admin-score-company] Scored ${company.company_name || normalizedDomain}: star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}, duration=${(durationMs / 1000).toFixed(1)}s`);
+
+    // Best-effort score-history entry (never blocks scoring).
+    try {
+      await writeCompanyEditHistoryEntry({
+        company_id: String(company.company_id || company.id || companyId || "").trim(),
+        actor_email: (req && req.__admin_email) || undefined,
+        actor_user_id: (req && req.__admin_email) || undefined,
+        action: "score_rescore",
+        source: "manual-rescore",
+        before: companyBefore,
+        after: company,
+        trigger: { type: "manual_rescore" },
+      });
+    } catch (e) {
+      context.log(`[admin-score-company] history write failed: ${e?.message || e}`);
+    }
 
     return json({
       ok: true,
