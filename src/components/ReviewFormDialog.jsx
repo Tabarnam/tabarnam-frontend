@@ -37,7 +37,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
     reset,
     formState: { errors, isSubmitting },
   } = useForm({
-    defaultValues: { subject: "", rating: "", text: "", name: "", email: "", _phone: "" },
+    defaultValues: { subject: "", rating: "", text: "", name: "", email: "", hp_field: "" },
   });
 
   const ratingWatch = watch("rating");
@@ -52,8 +52,9 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
   const titleName = String(displayName || companyName || "").trim();
 
   const onSubmit = async (data) => {
-    // Honeypot — bots fill this hidden field.
-    if (data._phone) {
+    // Honeypot — bots fill this hidden field. Named neutrally (not "phone"/
+    // "email"/"name") so browser autofill won't populate it for real users.
+    if (data.hp_field) {
       onOpenChange?.(false);
       return;
     }
@@ -124,14 +125,19 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="grid gap-4">
-          {/* Honeypot - hidden from real users */}
+          {/* Honeypot - hidden from real users. Neutral name + ignore hints so
+              browser/password-manager autofill leaves it empty (a filled value
+              means a bot). */}
           <input
-            {...register("_phone")}
+            {...register("hp_field")}
             type="text"
             tabIndex={-1}
             autoComplete="off"
             aria-hidden="true"
-            style={{ position: "absolute", left: "-9999px", opacity: 0 }}
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-form-type="other"
+            style={{ position: "absolute", left: "-9999px", opacity: 0, height: 0, width: 0 }}
           />
 
           <div className="grid gap-2">
