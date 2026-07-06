@@ -102,6 +102,10 @@ const PRODUCT_SYNONYM_GROUPS = [
   ["knives", "blades"],
   ["spatula", "turner", "flipper"],
   ["cutting board", "chopping board"],
+  // Appliances — "fridge" is the everyday word for "refrigerator"; pair them
+  // (and plurals) so either query reaches brands tagged with only one form.
+  ["fridge", "refrigerator"],
+  ["fridges", "refrigerators"],
   // Personal care
   ["soap", "cleanser", "wash"],
   ["shampoo", "hair wash"],
