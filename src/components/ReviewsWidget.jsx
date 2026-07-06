@@ -1,11 +1,10 @@
 // src/components/ReviewsWidget.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowDownUp, Pencil } from "lucide-react";
+import { ArrowDownUp } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { normalizeExternalUrl } from "@/lib/externalUrl";
 import { RatingDots } from "@/components/Stars";
-import ReviewFormDialog from "@/components/ReviewFormDialog";
 
 function pickReviewDate(review) {
   if (!review || typeof review !== "object") return "";
@@ -58,7 +57,6 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [reviewOpen, setReviewOpen] = useState(false);
   // "newest" | "oldest". The pre-2026-07-XX cycle had a third "null"
   // (unsorted "Sort by date" prompt) state — user feedback said that
   // option was useless and confusing, so reviews now always show in a
@@ -110,22 +108,6 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
 
   return (
     <div className="mt-3 border border-border rounded p-3 bg-muted/50">
-      <button
-        type="button"
-        onClick={() => setReviewOpen(true)}
-        title="submit a review"
-        className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-md border border-border bg-transparent px-3 py-2 text-sm font-medium text-foreground hover:bg-foreground/5 transition-colors"
-      >
-        <Pencil className="h-4 w-4" />
-        Review
-      </button>
-      <ReviewFormDialog
-        open={reviewOpen}
-        onOpenChange={setReviewOpen}
-        companyId={companyId}
-        companyName={companyName}
-        displayName={displayName}
-      />
       <div className="flex items-center justify-between mb-2">
         <div className="font-semibold">{titleName ? `Features & Reviews for ${titleName}` : "Features & Reviews"}</div>
         {list.length > 1 && (
