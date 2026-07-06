@@ -26,7 +26,7 @@ const SCORING_SYSTEM_PROMPT = `Analyze the provided company data, captured revie
 }
 
 Strict rules:
-- You are scoring from a narrow slice of data: a handful of editorial review excerpts, a short About/homepage snippet, and (optionally) admin notes left by Tabarnam moderators. You have NOT browsed the company's full site, you have NOT checked BBB, you have NOT looked up certifications. Do not claim things are missing. Only cite what the provided data actually contains.
+- You are scoring from the company's public reviews (community + editorial), a short About/homepage snippet, and (optionally) admin notes left by Tabarnam moderators. Weigh the full set of reviews provided. You have NOT browsed the company's full site, you have NOT checked BBB, you have NOT looked up certifications. Do not claim things are missing. Only cite what the provided data actually contains.
 - Base scores and bullets ONLY on what the provided reviews, site snippet, and admin notes actually say.
 - Admin notes (when present) are authoritative signal from Tabarnam moderators who have reviewed this company's situation directly. Treat them as high-priority evidence: if an admin note reports a concrete positive or negative signal, cite it in the matching star's bullets (prefix source as '- Admin note:' when the bullet originates from a note) and let it move the score accordingly. Notes attached to star4 inform reputation; notes attached to star5 inform quality. Do not ignore admin notes even if other captured data is thin.
 - NEVER cite star ratings, numeric scores, review counts, or metadata about the data you were given.
@@ -44,7 +44,12 @@ Strict rules:
 
 const SCORING_MAX_TOKENS = 300;       // JSON + reasoning ≈ 200 tokens
 const SCORING_MAX_TOOL_CALLS = 0;     // 0 = no web search; set to 3 for light browsing
-const REVIEWS_CHAR_LIMIT = 500;       // Max chars of review text to include
+// Score from ALL public-facing reviews (not a sample). These are generous safety
+// bounds — grok-3-mini has a 128k-token context, so the overall cap comfortably
+// fits dozens of reviews; only a pathologically review-heavy company gets
+// truncated (and that's logged). Override via env if ever needed.
+const REVIEWS_CHAR_LIMIT = Number(process.env.XAI_SCORING_REVIEWS_CHAR_LIMIT) || 16000; // Max total review chars in the prompt
+const PER_REVIEW_CHAR_LIMIT = 1200;   // Max chars kept from any single review
 const ABOUT_CHAR_LIMIT = 1000;        // Max chars of about/site content to include
 
 // Scoring-only model selection. This is intentionally separate from the import
@@ -86,21 +91,25 @@ function asString(v) {
 function buildReviewsSummary(company) {
   const reviews = [];
 
-  // Include BOTH admin-approved user reviews (company.reviews) and editorial
-  // curated_reviews so a freshly approved community review actually moves the
-  // score. User reviews come first: they're the fresh signal we approve to
-  // "incorporate the new review", and the sample is capped at 5 / REVIEWS_CHAR_LIMIT.
-  // For existing data company.reviews is typically empty, so this is a no-op there.
+  // Score from ALL public-facing reviews — both admin-approved community reviews
+  // (company.reviews) and editorial curated_reviews. Reviews explicitly hidden
+  // from users are excluded (they aren't public-facing, so they shouldn't move
+  // the public score). User reviews come first (the fresh signal we approve).
   const curated = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
   const raw = Array.isArray(company.reviews) ? company.reviews : [];
-  const all = [...raw, ...curated];
 
-  for (const r of all.slice(0, 5)) {
+  const isPublicFacing = (r) =>
+    r && typeof r === "object" && r.show_to_users !== false && r.is_public !== false;
+
+  const all = [...raw, ...curated].filter(isPublicFacing);
+
+  for (const r of all) {
     const parts = [];
     const source = asString(r.source_name || r.source || "").trim();
     const author = asString(r.author || "").trim();
     const title = asString(r.title || "").trim();
-    const excerpt = asString(r.excerpt || r.text || r.review_text || r.body || r.content || r.summary || "").trim();
+    let excerpt = asString(r.excerpt || r.text || r.review_text || r.body || r.content || r.summary || "").trim();
+    if (excerpt.length > PER_REVIEW_CHAR_LIMIT) excerpt = excerpt.slice(0, PER_REVIEW_CHAR_LIMIT) + "…";
     if (source) parts.push(`[${source}]`);
     if (author) parts.push(`by ${author}`);
     if (title) parts.push(title);
@@ -109,7 +118,14 @@ function buildReviewsSummary(company) {
     if (combined) reviews.push(combined);
   }
 
-  return reviews.join(" | ").substring(0, REVIEWS_CHAR_LIMIT);
+  const joined = reviews.join(" | ");
+  if (joined.length > REVIEWS_CHAR_LIMIT) {
+    console.log(
+      `[scoring] ${company.company_name}: ${reviews.length} public reviews (${joined.length}ch) exceed the ${REVIEWS_CHAR_LIMIT}ch cap — truncating for the prompt.`
+    );
+    return joined.substring(0, REVIEWS_CHAR_LIMIT);
+  }
+  return joined;
 }
 
 /**
