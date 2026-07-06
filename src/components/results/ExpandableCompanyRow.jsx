@@ -545,7 +545,8 @@ export default function ExpandableCompanyRow({
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setReviewOpen(true); }}
                 title="submit a review"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-transparent px-2 py-1 text-xs font-medium text-foreground hover:bg-foreground/5 transition-colors"
+                /* w-[106px] matches the QQ bubbles above (5 dots × 18px + 4 gaps × 4px) and the "Features & Reviews" label below, for a symmetric stack. */
+                className="w-[106px] inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-transparent py-1 text-xs font-medium text-foreground hover:bg-foreground/5 transition-colors"
               >
                 <Pencil className="h-3 w-3" />
                 Review
