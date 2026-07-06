@@ -449,6 +449,11 @@ async function getReviewsHandler(req, context, deps = {}) {
           }
 
           const curatedArrVisible = curatedArrRaw.filter((r) => {
+            // Embedded user reviews (company.reviews[] fallback) are already
+            // surfaced from the reviews container above — skip them here so
+            // companies without curated_reviews don't show them twice.
+            if (r?.type === "user" || r?.review_id) return false;
+
             const flag = r?.show_to_users ?? r?.showToUsers ?? r?.is_public ?? r?.visible_to_users ?? r?.visible;
             if (normalizeIsPublicFlag(flag, true) === false) return false;
 
