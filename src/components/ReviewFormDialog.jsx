@@ -89,9 +89,19 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
     }
   };
 
+  const handleCancel = () => {
+    reset();
+    onOpenChange?.(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent
+        className="max-w-lg"
+        // Don't discard an in-progress review on an accidental outside click.
+        // Dismissal is intentional only: the Cancel button, or the X.
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>{titleName ? `Review ${titleName}` : "Submit a review"}</DialogTitle>
           <DialogDescription>
@@ -181,6 +191,9 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           </div>
 
           <DialogFooter>
+            <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmitting}>
+              Cancel
+            </Button>
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
