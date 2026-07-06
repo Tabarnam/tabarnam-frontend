@@ -62,9 +62,11 @@ async function submitReviewHandler(req, ctx) {
     return json({ error: "Invalid JSON" }, 400, req);
   }
 
-  // Honeypot — if the hidden _phone field is filled, it's a bot. Silently
-  // pretend success (same trap as the Contact Us form) so bots don't learn.
-  if (body?._phone) return json({ ok: true }, 200, req);
+  // Honeypot — if the hidden field is filled, it's a bot. Silently pretend
+  // success so bots don't learn. Field renamed _phone → hp_field so browser
+  // autofill stops tripping the trap for real users (was silently dropping
+  // legit submissions); accept both names for safety.
+  if (body?.hp_field || body?._phone) return json({ ok: true }, 200, req);
 
   const companyIdInput = String(body?.company_id || body?.companyId || body?.id || "").trim();
   const companyNameInput = String(body?.company_name || body?.company || "").trim();
