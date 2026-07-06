@@ -43,8 +43,9 @@ function toEmbeddedReview(review, nowIso) {
   return {
     review_id: review.id,
     type: "user",
-    source_name: "Tabarnam Transparency Advocate",
-    source: "Tabarnam Transparency Advocate",
+    source_name: review.source_name || "Tabarnam Transparency Advocate",
+    source: review.source_name || "Tabarnam Transparency Advocate",
+    author: review.user_name || "",
     title: review.subject || "",
     text: review.text,
     rating: review.rating ?? null,
@@ -225,8 +226,11 @@ async function adminUserReviewsHandler(req, context) {
     });
   }
 
-  // PUT — edit subject/text/rating (only fields provided are changed)
+  // PUT — edit fields (only those provided are changed)
   if (typeof body.subject === "string") review.subject = body.subject.trim() || null;
+  if (typeof body.source_name === "string")
+    review.source_name = body.source_name.trim() || "Tabarnam Transparency Advocate";
+  if (typeof body.user_name === "string") review.user_name = body.user_name.trim() || null;
   if (typeof body.text === "string") {
     const t = body.text.trim();
     if (t.length < 10) return json({ error: "review text too short" }, 400);

@@ -37,7 +37,16 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
     reset,
     formState: { errors, isSubmitting },
   } = useForm({
-    defaultValues: { subject: "", rating: "", text: "", name: "", email: "", show_email: false, hp_field: "" },
+    defaultValues: {
+      subject: "",
+      rating: "",
+      text: "",
+      source_name: "Tabarnam Transparency Advocate",
+      name: "",
+      email: "",
+      show_email: false,
+      hp_field: "",
+    },
   });
 
   const ratingWatch = watch("rating");
@@ -70,6 +79,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           company_id: companyId || undefined,
           company_name: companyName,
           subject: data.subject?.trim() || undefined,
+          source_name: data.source_name?.trim() || undefined,
           rating: ratingStr === "" ? null : Number(ratingStr),
           text: data.text.trim(),
           user_name: data.name?.trim() || null,
@@ -199,8 +209,19 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           </div>
 
           <div className="grid gap-2">
+            <Label htmlFor="review-source-name">Source name</Label>
+            <Input id="review-source-name" placeholder="Tabarnam Transparency Advocate" {...register("source_name")} />
+            <p className="text-xs text-muted-foreground">
+              How your review is credited. Defaults to “Tabarnam Transparency Advocate” — change it if you'd like.
+            </p>
+          </div>
+
+          <div className="grid gap-2">
             <Label htmlFor="review-name">Name</Label>
             <Input id="review-name" placeholder="Your name (optional)" {...register("name")} />
+            <p className="text-xs text-muted-foreground">
+              Optional. The name you provide will be shown to the Tabarnam community.
+            </p>
           </div>
 
           <div className="grid gap-2">

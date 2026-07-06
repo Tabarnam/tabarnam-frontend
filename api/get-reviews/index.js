@@ -367,10 +367,10 @@ async function getReviewsHandler(req, context, deps = {}) {
             return normalizeIsPublicFlag(flag, true) === true;
           })
           .map((r) => {
-            // Community reviews are attributed to a uniform public label; the
-            // reviewer's real name stays admin-only. Email is shown only when
-            // the reviewer opted in (show_email) and actually left one.
-            const sourceName = "Tabarnam Transparency Advocate";
+            // Source name is reviewer-editable (defaults to the community label);
+            // the reviewer's own name (if provided) shows as the author — they're
+            // told it's public. Email shows only when the reviewer opted in.
+            const sourceName = String(r.source_name || "").trim() || "Tabarnam Transparency Advocate";
             const showEmail = r.show_email === true && !!r.user_email;
 
             return {
@@ -378,6 +378,7 @@ async function getReviewsHandler(req, context, deps = {}) {
               type: "user",
               text: r.text,
               source_name: sourceName,
+              author: r.user_name || null,
               source_url: null,
               // Display date = submission date (created_at), never the approval date.
               imported_at: r.created_at,
