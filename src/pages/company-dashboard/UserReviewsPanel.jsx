@@ -25,7 +25,7 @@ export default function UserReviewsPanel({ companyId, companyName }) {
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [editId, setEditId] = useState(null);
-  const [draft, setDraft] = useState({ subject: "", text: "", rating: "" });
+  const [draft, setDraft] = useState({ source_name: "", user_name: "", subject: "", text: "", rating: "" });
 
   const qs = useMemo(() => {
     const p = new URLSearchParams();
@@ -60,6 +60,8 @@ export default function UserReviewsPanel({ companyId, companyName }) {
   const startEdit = (rev) => {
     setEditId(rev.id);
     setDraft({
+      source_name: rev.source_name || "Tabarnam Transparency Advocate",
+      user_name: rev.user_name || "",
       subject: rev.subject || "",
       text: rev.text || "",
       rating: rev.rating == null ? "" : String(rev.rating),
@@ -74,6 +76,8 @@ export default function UserReviewsPanel({ companyId, companyName }) {
         body: {
           id: rev.id,
           company: rev.company || rev.company_name,
+          source_name: draft.source_name,
+          user_name: draft.user_name,
           subject: draft.subject,
           text: draft.text,
           rating: draft.rating === "" ? null : Number(draft.rating),
@@ -152,6 +156,18 @@ export default function UserReviewsPanel({ companyId, companyName }) {
                   <div className="mt-2 space-y-2">
                     <input
                       className="w-full rounded border border-slate-300 dark:border-border bg-transparent px-2 py-1 text-sm"
+                      placeholder="Source name"
+                      value={draft.source_name}
+                      onChange={(e) => setDraft((d) => ({ ...d, source_name: e.target.value }))}
+                    />
+                    <input
+                      className="w-full rounded border border-slate-300 dark:border-border bg-transparent px-2 py-1 text-sm"
+                      placeholder="Author name (shown publicly)"
+                      value={draft.user_name}
+                      onChange={(e) => setDraft((d) => ({ ...d, user_name: e.target.value }))}
+                    />
+                    <input
+                      className="w-full rounded border border-slate-300 dark:border-border bg-transparent px-2 py-1 text-sm"
                       placeholder="Subject (optional)"
                       value={draft.subject}
                       onChange={(e) => setDraft((d) => ({ ...d, subject: e.target.value }))}
@@ -193,6 +209,9 @@ export default function UserReviewsPanel({ companyId, companyName }) {
                   </div>
                 ) : (
                   <>
+                    <div className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">
+                      Source: {rev.source_name || "Tabarnam Transparency Advocate"}
+                    </div>
                     {rev.subject && <div className="mt-1 text-sm font-medium text-slate-800 dark:text-foreground">{rev.subject}</div>}
                     <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700 dark:text-foreground">{rev.text}</div>
                     {rev.rating != null && <div className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">{Number(rev.rating)}/5</div>}

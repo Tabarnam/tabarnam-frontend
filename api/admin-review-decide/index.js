@@ -43,11 +43,12 @@ function toEmbeddedReview(review, nowIso) {
   return {
     review_id: review.id,
     type: "user",
-    // Uniform public attribution label. The reviewer's real name/email are NOT
-    // embedded in the company doc (which can be returned to clients) — they live
-    // only in the reviews container for admin use.
-    source_name: "Tabarnam Transparency Advocate",
-    source: "Tabarnam Transparency Advocate",
+    // Reviewer-editable source name (defaults to the community label). The name
+    // is public (the reviewer is told so); the email is NOT embedded here — it
+    // stays on the reviews-container doc for admin use / opt-in display.
+    source_name: review.source_name || "Tabarnam Transparency Advocate",
+    source: review.source_name || "Tabarnam Transparency Advocate",
+    author: review.user_name || "",
     title: review.subject || "",
     text: review.text,
     rating: review.rating ?? null,

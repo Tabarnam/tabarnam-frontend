@@ -79,6 +79,8 @@ async function submitReviewHandler(req, ctx) {
   const ratingNum = hasRating ? Number(rawRating) : null;
 
   const subject = String(body?.subject || "").trim();
+  // Reviewer-editable public byline; defaults to the community label.
+  const source_name = String(body?.source_name || "").trim() || "Tabarnam Transparency Advocate";
   const text = String(body?.text || "").trim();
   const user_name = String(body?.user_name || "").trim();
   const user_location = String(body?.user_location || "").trim();
@@ -153,6 +155,7 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
     company_name: resolvedCompanyName,
     ...(resolvedCompanyId ? { company_id: resolvedCompanyId } : {}),
     subject: subject || null,
+    source_name,
     rating,
     text,
     user_name: user_name || null,
