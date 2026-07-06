@@ -224,6 +224,11 @@ async function writeCompanyEditHistoryEntry(params) {
   // page is unaffected.
   const batch_id = params?.batch_id != null ? String(params.batch_id).trim() : "";
 
+  // Optional structured trigger describing WHAT caused this change (e.g. which
+  // review's approval rescored the company). Persisted verbatim for the score
+  // history viewer; absent for plain admin-save edits.
+  const trigger = params?.trigger && typeof params.trigger === "object" ? params.trigger : undefined;
+
   const doc = {
     id: `audit_${company_id}_${randomId()}`,
     company_id,
@@ -233,6 +238,7 @@ async function writeCompanyEditHistoryEntry(params) {
     action,
     changed_fields,
     diff,
+    trigger,
     request_id: request_id || undefined,
     source,
     batch_id: batch_id || undefined,
