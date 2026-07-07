@@ -159,14 +159,17 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
 
           <div className="grid gap-2">
             <Label htmlFor="review-name">Name</Label>
-            <Input id="review-name" placeholder="Your name (optional)" {...register("name")} />
             <p className="text-xs text-muted-foreground">
               Optional. The name you provide will be shown to the Tabarnam community.
             </p>
+            <Input id="review-name" placeholder="Your name (optional)" {...register("name")} />
           </div>
 
           <div className="grid gap-2">
             <Label htmlFor="review-email">Email</Label>
+            <p className="text-xs text-muted-foreground">
+              Your email is private by default and only used to update you on your review.
+            </p>
             <Input
               id="review-email"
               type="email"
@@ -185,24 +188,22 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
               />
               Show my email address to Tabarnam community.
             </label>
-            <p className="text-xs text-muted-foreground">
-              Your email is private by default and only used to update you on your review.
-            </p>
           </div>
 
           <div className="grid gap-2">
             <Label htmlFor="review-source-name">Who are you in relation to this company?</Label>
-            <Input id="review-source-name" {...register("source_name")} />
             <p className="text-xs text-muted-foreground">
               Shown publicly with your review. Defaults to “Tabarnam Transparency Advocate” — change it to
               describe your relationship (e.g. customer, employee, founder).
             </p>
+            <Input id="review-source-name" {...register("source_name")} />
           </div>
 
           <div className="grid gap-2">
             <Label htmlFor="review-text">
               Review <span className="text-destructive">*</span>
             </Label>
+            <p className="text-xs text-muted-foreground">Impacts company score.</p>
             <Textarea
               id="review-text"
               placeholder="What was your experience?"
@@ -218,7 +219,6 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
                 At least {MIN_TEXT} characters needed ({textLen}/{MIN_TEXT}).
               </p>
             )}
-            <p className="text-xs text-muted-foreground">Impacts company score.</p>
           </div>
 
           <DialogFooter>
