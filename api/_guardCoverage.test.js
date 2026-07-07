@@ -60,6 +60,10 @@ const PUBLIC_ROUTES = new Set([
   "suggest-states",
   "get-reviews",
   "submit-review",
+  // One-click review approval from the admin email. Intentionally anonymous:
+  // authorization is the signed HMAC token (api/_reviewActionToken.js), not a
+  // logged-in session, and GET only renders a confirm page (no mutation).
+  "review-action",
   "company-logo",
   "company-homepage",
   "contact-send",
