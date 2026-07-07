@@ -108,10 +108,52 @@ async function processAndUploadReviewImage(dataUrl, reviewId, ctx) {
     await blob.uploadData(out, {
       blobHTTPHeaders: { blobContentType: "image/webp", blobCacheControl: "public, max-age=31536000" },
     });
-    return blob.url;
+    // Public blob access is disabled account-wide, so return a same-origin proxy
+    // URL (served by api/review-image) rather than the raw blob URL.
+    return `/api/review-image?src=${encodeURIComponent(name)}`;
   } catch (e) {
     ctx?.log?.warn?.(`[review-images] upload failed: ${e?.message || e}`);
     return null;
+  }
+}
+
+// Resolve a stored image value (proxy URL, or legacy raw blob URL) to its blob
+// name within the review-images container.
+function blobNameFromStored(stored) {
+  const s = String(stored || "").trim();
+  if (!s) return null;
+  const srcIdx = s.indexOf("src=");
+  if (s.includes("/api/review-image") && srcIdx >= 0) {
+    const raw = s.slice(srcIdx + 4).split("&")[0];
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  try {
+    const u = new URL(s);
+    const parts = u.pathname.replace(/^\/+/, "").split("/");
+    const cont = parts.shift();
+    if (cont === CONTAINER) return decodeURIComponent(parts.join("/"));
+  } catch {
+    /* not a URL */
+  }
+  return null;
+}
+
+// Fetch a review image blob for the public proxy. Returns { buf } or null (404).
+async function downloadReviewImage(blobName) {
+  const svc = getServiceClient();
+  if (!svc) return null;
+  const name = String(blobName || "").trim();
+  if (!name || name.includes("..")) return null;
+  try {
+    const buf = await svc.getContainerClient(CONTAINER).getBlockBlobClient(name).downloadToBuffer();
+    return { buf, contentType: "image/webp" };
+  } catch (e) {
+    if ((e?.statusCode || e?.status) === 404) return null;
+    throw e;
   }
 }
 
@@ -134,16 +176,13 @@ async function deleteReviewImages(urls, ctx) {
   const container = svc.getContainerClient(CONTAINER);
   for (const url of urls) {
     try {
-      const u = new URL(url);
-      const parts = u.pathname.replace(/^\/+/, "").split("/");
-      const cont = parts.shift();
-      const blobName = parts.join("/");
-      if (cont !== CONTAINER || !blobName) continue;
-      await container.getBlockBlobClient(decodeURIComponent(blobName)).deleteIfExists();
+      const blobName = blobNameFromStored(url);
+      if (!blobName) continue;
+      await container.getBlockBlobClient(blobName).deleteIfExists();
     } catch (e) {
       ctx?.log?.warn?.(`[review-images] delete failed: ${e?.message || e}`);
     }
   }
 }
 
-module.exports = { uploadReviewImages, deleteReviewImages, isStorageConfigured, MAX_IMAGES };
+module.exports = { uploadReviewImages, deleteReviewImages, downloadReviewImage, isStorageConfigured, MAX_IMAGES };

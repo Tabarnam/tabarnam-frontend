@@ -64,6 +64,9 @@ const PUBLIC_ROUTES = new Set([
   // authorization is the signed HMAC token (api/_reviewActionToken.js), not a
   // logged-in session, and GET only renders a confirm page (no mutation).
   "review-action",
+  // Public read-only image proxy (blob public access is disabled account-wide);
+  // mirrors company-logo. Read-only, unguessable blob names.
+  "review-image",
   "company-logo",
   "company-homepage",
   "contact-send",

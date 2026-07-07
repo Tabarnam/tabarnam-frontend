@@ -197,6 +197,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: review-image");
+  require("./review-image/index.js");
+} catch (e) {
+  console.error("[api] Failed to load review-image:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-recalc-review-counts");
   require("./admin-recalc-review-counts/index.js");
 } catch (e) {
