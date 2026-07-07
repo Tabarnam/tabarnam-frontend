@@ -58,7 +58,6 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
   const [reviewTouched, setReviewTouched] = useState(false);
 
   const textLen = String(watch("text") || "").trim().length;
-  const emailFilled = Boolean(String(watch("email") || "").trim());
   const showTooShort = reviewTouched && textLen < MIN_TEXT;
 
   const titleName = String(displayName || companyName || "").trim();
@@ -177,17 +176,15 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
               })}
             />
             {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-            {emailFilled && (
-              <label htmlFor="review-show-email" className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-                <input
-                  id="review-show-email"
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-border accent-primary"
-                  {...register("show_email")}
-                />
-                Show my email address to Tabarnam community.
-              </label>
-            )}
+            <label htmlFor="review-show-email" className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                id="review-show-email"
+                type="checkbox"
+                className="h-4 w-4 rounded border-border accent-primary"
+                {...register("show_email")}
+              />
+              Show my email address to Tabarnam community.
+            </label>
             <p className="text-xs text-muted-foreground">
               Your email is private by default and only used to update you on your review.
             </p>
