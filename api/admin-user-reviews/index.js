@@ -24,6 +24,7 @@ const {
 const { withAdminGuard } = require("../_adminAuth");
 const { computeReputationQualityScores } = require("../_companyScoring");
 const { writeCompanyEditHistoryEntry } = require("../_companyEditHistory");
+const { deleteReviewImages } = require("../_reviewImages");
 
 const cors = () => ({
   "Access-Control-Allow-Origin": "*",
@@ -244,6 +245,12 @@ async function adminUserReviewsHandler(req, context) {
       return json({ error: `Failed to update review: ${e?.message || e}` }, 500);
     }
     const { scoring, companyUpdated } = await syncCompany(companiesContainer, review, "remove", nowIso, context, (req && req.__admin_email) || null);
+    // Purge the review's image blobs (best-effort — never blocks the removal).
+    try {
+      await deleteReviewImages(review.images, context);
+    } catch (e) {
+      context?.log?.(`[admin-user-reviews] image cleanup failed: ${e?.message || e}`);
+    }
     return json({
       ok: true,
       id,

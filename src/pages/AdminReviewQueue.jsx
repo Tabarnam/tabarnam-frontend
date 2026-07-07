@@ -207,6 +207,21 @@ export default function AdminReviewQueue() {
 
                   <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{review.text}</p>
 
+                  {Array.isArray(review.images) && review.images.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {review.images.map((src, idx) => (
+                        <a key={idx} href={src} target="_blank" rel="noopener noreferrer" title="Open full image">
+                          <img
+                            src={src}
+                            alt={`Review photo ${idx + 1}`}
+                            loading="lazy"
+                            className="h-16 w-20 rounded border border-border object-cover"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
                   {isPending ? (
                     <div className="mt-3 space-y-2">
                       <Textarea

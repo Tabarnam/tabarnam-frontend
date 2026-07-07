@@ -177,6 +177,28 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
                   <div className="mt-2">
                     <p className="text-sm text-foreground mb-2">{text}</p>
 
+                    {Array.isArray(r.images) && r.images.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {r.images.map((src, idx) => (
+                          <a
+                            key={idx}
+                            href={src}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            title="Open full image"
+                          >
+                            <img
+                              src={src}
+                              alt={`Review photo ${idx + 1}`}
+                              loading="lazy"
+                              className="h-20 w-24 rounded border border-border object-cover hover:opacity-90 transition-opacity"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+
                     {r.rating != null && (
                       <div className="flex items-center gap-2 mb-2">
                         <RatingDots value={Number(r.rating)} size={14} />

@@ -11,10 +11,10 @@
 // derived from the review TEXT (not an averaged star), so a score input would
 // mislead reviewers into thinking their number moves the score.
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, ImagePlus, X } from "lucide-react";
 
 import {
   Dialog,
@@ -28,9 +28,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api";
+import { compressImageToDataUrl } from "@/lib/compressImage";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_TEXT = 10;
+const MAX_IMAGES = 3;
 const DEFAULT_SOURCE = "Tabarnam Transparency Advocate";
 
 export default function ReviewFormDialog({ open, onOpenChange, companyId, companyName, displayName }) {
@@ -56,14 +58,52 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
   // (blur) with the requirement unmet — not while they're still typing.
   const [reviewTouched, setReviewTouched] = useState(false);
 
+  // Attached photos (client-compressed data URLs, max 3). Kept outside RHF.
+  const [images, setImages] = useState([]);
+  const [imgBusy, setImgBusy] = useState(false);
+  const fileRef = useRef(null);
+
   const textLen = String(watch("text") || "").trim().length;
   const showTooShort = reviewTouched && textLen < MIN_TEXT;
 
   const titleName = String(displayName || companyName || "").trim();
 
+  const removeImage = (idx) => setImages((prev) => prev.filter((_, i) => i !== idx));
+
+  const onPickFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+
+    const room = MAX_IMAGES - images.length;
+    if (room <= 0) {
+      toast.error(`You can add up to ${MAX_IMAGES} photos.`);
+      return;
+    }
+    if (files.length > room) toast.error(`Only ${MAX_IMAGES} photos allowed — extra ones were skipped.`);
+
+    setImgBusy(true);
+    try {
+      const added = [];
+      for (const f of files.slice(0, room)) {
+        if (f.size > 15 * 1024 * 1024) {
+          toast.error(`"${f.name}" is too large (max 15 MB).`);
+          continue;
+        }
+        const url = await compressImageToDataUrl(f);
+        if (url) added.push(url);
+        else toast.error(`Couldn't process "${f.name}".`);
+      }
+      if (added.length) setImages((prev) => [...prev, ...added].slice(0, MAX_IMAGES));
+    } finally {
+      setImgBusy(false);
+    }
+  };
+
   const closeAndReset = () => {
     reset();
     setReviewTouched(false);
+    setImages([]);
     onOpenChange?.(false);
   };
 
@@ -85,6 +125,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           user_name: data.name?.trim() || null,
           user_email: hasEmail ? data.email.trim() : null,
           show_email: hasEmail ? Boolean(data.show_email) : false,
+          images: images.length ? images : undefined,
           hp_field: data.hp_field || undefined,
         },
       });
@@ -214,6 +255,44 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
               <p className="text-xs text-destructive">
                 At least {MIN_TEXT} characters needed ({textLen}/{MIN_TEXT}).
               </p>
+            )}
+          </div>
+
+          <div className="grid gap-2">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <Label>Photos</Label>
+              <span className="text-xs text-muted-foreground">Optional. Up to {MAX_IMAGES}.</span>
+            </div>
+            {images.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {images.map((src, idx) => (
+                  <div key={idx} className="relative h-16 w-20">
+                    <img src={src} alt={`Attachment ${idx + 1}`} className="h-16 w-20 rounded border border-border object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(idx)}
+                      aria-label="Remove photo"
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-white hover:bg-slate-700"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {images.length < MAX_IMAGES && (
+              <div>
+                <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={onPickFiles} />
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={imgBusy}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-transparent px-3 py-1.5 text-sm font-medium text-foreground hover:bg-foreground/5 transition-colors disabled:opacity-60"
+                >
+                  {imgBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                  Add photo
+                </button>
+              </div>
             )}
           </div>
 
