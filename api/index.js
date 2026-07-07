@@ -190,6 +190,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: review-action");
+  require("./review-action/index.js");
+} catch (e) {
+  console.error("[api] Failed to load review-action:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-recalc-review-counts");
   require("./admin-recalc-review-counts/index.js");
 } catch (e) {
