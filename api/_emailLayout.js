@@ -50,12 +50,14 @@ function reviewBlock(text) {
   </td></tr>`;
 }
 
-// A single action button (bulletproof-ish anchor). kind ∈ approve|reject|edit|neutral.
+// A single full-width action button, stacked as its own table row so the set
+// reads as a clean vertical stack — easy to tap on a phone, reliable in email.
+// kind ∈ approve|reject|edit|neutral.
 function button(label, href, kind = "neutral") {
   const c = BTN_COLORS[kind] || BTN_COLORS.neutral;
-  return `<td style="padding:0 8px 0 0;">
-    <a href="${esc(href)}" style="display:inline-block;background:${c.bg};color:${c.fg};font:700 15px/1 ${FONT};text-decoration:none;padding:13px 22px;border-radius:10px;">${esc(label)}</a>
-  </td>`;
+  return `<tr><td style="padding:0 0 10px;">
+    <a href="${esc(href)}" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:${c.bg};color:${c.fg};font:700 16px/1 ${FONT};text-decoration:none;padding:15px 20px;border-radius:10px;">${esc(label)}</a>
+  </td></tr>`;
 }
 
 /**
@@ -76,7 +78,7 @@ function renderEmail({ headerLabel, timestamp = "", contentHtml = "", buttonsHtm
     ? `<tr><td style="padding:14px 30px;background:rgba(134,198,207,0.10);border-top:1px solid ${BORDER};font:400 12px/1.5 ${FONT};color:${MUTED};">${esc(footerText)}</td></tr>`
     : "";
   const buttons = buttonsHtml
-    ? `<tr><td style="padding:6px 30px 26px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>${buttonsHtml}</tr></table></td></tr>`
+    ? `<tr><td style="padding:6px 30px 26px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${buttonsHtml}</table></td></tr>`
     : "";
 
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
