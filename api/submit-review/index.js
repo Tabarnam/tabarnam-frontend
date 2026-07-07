@@ -15,10 +15,27 @@ const { xaiResponses } = require("../_xai");
 // Phase 4.0 — centralized default xAI model.
 const { DEFAULT_XAI_MODEL } = require("../_shared");
 const { isEmailConfigured, sendEmail, escapeHtml } = require("../_graphEmail");
+const emailLayout = require("../_emailLayout");
+const { signReviewToken } = require("../_reviewActionToken");
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Admin inbox that gets a heads-up when a new review lands in the queue.
 const REVIEW_ADMIN_INBOX = "duh@tabarnam.com";
+const SITE = (process.env.SITE_BASE_URL || "https://tabarnam.com").replace(/\/+$/, "");
+
+function fmtEmailTs(iso) {
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/Los_Angeles",
+    });
+  } catch {
+    return "";
+  }
+}
 
 // -------- helpers ----------
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
@@ -216,12 +233,46 @@ ${reviewBlock}
       }
     }
 
-    // 2) Heads-up to the admin inbox that a review is waiting in the queue
-    const adminHtml = `<p>A new user review is pending approval.</p>
-<p><strong>Company:</strong> ${escapeHtml(resolvedCompanyName)}</p>
-<p><strong>From:</strong> ${escapeHtml(user_name || "Anonymous")}${user_email ? ` (${escapeHtml(user_email)})` : ""}${flagged_bot ? " — ⚠ flagged as possible bot" : ""}</p>
-${reviewBlock}
-<p>Review it in the admin Review Queue.</p>`;
+    // 2) Branded heads-up to the admin inbox with one-click Approve/Reject.
+    // Approve/Reject links carry a signed token (verified server-side; the link
+    // only shows a confirm page on GET, so email scanners can't auto-decide).
+    const approveTok = signReviewToken({ reviewId: doc.id, company: doc.company, action: "approved" });
+    const rejectTok = signReviewToken({ reviewId: doc.id, company: doc.company, action: "rejected" });
+    const actionUrl = (t) => `${SITE}/api/review-action?token=${encodeURIComponent(t)}`;
+
+    const content = [
+      emailLayout.field("Company", emailLayout.esc(resolvedCompanyName)),
+      subject ? emailLayout.field("Subject", emailLayout.esc(subject)) : "",
+      emailLayout.reviewBlock(text),
+      user_name ? emailLayout.field("User name", emailLayout.esc(user_name)) : "",
+      source_name ? emailLayout.field("Who", emailLayout.esc(source_name)) : "",
+      user_email
+        ? emailLayout.field(
+            "Email",
+            `<a href="mailto:${emailLayout.esc(user_email)}" style="color:#2C7F89;text-decoration:none;">${emailLayout.esc(user_email)}</a>`
+          )
+        : "",
+      flagged_bot
+        ? emailLayout.field("Flag", `<span style="color:#B54708;">${emailLayout.esc(bot_reason || "possible automated content")}</span>`)
+        : "",
+    ].join("");
+
+    const buttons = [
+      approveTok ? emailLayout.button("Approve", actionUrl(approveTok), "approve") : "",
+      rejectTok ? emailLayout.button("Reject", actionUrl(rejectTok), "reject") : "",
+      emailLayout.button("Edit / open in queue", `${SITE}/admin/review-queue`, "edit"),
+    ].join("");
+
+    const adminHtml = emailLayout.renderEmail({
+      headerLabel: "REVIEW PENDING",
+      timestamp: fmtEmailTs(doc.created_at),
+      contentHtml: content,
+      buttonsHtml: buttons,
+      footerText:
+        "Tabarnam · community review moderation — Approve and Reject act instantly; Edit opens the full queue.",
+      preheader: `New review pending for ${resolvedCompanyName}`,
+    });
+
     try {
       await sendEmail({
         to: REVIEW_ADMIN_INBOX,
