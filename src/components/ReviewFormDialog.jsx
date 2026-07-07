@@ -21,7 +21,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -124,14 +123,12 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-lg"
+        aria-describedby={undefined}
         // Don't discard an in-progress review on an accidental outside click.
         onInteractOutside={(e) => e.preventDefault()}
       >
         <DialogHeader>
           <DialogTitle>{titleName ? `Review ${titleName}` : "Submit a review"}</DialogTitle>
-          <DialogDescription>
-            Share your experience. Submissions are reviewed by our team before they appear.
-          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="grid gap-4">
@@ -192,8 +189,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           <div className="grid gap-2">
             <Label htmlFor="review-source-name">Who are you in relation to this company?</Label>
             <p className="text-xs text-muted-foreground">
-              Shown publicly with your review. Defaults to “Tabarnam Transparency Advocate” — change it to
-              describe your relationship (e.g. customer, employee, founder).
+              Describe your relationship (e.g. customer, employee, founder)
             </p>
             <Input id="review-source-name" {...register("source_name")} />
           </div>
