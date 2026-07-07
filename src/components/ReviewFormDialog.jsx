@@ -4,10 +4,14 @@
 // (react-hook-form + honeypot + sonner toast) but posts to /submit-review.
 // The review is stored pending until an admin approves it in the Review Queue.
 //
-// Controlled by the parent (ReviewsWidget) via `open` / `onOpenChange` so the
-// trigger button can live next to the "Features & Reviews" header.
+// Controlled by the parent via `open` / `onOpenChange` so the trigger button
+// can live next to the "Features & Reviews" header.
+//
+// Note: there is intentionally NO numeric score field. The company score is
+// derived from the review TEXT (not an averaged star), so a score input would
+// mislead reviewers into thinking their number moves the score.
 
-import React from "react";
+import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -24,10 +28,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { RatingDots } from "@/components/Stars";
 import { apiFetch } from "@/lib/api";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_TEXT = 10;
+const DEFAULT_SOURCE = "Tabarnam Transparency Advocate";
 
 export default function ReviewFormDialog({ open, onOpenChange, companyId, companyName, displayName }) {
   const {
@@ -39,35 +44,36 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
   } = useForm({
     defaultValues: {
       subject: "",
-      rating: "",
-      text: "",
-      source_name: "Tabarnam Transparency Advocate",
       name: "",
       email: "",
       show_email: false,
+      source_name: DEFAULT_SOURCE,
+      text: "",
       hp_field: "",
     },
   });
 
-  const ratingWatch = watch("rating");
-  const ratingPreview = (() => {
-    const n = Number(ratingWatch);
-    return Number.isFinite(n) && ratingWatch !== "" ? Math.max(0, Math.min(5, n)) : null;
-  })();
+  // The min-length warning is shown only after the user leaves the Review field
+  // (blur) with the requirement unmet — not while they're still typing.
+  const [reviewTouched, setReviewTouched] = useState(false);
 
-  const MIN_TEXT = 10;
   const textLen = String(watch("text") || "").trim().length;
   const emailFilled = Boolean(String(watch("email") || "").trim());
+  const showTooShort = reviewTouched && textLen < MIN_TEXT;
 
   const titleName = String(displayName || companyName || "").trim();
 
+  const closeAndReset = () => {
+    reset();
+    setReviewTouched(false);
+    onOpenChange?.(false);
+  };
+
   const onSubmit = async (data) => {
-    // Honeypot is NOT dropped client-side anymore. We forward its value so the
-    // server can FLAG the submission (stored pending + flagged) rather than
-    // silently discard it — so a real user whose field got autofilled never
-    // loses their review. The user still sees a normal success either way.
+    // Honeypot is NOT dropped client-side — we forward its value so the server
+    // can FLAG (store pending) rather than silently discard, so a real user
+    // whose field got autofilled never loses their review.
     const hasEmail = Boolean(data.email && data.email.trim());
-    const ratingStr = String(data.rating ?? "").trim();
 
     try {
       const r = await apiFetch("/submit-review", {
@@ -77,7 +83,6 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           company_name: companyName,
           subject: data.subject?.trim() || undefined,
           source_name: data.source_name?.trim() || undefined,
-          rating: ratingStr === "" ? null : Number(ratingStr),
           text: data.text.trim(),
           user_name: data.name?.trim() || null,
           user_email: hasEmail ? data.email.trim() : null,
@@ -93,8 +98,7 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
             ? "Thanks! Your review was submitted and is pending approval. Check your email for a confirmation."
             : "Thanks! Your review was submitted and is pending approval."
         );
-        reset();
-        onOpenChange?.(false);
+        closeAndReset();
       } else {
         toast.error(result.error || "Something went wrong. Please try again.");
       }
@@ -103,28 +107,25 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
     }
   };
 
-  // Fired when the user hits Submit but client-side validation fails (e.g. the
-  // review is too short). Surface a toast so the reason isn't easy to miss.
+  // Fired when the user hits Submit but client-side validation fails.
   const onInvalid = (formErrors) => {
     const msg =
       formErrors?.text?.message ||
-      formErrors?.rating?.message ||
       formErrors?.email?.message ||
       "Please fix the highlighted fields before submitting.";
     toast.error(msg);
   };
 
-  const handleCancel = () => {
-    reset();
-    onOpenChange?.(false);
-  };
+  const textReg = register("text", {
+    required: "Please write a review",
+    minLength: { value: MIN_TEXT, message: `Review must be at least ${MIN_TEXT} characters` },
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-lg"
         // Don't discard an in-progress review on an accidental outside click.
-        // Dismissal is intentional only: the Cancel button, or the X.
         onInteractOutside={(e) => e.preventDefault()}
       >
         <DialogHeader>
@@ -135,11 +136,9 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="grid gap-4">
-          {/* Honeypot - hidden from real users. Neutral name + ignore hints so
-              browser/password-manager autofill leaves it empty (a filled value
-              means a bot). readOnly-until-focus blocks autofill from writing to
-              it (a real user never focuses an off-screen field); a fill-everything
-              bot sets .value directly and still trips it. */}
+          {/* Honeypot - hidden from real users. readOnly-until-focus blocks
+              autofill from writing to it; a fill-everything bot sets .value and
+              still trips it (flagged, not dropped). */}
           <input
             {...register("hp_field")}
             type="text"
@@ -157,65 +156,6 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           <div className="grid gap-2">
             <Label htmlFor="review-subject">Subject</Label>
             <Input id="review-subject" placeholder="A short headline (optional)" {...register("subject")} />
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="review-rating">Score (optional)</Label>
-            <div className="flex items-center gap-3">
-              <Input
-                id="review-rating"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={5}
-                step={0.1}
-                placeholder="0–5"
-                className="w-28"
-                {...register("rating", {
-                  validate: (v) =>
-                    v === "" ||
-                    v == null ||
-                    (Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 5) ||
-                    "Score must be a number between 0 and 5",
-                })}
-              />
-              {ratingPreview != null && (
-                <div className="flex items-center gap-2">
-                  <RatingDots value={ratingPreview} size={16} />
-                  <span className="text-sm text-muted-foreground">{ratingPreview}/5</span>
-                </div>
-              )}
-            </div>
-            {errors.rating && <p className="text-sm text-destructive">{errors.rating.message}</p>}
-            <p className="text-xs text-muted-foreground">Any number 0–5, tenths allowed (e.g. 4.3).</p>
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="review-text">
-              Review <span className="text-destructive">*</span>
-            </Label>
-            <Textarea
-              id="review-text"
-              placeholder="What was your experience?"
-              rows={5}
-              {...register("text", {
-                required: "Please write a review",
-                minLength: { value: MIN_TEXT, message: `Review must be at least ${MIN_TEXT} characters` },
-              })}
-            />
-            <p className={`text-xs ${textLen > 0 && textLen < MIN_TEXT ? "text-destructive" : "text-muted-foreground"}`}>
-              {textLen < MIN_TEXT
-                ? `At least ${MIN_TEXT} characters needed (${textLen}/${MIN_TEXT}).`
-                : `${textLen} characters`}
-            </p>
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="review-source-name">Source name</Label>
-            <Input id="review-source-name" placeholder="Tabarnam Transparency Advocate" {...register("source_name")} />
-            <p className="text-xs text-muted-foreground">
-              How your review is credited. Defaults to “Tabarnam Transparency Advocate” — change it if you'd like.
-            </p>
           </div>
 
           <div className="grid gap-2">
@@ -253,8 +193,39 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
             </p>
           </div>
 
+          <div className="grid gap-2">
+            <Label htmlFor="review-source-name">Who are you in relation to this company?</Label>
+            <Input id="review-source-name" {...register("source_name")} />
+            <p className="text-xs text-muted-foreground">
+              Shown publicly with your review. Defaults to “Tabarnam Transparency Advocate” — change it to
+              describe your relationship (e.g. customer, employee, founder).
+            </p>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="review-text">
+              Review <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="review-text"
+              placeholder="What was your experience?"
+              rows={5}
+              {...textReg}
+              onBlur={(e) => {
+                textReg.onBlur(e);
+                setReviewTouched(true);
+              }}
+            />
+            {showTooShort && (
+              <p className="text-xs text-destructive">
+                At least {MIN_TEXT} characters needed ({textLen}/{MIN_TEXT}).
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">Impacts company score.</p>
+          </div>
+
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmitting}>
+            <Button type="button" variant="outline" onClick={closeAndReset} disabled={isSubmitting}>
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting}>
