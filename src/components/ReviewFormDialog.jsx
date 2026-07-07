@@ -154,26 +154,25 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
 
           <div className="grid gap-2">
             <Label htmlFor="review-subject">Subject</Label>
-            <Input id="review-subject" placeholder="A short headline (optional)" {...register("subject")} />
+            <Input id="review-subject" {...register("subject")} />
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="review-name">Name</Label>
-            <p className="text-xs text-muted-foreground">
-              Optional. The name you provide will be shown to the Tabarnam community.
-            </p>
-            <Input id="review-name" placeholder="Your name (optional)" {...register("name")} />
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <Label htmlFor="review-name">Name</Label>
+              <span className="text-xs text-muted-foreground">Optional. Shown to the Tabarnam community.</span>
+            </div>
+            <Input id="review-name" {...register("name")} />
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="review-email">Email</Label>
-            <p className="text-xs text-muted-foreground">
-              Your email is private by default and only used to update you on your review.
-            </p>
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <Label htmlFor="review-email">Email</Label>
+              <span className="text-xs text-muted-foreground">Private by default. Add to be emailed review status.</span>
+            </div>
             <Input
               id="review-email"
               type="email"
-              placeholder="you@example.com (optional — for updates on your review)"
               {...register("email", {
                 validate: (v) => !v || EMAIL_RE.test(v) || "Please enter a valid email address",
               })}
@@ -200,13 +199,14 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="review-text">
-              Review <span className="text-destructive">*</span>
-            </Label>
-            <p className="text-xs text-muted-foreground">Impacts company score.</p>
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <Label htmlFor="review-text">
+                Review <span className="text-destructive">*</span>
+              </Label>
+              <span className="text-xs text-muted-foreground">Impacts company score.</span>
+            </div>
             <Textarea
               id="review-text"
-              placeholder="What was your experience?"
               rows={5}
               {...textReg}
               onBlur={(e) => {
