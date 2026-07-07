@@ -256,10 +256,20 @@ ${reviewBlock}
     const rejectTok = signReviewToken({ reviewId: doc.id, company: doc.company, action: "rejected" });
     const actionUrl = (t) => `${SITE}/api/review-action?token=${encodeURIComponent(t)}`;
 
+    const photosHtml = Array.isArray(doc.images) && doc.images.length
+      ? doc.images
+          .map((u) => {
+            const abs = `${SITE}${emailLayout.esc(u)}`;
+            return `<a href="${abs}" style="text-decoration:none;"><img src="${abs}" width="90" height="90" alt="Review photo" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid #E6E9EA;margin:4px 8px 0 0;" /></a>`;
+          })
+          .join("")
+      : "";
+
     const content = [
       emailLayout.field("Company", emailLayout.esc(resolvedCompanyName)),
       subject ? emailLayout.field("Subject", emailLayout.esc(subject)) : "",
       emailLayout.reviewBlock(text),
+      photosHtml ? emailLayout.field("Photos", photosHtml) : "",
       user_name ? emailLayout.field("User name", emailLayout.esc(user_name)) : "",
       source_name ? emailLayout.field("Who", emailLayout.esc(source_name)) : "",
       user_email
