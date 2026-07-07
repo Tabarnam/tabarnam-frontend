@@ -17,6 +17,7 @@ const { DEFAULT_XAI_MODEL } = require("../_shared");
 const { isEmailConfigured, sendEmail, escapeHtml } = require("../_graphEmail");
 const emailLayout = require("../_emailLayout");
 const { signReviewToken } = require("../_reviewActionToken");
+const { uploadReviewImages, MAX_IMAGES } = require("../_reviewImages");
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Admin inbox that gets a heads-up when a new review lands in the queue.
@@ -102,6 +103,10 @@ async function submitReviewHandler(req, ctx) {
   const user_name = String(body?.user_name || "").trim();
   const user_location = String(body?.user_location || "").trim();
   const user_email = String(body?.user_email || body?.email || "").trim();
+  // Up to 3 client-compressed data-URL images; validated + re-encoded server-side.
+  const imageInputs = Array.isArray(body?.images)
+    ? body.images.filter((s) => typeof s === "string" && s.startsWith("data:image/")).slice(0, MAX_IMAGES)
+    : [];
   // Opt-in: only when the reviewer both left an email and checked the box do we
   // ever expose it publicly. Default is private.
   const show_email =
@@ -191,8 +196,19 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
     flagged_bot,
     bot_reason,
     honeypot_tripped,
+    images: [],
     created_at: new Date().toISOString(),
   };
+
+  // Upload attached images (skip for honeypot/bot trips — no point storing their
+  // uploads). Best-effort: any image that fails validation/upload is dropped.
+  if (!honeypot_tripped && imageInputs.length) {
+    try {
+      doc.images = await uploadReviewImages(imageInputs, doc.id, ctx);
+    } catch (e) {
+      ctx?.log?.warn?.(`submit-review image upload failed: ${e?.message || e}`);
+    }
+  }
 
   try {
     await reviewsContainer.items.upsert(doc, {

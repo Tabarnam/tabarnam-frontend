@@ -382,6 +382,7 @@ async function getReviewsHandler(req, context, deps = {}) {
               source_url: null,
               // Display date = submission date (created_at), never the approval date.
               imported_at: r.created_at,
+              images: Array.isArray(r.images) ? r.images : [],
               ...(showEmail ? { contact_email: r.user_email } : {}),
 
               // Backwards-compatible fields
