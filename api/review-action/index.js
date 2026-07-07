@@ -49,24 +49,30 @@ function reviewSummary(review) {
     ${who}`;
 }
 
-function confirmPage(review, action) {
+// Landing page for the Approve/Reject email link. It AUTO-SUBMITS the decision
+// (one human tap on the email button = done). Scanner-safe: email link-preview
+// bots do a bare GET and don't run JS, so the auto-submit never fires for them;
+// they only ever see this static page (no mutation). A <noscript> fallback lets
+// a JS-off human finish with one tap.
+function autoActPage(review, action) {
   const isApprove = action === "approved";
   const accent = isApprove ? "#2E9E4F" : "#E0433E";
+  const verbing = isApprove ? "Approving" : "Rejecting";
   const verb = isApprove ? "Approve" : "Reject";
-  const lead = isApprove
-    ? "Approving publishes this review and recalculates the company's scores."
-    : "Rejecting keeps this review unpublished.";
   const token = review.__token;
   const inner = `
-    <div style="font:700 14px/1 ${FONT};letter-spacing:2px;color:${accent};">CONFIRM ${verb.toUpperCase()}</div>
+    <div style="font:700 14px/1 ${FONT};letter-spacing:2px;color:${accent};">${verbing.toUpperCase()} REVIEW…</div>
     <div style="height:1px;background:#E6E9EA;margin:16px 0 22px;"></div>
     ${reviewSummary(review)}
-    <p style="font:400 14px/1.6 ${FONT};color:#5A646A;margin:22px 0 18px;">${lead}</p>
-    <form method="POST" action="/api/review-action" style="margin:0;">
+    <p style="font:400 14px/1.6 ${FONT};color:#5A646A;margin:22px 0 0;">Applying your decision…</p>
+    <form id="ra-form" method="POST" action="/api/review-action" style="margin:16px 0 0;">
       <input type="hidden" name="token" value="${esc(token)}" />
-      <button type="submit" style="display:inline-block;background:${accent};color:#fff;border:0;cursor:pointer;font:700 15px/1 ${FONT};padding:14px 26px;border-radius:10px;">${verb} review</button>
-      <a href="${SITE}/admin/review-queue" style="display:inline-block;margin-left:10px;font:600 14px/1 ${FONT};color:#5A646A;text-decoration:none;padding:14px 8px;">Open the queue instead</a>
-    </form>`;
+      <noscript>
+        <button type="submit" style="display:inline-block;background:${accent};color:#fff;border:0;cursor:pointer;font:700 15px/1 ${FONT};padding:14px 26px;border-radius:10px;">${verb} review</button>
+        <div style="font:400 13px/1.5 ${FONT};color:#8A949A;margin-top:8px;">Tap the button to finish.</div>
+      </noscript>
+    </form>
+    <script>window.addEventListener("load",function(){try{document.getElementById("ra-form").submit();}catch(e){}});</script>`;
   return page(inner, accent);
 }
 
@@ -137,9 +143,9 @@ async function reviewActionHandler(req, context) {
   }
 
   if (method === "GET") {
-    // Confirmation page only — no mutation.
+    // Auto-submitting page — no mutation happens on this GET itself.
     review.__token = token;
-    return html(confirmPage(review, v.action));
+    return html(autoActPage(review, v.action));
   }
 
   // POST → perform the decision.
