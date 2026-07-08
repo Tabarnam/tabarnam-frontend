@@ -102,7 +102,7 @@ async function emailDecision(review, decision, adminMessage, companyName, contex
     headerLabel = "REVIEW APPROVED";
     contentHtml =
       p(greeting) +
-      p(`Good news — your review of <strong>${co}</strong> has been approved and is now published on Tabarnam. Thank you for helping other shoppers choose with confidence.`) +
+      p(`Good news! Your review of <strong>${co}</strong> has been approved and is now published on Tabarnam. Thank you for helping other people choose with confidence.`) +
       noteRows;
   } else {
     subject = `About your review of ${companyName}`;
