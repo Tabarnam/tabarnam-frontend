@@ -385,6 +385,23 @@ export function buildCompanyDraft(company) {
     if (draft.amazon_url_approved !== true) draft.amazon_url_approved = false;
   }
 
+  // A real (non-search) Amazon URL with no explicit approval flag
+  // (amazon_url_approved === undefined) is treated as approved. Enrichment/
+  // re-import rebuilds can drop the flag to undefined; without this the
+  // checkmark reads as "lost" on the next open even though the URL is a genuine
+  // store/product link. Machine "search" guesses (…/s?k=…) still require a human
+  // to approve. Mirrors the Issues column, which already treats undefined
+  // approval as fine (no "Amz" flag).
+  const isAmazonSearchUrl = /\/s\?/.test(draft.amazon_url || "");
+  if (
+    draft.amazon_url &&
+    !isAmazonSearchUrl &&
+    !draft.no_amazon_store &&
+    draft.amazon_url_approved === undefined
+  ) {
+    draft.amazon_url_approved = true;
+  }
+
   if (!draft.rating) {
     draft.rating = calculateInitialRating(computeAutoRatingInput(draft));
   }
