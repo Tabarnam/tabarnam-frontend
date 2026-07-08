@@ -84,8 +84,8 @@ async function rescoreCompany(company, nowIso, context) {
 async function emailDecision(review, decision, adminMessage, companyName, context) {
   if (!review.user_email || !isEmailConfigured()) return;
 
-  const firstName = String(review.user_name || "").trim().split(/\s+/)[0] || "";
-  const greeting = firstName ? `Hi ${esc(firstName)},` : "Hi there,";
+  const nameField = String(review.user_name || "").trim();
+  const greeting = nameField ? `Hi ${esc(nameField)},` : "Hi there,";
   const co = esc(companyName);
   const p = (html) =>
     `<tr><td style="padding:0 0 14px;"><div style="font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#41494D;">${html}</div></td></tr>`;

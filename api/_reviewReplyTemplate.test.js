@@ -26,10 +26,10 @@ test("renderEmail with signature:true appends the Tabarnam Boodle sign-off", () 
   assert.ok(html.includes("Warm regards"), "sign-off copy present");
 });
 
-test("buildThankYouEmail uses the default message and greets by first name", () => {
+test("buildThankYouEmail uses the default message and greets by full name", () => {
   const { subject, html } = buildThankYouEmail({ userName: "Jamie Rivera" });
   assert.equal(subject, THANKYOU_SUBJECT);
-  assert.ok(html.includes("Hi Jamie,"), "greets by first name only");
+  assert.ok(html.includes("Hi Jamie Rivera,"), "greets with the full name field");
   assert.ok(html.includes("make our community more transparent"), "default thank-you body present");
   assert.ok(html.includes("Tabarnam Boodle"), "signature present");
   assert.ok(html.includes(LOGO_URL), "logo present");

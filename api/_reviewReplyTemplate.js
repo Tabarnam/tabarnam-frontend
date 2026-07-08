@@ -17,16 +17,16 @@ const DEFAULT_THANKYOU_MESSAGE =
   "help other shoppers choose with confidence — that's the whole reason we exist.\n\n" +
   "We really appreciate you being part of it.";
 
-// First name only for a warmer greeting; falls back to no name.
+// Use the reviewer's full name field verbatim in the greeting; falls back to no
+// name (→ "Hi there,").
 function greetingName(userName) {
-  const first = String(userName || "").trim().split(/\s+/)[0] || "";
-  return first;
+  return String(userName || "").trim();
 }
 
 /**
  * Build the branded thank-you email.
  * @param {object} o
- * @param {string} [o.userName]  reviewer's name (greeting uses the first name)
+ * @param {string} [o.userName]  reviewer's name (greeting uses the full name field)
  * @param {string} [o.message]   personalized body; defaults to DEFAULT_THANKYOU_MESSAGE
  * @returns {{subject: string, html: string}}
  */

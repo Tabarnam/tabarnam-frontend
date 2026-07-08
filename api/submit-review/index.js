@@ -225,8 +225,8 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
     // 1) Receipt to the submitter (only if they gave an email) — branded,
     // logo'd, "Tabarnam Support" signature, matching the decision/thank-you mail.
     if (user_email) {
-      const firstName = String(user_name || "").trim().split(/\s+/)[0] || "";
-      const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : "Hi there,";
+      const nameField = String(user_name || "").trim();
+      const greeting = nameField ? `Hi ${escapeHtml(nameField)},` : "Hi there,";
       const row = (html) =>
         `<tr><td style="padding:0 0 14px;"><div style="font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#41494D;">${html}</div></td></tr>`;
       const receiptContent =
