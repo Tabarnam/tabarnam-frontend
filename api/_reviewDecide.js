@@ -10,7 +10,8 @@
 
 const { findCompanyByIdOrName } = require("./_reviewCounts");
 const { computeReputationQualityScores } = require("./_companyScoring");
-const { isEmailConfigured, sendEmail, escapeHtml } = require("./_graphEmail");
+const { isEmailConfigured, sendEmail } = require("./_graphEmail");
+const { renderEmail, esc } = require("./_emailLayout");
 const { writeCompanyEditHistoryEntry } = require("./_companyEditHistory");
 
 function nonNegInt(v) {
@@ -77,30 +78,46 @@ async function rescoreCompany(company, nowIso, context) {
   return scoring;
 }
 
+// Branded, logo'd decision email to the reviewer. Routed through the shared
+// _emailLayout so it carries the Tabarnam wordmark + "Tabarnam Support"
+// signature, matching the receipt and thank-you emails.
 async function emailDecision(review, decision, adminMessage, companyName, context) {
   if (!review.user_email || !isEmailConfigured()) return;
 
-  const name = review.user_name ? " " + escapeHtml(review.user_name) : "";
-  const noteBlock = adminMessage
-    ? `<blockquote style="border-left:3px solid #ccc;padding-left:12px;margin:12px 0;color:#555;">${escapeHtml(adminMessage).replace(/\n/g, "<br />")}</blockquote>`
+  const firstName = String(review.user_name || "").trim().split(/\s+/)[0] || "";
+  const greeting = firstName ? `Hi ${esc(firstName)},` : "Hi there,";
+  const co = esc(companyName);
+  const p = (html) =>
+    `<tr><td style="padding:0 0 14px;"><div style="font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#41494D;">${html}</div></td></tr>`;
+  const noteRows = adminMessage
+    ? p("A note from our team:") +
+      `<tr><td style="padding:0 0 14px;"><div style="border-left:3px solid #86C6CF;padding:2px 0 2px 14px;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#41494D;">${esc(adminMessage).replace(/\n/g, "<br />")}</div></td></tr>`
     : "";
 
   let subject;
-  let html;
+  let headerLabel;
+  let contentHtml;
   if (decision === "approved") {
     subject = `Your review of ${companyName} is now live`;
-    html = `<p>Hi${name},</p>
-<p>Good news — your review of <strong>${escapeHtml(companyName)}</strong> has been approved and is now published on Tabarnam. Thanks for helping other shoppers.</p>
-${adminMessage ? `<p>A note from our team:</p>${noteBlock}` : ""}
-<p>Best,<br />The Tabarnam Team</p>`;
+    headerLabel = "REVIEW APPROVED";
+    contentHtml =
+      p(greeting) +
+      p(`Good news — your review of <strong>${co}</strong> has been approved and is now published on Tabarnam. Thank you for helping other shoppers choose with confidence.`) +
+      noteRows;
   } else {
     subject = `About your review of ${companyName}`;
-    html = `<p>Hi${name},</p>
-<p>Thanks for taking the time to review <strong>${escapeHtml(companyName)}</strong>. After a look by our team, we aren't able to publish this submission.</p>
-${adminMessage ? `<p>Reason:</p>${noteBlock}` : ""}
-<p>You're welcome to submit an updated review anytime.</p>
-<p>Best,<br />The Tabarnam Team</p>`;
+    headerLabel = "REVIEW UPDATE";
+    contentHtml =
+      p(greeting) +
+      p(`Thank you for taking the time to review <strong>${co}</strong>. After a look by our team, we aren't able to publish this submission.`) +
+      (adminMessage
+        ? p("Reason:") +
+          `<tr><td style="padding:0 0 14px;"><div style="border-left:3px solid #86C6CF;padding:2px 0 2px 14px;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#41494D;">${esc(adminMessage).replace(/\n/g, "<br />")}</div></td></tr>`
+        : "") +
+      p("You're welcome to submit an updated review anytime.");
   }
+
+  const html = renderEmail({ headerLabel, contentHtml, signature: true, preheader: subject });
 
   try {
     await sendEmail({ to: review.user_email, toName: review.user_name || undefined, subject, html });

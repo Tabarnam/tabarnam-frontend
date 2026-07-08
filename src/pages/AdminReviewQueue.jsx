@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, X, RefreshCw, Loader2, Bot } from "lucide-react";
+import { Check, X, RefreshCw, Loader2, Bot, Mail, Send } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,16 @@ const STATUS_TABS = [
   { key: "rejected", label: "Rejected" },
   { key: "all", label: "All" },
 ];
+
+// Standard community thank-you pre-filled into the reply composer. Mirror of
+// DEFAULT_THANKYOU_MESSAGE in api/_reviewReplyTemplate.js — keep the two in sync.
+// The greeting ("Hi {name},") and the "Tabarnam Support" + logo sign-off are
+// added by the email template, so this is just the editable body.
+const DEFAULT_THANKYOU_MESSAGE =
+  "Thank you for taking the time to share your review on Tabarnam. " +
+  "Contributions like yours are what make our community more transparent and " +
+  "help other shoppers choose with confidence — that's the whole reason we exist.\n\n" +
+  "We really appreciate you being part of it.";
 
 function formatDate(value) {
   const raw = String(value || "").trim();
@@ -46,6 +56,9 @@ export default function AdminReviewQueue() {
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState({}); // id -> admin response text
   const [actingId, setActingId] = useState(null);
+  const [replyOpenId, setReplyOpenId] = useState(null); // review id whose reply composer is open
+  const [replyText, setReplyText] = useState({}); // id -> reply body
+  const [replyingId, setReplyingId] = useState(null); // review id currently sending
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -101,6 +114,39 @@ export default function AdminReviewQueue() {
       toast.error(e?.message || "Action failed");
     } finally {
       setActingId(null);
+    }
+  };
+
+  const openReply = (review) => {
+    setReplyOpenId((cur) => (cur === review.id ? null : review.id));
+    setReplyText((m) => (m[review.id] != null ? m : { ...m, [review.id]: DEFAULT_THANKYOU_MESSAGE }));
+  };
+
+  const sendReply = async (review) => {
+    const message = (replyText[review.id] ?? DEFAULT_THANKYOU_MESSAGE).trim();
+    if (!message) {
+      toast.error("Reply message is empty.");
+      return;
+    }
+    setReplyingId(review.id);
+    try {
+      const r = await apiFetch("/xadmin-api-review-reply", {
+        method: "POST",
+        body: {
+          id: review.id,
+          company: review.company || review.company_name,
+          message,
+        },
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data?.ok) throw new Error(data?.error || r.statusText || "Failed to send reply");
+      toast.success(`Thank-you sent to ${review.user_email}.`);
+      setReplyOpenId(null);
+      load();
+    } catch (e) {
+      toast.error(e?.message || "Failed to send reply");
+    } finally {
+      setReplyingId(null);
     }
   };
 
@@ -260,6 +306,74 @@ export default function AdminReviewQueue() {
                         {review.decided_by ? ` — ${review.decided_by}` : ""}
                       </div>
                     )
+                  )}
+
+                  {review.user_email && (
+                    <div className="mt-3 border-t border-border pt-3">
+                      {review.last_reply_at && (
+                        <div className="mb-2 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                          ✓ Thank-you sent {formatDate(review.last_reply_at)}
+                          {review.last_reply_by ? ` — ${review.last_reply_by}` : ""}
+                        </div>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openReply(review)}
+                      >
+                        <Mail className="mr-2 h-4 w-4" />
+                        {review.last_reply_at ? "Send another reply" : "Reply / Thank reviewer"}
+                      </Button>
+
+                      {replyOpenId === review.id && (
+                        <div className="mt-2 space-y-2">
+                          <p className="text-xs text-muted-foreground">
+                            Sends a branded thank-you (with the Tabarnam logo and “Tabarnam Support”
+                            signature) to {review.user_email}. Edit below to personalize, or send as-is.
+                          </p>
+                          <Textarea
+                            rows={6}
+                            value={replyText[review.id] ?? DEFAULT_THANKYOU_MESSAGE}
+                            onChange={(e) =>
+                              setReplyText((m) => ({ ...m, [review.id]: e.target.value }))
+                            }
+                          />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => sendReply(review)}
+                              disabled={replyingId === review.id}
+                            >
+                              {replyingId === review.id ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Send className="mr-2 h-4 w-4" />
+                              )}
+                              Send thank-you
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setReplyOpenId(null)}
+                              disabled={replyingId === review.id}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                setReplyText((m) => ({ ...m, [review.id]: DEFAULT_THANKYOU_MESSAGE }))
+                              }
+                              disabled={replyingId === review.id}
+                              className="text-muted-foreground"
+                            >
+                              Reset to default
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </li>
               );

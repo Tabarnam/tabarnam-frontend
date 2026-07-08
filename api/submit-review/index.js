@@ -222,21 +222,24 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
   // Skip emails entirely for honeypot trips so bot spam can't flood the inbox
   // or send receipts to forged addresses; the review still lands in the queue.
   if (isEmailConfigured() && !honeypot_tripped) {
-    const scoreLine =
-      rating != null ? `<p><strong>Your score:</strong> ${escapeHtml(rating)} / 5</p>` : "";
-    const subjLine = subject
-      ? `<p><strong>Subject:</strong> ${escapeHtml(subject)}</p>`
-      : "";
-    const reviewBlock = `${subjLine}${scoreLine}
-<blockquote style="border-left:3px solid #ccc;padding-left:12px;margin:12px 0;color:#555;">${escapeHtml(text).replace(/\n/g, "<br />")}</blockquote>`;
-
-    // 1) Receipt to the submitter (only if they gave an email)
+    // 1) Receipt to the submitter (only if they gave an email) — branded,
+    // logo'd, "Tabarnam Support" signature, matching the decision/thank-you mail.
     if (user_email) {
-      const receiptHtml = `<p>Hi${user_name ? " " + escapeHtml(user_name) : ""},</p>
-<p>Thanks for reviewing <strong>${escapeHtml(resolvedCompanyName)}</strong> on Tabarnam. We've received your submission and it's pending approval by our team. You'll get another email once it's been reviewed.</p>
-<p>Here's a copy of what you submitted:</p>
-${reviewBlock}
-<p>Best,<br />The Tabarnam Team</p>`;
+      const firstName = String(user_name || "").trim().split(/\s+/)[0] || "";
+      const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : "Hi there,";
+      const row = (html) =>
+        `<tr><td style="padding:0 0 14px;"><div style="font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#41494D;">${html}</div></td></tr>`;
+      const receiptContent =
+        row(greeting) +
+        row(`Thank you for reviewing <strong>${escapeHtml(resolvedCompanyName)}</strong> on Tabarnam. We've received your submission and it's pending approval by our team — you'll get another email once it's been reviewed.`) +
+        (subject ? emailLayout.field("Subject", emailLayout.esc(subject)) : "") +
+        emailLayout.reviewBlock(text);
+      const receiptHtml = emailLayout.renderEmail({
+        headerLabel: "REVIEW RECEIVED",
+        contentHtml: receiptContent,
+        signature: true,
+        preheader: `We received your review of ${resolvedCompanyName}`,
+      });
       try {
         await sendEmail({
           to: user_email,

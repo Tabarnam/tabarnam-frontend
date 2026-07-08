@@ -628,6 +628,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-review-reply");
+  require("./admin-review-reply/index.js");
+  console.log("[api] ✓ admin-review-reply registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-review-reply:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-save-diagnostic");
   require("./admin-save-diagnostic/index.js");
   console.log("[api] ✓ admin-save-diagnostic registered");

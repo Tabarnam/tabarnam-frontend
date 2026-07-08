@@ -17,6 +17,12 @@ const MUTED = "#8A949A";
 const FONT =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
+// Email-optimized Tabarnam wordmark (360×163, ~8KB), served from the SWA static
+// site. A hosted URL (not an inline CID) matches how these emails already
+// reference the review-photo image URLs, and keeps the message body small.
+const SITE = (process.env.SITE_BASE_URL || "https://tabarnam.com").replace(/\/+$/, "");
+const LOGO_URL = `${SITE}/email-logo.png`;
+
 const BTN_COLORS = {
   approve: { bg: "#2E9E4F", fg: "#FFFFFF" },
   reject: { bg: "#E0433E", fg: "#FFFFFF" },
@@ -60,6 +66,16 @@ function button(label, href, kind = "neutral") {
   </td></tr>`;
 }
 
+// Sign-off block for reviewer-facing emails: "Warm regards, Tabarnam Support"
+// over the wordmark. Returns a content table row (append to contentHtml).
+function signatureBlock(name = "Tabarnam Support") {
+  return `<tr><td style="padding:8px 0 4px;">
+    <div style="font:400 15px/1.6 ${FONT};color:#41494D;">Warm regards,</div>
+    <div style="font:700 15px/1.5 ${FONT};color:${VALUE};margin:2px 0 10px;">${esc(name)}</div>
+    <img src="${LOGO_URL}" width="132" alt="Tabarnam" style="display:block;border:0;width:132px;max-width:50%;height:auto;" />
+  </td></tr>`;
+}
+
 /**
  * Wrap content in the branded card.
  * @param {object} o
@@ -69,8 +85,19 @@ function button(label, href, kind = "neutral") {
  * @param {string} [o.buttonsHtml] table cells (use button())
  * @param {string} [o.footerText]
  * @param {string} [o.preheader]  hidden preview text
+ * @param {boolean} [o.showLogo=true]  render the Tabarnam wordmark at the top
+ * @param {boolean|string} [o.signature=false]  append a sign-off; pass a string
+ *        to override the "Tabarnam Support" name
  */
-function renderEmail({ headerLabel, timestamp = "", contentHtml = "", buttonsHtml = "", footerText = "", preheader = "" } = {}) {
+function renderEmail({ headerLabel, timestamp = "", contentHtml = "", buttonsHtml = "", footerText = "", preheader = "", showLogo = true, signature = false } = {}) {
+  if (signature) {
+    contentHtml += signatureBlock(typeof signature === "string" ? signature : undefined);
+  }
+  const logoRow = showLogo
+    ? `<tr><td align="center" style="padding:24px 30px 0;">
+        <img src="${LOGO_URL}" width="168" alt="Tabarnam" style="display:block;border:0;width:168px;max-width:62%;height:auto;" />
+      </td></tr>`
+    : "";
   const pre = preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${esc(preheader)}</div>`
     : "";
@@ -87,6 +114,7 @@ function renderEmail({ headerLabel, timestamp = "", contentHtml = "", buttonsHtm
   <tr><td align="center">
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:${CARD_BG};border:1px solid ${BORDER};border-radius:14px;overflow:hidden;">
       <tr><td style="height:4px;line-height:4px;font-size:0;background:${ACCENT};">&nbsp;</td></tr>
+      ${logoRow}
       <tr><td style="padding:24px 30px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
           <td style="font:700 14px/1 ${FONT};letter-spacing:2px;color:${ACCENT_TEXT};">${esc(headerLabel)}</td>
@@ -105,4 +133,4 @@ function renderEmail({ headerLabel, timestamp = "", contentHtml = "", buttonsHtm
 </body></html>`;
 }
 
-module.exports = { renderEmail, field, reviewBlock, button, esc, ACCENT, ACCENT_TEXT };
+module.exports = { renderEmail, field, reviewBlock, button, signatureBlock, esc, ACCENT, ACCENT_TEXT, LOGO_URL };
