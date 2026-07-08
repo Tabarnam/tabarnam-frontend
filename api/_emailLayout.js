@@ -66,9 +66,9 @@ function button(label, href, kind = "neutral") {
   </td></tr>`;
 }
 
-// Sign-off block for reviewer-facing emails: "Warm regards, Tabarnam Support"
+// Sign-off block for reviewer-facing emails: "Warm regards, Tabarnam Boodle"
 // over the wordmark. Returns a content table row (append to contentHtml).
-function signatureBlock(name = "Tabarnam Support") {
+function signatureBlock(name = "Tabarnam Boodle") {
   return `<tr><td style="padding:8px 0 4px;">
     <div style="font:400 15px/1.6 ${FONT};color:#41494D;">Warm regards,</div>
     <div style="font:700 15px/1.5 ${FONT};color:${VALUE};margin:2px 0 10px;">${esc(name)}</div>

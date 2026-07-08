@@ -231,9 +231,7 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
         `<tr><td style="padding:0 0 14px;"><div style="font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#41494D;">${html}</div></td></tr>`;
       const receiptContent =
         row(greeting) +
-        row(`Thank you for reviewing <strong>${escapeHtml(resolvedCompanyName)}</strong> on Tabarnam. We've received your submission and it's pending approval by our team — you'll get another email once it's been reviewed.`) +
-        (subject ? emailLayout.field("Subject", emailLayout.esc(subject)) : "") +
-        emailLayout.reviewBlock(text);
+        row(`Thank you for reviewing <strong>${escapeHtml(resolvedCompanyName)}</strong> on Tabarnam. We've received your submission, and it's pending approval by our team. You will get another email once it's been reviewed.`);
       const receiptHtml = emailLayout.renderEmail({
         headerLabel: "REVIEW RECEIVED",
         contentHtml: receiptContent,

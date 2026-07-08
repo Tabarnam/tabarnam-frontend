@@ -328,7 +328,7 @@ export default function AdminReviewQueue() {
                       {replyOpenId === review.id && (
                         <div className="mt-2 space-y-2">
                           <p className="text-xs text-muted-foreground">
-                            Sends a branded thank-you (with the Tabarnam logo and “Tabarnam Support”
+                            Sends a branded thank-you (with the Tabarnam logo and “Tabarnam Boodle”
                             signature) to {review.user_email}. Edit below to personalize, or send as-is.
                           </p>
                           <Textarea
