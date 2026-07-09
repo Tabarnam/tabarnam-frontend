@@ -12,17 +12,17 @@ test("renderEmail includes the logo by default and can be turned off", () => {
   assert.ok(!noLogo.includes(LOGO_URL), "logo URL should be absent when showLogo:false and no signature");
 });
 
-test("signature block renders 'Tabarnam Boodle' and the logo", () => {
+test("signature block renders 'Tabarnam Triumvirs' and the logo", () => {
   const sig = signatureBlock();
-  assert.ok(sig.includes("Tabarnam Boodle"), "default signature name");
+  assert.ok(sig.includes("Tabarnam Triumvirs"), "default signature name");
   assert.ok(sig.includes(LOGO_URL), "signature carries the logo");
   const custom = signatureBlock("The Team");
   assert.ok(custom.includes("The Team"));
 });
 
-test("renderEmail with signature:true appends the Tabarnam Boodle sign-off", () => {
+test("renderEmail with signature:true appends the Tabarnam Triumvirs sign-off", () => {
   const html = renderEmail({ headerLabel: "THANK YOU", contentHtml: "", signature: true });
-  assert.ok(html.includes("Tabarnam Boodle"), "signature present");
+  assert.ok(html.includes("Tabarnam Triumvirs"), "signature present");
   assert.ok(html.includes("Warm regards"), "sign-off copy present");
 });
 
@@ -31,7 +31,7 @@ test("buildThankYouEmail uses the default message and greets by full name", () =
   assert.equal(subject, THANKYOU_SUBJECT);
   assert.ok(html.includes("Hi Jamie Rivera,"), "greets with the full name field");
   assert.ok(html.includes("make our community more transparent"), "default thank-you body present");
-  assert.ok(html.includes("Tabarnam Boodle"), "signature present");
+  assert.ok(html.includes("Tabarnam Triumvirs"), "signature present");
   assert.ok(html.includes(LOGO_URL), "logo present");
 });
 

@@ -66,9 +66,9 @@ function button(label, href, kind = "neutral") {
   </td></tr>`;
 }
 
-// Sign-off block for reviewer-facing emails: "Warm regards, Tabarnam Boodle"
+// Sign-off block for reviewer-facing emails: "Warm regards, Tabarnam Triumvirs"
 // over the wordmark. Returns a content table row (append to contentHtml).
-function signatureBlock(name = "Tabarnam Boodle") {
+function signatureBlock(name = "Tabarnam Triumvirs") {
   return `<tr><td style="padding:8px 0 4px;">
     <div style="font:400 15px/1.6 ${FONT};color:#41494D;">Warm regards,</div>
     <div style="font:700 15px/1.5 ${FONT};color:${VALUE};margin:2px 0 10px;">${esc(name)}</div>
@@ -87,7 +87,7 @@ function signatureBlock(name = "Tabarnam Boodle") {
  * @param {string} [o.preheader]  hidden preview text
  * @param {boolean} [o.showLogo=true]  render the Tabarnam wordmark at the top
  * @param {boolean|string} [o.signature=false]  append a sign-off; pass a string
- *        to override the "Tabarnam Support" name
+ *        to override the "Tabarnam Triumvirs" name
  */
 function renderEmail({ headerLabel, timestamp = "", contentHtml = "", buttonsHtml = "", footerText = "", preheader = "", showLogo = true, signature = false } = {}) {
   if (signature) {
