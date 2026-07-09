@@ -14,7 +14,7 @@ const THANKYOU_SUBJECT = "Thank you for your review on Tabarnam";
 const DEFAULT_THANKYOU_MESSAGE =
   "Thank you for taking the time to share your review on Tabarnam. " +
   "Contributions like yours are what make our community more transparent and " +
-  "help other shoppers choose with confidence — that's the whole reason we exist.\n\n" +
+  "help other shoppers choose with confidence, that's the whole reason we exist.\n\n" +
   "We really appreciate you being part of it.";
 
 // Use the reviewer's full name field verbatim in the greeting; falls back to no

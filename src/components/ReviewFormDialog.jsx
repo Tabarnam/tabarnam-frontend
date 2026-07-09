@@ -228,10 +228,9 @@ export default function ReviewFormDialog({ open, onOpenChange, companyId, compan
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="review-source-name">Who are you in relation to this company?</Label>
-            <p className="text-xs text-muted-foreground">
+            <Label htmlFor="review-source-name">
               Describe your relationship (e.g. customer, employee, founder)
-            </p>
+            </Label>
             <Input id="review-source-name" {...register("source_name")} />
           </div>
 
