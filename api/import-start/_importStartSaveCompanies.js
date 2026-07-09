@@ -26,6 +26,24 @@ const {
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { applyEnrichment } = require("../_applyEnrichment");
+const { applySortKeys, looksLikeCompanyDoc } = require("../_sortKeys");
+const { computeContractEnrichmentHealth } = require("../_contractHealth");
+
+// Stamp the admin-sort scalars (qq_score, issues_count) on a company doc before
+// it's persisted, refreshing enrichment_health from the live contract first so
+// issues_count is accurate. Without this, first-pass imports save with NO
+// issues_count at all — the DB-wide "Incomplete" badge (which gates on
+// IS_DEFINED(c.issues_count) AND > 0) then under-counts vs the live Issues
+// column. Mirrors the admin save path and the resume-worker. Non-fatal.
+function stampIssueSortKeys(d) {
+  if (!looksLikeCompanyDoc(d)) return d;
+  try {
+    const h = computeContractEnrichmentHealth(d);
+    if (h && typeof h === "object") d.enrichment_health = h;
+  } catch { /* keep existing enrichment_health */ }
+  try { applySortKeys(d); } catch { /* non-fatal */ }
+  return d;
+}
 
 const {
   toNormalizedDomain,
@@ -1237,6 +1255,7 @@ async function saveCompaniesToCosmos({
                 incomingDoc: doc,
                 finalNormalizedDomain,
               });
+              stampIssueSortKeys(mergedDoc);
 
               const expectedPk = String(existingDoc?.normalized_domain || existingDoc?.partition_key || "").trim() || undefined;
 
@@ -1343,6 +1362,7 @@ async function saveCompaniesToCosmos({
             delete doc._unified_reviews_status;
             delete doc._unified_enrichment_done;
 
+            stampIssueSortKeys(doc);
             const upsertRes = await upsertItemWithPkCandidates(container, doc);
             if (!upsertRes?.ok) {
               throw new Error(upsertRes?.error || "upsert_failed");
@@ -1406,6 +1426,7 @@ async function saveCompaniesToCosmos({
                       logo_error: logoImportResult.logo_error || "",
                       logo_telemetry: logoImportResult.logo_telemetry || null,
                     };
+                    stampIssueSortKeys(mergedDoc);
                     await upsertItemWithPkCandidates(container, mergedDoc);
                   } catch (err) {
                     console.warn(`[import-start] Failed to update logo for company ${companyId}: ${err?.message || String(err)}`);
