@@ -11,7 +11,7 @@
 const { findCompanyByIdOrName } = require("./_reviewCounts");
 const { computeReputationQualityScores } = require("./_companyScoring");
 const { isEmailConfigured, sendEmail } = require("./_graphEmail");
-const { renderEmail, esc } = require("./_emailLayout");
+const { renderEmail, esc, companyProfileUrl } = require("./_emailLayout");
 const { writeCompanyEditHistoryEntry } = require("./_companyEditHistory");
 
 function nonNegInt(v) {
@@ -86,7 +86,8 @@ async function emailDecision(review, decision, adminMessage, companyName, contex
 
   const nameField = String(review.user_name || "").trim();
   const greeting = nameField ? `Hi ${esc(nameField)},` : "Hi there,";
-  const co = esc(companyName);
+  // Company name as a bold teal link back to its profile on Tabarnam.
+  const co = `<a href="${esc(companyProfileUrl(companyName))}" style="color:#2C7F89;font-weight:700;text-decoration:underline;">${esc(companyName)}</a>`;
   const p = (html) =>
     `<tr><td style="padding:0 0 14px;"><div style="font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#41494D;">${html}</div></td></tr>`;
   const noteRows = adminMessage
@@ -102,14 +103,14 @@ async function emailDecision(review, decision, adminMessage, companyName, contex
     headerLabel = "REVIEW APPROVED";
     contentHtml =
       p(greeting) +
-      p(`Good news! Your review of <strong>${co}</strong> has been approved and is now published on Tabarnam. Thank you for helping other people choose with confidence.`) +
+      p(`Good news! Your review of ${co} has been approved and is now published on Tabarnam. Thank you for helping other people choose with confidence.`) +
       noteRows;
   } else {
     subject = `About your review of ${companyName}`;
     headerLabel = "REVIEW UPDATE";
     contentHtml =
       p(greeting) +
-      p(`Thank you for taking the time to review <strong>${co}</strong>. After a look by our team, we aren't able to publish this submission.`) +
+      p(`Thank you for taking the time to review ${co}. After a look by our team, we aren't able to publish this submission.`) +
       (adminMessage
         ? p("Reason:") +
           `<tr><td style="padding:0 0 14px;"><div style="border-left:3px solid #86C6CF;padding:2px 0 2px 14px;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#41494D;">${esc(adminMessage).replace(/\n/g, "<br />")}</div></td></tr>`

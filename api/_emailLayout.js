@@ -23,6 +23,13 @@ const FONT =
 const SITE = (process.env.SITE_BASE_URL || "https://tabarnam.com").replace(/\/+$/, "");
 const LOGO_URL = `${SITE}/email-logo.png`;
 
+// Public link to a company's profile — the same `/results?q=<name>` deep link the
+// site's Share button uses (there's no standalone /company/:id route; companies
+// live on the results page).
+function companyProfileUrl(companyName) {
+  return `${SITE}/results?q=${encodeURIComponent(String(companyName || "").trim())}`;
+}
+
 const BTN_COLORS = {
   approve: { bg: "#2E9E4F", fg: "#FFFFFF" },
   reject: { bg: "#E0433E", fg: "#FFFFFF" },
@@ -133,4 +140,4 @@ function renderEmail({ headerLabel, timestamp = "", contentHtml = "", buttonsHtm
 </body></html>`;
 }
 
-module.exports = { renderEmail, field, reviewBlock, button, signatureBlock, esc, ACCENT, ACCENT_TEXT, LOGO_URL };
+module.exports = { renderEmail, field, reviewBlock, button, signatureBlock, esc, ACCENT, ACCENT_TEXT, LOGO_URL, companyProfileUrl };
