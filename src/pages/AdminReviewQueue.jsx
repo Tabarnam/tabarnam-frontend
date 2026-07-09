@@ -25,7 +25,7 @@ const STATUS_TABS = [
 
 // Standard community thank-you pre-filled into the reply composer. Mirror of
 // DEFAULT_THANKYOU_MESSAGE in api/_reviewReplyTemplate.js — keep the two in sync.
-// The greeting ("Hi {name},") and the "Tabarnam Triumvirs" + logo sign-off are
+// The greeting ("Hi {name},") and the "Tabarnam Triumvirate" + logo sign-off are
 // added by the email template, so this is just the editable body.
 const DEFAULT_THANKYOU_MESSAGE =
   "Thank you for taking the time to share your review on Tabarnam. " +
@@ -328,7 +328,7 @@ export default function AdminReviewQueue() {
                       {replyOpenId === review.id && (
                         <div className="mt-2 space-y-2">
                           <p className="text-xs text-muted-foreground">
-                            Sends a branded thank-you (with the Tabarnam logo and “Tabarnam Triumvirs”
+                            Sends a branded thank-you (with the Tabarnam logo and “Tabarnam Triumvirate”
                             signature) to {review.user_email}. Edit below to personalize, or send as-is.
                           </p>
                           <Textarea
