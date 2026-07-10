@@ -35,6 +35,45 @@ const IMPORT_HANDOFF_KEY = "tabarnam.admin.import.handoff_queue.v1";
 // ALL rows in one request against the single warm worker.
 const HANDOFF_CONFIRM_THRESHOLD = 100;
 
+// Working-session persistence. Importing hundreds of companies is multi-sitting
+// work — the extracted list (statuses, found URLs, sent flags, selection) must
+// survive closing the tab. Saved to localStorage (debounced + pagehide flush),
+// restored on mount with a banner. ~935 rows ≈ a few hundred KB — well under
+// the ~5MB origin quota.
+const EXTRACT_SESSION_KEY = "tabarnam.admin.extract.session.v1";
+const EXTRACT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const EXTRACT_SESSION_SAVE_DEBOUNCE_MS = 800;
+
+function loadExtractSession() {
+  try {
+    const raw = window.localStorage.getItem(EXTRACT_SESSION_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object" || typeof data.savedAt !== "number") return null;
+    if (Date.now() - data.savedAt > EXTRACT_SESSION_TTL_MS) {
+      try { window.localStorage.removeItem(EXTRACT_SESSION_KEY); } catch {}
+      return null;
+    }
+    if (!Array.isArray(data.rows) || data.rows.length === 0) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function clearExtractSession() {
+  try { window.localStorage.removeItem(EXTRACT_SESSION_KEY); } catch {}
+}
+
+function fmtAgo(ts) {
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
 // How preflight's match_type codes read to a human.
 const MATCH_TYPE_LABEL = {
   normalized_domain: "domain",
@@ -82,12 +121,16 @@ export default function AdminExtractCompanies() {
   // Selection for "Send to Import" — a Set of row NAMES, kept OUT of the row
   // objects so undo snapshots, crawl merges, and preflight mapping are untouched.
   const [selected, setSelected] = useState(() => new Set());
+  // Set when a prior working session was restored from localStorage (banner).
+  const [restoredAt, setRestoredAt] = useState(null);
 
   const history = useRef([]);                      // undo stack of prior `rows` snapshots
   const [canUndo, setCanUndo] = useState(false);
   const runIdRef = useRef(0);                      // guards against stale preflight results
   const rowsRef = useRef([]);                      // mirror of `rows` for seeding a resumed crawl
   const copyTimer = useRef(null);
+  const persistTimer = useRef(null);
+  const latestSessionRef = useRef(null);           // freshest envelope, for the pagehide flush
 
   useEffect(() => { rowsRef.current = rows; }, [rows]);
 
@@ -157,6 +200,74 @@ export default function AdminExtractCompanies() {
     } finally {
       if (runIdRef.current === runId) setChecking(false);
     }
+  }, []);
+
+  // ── Session restore: bring back the working list after a closed tab ──
+  useEffect(() => {
+    const s = loadExtractSession();
+    if (!s) return;
+    // In-flight markers can't survive a reload — reset "looking" URL lookups
+    // to idle (re-run manually; xAI calls are costly). Pending dup-checks are
+    // auto-finished below.
+    const restoredRows = s.rows.map((r) => ({
+      ...r,
+      url_status: r.url_status === "looking" ? "idle" : (r.url_status || "idle"),
+    }));
+    if (typeof s.url === "string" && s.url) setUrl(s.url);
+    if (s.meta && typeof s.meta === "object") setMeta(s.meta);
+    setRows(restoredRows);
+    setResumePage(Number.isFinite(s.resumePage) ? s.resumePage : null);
+    if (typeof s.filter === "string") setFilter(s.filter);
+    if (Array.isArray(s.selected)) setSelected(new Set(s.selected));
+    setRestoredAt(s.savedAt);
+
+    // Finish any dup-checks that were interrupted mid-run.
+    const pending = restoredRows.filter((r) => r.status === "pending");
+    if (pending.length > 0) {
+      runPreflight(
+        pending.map((r) => ({ name: r.name, ...(r.website_url ? { url: r.website_url } : {}) })),
+        runIdRef.current
+      );
+    }
+    // Run exactly once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Session persist: debounced save of the working state ──
+  useEffect(() => {
+    // Nothing worth saving yet (also prevents the initial empty render from
+    // clobbering a stored session before the restore effect applies it).
+    if (rows.length === 0 && !meta) return;
+    const envelope = {
+      v: 1,
+      savedAt: Date.now(),
+      url,
+      meta,
+      rows,
+      resumePage,
+      filter,
+      selected: [...selected],
+    };
+    latestSessionRef.current = envelope;
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => {
+      try { window.localStorage.setItem(EXTRACT_SESSION_KEY, JSON.stringify(latestSessionRef.current)); } catch {}
+    }, EXTRACT_SESSION_SAVE_DEBOUNCE_MS);
+    return () => { if (persistTimer.current) clearTimeout(persistTimer.current); };
+  }, [rows, meta, url, resumePage, filter, selected]);
+
+  // Flush the freshest snapshot when the tab closes/hides so the debounce
+  // window can't lose the last edits.
+  useEffect(() => {
+    const flush = () => {
+      try {
+        if (latestSessionRef.current) {
+          window.localStorage.setItem(EXTRACT_SESSION_KEY, JSON.stringify(latestSessionRef.current));
+        }
+      } catch {}
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
   }, []);
 
   // Core crawl loop: fetch chunks from `startPage`, merging into `seed` (a Map
@@ -260,9 +371,32 @@ export default function AdminExtractCompanies() {
     setCanUndo(false);
     setResumePage(null);
     setExtractProgress({ pages: 0, companies: 0 });
+    // A new extraction supersedes the stored working session.
+    setRestoredAt(null);
+    latestSessionRef.current = null;
+    clearExtractSession();
     const runId = ++runIdRef.current;
     await crawl(1, runId, new Map());
   }, [crawl]);
+
+  // Discard the restored session and reset to a blank page.
+  const startFresh = useCallback(() => {
+    clearExtractSession();
+    latestSessionRef.current = null;
+    runIdRef.current += 1; // cancel any in-flight restored preflight
+    setMeta(null);
+    setRows([]);
+    setFilter("all");
+    setUrlModel(null);
+    setSelected(new Set());
+    history.current = [];
+    setCanUndo(false);
+    setResumePage(null);
+    setRestoredAt(null);
+    setChecking(false);
+    setError(null);
+    setExtractProgress({ pages: 0, companies: 0 });
+  }, []);
 
   const runContinue = useCallback(async () => {
     if (resumePage == null) return;
@@ -514,6 +648,26 @@ export default function AdminExtractCompanies() {
             <div className="bg-red-900/30 border border-red-700 text-red-300 rounded p-3 mb-4 text-sm flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {/* Restored working session */}
+          {restoredAt != null && (
+            <div className="bg-sky-900/25 border border-sky-700/60 text-sky-200 rounded p-3 mb-4 text-sm flex items-center gap-3">
+              <RefreshCw className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1">
+                Restored your working session ({rows.length.toLocaleString()} companies, saved {fmtAgo(restoredAt)}).
+                Progress here auto-saves — use <span className="text-sky-100 font-medium">Re-check</span> to refresh
+                statuses after importing in the other tab.
+              </span>
+              <Button onClick={startFresh} variant="outline"
+                className="border-sky-600/50 text-sky-200 hover:bg-sky-900/40 h-8 px-3 text-xs flex-shrink-0">
+                Start fresh
+              </Button>
+              <button onClick={() => setRestoredAt(null)} title="Dismiss"
+                className="text-sky-300/70 hover:text-sky-100 p-1 rounded hover:bg-sky-900/40 flex-shrink-0">
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
 
