@@ -840,9 +840,11 @@ export default function AdminExtractCompanies() {
                 </div>
               </div>
 
-              {/* Table — near-full viewport height; header stays sticky while it scrolls */}
-              <div className="rounded-lg border border-slate-800 overflow-hidden">
-                <div className="max-h-[calc(100vh-90px)] overflow-y-auto">
+              {/* Table — full natural height, scrolled by the PAGE scrollbar (no inner
+                  scrollbox). No overflow-hidden on the wrapper: it would break the
+                  sticky header, which now sticks to the viewport while scrolling. */}
+              <div className="rounded-lg border border-slate-800">
+                <div>
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-slate-900 text-slate-400 text-xs uppercase tracking-wider">
                       <tr>
