@@ -12,7 +12,9 @@
 
 const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 
-const DEFAULT_TIMEOUT_MS = 20_000;
+// Web-search lookups genuinely take 10-30s (the model searches, then emits).
+// 35s keeps a single wave inside the SWA proxy's ~45s request ceiling.
+const DEFAULT_TIMEOUT_MS = 35_000;
 const DEFAULT_MAX_TOKENS = 200; // just a URL + confidence — keep output tiny
 const DEFAULT_CONCURRENCY = 5;
 const MAX_BATCH = 50;
@@ -67,16 +69,22 @@ function isRejectedHost(host, sourceHost) {
   return NON_OWN_HOST_FRAGMENTS.some((frag) => host.includes(frag));
 }
 
-const URL_LOOKUP_SCHEMA = {
-  type: "object",
-  properties: {
-    found: { type: "boolean" },
-    website_url: { type: "string" },
-    confidence: { type: "number" },
-  },
-  required: ["found", "website_url", "confidence"],
-  additionalProperties: false,
-};
+// Parse the model's JSON tolerantly: strip markdown fences, and if the text
+// has prose around it, extract the first {...} block.
+function parseJsonLoose(text) {
+  const raw = asString(text).trim();
+  if (!raw) return null;
+  const unfenced = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  for (const candidate of [unfenced]) {
+    try { return JSON.parse(candidate); } catch { /* fall through */ }
+  }
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(unfenced.slice(start, end + 1)); } catch { /* fall through */ }
+  }
+  return null;
+}
 
 function buildPrompt(name, sourceContext) {
   const where = sourceContext ? ` The company sells on ${sourceContext}.` : "";
@@ -113,10 +121,14 @@ async function lookupCompanyUrl(name, opts = {}) {
       timeoutMs: opts.timeoutMs || DEFAULT_TIMEOUT_MS,
       useTools: true,
       search_parameters: { mode: "on" },
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "company_url", schema: URL_LOOKUP_SCHEMA, strict: true },
-      },
+      // json_object, NOT strict json_schema. Two production-verified reasons
+      // (see _canonicalImport.js Phase 2.19.9/4.16 history): (a) on
+      // /v1/responses the legacy nested json_schema shape is rejected with
+      // HTTP 400 — this silently failed ALL 935 lookups on first run; (b)
+      // strict schemas make grok stall in tool loops without emitting text.
+      // The prompt carries the exact key contract; parseJsonLoose tolerates
+      // fences/prose.
+      response_format: { type: "json_object" },
       signal: opts.signal,
     });
   } catch (e) {
@@ -124,14 +136,21 @@ async function lookupCompanyUrl(name, opts = {}) {
   }
 
   if (!result || !result.ok) {
-    return { ...base, found: false, website_url: "", confidence: 0, error: result?.error || "xai_failed", elapsed_ms: Date.now() - startedAt };
+    const detail = asString(result?.error || "xai_failed");
+    const status = result?.diagnostics?.upstream_http_status;
+    return {
+      ...base,
+      found: false,
+      website_url: "",
+      confidence: 0,
+      error: status ? `${detail} (http ${status})` : detail,
+      elapsed_ms: Date.now() - startedAt,
+    };
   }
 
   const text = extractTextFromXaiResponse(result.resp);
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
+  const parsed = parseJsonLoose(text);
+  if (!parsed || typeof parsed !== "object") {
     return { ...base, found: false, website_url: "", confidence: 0, error: "unparseable_response", elapsed_ms: Date.now() - startedAt };
   }
 
@@ -180,5 +199,6 @@ module.exports = {
   normalizeUrl,
   isRejectedHost,
   hostOf,
+  parseJsonLoose,
   MAX_BATCH,
 };

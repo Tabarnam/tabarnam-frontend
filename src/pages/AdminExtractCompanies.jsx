@@ -14,9 +14,11 @@ import { apiFetch, readJsonOrText } from "@/lib/api";
 // Cosmos queries per entry, so we send names in bounded batches (not hundreds
 // at once) to avoid an RU storm on the single warm worker.
 const PREFLIGHT_BATCH = 20;
-// xAI URL lookup is slow (web search per name) — smaller batches keep each
-// request within the invocation budget; the endpoint fans out internally.
-const URL_LOOKUP_BATCH = 10;
+// xAI URL lookup is slow (a real web search per name, 10-30s each). The
+// endpoint fans out with concurrency 5, so batches of 5 = ONE wave per
+// request (~≤35s) — inside the SWA proxy's ~45s ceiling. Batches of 10 meant
+// two waves and busted it.
+const URL_LOOKUP_BATCH = 5;
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -434,8 +436,8 @@ export default function AdminExtractCompanies() {
             results = data.results;
             if (data.model) setUrlModel(data.model);
           } else throw new Error(data?.error || `HTTP ${res.status}`);
-        } catch {
-          results = batch.map((name) => ({ name, found: false, website_url: "", error: "lookup_failed" }));
+        } catch (e) {
+          results = batch.map((name) => ({ name, found: false, website_url: "", error: e?.message || "request_failed" }));
         }
         if (runIdRef.current !== runId) return;
 
@@ -449,6 +451,7 @@ export default function AdminExtractCompanies() {
               website_url: r.found ? r.website_url : "",
               url_confidence: r.confidence ?? null,
               url_status: r.found ? "done" : (r.error === "not_found" ? "not_found" : "error"),
+              url_error: r.found ? null : (r.error || null),
             };
           })
         );
@@ -928,7 +931,13 @@ function WebsiteCell({ row }) {
     );
   }
   if (url_status === "not_found") return <span className="text-xs text-slate-500">not found</span>;
-  if (url_status === "error") return <span className="text-xs text-amber-400/70">lookup failed</span>;
+  if (url_status === "error") {
+    return (
+      <span className="text-xs text-amber-400/70 cursor-help" title={row.url_error || "unknown error"}>
+        lookup failed
+      </span>
+    );
+  }
   return <span className="text-slate-600">—</span>;
 }
 
