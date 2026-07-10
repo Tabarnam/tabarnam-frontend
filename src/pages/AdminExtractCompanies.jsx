@@ -172,6 +172,7 @@ export default function AdminExtractCompanies() {
             byKey.set(key, {
               name: c.name,
               product_count: c.product_count ?? null,
+              image_url: c.image_url || null,
               status: "pending",
               match: null,
               website_url: "",
@@ -321,7 +322,7 @@ export default function AdminExtractCompanies() {
   }, []);
 
   // ── Excel-ready export of the current (curated) rows ──
-  const exportColumns = ["Company", "Status", "Matched company", "Match type", "Products", "Website", "Confidence"];
+  const exportColumns = ["Company", "Status", "Matched company", "Match type", "Products", "Website", "Confidence", "Image"];
   const rowToCells = useCallback((r) => ([
     r.name,
     STATUS_LABEL[r.status] || r.status,
@@ -330,6 +331,7 @@ export default function AdminExtractCompanies() {
     r.product_count ?? "",
     r.website_url || "", // real company website — filled by the xAI lookup step
     r.website_url && Number.isFinite(r.url_confidence) ? `${Math.round(r.url_confidence * 100)}%` : "",
+    r.image_url || "",
   ]), []);
 
   const handleCopy = useCallback(async () => {
@@ -569,7 +571,15 @@ export default function AdminExtractCompanies() {
                           r.status === "fuzzy_match" ? "bg-amber-950/10" :
                           r.status === "no_match" ? "bg-emerald-950/10" : ""
                         }`}>
-                          <td className="px-3 py-1.5 text-slate-100">{r.name}</td>
+                          <td className="px-3 py-1.5 text-slate-100">
+                            <span className="inline-flex items-center gap-2">
+                              {r.image_url && (
+                                <img src={r.image_url} alt="" loading="lazy"
+                                  className="w-7 h-7 rounded object-cover bg-slate-800 flex-shrink-0" />
+                              )}
+                              {r.name}
+                            </span>
+                          </td>
                           <td className="px-3 py-1.5">
                             <StatusCell row={r} matchHref={matchHref} />
                           </td>

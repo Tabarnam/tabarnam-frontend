@@ -207,7 +207,15 @@ async function fetchMammothPartners(fetchImpl, log) {
       const name = asString(p?.name).trim();
       if (!name) continue;
       const key = (asString(p?.slug).trim() || name).toLowerCase();
-      if (!bySlug.has(key)) bySlug.set(key, { name, product_count: null });
+      if (!bySlug.has(key)) {
+        bySlug.set(key, {
+          name,
+          product_count: null,
+          // Card image Mammoth associates with the partner — useful downstream
+          // (logo enrichment reference). No website URL is exposed by the API.
+          image_url: asString(p?.lp_image).trim() || null,
+        });
+      }
     }
     log?.(`[extract:mammoth] offset ${offset} +${data.length} (total ${bySlug.size}/${payload?.pagination?.total ?? "?"})`);
 

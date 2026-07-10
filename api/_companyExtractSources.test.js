@@ -168,7 +168,7 @@ function makeMammothPartnersFetch(allPartners, pageSize = 250) {
 }
 
 test("extractCompaniesChunk uses the Mammoth partners API (site-specific, one done chunk)", async () => {
-  const partners = Array.from({ length: 600 }, (_, i) => ({ name: `Brand ${String(i).padStart(3, "0")}`, slug: `brand-${i}` }));
+  const partners = Array.from({ length: 600 }, (_, i) => ({ name: `Brand ${String(i).padStart(3, "0")}`, slug: `brand-${i}`, lp_image: `https://cdn/img-${i}.jpg` }));
   const fetchImpl = makeMammothPartnersFetch(partners, 250);
   const c = await extractCompaniesChunk("https://mammothnation.com/pages/partners", { fetchImpl, startPage: 1 });
   assert.strictEqual(c.ok, true);
@@ -177,6 +177,7 @@ test("extractCompaniesChunk uses the Mammoth partners API (site-specific, one do
   assert.strictEqual(c.next_page, null);
   assert.strictEqual(c.companies.length, 600); // paginated across 3 API pages, deduped by slug
   assert.strictEqual(c.companies[0].name, "Brand 000");
+  assert.strictEqual(c.companies[0].image_url, "https://cdn/img-0.jpg"); // card image carried through
 });
 
 test("extractCompaniesChunk reports unsupported (done) for non-Shopify", async () => {
