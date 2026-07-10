@@ -53,6 +53,8 @@ export default function AdminExtractCompanies() {
   const [error, setError] = useState(null);
   const [meta, setMeta] = useState(null);         // { source, url, pages_fetched, truncated, ... }
   const [rows, setRows] = useState([]);           // [{ name, product_count, status, match }]
+  const [extracting, setExtracting] = useState(false);
+  const [extractProgress, setExtractProgress] = useState({ pages: 0, companies: 0 });
   const [checking, setChecking] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [urlLooking, setUrlLooking] = useState(false);
@@ -126,44 +128,78 @@ export default function AdminExtractCompanies() {
     setMeta(null);
     setRows([]);
     setFilter("all");
+    setUrlModel(null);
     history.current = [];
     setCanUndo(false);
     const runId = ++runIdRef.current;
+    setExtracting(true);
+    setExtractProgress({ pages: 0, companies: 0 });
+
+    // Optional client-side page cap from the Max pages input.
+    const userMax = (() => {
+      const n = Number(String(maxPages).trim());
+      return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+    })();
+    const byKey = new Map(); // lowercased name -> accumulated row across chunks
+
     try {
-      const body = { url: url.trim() };
-      const m = String(maxPages).trim();
-      if (m && Number.isFinite(Number(m))) body.max_pages = Number(m);
-      const res = await apiFetch("/xadmin-api-extract-companies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await readJsonOrText(res);
-      if (!res.ok || (data && data.ok === false)) {
-        throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+      let page = 1;
+      // Loop chunks until the server says done (or the user's page cap is hit),
+      // rendering rows + a ticker as each chunk arrives.
+      while (true) {
+        if (runIdRef.current !== runId) return;
+        const res = await apiFetch("/xadmin-api-extract-companies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: url.trim(), page }),
+        });
+        const data = await readJsonOrText(res);
+        if (!res.ok || (data && data.ok === false)) {
+          throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+        }
+        if (runIdRef.current !== runId) return;
+
+        for (const c of data.companies || []) {
+          const key = String(c.name || "").toLowerCase();
+          if (!key) continue;
+          const existing = byKey.get(key);
+          if (existing) existing.product_count = (existing.product_count || 0) + (c.product_count || 0);
+          else byKey.set(key, {
+            name: c.name,
+            product_count: c.product_count ?? null,
+            status: "pending",
+            match: null,
+            website_url: "",
+            url_status: "idle", // idle | looking | done | not_found | error
+            url_confidence: null,
+          });
+        }
+        const merged = [...byKey.values()].sort((a, b) =>
+          a.name.localeCompare(b.name, "en", { sensitivity: "base" })
+        );
+        setRows(merged);
+        setExtractProgress({ pages: data.to_page || page, companies: merged.length });
+
+        const reachedUserMax = userMax != null && Number(data.to_page) >= userMax;
+        const stop = data.done || data.next_page == null || reachedUserMax;
+        setMeta({
+          source: data.source,
+          url: data.url,
+          pages_fetched: data.to_page,
+          truncated: data.truncated || (reachedUserMax && !data.done),
+          truncated_reason: data.truncated ? data.truncated_reason : (reachedUserMax && !data.done ? "max_pages" : data.truncated_reason),
+          count: merged.length,
+        });
+        if (stop) break;
+        page = data.next_page;
       }
-      setMeta({
-        source: data.source,
-        url: data.url,
-        pages_fetched: data.pages_fetched,
-        truncated: data.truncated,
-        truncated_reason: data.truncated_reason,
-        count: data.count,
-      });
-      const initialRows = (data.companies || []).map((c) => ({
-        name: c.name,
-        product_count: c.product_count ?? null,
-        status: "pending",
-        match: null,
-        website_url: "",
-        url_status: "idle", // idle | looking | done | not_found | error
-        url_confidence: null,
-      }));
-      setRows(initialRows);
-      // Fire-and-forget the reconciliation pass.
-      runPreflight(initialRows.map((r) => r.name), runId);
+
+      if (runIdRef.current !== runId) return;
+      setExtracting(false);
+      // Reconcile the full accumulated set against the corpus.
+      runPreflight([...byKey.values()].map((r) => r.name), runId);
     } catch (e) {
-      if (runIdRef.current === runId) setError(e?.message || "Extraction failed");
+      if (runIdRef.current === runId) { setError(e?.message || "Extraction failed"); setExtracting(false); }
     } finally {
       if (runIdRef.current === runId) setLoading(false);
     }
@@ -338,6 +374,19 @@ export default function AdminExtractCompanies() {
             <div className="bg-red-900/30 border border-red-700 text-red-300 rounded p-3 mb-4 text-sm flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {/* Extraction ticker — pages/companies stream in as chunks arrive */}
+          {extracting && (
+            <div className="mb-4">
+              <div className="flex items-center gap-2 text-sm text-slate-300 mb-1">
+                <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
+                Extracting… page {extractProgress.pages} · <span className="text-teal-300 font-medium">{extractProgress.companies.toLocaleString()}</span> companies found
+              </div>
+              <div className="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
+                <div className="h-full w-1/3 bg-teal-500 animate-pulse" />
+              </div>
             </div>
           )}
 
