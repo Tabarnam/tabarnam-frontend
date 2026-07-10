@@ -137,6 +137,20 @@ test("extractCompaniesChunk returns a page window with next_page when more remai
   assert.deepStrictEqual(c2.companies.map((c) => c.name), ["Gamma"]);
 });
 
+test("extractCompaniesChunk returns a resume page (not done) on transient truncation", async () => {
+  // Page 2 persistently 500s within this chunk → truncated, resumable at page 2.
+  const fetchImpl = makeFlakyShopifyFetch(
+    [[{ vendor: "Alpha" }], [{ vendor: "Beta" }], [{ vendor: "Gamma" }]],
+    { 2: { times: 99, status: 500 } }
+  );
+  const c = await extractCompaniesChunk("mammothnation.com", { fetchImpl, startPage: 1, pageLimit: 3, rateLimitBackoffMs: 1 });
+  assert.strictEqual(c.ok, true);
+  assert.strictEqual(c.done, false);          // NOT done — transient failure
+  assert.strictEqual(c.truncated, true);
+  assert.strictEqual(c.next_page, 2);         // resume point = the page that failed
+  assert.deepStrictEqual(c.companies.map((x) => x.name), ["Alpha"]); // page 1 kept
+});
+
 test("extractCompaniesChunk reports unsupported (done) for non-Shopify", async () => {
   const fetchImpl = async () => ({ status: 200, ok: true, async text() { return "<html>no</html>"; } });
   const c = await extractCompaniesChunk("example.com", { fetchImpl, startPage: 1 });

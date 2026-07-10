@@ -1,7 +1,7 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import {
-  Loader2, Search, Copy, Check, Download, AlertTriangle, Store, ExternalLink, X, Undo2, Globe,
+  Loader2, Search, Copy, Check, Download, AlertTriangle, Store, ExternalLink, X, Undo2, Globe, Play,
 } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
@@ -55,6 +55,7 @@ export default function AdminExtractCompanies() {
   const [rows, setRows] = useState([]);           // [{ name, product_count, status, match }]
   const [extracting, setExtracting] = useState(false);
   const [extractProgress, setExtractProgress] = useState({ pages: 0, companies: 0 });
+  const [resumePage, setResumePage] = useState(null); // set when a crawl pauses (throttled); enables Continue
   const [checking, setChecking] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [urlLooking, setUrlLooking] = useState(false);
@@ -66,7 +67,10 @@ export default function AdminExtractCompanies() {
   const history = useRef([]);                      // undo stack of prior `rows` snapshots
   const [canUndo, setCanUndo] = useState(false);
   const runIdRef = useRef(0);                      // guards against stale preflight results
+  const rowsRef = useRef([]);                      // mirror of `rows` for seeding a resumed crawl
   const copyTimer = useRef(null);
+
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
 
   const counts = useMemo(() => {
     const c = { total: rows.length, no_match: 0, exact_match: 0, fuzzy_match: 0, pending: 0, error: 0 };
@@ -122,30 +126,25 @@ export default function AdminExtractCompanies() {
     }
   }, []);
 
-  const runExtract = useCallback(async () => {
+  // Core crawl loop: fetch chunks from `startPage`, merging into `seed` (a Map
+  // of lowercased-name -> row) so a resumed crawl preserves already-reconciled
+  // rows. Stops on completion OR a transient truncation (rate-limit / 5xx),
+  // recording a resume point in the latter case. Reconciles only the newly
+  // added names at the end.
+  const crawl = useCallback(async (startPage, runId, seed) => {
     setLoading(true);
     setError(null);
-    setMeta(null);
-    setRows([]);
-    setFilter("all");
-    setUrlModel(null);
-    history.current = [];
-    setCanUndo(false);
-    const runId = ++runIdRef.current;
     setExtracting(true);
-    setExtractProgress({ pages: 0, companies: 0 });
 
-    // Optional client-side page cap from the Max pages input.
     const userMax = (() => {
       const n = Number(String(maxPages).trim());
       return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
     })();
-    const byKey = new Map(); // lowercased name -> accumulated row across chunks
+    const byKey = seed; // lowercased name -> row (seeded with prior rows on resume)
+    const newNames = [];
 
     try {
-      let page = 1;
-      // Loop chunks until the server says done (or the user's page cap is hit),
-      // rendering rows + a ticker as each chunk arrives.
+      let page = startPage;
       while (true) {
         if (runIdRef.current !== runId) return;
         const res = await apiFetch("/xadmin-api-extract-companies", {
@@ -164,46 +163,76 @@ export default function AdminExtractCompanies() {
           if (!key) continue;
           const existing = byKey.get(key);
           if (existing) existing.product_count = (existing.product_count || 0) + (c.product_count || 0);
-          else byKey.set(key, {
-            name: c.name,
-            product_count: c.product_count ?? null,
-            status: "pending",
-            match: null,
-            website_url: "",
-            url_status: "idle", // idle | looking | done | not_found | error
-            url_confidence: null,
-          });
+          else {
+            byKey.set(key, {
+              name: c.name,
+              product_count: c.product_count ?? null,
+              status: "pending",
+              match: null,
+              website_url: "",
+              url_status: "idle", // idle | looking | done | not_found | error
+              url_confidence: null,
+            });
+            newNames.push(c.name);
+          }
         }
-        const merged = [...byKey.values()].sort((a, b) =>
-          a.name.localeCompare(b.name, "en", { sensitivity: "base" })
-        );
-        setRows(merged);
-        setExtractProgress({ pages: data.to_page || page, companies: merged.length });
+        // Merge into current rows (don't replace) so a concurrent reconcile
+        // pass updating statuses isn't clobbered by this crawl's snapshot.
+        setRows((prev) => {
+          const map = new Map(prev.map((r) => [r.name.toLowerCase(), r]));
+          for (const [key, row] of byKey) {
+            const ex = map.get(key);
+            if (!ex) map.set(key, row);
+            else if (ex.product_count !== row.product_count) map.set(key, { ...ex, product_count: row.product_count });
+          }
+          return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+        });
+        setExtractProgress({ pages: data.to_page || page, companies: byKey.size });
 
         const reachedUserMax = userMax != null && Number(data.to_page) >= userMax;
-        const stop = data.done || data.next_page == null || reachedUserMax;
         setMeta({
           source: data.source,
           url: data.url,
           pages_fetched: data.to_page,
           truncated: data.truncated || (reachedUserMax && !data.done),
           truncated_reason: data.truncated ? data.truncated_reason : (reachedUserMax && !data.done ? "max_pages" : data.truncated_reason),
-          count: merged.length,
+          count: byKey.size,
         });
-        if (stop) break;
+
+        if (data.truncated) { setResumePage(data.next_page); break; }        // paused — resumable
+        if (data.done || data.next_page == null || reachedUserMax) { setResumePage(null); break; } // finished
         page = data.next_page;
       }
-
-      if (runIdRef.current !== runId) return;
-      setExtracting(false);
-      // Reconcile the full accumulated set against the corpus.
-      runPreflight([...byKey.values()].map((r) => r.name), runId);
     } catch (e) {
-      if (runIdRef.current === runId) { setError(e?.message || "Extraction failed"); setExtracting(false); }
+      if (runIdRef.current === runId) setError(e?.message || "Extraction failed");
     } finally {
-      if (runIdRef.current === runId) setLoading(false);
+      if (runIdRef.current === runId) { setExtracting(false); setLoading(false); }
     }
+
+    // Reconcile only the names added by this crawl (resume preserves prior ones).
+    if (runIdRef.current === runId && newNames.length) runPreflight(newNames, runId);
   }, [url, maxPages, runPreflight]);
+
+  const runExtract = useCallback(async () => {
+    setMeta(null);
+    setRows([]);
+    setFilter("all");
+    setUrlModel(null);
+    history.current = [];
+    setCanUndo(false);
+    setResumePage(null);
+    setExtractProgress({ pages: 0, companies: 0 });
+    const runId = ++runIdRef.current;
+    await crawl(1, runId, new Map());
+  }, [crawl]);
+
+  const runContinue = useCallback(async () => {
+    if (resumePage == null) return;
+    // Keep the same runId + seed from current rows so accumulated / reconciled
+    // rows are preserved as we fetch further pages.
+    const seed = new Map(rowsRef.current.map((r) => [r.name.toLowerCase(), r]));
+    await crawl(resumePage, runIdRef.current, seed);
+  }, [resumePage, crawl]);
 
   // ── URL capture (pipeline step 3): resolve New companies' real websites ──
   const runUrlLookup = useCallback(async () => {
@@ -420,13 +449,23 @@ export default function AdminExtractCompanies() {
 
               {/* Notices */}
               {meta.truncated && (
-                <div className="bg-amber-900/25 border border-amber-700/60 text-amber-300 rounded p-3 mb-4 text-sm flex items-start gap-2">
+                <div className="bg-amber-900/25 border border-amber-700/60 text-amber-300 rounded p-3 mb-4 text-sm flex items-start gap-3">
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <span>
-                    List may be incomplete (stopped: <code className="text-amber-200">{meta.truncated_reason}</code>).
-                    {meta.truncated_reason === "rate_limited" && " The site rate-limited us — try again in a minute."}
-                    {meta.truncated_reason === "max_pages" && " Raise Max pages to fetch more."}
-                  </span>
+                  <div className="flex-1">
+                    <div>
+                      List is partial (stopped: <code className="text-amber-200">{meta.truncated_reason}</code>).
+                      {(meta.truncated_reason === "rate_limited" || String(meta.truncated_reason).startsWith("page_error")) &&
+                        " The store throttles bulk crawling — wait ~30s, then Continue to pick up where it stopped."}
+                      {meta.truncated_reason === "max_pages" && " Raise Max pages to fetch more."}
+                    </div>
+                  </div>
+                  {resumePage != null && (
+                    <Button onClick={runContinue} disabled={extracting || loading}
+                      className="bg-amber-600 hover:bg-amber-500 text-white h-8 px-3 text-xs flex-shrink-0">
+                      {extracting ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Play className="w-3.5 h-3.5 mr-1" />}
+                      Continue (page {resumePage})
+                    </Button>
+                  )}
                 </div>
               )}
 

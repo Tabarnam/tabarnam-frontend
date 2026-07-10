@@ -16,13 +16,19 @@
 // Network access is injectable (`fetchImpl`) so the logic is unit-testable
 // without hitting the real network.
 
-const DEFAULT_MAX_PAGES = 60;          // 60 * 250 = 15k products hard ceiling
+const DEFAULT_MAX_PAGES = 250;         // 250 * 100 = 25k products hard ceiling
 const DEFAULT_PAGE_LIMIT = 3;          // pages fetched per chunked request (keeps the UI ticker lively)
-const SHOPIFY_PAGE_SIZE = 250;         // Shopify's max page size for products.json
-const PAGE_PACING_MS = 400;            // gap between page fetches — be polite, avoid 429
+// Shopify allows limit up to 250, BUT large limits at deep offset make the
+// store's products.json query TIME OUT (HTTP 500) — empirically Mammoth 500s
+// deterministically at limit=250 offset≥4250, while limit=100 pages cleanly to
+// the end of a 13k-product catalog. So we deliberately use a smaller page size
+// to trade more requests for a complete, reliable crawl.
+const SHOPIFY_PAGE_SIZE = 100;
+const PAGE_PACING_MS = 600;            // gap between page fetches — be polite, avoid 429
 const PAGE_TIMEOUT_MS = 15_000;        // per-request timeout
-const OVERALL_BUDGET_MS = 90_000;      // total wall-clock budget for one extraction
-const MAX_PAGE_RETRIES = 2;            // retries on a transient page failure (429 / 5xx / network) before giving up
+const OVERALL_BUDGET_MS = 90_000;      // per-chunk wall-clock budget
+const MAX_PAGE_RETRIES = 3;            // retries on a transient page failure (429 / 5xx / network) before giving up
+const MAX_RETRY_AFTER_MS = 15_000;     // cap on how long we'll honor a Retry-After header
 const USER_AGENT =
   "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)";
 
@@ -30,6 +36,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
+}
+
+// Parse a Retry-After header (seconds or HTTP-date) to milliseconds, capped.
+// Tolerates both a fetch Headers object and a plain object (tests).
+function parseRetryAfterMs(headers) {
+  try {
+    let raw = null;
+    if (headers && typeof headers.get === "function") raw = headers.get("retry-after");
+    else if (headers && typeof headers === "object") raw = headers["retry-after"] ?? headers["Retry-After"];
+    if (raw == null) return 0;
+    const secs = Number(raw);
+    if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, MAX_RETRY_AFTER_MS);
+    const dateMs = Date.parse(raw);
+    if (Number.isFinite(dateMs)) return Math.min(Math.max(0, dateMs - Date.now()), MAX_RETRY_AFTER_MS);
+    return 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -94,12 +118,15 @@ async function fetchShopifyPage(fetchImpl, origin, page, log, cfg = {}) {
     }
 
     // Transient upstream: rate limit (429) or server error (5xx). Back off and
-    // retry a bounded number of times before surfacing the failure.
+    // retry a bounded number of times before surfacing the failure. On a 429,
+    // honor the server's Retry-After hint (capped) over our linear backoff.
     if (res.status === 429 || res.status >= 500) {
       const rateLimited = res.status === 429;
       if (canRetry) {
-        log?.(`[extract:shopify] page ${page} transient ${res.status} — backing off ${backoff}ms`);
-        await sleep(backoff);
+        const retryAfterMs = rateLimited ? parseRetryAfterMs(res.headers) : 0;
+        const wait = Math.max(backoff, retryAfterMs);
+        log?.(`[extract:shopify] page ${page} transient ${res.status} — backing off ${wait}ms`);
+        await sleep(wait);
         continue;
       }
       return { ok: false, status: res.status, rateLimited };
@@ -362,7 +389,11 @@ async function extractCompaniesChunk(rawUrl, opts = {}) {
   );
 
   const hitMax = !ended && !truncated && lastPageFetched >= maxPages;
-  const done = ended || truncated || hitMax;
+  // "done" means the crawl genuinely finished: end of catalog or hard ceiling.
+  // A transient truncation (rate limit / 5xx / time budget) is NOT done — we
+  // surface a resume point so the client can Continue after a cooldown instead
+  // of restarting from page 1.
+  const done = ended || hitMax;
   return {
     ok: true,
     source: "shopify",
@@ -370,6 +401,8 @@ async function extractCompaniesChunk(rawUrl, opts = {}) {
     companies, // this chunk only
     from_page: startPage,
     to_page: lastPageFetched,
+    // Next page to fetch. When done → null. When truncated → the page that
+    // failed (lastPageFetched+1), i.e. where a Continue should resume.
     next_page: done ? null : lastPageFetched + 1,
     done,
     truncated: truncated || hitMax,
