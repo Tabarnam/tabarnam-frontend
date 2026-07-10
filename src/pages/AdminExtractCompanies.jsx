@@ -119,6 +119,7 @@ export default function AdminExtractCompanies() {
   const [urlProgress, setUrlProgress] = useState({ done: 0, total: 0 });
   const [urlModel, setUrlModel] = useState(null);
   const [filter, setFilter] = useState("all");
+  const [sortDir, setSortDir] = useState("asc"); // company name A→Z ("asc") or Z→A ("desc")
   const [copied, setCopied] = useState(false);
   // Selection for "Send to Import" — a Set of row NAMES, kept OUT of the row
   // objects so undo snapshots, crawl merges, and preflight mapping are untouched.
@@ -146,12 +147,15 @@ export default function AdminExtractCompanies() {
   }, [rows]);
 
   const visibleRows = useMemo(() => {
-    if (filter === "all") return rows;
-    if (filter === "sent") return rows.filter((r) => r.sent_to_import);
+    let list;
+    if (filter === "all") list = rows;
+    else if (filter === "sent") list = rows.filter((r) => r.sent_to_import);
     // "Not imported" means not-yet-actioned: exclude rows already sent.
-    if (filter === "no_match") return rows.filter((r) => r.status === "no_match" && !r.sent_to_import);
-    return rows.filter((r) => r.status === filter);
-  }, [rows, filter]);
+    else if (filter === "no_match") list = rows.filter((r) => r.status === "no_match" && !r.sent_to_import);
+    else list = rows.filter((r) => r.status === filter);
+    // Rows state is kept A→Z; only reverse for the Z→A view.
+    return sortDir === "desc" ? [...list].reverse() : list;
+  }, [rows, filter, sortDir]);
 
   // Effective selection = selected ∩ current row names (self-prunes removed rows).
   const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.name)), [rows, selected]);
@@ -220,6 +224,7 @@ export default function AdminExtractCompanies() {
     setRows(restoredRows);
     setResumePage(Number.isFinite(s.resumePage) ? s.resumePage : null);
     if (typeof s.filter === "string") setFilter(s.filter);
+    if (s.sortDir === "asc" || s.sortDir === "desc") setSortDir(s.sortDir);
     if (Array.isArray(s.selected)) setSelected(new Set(s.selected));
     setRestoredAt(s.savedAt);
 
@@ -248,6 +253,7 @@ export default function AdminExtractCompanies() {
       rows,
       resumePage,
       filter,
+      sortDir,
       selected: [...selected],
     };
     latestSessionRef.current = envelope;
@@ -256,7 +262,7 @@ export default function AdminExtractCompanies() {
       try { window.localStorage.setItem(EXTRACT_SESSION_KEY, JSON.stringify(latestSessionRef.current)); } catch {}
     }, EXTRACT_SESSION_SAVE_DEBOUNCE_MS);
     return () => { if (persistTimer.current) clearTimeout(persistTimer.current); };
-  }, [rows, meta, url, resumePage, filter, selected]);
+  }, [rows, meta, url, resumePage, filter, sortDir, selected]);
 
   // Flush the freshest snapshot when the tab closes/hides so the debounce
   // window can't lose the last edits.
@@ -844,7 +850,16 @@ export default function AdminExtractCompanies() {
                             onChange={toggleSelectVisible}
                           />
                         </th>
-                        <th className="text-left font-medium px-3 py-2">Company</th>
+                        <th className="text-left font-medium px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+                            title={sortDir === "asc" ? "Sorted A→Z — click for Z→A" : "Sorted Z→A — click for A→Z"}
+                            className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-slate-200"
+                          >
+                            Company {sortDir === "asc" ? "▲" : "▼"}
+                          </button>
+                        </th>
                         <th className="text-left font-medium px-3 py-2 w-56">Status</th>
                         <th className="text-left font-medium px-3 py-2 w-56">Website</th>
                         <th className="text-right font-medium px-3 py-2 w-20">Products</th>
