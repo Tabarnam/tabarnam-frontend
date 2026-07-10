@@ -46,6 +46,11 @@ const STATUS_LABEL = {
   error: "Check failed",
 };
 
+const SOURCE_LABEL = {
+  mammoth_partners: "Mammoth Partners",
+  shopify: "Shopify",
+};
+
 export default function AdminExtractCompanies() {
   const [url, setUrl] = useState("https://mammothnation.com/");
   const [maxPages, setMaxPages] = useState("");
@@ -365,10 +370,10 @@ export default function AdminExtractCompanies() {
           <p className="text-slate-400 text-sm mb-6">
             Pull the companies selling on a marketplace, reconcile each against the Tabarnam corpus
             using the same duplicate detection as <a href="/admin/import" className="text-teal-400 hover:underline">Import</a>
-            {" "}(exact match / possible duplicate), curate the list, then copy it into Excel. Shopify
-            storefronts (like Mammoth Nation) are auto-detected via per-product vendor data. Finding
-            each <span className="text-emerald-300">New</span> company&apos;s real website via xAI is a
-            follow-up step.
+            {" "}(exact match / possible duplicate), curate the list, then copy it into Excel. Mammoth
+            Nation uses its partner directory API; other Shopify storefronts fall back to per-product
+            vendor data. Finding each <span className="text-emerald-300">New</span> company&apos;s real
+            website via xAI is a follow-up step (marketplaces don&apos;t link out).
           </p>
 
           {/* Input */}
@@ -442,8 +447,8 @@ export default function AdminExtractCompanies() {
                 </div>
                 <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
                   <div className="text-xs uppercase text-slate-500 tracking-wider flex items-center gap-1"><Store className="w-3 h-3" /> Source</div>
-                  <div className="text-lg font-semibold text-slate-200 capitalize">{meta.source}</div>
-                  <div className="text-xs text-slate-500">{meta.pages_fetched} pages</div>
+                  <div className="text-lg font-semibold text-slate-200">{SOURCE_LABEL[meta.source] || meta.source}</div>
+                  <div className="text-xs text-slate-500">{meta.source === "mammoth_partners" ? "partner directory" : `${meta.pages_fetched} pages`}</div>
                 </div>
               </div>
 

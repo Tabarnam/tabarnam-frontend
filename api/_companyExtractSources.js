@@ -32,6 +32,12 @@ const MAX_RETRY_AFTER_MS = 15_000;     // cap on how long we'll honor a Retry-Af
 const USER_AGENT =
   "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)";
 
+// Site-specific: Mammoth Nation exposes its full partner (company) directory
+// via a custom API — 935 companies in one call — which is the clean, complete
+// source of "companies selling here", far better than mining 13k products.
+const MAMMOTH_PARTNERS_API = "https://mn-api.mammothnation.app/partners";
+const MAMMOTH_PARTNERS_PAGE_SIZE = 250;
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function asString(v) {
@@ -159,6 +165,62 @@ async function fetchShopifyPage(fetchImpl, origin, page, log, cfg = {}) {
   }
   // Unreachable — the loop always returns — but keep a safe fallback.
   return { ok: false, status: 0 };
+}
+
+// ── Site-specific: Mammoth Nation partners directory ────────────────────────
+
+function isMammothHost(hostname) {
+  return /(^|\.)mammothnation\.(com|app)$/i.test(asString(hostname));
+}
+
+/**
+ * Pull the full Mammoth Nation partner (company) directory from its API.
+ * Offset-paginated; dedupes by slug. Returns { ok, companies } or
+ * { ok:false, error, message }.
+ */
+async function fetchMammothPartners(fetchImpl, log) {
+  const bySlug = new Map();
+  const deadline = Date.now() + OVERALL_BUDGET_MS;
+  let offset = 0;
+  let guard = 0;
+
+  while (true) {
+    if (Date.now() > deadline) break;
+    const url = `${MAMMOTH_PARTNERS_API}?offset=${offset}&pageSize=${MAMMOTH_PARTNERS_PAGE_SIZE}`;
+    let res;
+    try {
+      res = await fetchWithTimeout(fetchImpl, url, PAGE_TIMEOUT_MS);
+    } catch (e) {
+      return { ok: false, error: `request_failed: ${asString(e?.message || e)}`, message: "Could not reach the Mammoth partners API." };
+    }
+    if (!res.ok) {
+      return { ok: false, error: `http_${res.status}`, message: `Mammoth partners API returned HTTP ${res.status}.` };
+    }
+    let payload;
+    try {
+      payload = await res.json();
+    } catch {
+      return { ok: false, error: "invalid_json", message: "Mammoth partners API returned invalid JSON." };
+    }
+    const data = Array.isArray(payload?.data) ? payload.data : [];
+    for (const p of data) {
+      const name = asString(p?.name).trim();
+      if (!name) continue;
+      const key = (asString(p?.slug).trim() || name).toLowerCase();
+      if (!bySlug.has(key)) bySlug.set(key, { name, product_count: null });
+    }
+    log?.(`[extract:mammoth] offset ${offset} +${data.length} (total ${bySlug.size}/${payload?.pagination?.total ?? "?"})`);
+
+    if (!payload?.pagination?.hasMore) break;
+    offset += MAMMOTH_PARTNERS_PAGE_SIZE;
+    if (++guard > 50) break; // safety
+    if (PAGE_PACING_MS > 0) await sleep(PAGE_PACING_MS);
+  }
+
+  const companies = [...bySlug.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, "en", { sensitivity: "base" })
+  );
+  return { ok: true, companies };
 }
 
 /**
@@ -319,6 +381,14 @@ async function extractCompanies(rawUrl, opts = {}) {
   }
   const { origin } = parsed;
 
+  if (isMammothHost(parsed.hostname)) {
+    const r = await fetchMammothPartners(fetchImpl, log);
+    if (!r.ok) {
+      return { ok: false, source: "mammoth_partners", url: origin, companies: [], count: 0, error: r.error, message: r.message };
+    }
+    return { ok: true, source: "mammoth_partners", url: origin, companies: r.companies, count: r.companies.length, pages_fetched: 1, truncated: false, truncated_reason: null };
+  }
+
   const probe = await probeShopify(fetchImpl, origin, log, {
     rateLimitBackoffMs: opts.rateLimitBackoffMs,
   });
@@ -367,6 +437,19 @@ async function extractCompaniesChunk(rawUrl, opts = {}) {
   const { origin } = parsed;
 
   const startPage = Math.max(1, Math.trunc(Number(opts.startPage) || 1));
+
+  // Site-specific directory source (preferred). Mammoth returns its whole
+  // company list from one API, so a single chunk is always "done".
+  if (isMammothHost(parsed.hostname)) {
+    if (startPage > 1) {
+      return { ok: true, source: "mammoth_partners", url: origin, companies: [], from_page: startPage, to_page: startPage - 1, next_page: null, done: true, truncated: false };
+    }
+    const r = await fetchMammothPartners(fetchImpl, log);
+    if (!r.ok) {
+      return { ok: false, source: "mammoth_partners", url: origin, companies: [], next_page: null, done: true, error: r.error, message: r.message };
+    }
+    return { ok: true, source: "mammoth_partners", url: origin, companies: r.companies, from_page: 1, to_page: 1, next_page: null, done: true, truncated: false };
+  }
   const pageLimit = Math.max(1, Math.min(20, Math.trunc(Number(opts.pageLimit) || DEFAULT_PAGE_LIMIT)));
   const pacingMs = Number.isFinite(opts.pacingMs) ? opts.pacingMs : PAGE_PACING_MS;
   const maxPages = DEFAULT_MAX_PAGES;
@@ -417,6 +500,8 @@ module.exports = {
   toOrigin,
   probeShopify,
   extractShopifyVendors,
+  isMammothHost,
+  fetchMammothPartners,
   DEFAULT_MAX_PAGES,
   DEFAULT_PAGE_LIMIT,
   SHOPIFY_PAGE_SIZE,
