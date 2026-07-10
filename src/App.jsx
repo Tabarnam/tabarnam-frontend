@@ -43,6 +43,7 @@ const AdminBackfillScores = lazy(() => import("@pages/AdminBackfillScores"));
 const AdminReviewQueue = lazy(() => import("@pages/AdminReviewQueue"));
 const AdminBackfillHomepages = lazy(() => import("@pages/AdminBackfillHomepages"));
 const AdminBackfillLogos = lazy(() => import("@pages/AdminBackfillLogos"));
+const AdminExtractCompanies = lazy(() => import("@pages/AdminExtractCompanies"));
 const BookmarksDrawer = lazy(() => import("@/components/bookmarks/BookmarksDrawer"));
 const BookmarksPage = lazy(() => import("@/pages/BookmarksPage"));
 
@@ -210,6 +211,14 @@ export default function App() {
                 element={
                   <AdminRoute>
                     <AdminBackfillLogos />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/extract-companies"
+                element={
+                  <AdminRoute>
+                    <AdminExtractCompanies />
                   </AdminRoute>
                 }
               />

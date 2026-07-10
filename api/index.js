@@ -828,6 +828,22 @@ try {
 }
 
 try {
+  console.log("[api] Registering: xadmin-api-extract-companies");
+  require("./xadmin-api-extract-companies/index.js");
+  console.log("[api] ✓ xadmin-api-extract-companies registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-extract-companies:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-extract-lookup-urls");
+  require("./xadmin-api-extract-lookup-urls/index.js");
+  console.log("[api] ✓ xadmin-api-extract-lookup-urls registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-extract-lookup-urls:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-microlink-fetch-one");
   require("./xadmin-api-microlink-fetch-one/index.js");
   console.log("[api] ✓ xadmin-api-microlink-fetch-one registered");
