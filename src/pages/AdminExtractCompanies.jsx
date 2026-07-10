@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Helmet } from "react-helmet-async";
 import {
   Loader2, Search, Copy, Check, Download, AlertTriangle, Store, ExternalLink, X, Undo2, Globe, Play,
-  Upload, RefreshCw,
+  Upload, RefreshCw, ChevronDown, ChevronUp,
 } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
@@ -121,6 +121,7 @@ export default function AdminExtractCompanies() {
   const [filter, setFilter] = useState("all");
   const [sortDir, setSortDir] = useState("asc"); // company name A→Z ("asc") or Z→A ("desc")
   const [copied, setCopied] = useState(false);
+  const [showHelp, setShowHelp] = useState(false); // collapsed how-it-works blurb
   // Selection for "Send to Import" — a Set of row NAMES, kept OUT of the row
   // objects so undo snapshots, crawl merges, and preflight mapping are untouched.
   const [selected, setSelected] = useState(() => new Set());
@@ -611,20 +612,32 @@ export default function AdminExtractCompanies() {
 
       <div className="bg-slate-950 min-h-screen p-6">
         <div className="max-w-[1200px] mx-auto">
-          <h1 className="text-2xl font-bold text-white mb-1">Extract Companies</h1>
-          <p className="text-slate-400 text-sm mb-6">
-            Pull the companies selling on a marketplace, reconcile each against the Tabarnam corpus
-            using the same duplicate detection as <a href="/admin/import" className="text-teal-400 hover:underline">Import</a>
-            {" "}(exact match / possible duplicate), find each <span className="text-emerald-300">Not imported</span>{" "}
-            company&apos;s real website via xAI (marketplaces don&apos;t link out), then select rows and
-            send them to <a href="/admin/import" className="text-teal-400 hover:underline">Import</a> in a new
-            tab — or copy the table into Excel. Mammoth Nation uses its partner directory API; other
-            Shopify storefronts fall back to per-product vendor data. Use <span className="text-slate-300">Re-check</span>{" "}
-            after importing to flip finished rows to In DB.
-          </p>
+          <div className="flex items-center gap-1.5 mb-2">
+            <h1 className="text-2xl font-bold text-white">Extract Companies</h1>
+            <button
+              type="button"
+              onClick={() => setShowHelp((v) => !v)}
+              title={showHelp ? "Hide how this works" : "How this works"}
+              className="text-slate-500 hover:text-slate-200 p-1 rounded hover:bg-slate-800 mt-1"
+            >
+              {showHelp ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+            </button>
+          </div>
+          {showHelp && (
+            <p className="text-slate-400 text-sm mb-3">
+              Pull the companies selling on a marketplace, reconcile each against the Tabarnam corpus
+              using the same duplicate detection as <a href="/admin/import" className="text-teal-400 hover:underline">Import</a>
+              {" "}(exact match / possible duplicate), find each <span className="text-emerald-300">Not imported</span>{" "}
+              company&apos;s real website via xAI (marketplaces don&apos;t link out), then select rows and
+              send them to <a href="/admin/import" className="text-teal-400 hover:underline">Import</a> in a new
+              tab — or copy the table into Excel. Mammoth Nation uses its partner directory API; other
+              Shopify storefronts fall back to per-product vendor data. Use <span className="text-slate-300">Re-check</span>{" "}
+              after importing to flip finished rows to In DB.
+            </p>
+          )}
 
           {/* Input */}
-          <section className="rounded-lg border border-slate-800 bg-slate-900 p-4 mb-6">
+          <section className="rounded-lg border border-slate-800 bg-slate-900 p-3 mb-3">
             <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_auto] gap-3 items-end">
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Website URL</label>
@@ -652,7 +665,7 @@ export default function AdminExtractCompanies() {
           </section>
 
           {error && (
-            <div className="bg-red-900/30 border border-red-700 text-red-300 rounded p-3 mb-4 text-sm flex items-start gap-2">
+            <div className="bg-red-900/30 border border-red-700 text-red-300 rounded p-3 mb-2 text-sm flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>{error}</span>
             </div>
@@ -660,7 +673,7 @@ export default function AdminExtractCompanies() {
 
           {/* Restored working session */}
           {restoredAt != null && (
-            <div className="bg-sky-900/25 border border-sky-700/60 text-sky-200 rounded p-3 mb-4 text-sm flex items-center gap-3">
+            <div className="bg-sky-900/25 border border-sky-700/60 text-sky-200 rounded px-3 py-1.5 mb-3 text-xs flex items-center gap-3">
               <RefreshCw className="w-4 h-4 flex-shrink-0" />
               <span className="flex-1">
                 Restored your working session ({rows.length.toLocaleString()} companies, saved {fmtAgo(restoredAt)}).
@@ -680,7 +693,7 @@ export default function AdminExtractCompanies() {
 
           {/* Extraction ticker — pages/companies stream in as chunks arrive */}
           {extracting && (
-            <div className="mb-4">
+            <div className="mb-2">
               <div className="flex items-center gap-2 text-sm text-slate-300 mb-1">
                 <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
                 Extracting… page {extractProgress.pages} · <span className="text-teal-300 font-medium">{extractProgress.companies.toLocaleString()}</span> companies found
@@ -693,36 +706,34 @@ export default function AdminExtractCompanies() {
 
           {meta && (
             <>
-              {/* Summary */}
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-                <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-                  <div className="text-xs uppercase text-slate-500 tracking-wider">Remaining</div>
-                  <div className="text-2xl font-semibold text-white">{counts.total.toLocaleString()}</div>
-                  <div className="text-xs text-slate-500">of {meta.count?.toLocaleString?.() ?? meta.count} found</div>
+              {/* Summary — one slim strip so the table gets the vertical space */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+                <div className="rounded border border-slate-800 bg-slate-900 px-2.5 py-1.5 flex items-baseline gap-2">
+                  <span className="text-lg font-semibold text-white leading-none">{counts.total.toLocaleString()}</span>
+                  <span className="text-[11px] uppercase text-slate-500 tracking-wider">Remaining <span className="normal-case">of {meta.count?.toLocaleString?.() ?? meta.count}</span></span>
                 </div>
-                <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/30 p-3">
-                  <div className="text-xs uppercase text-emerald-300/80 tracking-wider">Not imported</div>
-                  <div className="text-2xl font-semibold text-emerald-300">{counts.no_match.toLocaleString()}</div>
-                  {counts.sent > 0 && <div className="text-xs text-sky-300/80">{counts.sent.toLocaleString()} sent to import</div>}
+                <div className="rounded border border-emerald-900/50 bg-emerald-950/30 px-2.5 py-1.5 flex items-baseline gap-2">
+                  <span className="text-lg font-semibold text-emerald-300 leading-none">{counts.no_match.toLocaleString()}</span>
+                  <span className="text-[11px] uppercase text-emerald-300/80 tracking-wider">Not imported{counts.sent > 0 && <span className="text-sky-300/80 normal-case"> · {counts.sent.toLocaleString()} sent</span>}</span>
                 </div>
-                <div className="rounded-lg border border-amber-900/50 bg-amber-950/30 p-3">
-                  <div className="text-xs uppercase text-amber-300/80 tracking-wider">Possible dup</div>
-                  <div className="text-2xl font-semibold text-amber-300">{counts.fuzzy_match.toLocaleString()}</div>
+                <div className="rounded border border-amber-900/50 bg-amber-950/30 px-2.5 py-1.5 flex items-baseline gap-2">
+                  <span className="text-lg font-semibold text-amber-300 leading-none">{counts.fuzzy_match.toLocaleString()}</span>
+                  <span className="text-[11px] uppercase text-amber-300/80 tracking-wider">Possible dup</span>
                 </div>
-                <div className="rounded-lg border border-rose-900/50 bg-rose-950/30 p-3">
-                  <div className="text-xs uppercase text-rose-300/80 tracking-wider">In DB</div>
-                  <div className="text-2xl font-semibold text-rose-300">{counts.exact_match.toLocaleString()}</div>
+                <div className="rounded border border-rose-900/50 bg-rose-950/30 px-2.5 py-1.5 flex items-baseline gap-2">
+                  <span className="text-lg font-semibold text-rose-300 leading-none">{counts.exact_match.toLocaleString()}</span>
+                  <span className="text-[11px] uppercase text-rose-300/80 tracking-wider">In DB</span>
                 </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
-                  <div className="text-xs uppercase text-slate-500 tracking-wider flex items-center gap-1"><Store className="w-3 h-3" /> Source</div>
-                  <div className="text-lg font-semibold text-slate-200">{SOURCE_LABEL[meta.source] || meta.source}</div>
-                  <div className="text-xs text-slate-500">{meta.source === "mammoth_partners" ? "partner directory" : `${meta.pages_fetched} pages`}</div>
+                <div className="rounded border border-slate-800 bg-slate-900 px-2.5 py-1.5 flex items-baseline gap-2">
+                  <Store className="w-3 h-3 text-slate-500 self-center" />
+                  <span className="text-sm font-semibold text-slate-200 leading-none">{SOURCE_LABEL[meta.source] || meta.source}</span>
+                  <span className="text-[11px] text-slate-500">{meta.source === "mammoth_partners" ? "directory" : `${meta.pages_fetched} pages`}</span>
                 </div>
               </div>
 
               {/* Notices */}
               {meta.truncated && (
-                <div className="bg-amber-900/25 border border-amber-700/60 text-amber-300 rounded p-3 mb-4 text-sm flex items-start gap-3">
+                <div className="bg-amber-900/25 border border-amber-700/60 text-amber-300 rounded p-3 mb-2 text-sm flex items-start gap-3">
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <div className="flex-1">
                     <div>
@@ -744,7 +755,7 @@ export default function AdminExtractCompanies() {
 
               {/* Reconcile progress */}
               {checking && (
-                <div className="mb-4">
+                <div className="mb-2">
                   <div className="flex items-center gap-2 text-sm text-slate-400 mb-1">
                     <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
                     Reconciling against corpus… {progress.done}/{progress.total}
@@ -757,7 +768,7 @@ export default function AdminExtractCompanies() {
 
               {/* URL lookup progress */}
               {urlLooking && (
-                <div className="mb-4">
+                <div className="mb-2">
                   <div className="flex items-center gap-2 text-sm text-slate-400 mb-1">
                     <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
                     Finding websites via xAI{urlModel ? ` (${urlModel})` : ""}… {urlProgress.done}/{urlProgress.total}
@@ -769,7 +780,7 @@ export default function AdminExtractCompanies() {
               )}
 
               {/* Toolbar */}
-              <div className="flex flex-wrap items-center gap-2 mb-3">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
                 <div className="flex rounded-md border border-slate-700 overflow-hidden">
                   {FILTERS.map((f) => (
                     <button key={f.key} onClick={() => setFilter(f.key)}
@@ -829,9 +840,9 @@ export default function AdminExtractCompanies() {
                 </div>
               </div>
 
-              {/* Table */}
+              {/* Table — near-full viewport height; header stays sticky while it scrolls */}
               <div className="rounded-lg border border-slate-800 overflow-hidden">
-                <div className="max-h-[60vh] overflow-y-auto">
+                <div className="max-h-[calc(100vh-90px)] overflow-y-auto">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-slate-900 text-slate-400 text-xs uppercase tracking-wider">
                       <tr>
@@ -873,7 +884,7 @@ export default function AdminExtractCompanies() {
                           r.status === "fuzzy_match" ? "bg-amber-950/10" :
                           r.status === "no_match" ? "bg-emerald-950/10" : ""
                         }`}>
-                          <td className="px-2 py-1.5 text-center">
+                          <td className="px-2 py-1 text-center">
                             <input
                               type="checkbox"
                               className="w-4 h-4 cursor-pointer accent-teal-600"
@@ -882,15 +893,15 @@ export default function AdminExtractCompanies() {
                               onChange={() => toggleSelected(r.name)}
                             />
                           </td>
-                          <td className="px-3 py-1.5 text-slate-100">{r.name}</td>
-                          <td className="px-3 py-1.5">
+                          <td className="px-3 py-1 text-slate-100">{r.name}</td>
+                          <td className="px-3 py-1">
                             <StatusCell row={r} matchHref={matchHref} />
                           </td>
-                          <td className="px-3 py-1.5">
+                          <td className="px-3 py-1">
                             <WebsiteCell row={r} />
                           </td>
-                          <td className="px-3 py-1.5 text-right text-slate-500">{r.product_count ?? "—"}</td>
-                          <td className="px-2 py-1.5 text-right">
+                          <td className="px-3 py-1 text-right text-slate-500">{r.product_count ?? "—"}</td>
+                          <td className="px-2 py-1 text-right">
                             <button onClick={() => removeRow(r.name)} title="Remove row"
                               className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-800">
                               <X className="w-4 h-4" />
