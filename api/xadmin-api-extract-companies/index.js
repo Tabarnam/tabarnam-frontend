@@ -1,16 +1,17 @@
 // Extract companies — admin tool endpoint.
 //
-// POST { url, max_pages? }
+// POST { url, page?, page_limit? }
 //
-// Detects the source of `url` and extracts the list of companies selling there
-// (Shopify vendors today; pluggable per site — see _companyExtractSources).
-// Returns the raw name list. The DB-reconciliation step (exact / possible
-// duplicate) is performed by the client against the SAME `/api/import-preflight`
-// endpoint that /admin/import uses, so the two flows share one source of truth
-// for duplicate detection. The xAI "find the real company URL for the NEW ones"
-// step runs on top of the reconciled output.
+// Detects the source of `url` and extracts one CHUNK of the companies selling
+// there (Shopify vendors today; pluggable per site — see _companyExtractSources).
+// The client loops with `page = next_page` until `next_page` is null, so it can
+// show a live ticker of pages fetched / companies found. The DB-reconciliation
+// step (exact / possible duplicate) is performed by the client against the SAME
+// `/api/import-preflight` endpoint that /admin/import uses, so the two flows
+// share one source of truth for duplicate detection. The xAI "find the real
+// company URL for the NEW ones" step runs on top of the reconciled output.
 const { app } = require("../_app");
-const { extractCompanies } = require("../_companyExtractSources");
+const { extractCompaniesChunk } = require("../_companyExtractSources");
 
 function getCorsHeaders() {
   return {
@@ -36,45 +37,51 @@ async function handler(req, context) {
 
   const url = typeof body?.url === "string" ? body.url.trim() : "";
   if (!url) return json({ ok: false, error: "missing_url" }, 400);
-  const maxPages = body?.max_pages != null ? Number(body.max_pages) : undefined;
+  const startPage = body?.page != null ? Number(body.page) : 1;
+  const pageLimit = body?.page_limit != null ? Number(body.page_limit) : undefined;
 
-  const extraction = await extractCompanies(url, {
-    maxPages,
+  const chunk = await extractCompaniesChunk(url, {
+    startPage,
+    pageLimit,
     log: (m) => context.log?.(m),
   });
 
-  if (!extraction.ok) {
+  if (!chunk.ok) {
     // invalid_url is a client error; everything else (unsupported source,
     // rate-limited probe) is a handled 200 with an explanatory message so the
     // UI can render it inline.
-    if (extraction.error === "invalid_url") {
+    if (chunk.error === "invalid_url") {
       return json({ ok: false, error: "invalid_url", message: "Enter a valid http(s) URL." }, 400);
     }
     return json({
       ok: false,
-      source: extraction.source,
-      url: extraction.url || url,
-      message: extraction.message || extraction.error || "Extraction failed.",
-      error: extraction.error || null,
+      source: chunk.source,
+      url: chunk.url || url,
+      message: chunk.message || chunk.error || "Extraction failed.",
+      error: chunk.error || null,
       count: 0,
     });
   }
 
   context.log?.(
-    `[extract-companies] source=${extraction.source} url=${extraction.url} ` +
-    `found=${extraction.count} pages=${extraction.pages_fetched} truncated=${extraction.truncated}`
+    `[extract-companies] source=${chunk.source} url=${chunk.url} ` +
+    `pages=${chunk.from_page}-${chunk.to_page} chunk_found=${chunk.companies.length} ` +
+    `next=${chunk.next_page ?? "done"} truncated=${chunk.truncated}`
   );
 
   return json({
     ok: true,
-    source: extraction.source,
-    url: extraction.url,
+    source: chunk.source,
+    url: chunk.url,
     generated_at: new Date().toISOString(),
-    pages_fetched: extraction.pages_fetched,
-    truncated: extraction.truncated,
-    truncated_reason: extraction.truncated_reason || null,
-    count: extraction.count,
-    companies: extraction.companies, // [{ name, product_count }]
+    from_page: chunk.from_page,
+    to_page: chunk.to_page,
+    next_page: chunk.next_page,
+    done: chunk.done,
+    truncated: chunk.truncated,
+    truncated_reason: chunk.truncated_reason || null,
+    count: chunk.companies.length, // this chunk
+    companies: chunk.companies,    // [{ name, product_count }] for this chunk
   });
 }
 

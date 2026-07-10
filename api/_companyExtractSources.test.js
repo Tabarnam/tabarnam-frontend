@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 
-const { extractCompanies, toOrigin } = require("./_companyExtractSources");
+const { extractCompanies, extractCompaniesChunk, toOrigin } = require("./_companyExtractSources");
 
 // Build a fake fetch that serves Shopify products.json pages from a fixture.
 function makeShopifyFetch(pages) {
@@ -110,6 +110,40 @@ test("extractCompanies retries a transient 5xx and recovers", async () => {
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.truncated, false);
   assert.deepStrictEqual(res.companies.map((c) => c.name).sort(), ["Alpha", "Beta"]);
+});
+
+test("extractCompaniesChunk returns a page window with next_page when more remain", async () => {
+  const fetchImpl = makeShopifyFetch([
+    [{ vendor: "Alpha" }],
+    [{ vendor: "Beta" }],
+    [{ vendor: "Gamma" }],
+    [], // end of catalog
+  ]);
+
+  // First chunk: pages 1-2, more to come.
+  const c1 = await extractCompaniesChunk("mammothnation.com", { fetchImpl, startPage: 1, pageLimit: 2 });
+  assert.strictEqual(c1.ok, true);
+  assert.strictEqual(c1.source, "shopify");
+  assert.strictEqual(c1.from_page, 1);
+  assert.strictEqual(c1.to_page, 2);
+  assert.strictEqual(c1.next_page, 3);
+  assert.strictEqual(c1.done, false);
+  assert.deepStrictEqual(c1.companies.map((c) => c.name).sort(), ["Alpha", "Beta"]);
+
+  // Second chunk: continues from page 3, hits the empty page → done.
+  const c2 = await extractCompaniesChunk("mammothnation.com", { fetchImpl, startPage: 3, pageLimit: 2 });
+  assert.strictEqual(c2.done, true);
+  assert.strictEqual(c2.next_page, null);
+  assert.deepStrictEqual(c2.companies.map((c) => c.name), ["Gamma"]);
+});
+
+test("extractCompaniesChunk reports unsupported (done) for non-Shopify", async () => {
+  const fetchImpl = async () => ({ status: 200, ok: true, async text() { return "<html>no</html>"; } });
+  const c = await extractCompaniesChunk("example.com", { fetchImpl, startPage: 1 });
+  assert.strictEqual(c.ok, false);
+  assert.strictEqual(c.source, "unsupported");
+  assert.strictEqual(c.done, true);
+  assert.strictEqual(c.next_page, null);
 });
 
 test("extractCompanies truncates on a persistent 5xx, keeping earlier pages", async () => {

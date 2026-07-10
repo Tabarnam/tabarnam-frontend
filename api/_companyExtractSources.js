@@ -17,6 +17,7 @@
 // without hitting the real network.
 
 const DEFAULT_MAX_PAGES = 60;          // 60 * 250 = 15k products hard ceiling
+const DEFAULT_PAGE_LIMIT = 3;          // pages fetched per chunked request (keeps the UI ticker lively)
 const SHOPIFY_PAGE_SIZE = 250;         // Shopify's max page size for products.json
 const PAGE_PACING_MS = 400;            // gap between page fetches — be polite, avoid 429
 const PAGE_TIMEOUT_MS = 15_000;        // per-request timeout
@@ -158,15 +159,23 @@ async function probeShopify(fetchImpl, origin, log, cfg = {}) {
  * Extract distinct vendors from a Shopify store by paginating products.json.
  * `firstPageProducts` (from the probe) seeds page 1 to avoid a duplicate fetch.
  */
-async function extractShopifyVendors(fetchImpl, origin, opts, firstPageProducts, log) {
-  const maxPages = Math.max(1, Math.min(500, Number(opts.maxPages) || DEFAULT_MAX_PAGES));
-  const pacingMs = Number.isFinite(opts.pacingMs) ? opts.pacingMs : PAGE_PACING_MS;
-  const cfg = { rateLimitBackoffMs: opts.rateLimitBackoffMs };
-  const deadline = Date.now() + OVERALL_BUDGET_MS;
-
-  // Preserve first-seen original casing; dedupe on a case-folded key.
+/**
+ * Page a range [startPage, endPage] of a Shopify store, accumulating distinct
+ * vendors. Shared by the single-shot extractor and the chunked one.
+ * Termination signals:
+ *   - ended: an empty page (end of catalog) was reached
+ *   - truncated: a transient failure / time budget stopped us early
+ * When neither fires (we simply reached endPage), the caller decides whether
+ * there is a next chunk.
+ * Returns { companies, lastPageFetched, ended, truncated, truncatedReason }.
+ */
+async function pageShopifyVendors(fetchImpl, origin, {
+  startPage, endPage, pacingMs, rateLimitBackoffMs, firstPageProducts, deadline, log,
+}) {
+  const cfg = { rateLimitBackoffMs };
   const byKey = new Map(); // key -> { name, product_count }
-  let pagesFetched = 0;
+  let lastPageFetched = startPage - 1;
+  let ended = false;
   let truncated = false;
   let truncatedReason = null;
 
@@ -181,13 +190,13 @@ async function extractShopifyVendors(fetchImpl, origin, opts, firstPageProducts,
     }
   };
 
-  for (let page = 1; page <= maxPages; page++) {
+  for (let page = startPage; page <= endPage; page++) {
     let products;
     if (page === 1 && Array.isArray(firstPageProducts)) {
-      products = firstPageProducts;
+      products = firstPageProducts; // reuse the probe's page-1 fetch
     } else {
-      if (Date.now() > deadline) { truncated = true; truncatedReason = "time_budget"; break; }
-      if (page > 1 && pacingMs > 0) await sleep(pacingMs);
+      if (deadline && Date.now() > deadline) { truncated = true; truncatedReason = "time_budget"; break; }
+      if (page > startPage && pacingMs > 0) await sleep(pacingMs);
       const res = await fetchShopifyPage(fetchImpl, origin, page, log, cfg);
       if (!res.ok) {
         truncated = true;
@@ -196,22 +205,63 @@ async function extractShopifyVendors(fetchImpl, origin, opts, firstPageProducts,
       }
       products = res.products;
     }
-    pagesFetched = page;
-    if (!products || products.length === 0) break; // end of pagination
+    lastPageFetched = page;
+    if (!products || products.length === 0) { ended = true; break; } // end of pagination
     ingest(products);
-    if (page === maxPages) { truncated = true; truncatedReason = "max_pages"; }
   }
 
   const companies = [...byKey.values()].sort((a, b) =>
     a.name.localeCompare(b.name, "en", { sensitivity: "base" })
   );
 
+  return { companies, lastPageFetched, ended, truncated, truncatedReason };
+}
+
+async function extractShopifyVendors(fetchImpl, origin, opts, firstPageProducts, log) {
+  const maxPages = Math.max(1, Math.min(500, Number(opts.maxPages) || DEFAULT_MAX_PAGES));
+  const pacingMs = Number.isFinite(opts.pacingMs) ? opts.pacingMs : PAGE_PACING_MS;
+
+  const { companies, lastPageFetched, ended, truncated, truncatedReason } = await pageShopifyVendors(
+    fetchImpl, origin,
+    {
+      startPage: 1,
+      endPage: maxPages,
+      pacingMs,
+      rateLimitBackoffMs: opts.rateLimitBackoffMs,
+      firstPageProducts,
+      deadline: Date.now() + OVERALL_BUDGET_MS,
+      log,
+    }
+  );
+
+  // Reached the page ceiling without ending or failing → possibly-incomplete.
+  const hitMax = !ended && !truncated && lastPageFetched >= maxPages;
   return {
     source: "shopify",
     companies,
-    pages_fetched: pagesFetched,
-    truncated,
-    truncated_reason: truncatedReason,
+    pages_fetched: lastPageFetched,
+    truncated: truncated || hitMax,
+    truncated_reason: truncated ? truncatedReason : (hitMax ? "max_pages" : null),
+  };
+}
+
+function rateLimitedResult(origin, extra = {}) {
+  return {
+    ok: false, source: "unsupported", url: origin, companies: [], count: 0,
+    error: "rate_limited",
+    message: "The site rate-limited our detection probe. Wait a minute and try again.",
+    ...extra,
+  };
+}
+
+function unsupportedResult(origin, extra = {}) {
+  return {
+    ok: false, source: "unsupported", url: origin, companies: [], count: 0,
+    message:
+      `Could not auto-detect a structured company list for ${origin}. ` +
+      `Currently only Shopify storefronts (which expose per-product vendors) ` +
+      `are auto-extractable. A site-specific extractor can be added for this domain.`,
+    ...extra,
   };
 }
 
@@ -255,40 +305,86 @@ async function extractCompanies(rawUrl, opts = {}) {
     };
   }
 
-  if (probe.rateLimited) {
-    return {
-      ok: false,
-      source: "unsupported",
-      url: origin,
-      companies: [],
-      count: 0,
-      error: "rate_limited",
-      message:
-        "The site rate-limited our detection probe. Wait a minute and try again.",
-    };
-  }
+  if (probe.rateLimited) return rateLimitedResult(origin);
 
   // Not a recognized structured source. A site-specific extractor (Microlink
   // render + HTML parse) can be plugged in here per target site.
+  return unsupportedResult(origin);
+}
+
+/**
+ * Chunked extraction — fetch one bounded window of pages so the client can
+ * loop and show live progress. Only page 1 runs the Shopify probe; later
+ * chunks continue from `startPage`.
+ *
+ * @param {string} rawUrl
+ * @param {object} [opts]
+ * @param {number} [opts.startPage=1]   first page of this chunk
+ * @param {number} [opts.pageLimit=3]   pages to fetch in this chunk
+ * @param {function} [opts.fetchImpl]
+ * @param {function} [opts.log]
+ * @returns {Promise<object>} {
+ *     ok, source, url, companies: [{name, product_count}] (this chunk only),
+ *     from_page, to_page, next_page (null when done), done,
+ *     truncated, truncated_reason, message?
+ *   }
+ */
+async function extractCompaniesChunk(rawUrl, opts = {}) {
+  const fetchImpl = opts.fetchImpl || (typeof fetch === "function" ? fetch : null);
+  const log = typeof opts.log === "function" ? opts.log : null;
+
+  if (!fetchImpl) return { ok: false, source: "unsupported", error: "no_fetch_available", companies: [], next_page: null, done: true };
+
+  const parsed = toOrigin(rawUrl);
+  if (!parsed) return { ok: false, source: "unsupported", error: "invalid_url", companies: [], next_page: null, done: true };
+  const { origin } = parsed;
+
+  const startPage = Math.max(1, Math.trunc(Number(opts.startPage) || 1));
+  const pageLimit = Math.max(1, Math.min(20, Math.trunc(Number(opts.pageLimit) || DEFAULT_PAGE_LIMIT)));
+  const pacingMs = Number.isFinite(opts.pacingMs) ? opts.pacingMs : PAGE_PACING_MS;
+  const maxPages = DEFAULT_MAX_PAGES;
+
+  let firstPageProducts = null;
+  if (startPage === 1) {
+    const probe = await probeShopify(fetchImpl, origin, log, { rateLimitBackoffMs: opts.rateLimitBackoffMs });
+    if (!probe.isShopify) {
+      return probe.rateLimited
+        ? rateLimitedResult(origin, { next_page: null, done: true })
+        : unsupportedResult(origin, { next_page: null, done: true });
+    }
+    firstPageProducts = probe.firstPage;
+  }
+
+  const endPage = Math.min(maxPages, startPage + pageLimit - 1);
+  const { companies, lastPageFetched, ended, truncated, truncatedReason } = await pageShopifyVendors(
+    fetchImpl, origin,
+    { startPage, endPage, pacingMs, rateLimitBackoffMs: opts.rateLimitBackoffMs, firstPageProducts, deadline: Date.now() + OVERALL_BUDGET_MS, log }
+  );
+
+  const hitMax = !ended && !truncated && lastPageFetched >= maxPages;
+  const done = ended || truncated || hitMax;
   return {
-    ok: false,
-    source: "unsupported",
+    ok: true,
+    source: "shopify",
     url: origin,
-    companies: [],
-    count: 0,
-    message:
-      `Could not auto-detect a structured company list for ${origin}. ` +
-      `Currently only Shopify storefronts (which expose per-product vendors) ` +
-      `are auto-extractable. A site-specific extractor can be added for this domain.`,
+    companies, // this chunk only
+    from_page: startPage,
+    to_page: lastPageFetched,
+    next_page: done ? null : lastPageFetched + 1,
+    done,
+    truncated: truncated || hitMax,
+    truncated_reason: truncated ? truncatedReason : (hitMax ? "max_pages" : null),
   };
 }
 
 module.exports = {
   extractCompanies,
+  extractCompaniesChunk,
   // exported for tests
   toOrigin,
   probeShopify,
   extractShopifyVendors,
   DEFAULT_MAX_PAGES,
+  DEFAULT_PAGE_LIMIT,
   SHOPIFY_PAGE_SIZE,
 };
