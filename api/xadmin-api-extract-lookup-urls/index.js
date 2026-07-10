@@ -39,8 +39,15 @@ async function handler(req, context) {
     return json({ ok: false, error: "batch_too_large", max: MAX_BATCH }, 400);
   }
 
-  // Operator-selectable cheap model; falls back to the xAI default chain.
-  const model = (process.env.XAI_URL_LOOKUP_MODEL || body?.model || "").toString().trim();
+  // Use the app's existing XAI_MODEL (grok-4.3) by default — no new env var to
+  // manage. XAI_URL_LOOKUP_MODEL stays as an optional override if a cheaper
+  // model is ever provisioned for this simple lookup.
+  const model = (
+    process.env.XAI_URL_LOOKUP_MODEL ||
+    process.env.XAI_MODEL ||
+    body?.model ||
+    ""
+  ).toString().trim();
 
   const { results } = await lookupCompanyUrlsBatch(companies, {
     model,

@@ -6,9 +6,9 @@
 // low-token, strict-JSON prompt because this is a simple lookup, not deep
 // enrichment.
 //
-// Model is operator-selectable via XAI_URL_LOOKUP_MODEL so a cheap/fast model
-// can be used without a code change; otherwise it falls back to the app's
-// configured xAI model chain.
+// Model defaults to the app's existing XAI_MODEL (grok-4.3); the endpoint may
+// pass XAI_URL_LOOKUP_MODEL as an optional override if a cheaper/faster model
+// is ever provisioned for this simple lookup.
 
 const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 
