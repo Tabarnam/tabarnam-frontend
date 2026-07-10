@@ -21,7 +21,7 @@ function makeShopifyFetch(pages) {
 }
 
 test("toOrigin normalizes bare domains and rejects junk", () => {
-  assert.strictEqual(toOrigin("mammothnation.com")?.origin, "https://mammothnation.com");
+  assert.strictEqual(toOrigin("teststore.myshopify.com")?.origin, "https://teststore.myshopify.com");
   assert.strictEqual(toOrigin("https://x.com/path")?.origin, "https://x.com");
   assert.strictEqual(toOrigin("not a url at all "), null);
   assert.strictEqual(toOrigin(""), null);
@@ -41,7 +41,7 @@ test("extractCompanies pulls distinct Shopify vendors across pages", async () =>
     [], // end of pagination
   ]);
 
-  const res = await extractCompanies("mammothnation.com", { fetchImpl });
+  const res = await extractCompanies("teststore.myshopify.com", { fetchImpl });
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.source, "shopify");
   assert.strictEqual(res.count, 3);
@@ -77,7 +77,7 @@ test("extractCompanies rejects invalid URLs", async () => {
 
 test("extractCompanies surfaces rate limiting from the probe", async () => {
   const fetchImpl = async () => ({ status: 429, ok: false, async text() { return ""; } });
-  const res = await extractCompanies("mammothnation.com", { fetchImpl, rateLimitBackoffMs: 1 });
+  const res = await extractCompanies("teststore.myshopify.com", { fetchImpl, rateLimitBackoffMs: 1 });
   assert.strictEqual(res.ok, false);
   assert.strictEqual(res.error, "rate_limited");
 });
@@ -106,7 +106,7 @@ test("extractCompanies retries a transient 5xx and recovers", async () => {
     [[{ vendor: "Alpha" }], [{ vendor: "Beta" }], []],
     { 2: { times: 2, status: 500 } }
   );
-  const res = await extractCompanies("mammothnation.com", { fetchImpl, rateLimitBackoffMs: 1 });
+  const res = await extractCompanies("teststore.myshopify.com", { fetchImpl, rateLimitBackoffMs: 1 });
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.truncated, false);
   assert.deepStrictEqual(res.companies.map((c) => c.name).sort(), ["Alpha", "Beta"]);
@@ -121,7 +121,7 @@ test("extractCompaniesChunk returns a page window with next_page when more remai
   ]);
 
   // First chunk: pages 1-2, more to come.
-  const c1 = await extractCompaniesChunk("mammothnation.com", { fetchImpl, startPage: 1, pageLimit: 2 });
+  const c1 = await extractCompaniesChunk("teststore.myshopify.com", { fetchImpl, startPage: 1, pageLimit: 2 });
   assert.strictEqual(c1.ok, true);
   assert.strictEqual(c1.source, "shopify");
   assert.strictEqual(c1.from_page, 1);
@@ -131,10 +131,53 @@ test("extractCompaniesChunk returns a page window with next_page when more remai
   assert.deepStrictEqual(c1.companies.map((c) => c.name).sort(), ["Alpha", "Beta"]);
 
   // Second chunk: continues from page 3, hits the empty page → done.
-  const c2 = await extractCompaniesChunk("mammothnation.com", { fetchImpl, startPage: 3, pageLimit: 2 });
+  const c2 = await extractCompaniesChunk("teststore.myshopify.com", { fetchImpl, startPage: 3, pageLimit: 2 });
   assert.strictEqual(c2.done, true);
   assert.strictEqual(c2.next_page, null);
   assert.deepStrictEqual(c2.companies.map((c) => c.name), ["Gamma"]);
+});
+
+test("extractCompaniesChunk returns a resume page (not done) on transient truncation", async () => {
+  // Page 2 persistently 500s within this chunk → truncated, resumable at page 2.
+  const fetchImpl = makeFlakyShopifyFetch(
+    [[{ vendor: "Alpha" }], [{ vendor: "Beta" }], [{ vendor: "Gamma" }]],
+    { 2: { times: 99, status: 500 } }
+  );
+  const c = await extractCompaniesChunk("teststore.myshopify.com", { fetchImpl, startPage: 1, pageLimit: 3, rateLimitBackoffMs: 1 });
+  assert.strictEqual(c.ok, true);
+  assert.strictEqual(c.done, false);          // NOT done — transient failure
+  assert.strictEqual(c.truncated, true);
+  assert.strictEqual(c.next_page, 2);         // resume point = the page that failed
+  assert.deepStrictEqual(c.companies.map((x) => x.name), ["Alpha"]); // page 1 kept
+});
+
+// Fake the Mammoth partners API: offset-paginated JSON with a hasMore flag.
+function makeMammothPartnersFetch(allPartners, pageSize = 250) {
+  return async (url) => {
+    const u = new URL(url);
+    const offset = Number(u.searchParams.get("offset") || "0");
+    const ps = Number(u.searchParams.get("pageSize") || String(pageSize));
+    const data = allPartners.slice(offset, offset + ps);
+    const hasMore = offset + ps < allPartners.length;
+    return {
+      status: 200, ok: true,
+      async json() { return { data, pagination: { total: allPartners.length, offset, pageSize: ps, hasMore } }; },
+      async text() { return JSON.stringify({ data }); },
+    };
+  };
+}
+
+test("extractCompaniesChunk uses the Mammoth partners API (site-specific, one done chunk)", async () => {
+  const partners = Array.from({ length: 600 }, (_, i) => ({ name: `Brand ${String(i).padStart(3, "0")}`, slug: `brand-${i}`, lp_image: `https://cdn/img-${i}.jpg` }));
+  const fetchImpl = makeMammothPartnersFetch(partners, 250);
+  const c = await extractCompaniesChunk("https://mammothnation.com/pages/partners", { fetchImpl, startPage: 1 });
+  assert.strictEqual(c.ok, true);
+  assert.strictEqual(c.source, "mammoth_partners");
+  assert.strictEqual(c.done, true);
+  assert.strictEqual(c.next_page, null);
+  assert.strictEqual(c.companies.length, 600); // paginated across 3 API pages, deduped by slug
+  assert.strictEqual(c.companies[0].name, "Brand 000");
+  assert.strictEqual(c.companies[0].image_url, "https://cdn/img-0.jpg"); // card image carried through
 });
 
 test("extractCompaniesChunk reports unsupported (done) for non-Shopify", async () => {
@@ -152,7 +195,7 @@ test("extractCompanies truncates on a persistent 5xx, keeping earlier pages", as
     [[{ vendor: "Alpha" }], [{ vendor: "Beta" }], [{ vendor: "Gamma" }]],
     { 3: { times: 99, status: 500 } }
   );
-  const res = await extractCompanies("mammothnation.com", { fetchImpl, rateLimitBackoffMs: 1 });
+  const res = await extractCompanies("teststore.myshopify.com", { fetchImpl, rateLimitBackoffMs: 1 });
   assert.strictEqual(res.ok, true);
   assert.strictEqual(res.truncated, true);
   assert.strictEqual(res.truncated_reason, "page_error_500");

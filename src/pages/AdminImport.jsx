@@ -122,28 +122,45 @@ async function apiFetchWithFallback(paths, init) {
 // restore so subsequent unrelated mounts don't keep re-populating the
 // queue.
 const PASTED_QUEUE_STORAGE_KEY = "tabarnam.admin.import.pasted_queue.v1";
+// Handoff queue from /admin/extract-companies ("Send to Import" opens this
+// page in a NEW TAB). Must live in localStorage — a window.open tab does NOT
+// inherit the opener's sessionStorage. Same envelope shape + TTL + one-shot
+// semantics as the pasted queue.
+const HANDOFF_QUEUE_STORAGE_KEY = "tabarnam.admin.import.handoff_queue.v1";
 const PASTED_QUEUE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function getStorage(kind) {
+  try {
+    if (typeof window === "undefined") return null;
+    return kind === "local" ? window.localStorage : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 function savePastedQueueToStorage(payload) {
   try {
-    if (typeof window === "undefined" || !window.sessionStorage) return;
+    const storage = getStorage("session");
+    if (!storage) return;
     const envelope = { ...payload, savedAt: Date.now() };
-    window.sessionStorage.setItem(PASTED_QUEUE_STORAGE_KEY, JSON.stringify(envelope));
+    storage.setItem(PASTED_QUEUE_STORAGE_KEY, JSON.stringify(envelope));
   } catch {
     // storage unavailable (private mode, quota, disabled) — silently ignore
   }
 }
 
-function loadPastedQueueFromStorage() {
+// Load a queue envelope ({rows, countInput, query, companyUrl, savedAt}) from
+// the given storage/key, enforcing the TTL. Expired entries are removed.
+function loadQueueFromStorage(storage, key) {
   try {
-    if (typeof window === "undefined" || !window.sessionStorage) return null;
-    const raw = window.sessionStorage.getItem(PASTED_QUEUE_STORAGE_KEY);
+    if (!storage) return null;
+    const raw = storage.getItem(key);
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || typeof data !== "object") return null;
     if (typeof data.savedAt !== "number") return null;
     if (Date.now() - data.savedAt > PASTED_QUEUE_TTL_MS) {
-      try { window.sessionStorage.removeItem(PASTED_QUEUE_STORAGE_KEY); } catch {}
+      try { storage.removeItem(key); } catch {}
       return null;
     }
     if (!Array.isArray(data.rows)) return null;
@@ -153,13 +170,21 @@ function loadPastedQueueFromStorage() {
   }
 }
 
-function clearPastedQueueFromStorage() {
+function loadPastedQueueFromStorage() {
+  return loadQueueFromStorage(getStorage("session"), PASTED_QUEUE_STORAGE_KEY);
+}
+
+function clearQueueFromStorage(storage, key) {
   try {
-    if (typeof window === "undefined" || !window.sessionStorage) return;
-    window.sessionStorage.removeItem(PASTED_QUEUE_STORAGE_KEY);
+    if (!storage) return;
+    storage.removeItem(key);
   } catch {
     // ignore
   }
+}
+
+function clearPastedQueueFromStorage() {
+  clearQueueFromStorage(getStorage("session"), PASTED_QUEUE_STORAGE_KEY);
 }
 
 export default function AdminImport() {
@@ -186,7 +211,15 @@ export default function AdminImport() {
   // restoring so subsequent unrelated mounts don't keep re-populating the
   // queue.
   useEffect(() => {
-    const restored = loadPastedQueueFromStorage();
+    // Pasted queue (sessionStorage, SWA-redirect survival) takes priority;
+    // otherwise check the Extract Companies handoff (localStorage — survives
+    // into a window.open tab, which sessionStorage does not).
+    let restored = loadPastedQueueFromStorage();
+    let source = "pasted";
+    if (!restored || !Array.isArray(restored.rows) || restored.rows.length === 0) {
+      restored = loadQueueFromStorage(getStorage("local"), HANDOFF_QUEUE_STORAGE_KEY);
+      source = "handoff";
+    }
     if (!restored) return;
     if (!Array.isArray(restored.rows) || restored.rows.length === 0) return;
 
@@ -196,12 +229,18 @@ export default function AdminImport() {
     }
     if (typeof restored.query === "string") setQuery(restored.query);
     if (typeof restored.companyUrl === "string") setCompanyUrl(restored.companyUrl);
-    clearPastedQueueFromStorage();
+    if (source === "handoff") {
+      clearQueueFromStorage(getStorage("local"), HANDOFF_QUEUE_STORAGE_KEY);
+    } else {
+      clearPastedQueueFromStorage();
+    }
 
     try {
       const count = restored.rows.length;
       toast.success(
-        `Restored ${count} pasted ${count === 1 ? "company" : "companies"} from before page refresh.`
+        source === "handoff"
+          ? `Loaded ${count} ${count === 1 ? "company" : "companies"} from Extract Companies.`
+          : `Restored ${count} pasted ${count === 1 ? "company" : "companies"} from before page refresh.`
       );
     } catch {
       // toast unavailable — restore still succeeded

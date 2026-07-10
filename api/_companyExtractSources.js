@@ -16,20 +16,50 @@
 // Network access is injectable (`fetchImpl`) so the logic is unit-testable
 // without hitting the real network.
 
-const DEFAULT_MAX_PAGES = 60;          // 60 * 250 = 15k products hard ceiling
+const DEFAULT_MAX_PAGES = 250;         // 250 * 100 = 25k products hard ceiling
 const DEFAULT_PAGE_LIMIT = 3;          // pages fetched per chunked request (keeps the UI ticker lively)
-const SHOPIFY_PAGE_SIZE = 250;         // Shopify's max page size for products.json
-const PAGE_PACING_MS = 400;            // gap between page fetches — be polite, avoid 429
+// Shopify allows limit up to 250, BUT large limits at deep offset make the
+// store's products.json query TIME OUT (HTTP 500) — empirically Mammoth 500s
+// deterministically at limit=250 offset≥4250, while limit=100 pages cleanly to
+// the end of a 13k-product catalog. So we deliberately use a smaller page size
+// to trade more requests for a complete, reliable crawl.
+const SHOPIFY_PAGE_SIZE = 100;
+const PAGE_PACING_MS = 600;            // gap between page fetches — be polite, avoid 429
 const PAGE_TIMEOUT_MS = 15_000;        // per-request timeout
-const OVERALL_BUDGET_MS = 90_000;      // total wall-clock budget for one extraction
-const MAX_PAGE_RETRIES = 2;            // retries on a transient page failure (429 / 5xx / network) before giving up
+const OVERALL_BUDGET_MS = 90_000;      // per-chunk wall-clock budget
+const MAX_PAGE_RETRIES = 3;            // retries on a transient page failure (429 / 5xx / network) before giving up
+const MAX_RETRY_AFTER_MS = 15_000;     // cap on how long we'll honor a Retry-After header
 const USER_AGENT =
   "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)";
+
+// Site-specific: Mammoth Nation exposes its full partner (company) directory
+// via a custom API — 935 companies in one call — which is the clean, complete
+// source of "companies selling here", far better than mining 13k products.
+const MAMMOTH_PARTNERS_API = "https://mn-api.mammothnation.app/partners";
+const MAMMOTH_PARTNERS_PAGE_SIZE = 250;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
+}
+
+// Parse a Retry-After header (seconds or HTTP-date) to milliseconds, capped.
+// Tolerates both a fetch Headers object and a plain object (tests).
+function parseRetryAfterMs(headers) {
+  try {
+    let raw = null;
+    if (headers && typeof headers.get === "function") raw = headers.get("retry-after");
+    else if (headers && typeof headers === "object") raw = headers["retry-after"] ?? headers["Retry-After"];
+    if (raw == null) return 0;
+    const secs = Number(raw);
+    if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, MAX_RETRY_AFTER_MS);
+    const dateMs = Date.parse(raw);
+    if (Number.isFinite(dateMs)) return Math.min(Math.max(0, dateMs - Date.now()), MAX_RETRY_AFTER_MS);
+    return 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -94,12 +124,15 @@ async function fetchShopifyPage(fetchImpl, origin, page, log, cfg = {}) {
     }
 
     // Transient upstream: rate limit (429) or server error (5xx). Back off and
-    // retry a bounded number of times before surfacing the failure.
+    // retry a bounded number of times before surfacing the failure. On a 429,
+    // honor the server's Retry-After hint (capped) over our linear backoff.
     if (res.status === 429 || res.status >= 500) {
       const rateLimited = res.status === 429;
       if (canRetry) {
-        log?.(`[extract:shopify] page ${page} transient ${res.status} — backing off ${backoff}ms`);
-        await sleep(backoff);
+        const retryAfterMs = rateLimited ? parseRetryAfterMs(res.headers) : 0;
+        const wait = Math.max(backoff, retryAfterMs);
+        log?.(`[extract:shopify] page ${page} transient ${res.status} — backing off ${wait}ms`);
+        await sleep(wait);
         continue;
       }
       return { ok: false, status: res.status, rateLimited };
@@ -132,6 +165,70 @@ async function fetchShopifyPage(fetchImpl, origin, page, log, cfg = {}) {
   }
   // Unreachable — the loop always returns — but keep a safe fallback.
   return { ok: false, status: 0 };
+}
+
+// ── Site-specific: Mammoth Nation partners directory ────────────────────────
+
+function isMammothHost(hostname) {
+  return /(^|\.)mammothnation\.(com|app)$/i.test(asString(hostname));
+}
+
+/**
+ * Pull the full Mammoth Nation partner (company) directory from its API.
+ * Offset-paginated; dedupes by slug. Returns { ok, companies } or
+ * { ok:false, error, message }.
+ */
+async function fetchMammothPartners(fetchImpl, log) {
+  const bySlug = new Map();
+  const deadline = Date.now() + OVERALL_BUDGET_MS;
+  let offset = 0;
+  let guard = 0;
+
+  while (true) {
+    if (Date.now() > deadline) break;
+    const url = `${MAMMOTH_PARTNERS_API}?offset=${offset}&pageSize=${MAMMOTH_PARTNERS_PAGE_SIZE}`;
+    let res;
+    try {
+      res = await fetchWithTimeout(fetchImpl, url, PAGE_TIMEOUT_MS);
+    } catch (e) {
+      return { ok: false, error: `request_failed: ${asString(e?.message || e)}`, message: "Could not reach the Mammoth partners API." };
+    }
+    if (!res.ok) {
+      return { ok: false, error: `http_${res.status}`, message: `Mammoth partners API returned HTTP ${res.status}.` };
+    }
+    let payload;
+    try {
+      payload = await res.json();
+    } catch {
+      return { ok: false, error: "invalid_json", message: "Mammoth partners API returned invalid JSON." };
+    }
+    const data = Array.isArray(payload?.data) ? payload.data : [];
+    for (const p of data) {
+      const name = asString(p?.name).trim();
+      if (!name) continue;
+      const key = (asString(p?.slug).trim() || name).toLowerCase();
+      if (!bySlug.has(key)) {
+        bySlug.set(key, {
+          name,
+          product_count: null,
+          // Card image Mammoth associates with the partner — useful downstream
+          // (logo enrichment reference). No website URL is exposed by the API.
+          image_url: asString(p?.lp_image).trim() || null,
+        });
+      }
+    }
+    log?.(`[extract:mammoth] offset ${offset} +${data.length} (total ${bySlug.size}/${payload?.pagination?.total ?? "?"})`);
+
+    if (!payload?.pagination?.hasMore) break;
+    offset += MAMMOTH_PARTNERS_PAGE_SIZE;
+    if (++guard > 50) break; // safety
+    if (PAGE_PACING_MS > 0) await sleep(PAGE_PACING_MS);
+  }
+
+  const companies = [...bySlug.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, "en", { sensitivity: "base" })
+  );
+  return { ok: true, companies };
 }
 
 /**
@@ -292,6 +389,14 @@ async function extractCompanies(rawUrl, opts = {}) {
   }
   const { origin } = parsed;
 
+  if (isMammothHost(parsed.hostname)) {
+    const r = await fetchMammothPartners(fetchImpl, log);
+    if (!r.ok) {
+      return { ok: false, source: "mammoth_partners", url: origin, companies: [], count: 0, error: r.error, message: r.message };
+    }
+    return { ok: true, source: "mammoth_partners", url: origin, companies: r.companies, count: r.companies.length, pages_fetched: 1, truncated: false, truncated_reason: null };
+  }
+
   const probe = await probeShopify(fetchImpl, origin, log, {
     rateLimitBackoffMs: opts.rateLimitBackoffMs,
   });
@@ -340,6 +445,19 @@ async function extractCompaniesChunk(rawUrl, opts = {}) {
   const { origin } = parsed;
 
   const startPage = Math.max(1, Math.trunc(Number(opts.startPage) || 1));
+
+  // Site-specific directory source (preferred). Mammoth returns its whole
+  // company list from one API, so a single chunk is always "done".
+  if (isMammothHost(parsed.hostname)) {
+    if (startPage > 1) {
+      return { ok: true, source: "mammoth_partners", url: origin, companies: [], from_page: startPage, to_page: startPage - 1, next_page: null, done: true, truncated: false };
+    }
+    const r = await fetchMammothPartners(fetchImpl, log);
+    if (!r.ok) {
+      return { ok: false, source: "mammoth_partners", url: origin, companies: [], next_page: null, done: true, error: r.error, message: r.message };
+    }
+    return { ok: true, source: "mammoth_partners", url: origin, companies: r.companies, from_page: 1, to_page: 1, next_page: null, done: true, truncated: false };
+  }
   const pageLimit = Math.max(1, Math.min(20, Math.trunc(Number(opts.pageLimit) || DEFAULT_PAGE_LIMIT)));
   const pacingMs = Number.isFinite(opts.pacingMs) ? opts.pacingMs : PAGE_PACING_MS;
   const maxPages = DEFAULT_MAX_PAGES;
@@ -362,7 +480,11 @@ async function extractCompaniesChunk(rawUrl, opts = {}) {
   );
 
   const hitMax = !ended && !truncated && lastPageFetched >= maxPages;
-  const done = ended || truncated || hitMax;
+  // "done" means the crawl genuinely finished: end of catalog or hard ceiling.
+  // A transient truncation (rate limit / 5xx / time budget) is NOT done — we
+  // surface a resume point so the client can Continue after a cooldown instead
+  // of restarting from page 1.
+  const done = ended || hitMax;
   return {
     ok: true,
     source: "shopify",
@@ -370,6 +492,8 @@ async function extractCompaniesChunk(rawUrl, opts = {}) {
     companies, // this chunk only
     from_page: startPage,
     to_page: lastPageFetched,
+    // Next page to fetch. When done → null. When truncated → the page that
+    // failed (lastPageFetched+1), i.e. where a Continue should resume.
     next_page: done ? null : lastPageFetched + 1,
     done,
     truncated: truncated || hitMax,
@@ -384,6 +508,8 @@ module.exports = {
   toOrigin,
   probeShopify,
   extractShopifyVendors,
+  isMammothHost,
+  fetchMammothPartners,
   DEFAULT_MAX_PAGES,
   DEFAULT_PAGE_LIMIT,
   SHOPIFY_PAGE_SIZE,
