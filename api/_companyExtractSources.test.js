@@ -81,3 +81,46 @@ test("extractCompanies surfaces rate limiting from the probe", async () => {
   assert.strictEqual(res.ok, false);
   assert.strictEqual(res.error, "rate_limited");
 });
+
+// Serves Shopify pages, but a `fail` plan makes given pages return `status`
+// for the first N attempts before succeeding — models transient 5xx.
+function makeFlakyShopifyFetch(pages, fail = {}) {
+  const counters = {};
+  return async (url) => {
+    const page = Number(new URL(url).searchParams.get("page") || "1");
+    const plan = fail[page];
+    if (plan) {
+      counters[page] = (counters[page] || 0) + 1;
+      if (counters[page] <= plan.times) {
+        return { status: plan.status, ok: false, async text() { return "server error"; } };
+      }
+    }
+    const products = pages[page - 1] || [];
+    return { status: 200, ok: true, async text() { return JSON.stringify({ products }); } };
+  };
+}
+
+test("extractCompanies retries a transient 5xx and recovers", async () => {
+  // Page 2 fails with 500 twice (within the retry budget), then succeeds.
+  const fetchImpl = makeFlakyShopifyFetch(
+    [[{ vendor: "Alpha" }], [{ vendor: "Beta" }], []],
+    { 2: { times: 2, status: 500 } }
+  );
+  const res = await extractCompanies("mammothnation.com", { fetchImpl, rateLimitBackoffMs: 1 });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.truncated, false);
+  assert.deepStrictEqual(res.companies.map((c) => c.name).sort(), ["Alpha", "Beta"]);
+});
+
+test("extractCompanies truncates on a persistent 5xx, keeping earlier pages", async () => {
+  // Page 3 always 500s; pages 1-2 collected, then we stop and flag it.
+  const fetchImpl = makeFlakyShopifyFetch(
+    [[{ vendor: "Alpha" }], [{ vendor: "Beta" }], [{ vendor: "Gamma" }]],
+    { 3: { times: 99, status: 500 } }
+  );
+  const res = await extractCompanies("mammothnation.com", { fetchImpl, rateLimitBackoffMs: 1 });
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.truncated, true);
+  assert.strictEqual(res.truncated_reason, "page_error_500");
+  assert.deepStrictEqual(res.companies.map((c) => c.name).sort(), ["Alpha", "Beta"]);
+});
