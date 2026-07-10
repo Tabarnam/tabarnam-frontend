@@ -7,6 +7,7 @@ const {
   normalizeUrl,
   isRejectedHost,
   hostOf,
+  parseJsonLoose,
 } = require("./_companyUrlLookup");
 
 // The real xAI client honors a global stub before any network/test-mode
@@ -67,6 +68,31 @@ test("lookupCompanyUrl surfaces xAI failure without throwing", async () => {
   const r = await lookupCompanyUrl("SlowBrand", {});
   assert.strictEqual(r.found, false);
   assert.strictEqual(r.error, "upstream_timeout");
+});
+
+test("parseJsonLoose handles fences, prose, and junk", () => {
+  assert.deepStrictEqual(parseJsonLoose('{"a":1}'), { a: 1 });
+  assert.deepStrictEqual(parseJsonLoose('```json\n{"a":1}\n```'), { a: 1 });
+  assert.deepStrictEqual(parseJsonLoose('Here is the result: {"a":1} hope that helps'), { a: 1 });
+  assert.strictEqual(parseJsonLoose("no json here"), null);
+  assert.strictEqual(parseJsonLoose(""), null);
+});
+
+test("lookupCompanyUrl parses a fence-wrapped model response", async () => {
+  setStub(async () => ({
+    ok: true,
+    resp: { output_text: '```json\n{"found": true, "website_url": "https://fencebrand.com", "confidence": 0.7}\n```' },
+  }));
+  const r = await lookupCompanyUrl("FenceBrand", {});
+  assert.strictEqual(r.found, true);
+  assert.strictEqual(r.website_url, "https://fencebrand.com");
+});
+
+test("lookupCompanyUrl surfaces upstream HTTP status in the error", async () => {
+  setStub(async () => ({ ok: false, error: "upstream_http_400", diagnostics: { upstream_http_status: 400 } }));
+  const r = await lookupCompanyUrl("BadPayloadBrand", {});
+  assert.strictEqual(r.found, false);
+  assert.strictEqual(r.error, "upstream_http_400 (http 400)");
 });
 
 test("lookupCompanyUrlsBatch preserves input order", async () => {

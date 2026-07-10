@@ -60,7 +60,22 @@ async function handler(req, context) {
   });
 
   const found = results.filter((r) => r.found).length;
-  context.log?.(`[extract-lookup-urls] n=${companies.length} found=${found} model=${model || "(default)"}`);
+  // Log the error breakdown so systematic failures (bad payload shape, auth,
+  // upstream outage) are visible in traces — the first production run failed
+  // 935/935 with zero log signal beyond found=0.
+  const errorCounts = {};
+  for (const r of results) {
+    if (!r.found && r.error) errorCounts[r.error] = (errorCounts[r.error] || 0) + 1;
+  }
+  const errorSummary = Object.entries(errorCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([e, n]) => `${e}×${n}`)
+    .join(", ");
+  context.log?.(
+    `[extract-lookup-urls] n=${companies.length} found=${found} model=${model || "(default)"}` +
+    (errorSummary ? ` errors: ${errorSummary}` : "")
+  );
 
   return json({ ok: true, model: model || "(default)", results });
 }
