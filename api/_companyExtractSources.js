@@ -21,7 +21,7 @@ const SHOPIFY_PAGE_SIZE = 250;         // Shopify's max page size for products.j
 const PAGE_PACING_MS = 400;            // gap between page fetches — be polite, avoid 429
 const PAGE_TIMEOUT_MS = 15_000;        // per-request timeout
 const OVERALL_BUDGET_MS = 90_000;      // total wall-clock budget for one extraction
-const MAX_429_RETRIES = 2;             // retries on a rate-limited page before giving up
+const MAX_PAGE_RETRIES = 2;            // retries on a transient page failure (429 / 5xx / network) before giving up
 const USER_AGENT =
   "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)";
 
@@ -63,31 +63,45 @@ async function fetchWithTimeout(fetchImpl, url, timeoutMs) {
 }
 
 /**
- * Fetch one Shopify products.json page, tolerant of rate limiting.
+ * Fetch one Shopify products.json page, tolerant of transient failures.
+ * Retries (with linear backoff) on rate limiting (429), server errors (5xx),
+ * and network errors/timeouts — these are all transient and commonly clear on
+ * a second try (empirically Mammoth 500s on later pages under paging load).
+ * A hard 4xx (e.g. 404) is not retried.
  * `cfg.rateLimitBackoffMs` overrides the base backoff (tests pass a small value).
  * Returns { ok, products?, status, rateLimited? }.
  */
 async function fetchShopifyPage(fetchImpl, origin, page, log, cfg = {}) {
   const baseBackoff = Number.isFinite(cfg.rateLimitBackoffMs) ? cfg.rateLimitBackoffMs : 2000;
   const url = `${origin}/products.json?limit=${SHOPIFY_PAGE_SIZE}&page=${page}`;
-  for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= MAX_PAGE_RETRIES; attempt++) {
+    const canRetry = attempt < MAX_PAGE_RETRIES;
+    const backoff = baseBackoff * (attempt + 1);
+
     let res;
     try {
       res = await fetchWithTimeout(fetchImpl, url, PAGE_TIMEOUT_MS);
     } catch (e) {
+      // Network error / timeout — transient; retry then give up.
+      if (canRetry) {
+        log?.(`[extract:shopify] page ${page} request failed (${e?.message || e}) — retrying in ${backoff}ms`);
+        await sleep(backoff);
+        continue;
+      }
       log?.(`[extract:shopify] page ${page} request failed: ${e?.message || e}`);
       return { ok: false, status: 0, error: asString(e?.message || e) };
     }
 
-    if (res.status === 429) {
-      // Rate limited — back off and retry a bounded number of times.
-      if (attempt < MAX_429_RETRIES) {
-        const backoff = baseBackoff * (attempt + 1);
-        log?.(`[extract:shopify] page ${page} rate-limited (429) — backing off ${backoff}ms`);
+    // Transient upstream: rate limit (429) or server error (5xx). Back off and
+    // retry a bounded number of times before surfacing the failure.
+    if (res.status === 429 || res.status >= 500) {
+      const rateLimited = res.status === 429;
+      if (canRetry) {
+        log?.(`[extract:shopify] page ${page} transient ${res.status} — backing off ${backoff}ms`);
         await sleep(backoff);
         continue;
       }
-      return { ok: false, status: 429, rateLimited: true };
+      return { ok: false, status: res.status, rateLimited };
     }
 
     if (!res.ok) {
@@ -115,7 +129,8 @@ async function fetchShopifyPage(fetchImpl, origin, page, log, cfg = {}) {
     }
     return { ok: true, products: Array.isArray(parsed.products) ? parsed.products : [] };
   }
-  return { ok: false, status: 429, rateLimited: true };
+  // Unreachable — the loop always returns — but keep a safe fallback.
+  return { ok: false, status: 0 };
 }
 
 /**
