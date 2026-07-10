@@ -207,15 +207,10 @@ async function fetchMammothPartners(fetchImpl, log) {
       const name = asString(p?.name).trim();
       if (!name) continue;
       const key = (asString(p?.slug).trim() || name).toLowerCase();
-      if (!bySlug.has(key)) {
-        bySlug.set(key, {
-          name,
-          product_count: null,
-          // Card image Mammoth associates with the partner — useful downstream
-          // (logo enrichment reference). No website URL is exposed by the API.
-          image_url: asString(p?.lp_image).trim() || null,
-        });
-      }
+      // Name only — the API also carries card images (lp_image), but they're
+      // mostly product/lifestyle shots, not logos, and we don't import them.
+      // No website URL is exposed by the API.
+      if (!bySlug.has(key)) bySlug.set(key, { name, product_count: null });
     }
     log?.(`[extract:mammoth] offset ${offset} +${data.length} (total ${bySlug.size}/${payload?.pagination?.total ?? "?"})`);
 

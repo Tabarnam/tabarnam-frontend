@@ -177,7 +177,7 @@ test("extractCompaniesChunk uses the Mammoth partners API (site-specific, one do
   assert.strictEqual(c.next_page, null);
   assert.strictEqual(c.companies.length, 600); // paginated across 3 API pages, deduped by slug
   assert.strictEqual(c.companies[0].name, "Brand 000");
-  assert.strictEqual(c.companies[0].image_url, "https://cdn/img-0.jpg"); // card image carried through
+  assert.strictEqual(c.companies[0].image_url, undefined); // card images (lp_image) deliberately not captured
 });
 
 test("extractCompaniesChunk reports unsupported (done) for non-Shopify", async () => {
