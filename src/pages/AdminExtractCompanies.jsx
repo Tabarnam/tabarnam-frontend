@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Helmet } from "react-helmet-async";
 import {
   Loader2, Search, Copy, Check, Download, AlertTriangle, Store, ExternalLink, X, Undo2, Globe, Play,
-  Upload, RefreshCw, ChevronDown, ChevronUp,
+  Upload, RefreshCw, ChevronDown, ChevronUp, Pencil,
 } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
@@ -127,6 +127,8 @@ export default function AdminExtractCompanies() {
   const [selected, setSelected] = useState(() => new Set());
   // Set when a prior working session was restored from localStorage (banner).
   const [restoredAt, setRestoredAt] = useState(null);
+  // Inline cell edit in progress: { name, field: "name" | "url" } — one at a time.
+  const [editing, setEditing] = useState(null);
 
   const history = useRef([]);                      // undo stack of prior `rows` snapshots
   const [canUndo, setCanUndo] = useState(false);
@@ -509,6 +511,59 @@ export default function AdminExtractCompanies() {
     if (snap) setRows(snap);
     setCanUndo(history.current.length > 0);
   }, []);
+
+  // ── Inline edits: fix a scraped name or paste the right URL ──
+  const renameRow = useCallback((oldName, rawName) => {
+    const name = rawName.trim();
+    if (!name || name === oldName) return;
+    const row = rowsRef.current.find((r) => r.name === oldName);
+    if (!row) return;
+    const clash = rowsRef.current.some(
+      (r) => r.name !== oldName && r.name.toLowerCase() === name.toLowerCase()
+    );
+    if (clash) { setError(`A row named "${name}" already exists.`); return; }
+    setError(null);
+    setRows((prev) => {
+      pushHistory(prev);
+      return prev
+        // The dup-check verdict belonged to the old name — re-check under the new one.
+        .map((r) => (r.name === oldName ? { ...r, name, status: "pending", match: null } : r))
+        .sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+    });
+    setSelected((prev) => {
+      if (!prev.has(oldName)) return prev;
+      const next = new Set(prev);
+      next.delete(oldName);
+      next.add(name);
+      return next;
+    });
+    runPreflight([{ name, ...(row.website_url ? { url: row.website_url } : {}) }], runIdRef.current);
+  }, [pushHistory, runPreflight]);
+
+  const setRowUrl = useCallback((name, rawUrl) => {
+    let url = rawUrl.trim();
+    if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+    const row = rowsRef.current.find((r) => r.name === name);
+    if (!row || (row.website_url || "") === url) return;
+    setRows((prev) => {
+      pushHistory(prev);
+      return prev.map((r) =>
+        r.name === name
+          ? {
+              ...r,
+              website_url: url,
+              url_confidence: null, // manual entry — no lookup score to show
+              url_error: null,
+              url_status: url ? "done" : "idle",
+              // URL feeds the domain dup-check — refresh the verdict.
+              status: "pending",
+              match: null,
+            }
+          : r
+      );
+    });
+    runPreflight([{ name, ...(url ? { url } : {}) }], runIdRef.current);
+  }, [pushHistory, runPreflight]);
 
   // ── Selection ──
   const toggleSelected = useCallback((name) => {
@@ -895,7 +950,7 @@ export default function AdminExtractCompanies() {
                     </thead>
                     <tbody>
                       {visibleRows.map((r) => (
-                        <tr key={r.name} className={`border-t border-slate-800 ${
+                        <tr key={r.name} className={`group border-t border-slate-800 ${
                           r.status === "exact_match" ? "bg-rose-950/10" :
                           r.status === "fuzzy_match" ? "bg-amber-950/10" :
                           r.status === "no_match" ? "bg-emerald-950/10" : ""
@@ -909,12 +964,49 @@ export default function AdminExtractCompanies() {
                               onChange={() => toggleSelected(r.name)}
                             />
                           </td>
-                          <td className="px-3 py-1 text-slate-100">{r.name}</td>
+                          <td className="px-3 py-1 text-slate-100">
+                            {editing?.name === r.name && editing.field === "name" ? (
+                              <InlineInput
+                                initial={r.name}
+                                onCommit={(v) => { setEditing(null); renameRow(r.name, v); }}
+                                onCancel={() => setEditing(null)}
+                              />
+                            ) : (
+                              <span className="inline-flex items-center gap-1">
+                                {r.name}
+                                <button
+                                  onClick={() => setEditing({ name: r.name, field: "name" })}
+                                  title="Edit name"
+                                  className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-teal-300 p-0.5 rounded hover:bg-slate-800"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              </span>
+                            )}
+                          </td>
                           <td className="px-3 py-1">
                             <StatusCell row={r} matchHref={matchHref} />
                           </td>
                           <td className="px-3 py-1">
-                            <WebsiteCell row={r} />
+                            {editing?.name === r.name && editing.field === "url" ? (
+                              <InlineInput
+                                initial={r.website_url || ""}
+                                placeholder="https://…"
+                                onCommit={(v) => { setEditing(null); setRowUrl(r.name, v); }}
+                                onCancel={() => setEditing(null)}
+                              />
+                            ) : (
+                              <span className="inline-flex items-center gap-1">
+                                <WebsiteCell row={r} />
+                                <button
+                                  onClick={() => setEditing({ name: r.name, field: "url" })}
+                                  title={r.website_url ? "Edit URL" : "Enter URL"}
+                                  className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-teal-300 p-0.5 rounded hover:bg-slate-800"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-1 text-right text-slate-500">{r.product_count ?? "—"}</td>
                           <td className="px-2 py-1 text-right">
@@ -937,6 +1029,34 @@ export default function AdminExtractCompanies() {
         </div>
       </div>
     </>
+  );
+}
+
+// One-shot inline cell editor. Enter/blur commits, Escape cancels; the ref
+// guard keeps the unmount blur from double-firing after Enter/Escape.
+function InlineInput({ initial, placeholder, onCommit, onCancel }) {
+  const [value, setValue] = useState(initial);
+  const inputRef = useRef(null);
+  const doneRef = useRef(false);
+  useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
+  const finish = (fn, v) => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    fn(v);
+  };
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") finish(onCommit, value);
+        else if (e.key === "Escape") finish(onCancel);
+      }}
+      onBlur={() => finish(onCommit, value)}
+      className="w-full min-w-[12rem] bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-teal-500"
+    />
   );
 }
 
