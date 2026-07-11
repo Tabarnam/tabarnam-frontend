@@ -370,6 +370,13 @@ export default function AdminExtractCompanies() {
   }, [url, maxPages, runPreflight]);
 
   const runExtract = useCallback(async () => {
+    const existing = rowsRef.current.length;
+    if (
+      existing > 0 &&
+      !window.confirm(
+        `⚠️ Extract a new site?\n\nThis PERMANENTLY DELETES your current table and saved working session — all ${existing.toLocaleString()} companies, their statuses, found URLs, and sent flags.\n\nThis cannot be undone.`
+      )
+    ) return;
     setMeta(null);
     setRows([]);
     setFilter("all");
@@ -389,6 +396,13 @@ export default function AdminExtractCompanies() {
 
   // Discard the restored session and reset to a blank page.
   const startFresh = useCallback(() => {
+    const existing = rowsRef.current.length;
+    if (
+      existing > 0 &&
+      !window.confirm(
+        `⚠️ Start fresh?\n\nThis PERMANENTLY DELETES your saved working session — all ${existing.toLocaleString()} companies, their statuses, found URLs, and sent flags.\n\nThis cannot be undone.`
+      )
+    ) return;
     clearExtractSession();
     latestSessionRef.current = null;
     runIdRef.current += 1; // cancel any in-flight restored preflight
