@@ -59,6 +59,9 @@ const PUBLIC_ROUTES = new Set([
   "suggest-cities",
   "suggest-states",
   "get-reviews",
+  // Public read-only batch of visible-review counts for the results page —
+  // same public data as get-reviews, just many companies at once.
+  "review-counts",
   "submit-review",
   // One-click review approval from the admin email. Intentionally anonymous:
   // authorization is the signed HMAC token (api/_reviewActionToken.js), not a

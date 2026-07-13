@@ -218,6 +218,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: xadmin-api-backfill-visible-counts");
+  require("./xadmin-api-backfill-visible-counts/index.js");
+} catch (e) {
+  console.error("[api] Failed to load xadmin-api-backfill-visible-counts:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: search-companies");
   require("./search-companies/index.js");
 } catch (e) {

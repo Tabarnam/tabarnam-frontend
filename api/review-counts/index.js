@@ -17,7 +17,7 @@
 // path.
 
 const { app } = require("../_app");
-const { handler: getReviewsHandler } = require("../get-reviews");
+const { computeVisibleReviewCount } = require("../_pinVisibleReviewCount");
 
 const MAX_IDS = 60;
 const CONCURRENCY = 6;
@@ -41,27 +41,10 @@ async function countForId(id, context) {
   const cached = cache.get(id);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.count;
 
-  const syntheticReq = {
-    method: "GET",
-    url: `https://internal/api/get-reviews?company_id=${encodeURIComponent(id)}`,
-    headers: new Headers(),
-  };
-  try {
-    const res = await getReviewsHandler(syntheticReq, context);
-    if (!res || res.status !== 200) return null;
-    const body = typeof res.body === "string" ? JSON.parse(res.body) : res.body;
-    const count =
-      typeof body?.count === "number"
-        ? body.count
-        : Array.isArray(body?.items)
-          ? body.items.length
-          : null;
-    if (typeof count === "number") cache.set(id, { count, at: Date.now() });
-    return count;
-  } catch (e) {
-    context?.log?.(`[review-counts] count failed for ${id}: ${e?.message || e}`);
-    return null;
-  }
+  const count = await computeVisibleReviewCount(id);
+  if (typeof count === "number") cache.set(id, { count, at: Date.now() });
+  else context?.log?.(`[review-counts] count failed for ${id}`);
+  return count;
 }
 
 // Resolve an array of ids with bounded concurrency.

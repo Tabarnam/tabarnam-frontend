@@ -25,6 +25,7 @@ const { withAdminGuard } = require("../_adminAuth");
 const { computeReputationQualityScores } = require("../_companyScoring");
 const { writeCompanyEditHistoryEntry } = require("../_companyEditHistory");
 const { deleteReviewImages } = require("../_reviewImages");
+const { recomputeAndPinVisibleCount } = require("../_pinVisibleReviewCount");
 
 const cors = () => ({
   "Access-Control-Allow-Origin": "*",
@@ -134,6 +135,12 @@ async function syncCompany(companiesContainer, review, mode, nowIso, context, ac
     out.companyUpdated = true;
   } catch (e) {
     context?.log?.(`[admin-user-reviews] company upsert failed: ${e?.message || e}`);
+  }
+
+  // Editing/removing a public review changes what users can see — pin the
+  // fresh visible-review count.
+  if (out.companyUpdated) {
+    await recomputeAndPinVisibleCount(companiesContainer, company, {}, context);
   }
 
   // Best-effort score-history entry (never blocks the edit/remove).

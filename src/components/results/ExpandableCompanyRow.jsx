@@ -533,20 +533,23 @@ export default function ExpandableCompanyRow({
       const iconType = getQQDefaultIconType(company);
 
       // "Reviews available" must reflect what USERS can see. Prefer the exact
-      // fetched list (get-reviews, present once expanded), then the batch
-      // reviewCount prop (same source, fetched for all cards) — both are
-      // authoritative. Fall back to stored aggregates only until the batch
-      // count arrives.
+      // fetched list (get-reviews, present once expanded), then the pinned
+      // visible_review_count from search (maintained on every review change),
+      // then the batch reviewCount prop (fallback for companies not yet pinned)
+      // — all three come from the same get-reviews computation. Legacy
+      // aggregates are the last resort.
       const visibleReviewCount =
         Array.isArray(company._reviews) && company._reviews.length > 0
           ? company._reviews.length
-          : typeof reviewCount === "number"
-            ? reviewCount
-            : typeof company.public_review_count === "number"
-              ? company.public_review_count
-              : typeof company.reviews_count === "number"
-                ? company.reviews_count
-                : 0;
+          : typeof company.visible_review_count === "number"
+            ? company.visible_review_count
+            : typeof reviewCount === "number"
+              ? reviewCount
+              : typeof company.public_review_count === "number"
+                ? company.public_review_count
+                : typeof company.reviews_count === "number"
+                  ? company.reviews_count
+                  : 0;
 
       return (
         <div className="space-y-2">

@@ -873,6 +873,7 @@ const SELECT_FIELDS = [
   "c.private_review_count",
   "c.review_count_approved",
   "c.editorial_review_count",
+  "c.visible_review_count",
 
   // Flags
   "c.limited_manufacturing",
@@ -1420,6 +1421,12 @@ function mapCompanyToPublic(doc) {
     public_review_count,
     private_review_count,
     reviews_count: reviews_count ?? review_count,
+    // Pinned count of reviews visible to users (maintained on every review
+    // change; see _pinVisibleReviewCount). Present once a company has been
+    // written/backfilled — the card prefers it; otherwise it falls back to the
+    // batch /review-counts endpoint.
+    visible_review_count:
+      typeof doc.visible_review_count === "number" ? doc.visible_review_count : undefined,
     created_at: doc.created_at,
     updated_at: doc.updated_at,
 

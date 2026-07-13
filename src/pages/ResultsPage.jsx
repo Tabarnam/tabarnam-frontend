@@ -252,13 +252,19 @@ export default function ResultsPage() {
   // data. Set from the search response meta in doSearch.
   const [correctedHighlight, setCorrectedHighlight] = useState("");
 
-  // Stable key of the current result set's company ids — changes only when the
-  // set of companies changes, NOT when a row mutates (e.g. distance/review
-  // enrichment). Drives the one-shot batch count fetch below.
+  // Stable key of the company ids that DON'T already carry a pinned
+  // visible_review_count from the search response — those are the only ones the
+  // fallback batch endpoint needs to resolve. Changes only when that set
+  // changes, not when a row mutates (distance/review enrichment).
   const resultIdsKey = useMemo(
     () =>
       Array.from(
-        new Set((results || []).map((c) => c && (c.company_id || c.id)).filter(Boolean))
+        new Set(
+          (results || [])
+            .filter((c) => c && typeof c.visible_review_count !== "number")
+            .map((c) => c.company_id || c.id)
+            .filter(Boolean)
+        )
       ).join(","),
     [results]
   );

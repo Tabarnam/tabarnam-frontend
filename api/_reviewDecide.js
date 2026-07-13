@@ -13,6 +13,7 @@ const { computeReputationQualityScores } = require("./_companyScoring");
 const { isEmailConfigured, sendEmail } = require("./_graphEmail");
 const { renderEmail, esc, companyProfileUrl } = require("./_emailLayout");
 const { writeCompanyEditHistoryEntry } = require("./_companyEditHistory");
+const { recomputeAndPinVisibleCount } = require("./_pinVisibleReviewCount");
 
 function nonNegInt(v) {
   const n = Number(v);
@@ -212,6 +213,10 @@ async function decideReview({ reviewsContainer, companiesContainer, id, company:
         } catch (e) {
           context?.log?.(`[review-decide] history write failed: ${e?.message || e}`);
         }
+
+        // Pin the fresh visible-review count now that the review + company
+        // writes have landed (approving/rejecting changes what users can see).
+        await recomputeAndPinVisibleCount(companiesContainer, company, { reviewsContainer }, context);
       }
     } else {
       context?.log?.(`[review-decide] no matching company doc for review ${review.id} (${companyName}); scores not recalculated`);

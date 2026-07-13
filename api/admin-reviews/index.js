@@ -2,6 +2,7 @@ const { app } = require('@azure/functions');
 const { CosmosClient } = require('@azure/cosmos');
 const { randomUUID } = require('node:crypto');
 const { validateCuratedReviewCandidate, normalizeUrl } = require("../_reviewQuality");
+const { recomputeAndPinVisibleCount } = require("../_pinVisibleReviewCount");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -208,6 +209,7 @@ async function adminReviewsHandler(req, context) {
 
         const partitionKeyValue = String(companyRecord.normalized_domain || "unknown").trim();
         await container.items.upsert(companyRecord, { partitionKey: partitionKeyValue });
+        await recomputeAndPinVisibleCount(container, companyRecord, {}, context);
 
         return json({ ok: true, review: newReview }, 200);
       }
@@ -346,6 +348,7 @@ async function adminReviewsHandler(req, context) {
 
         const partitionKeyValue2 = String(companyRecord.normalized_domain || "unknown").trim();
         await container.items.upsert(companyRecord, { partitionKey: partitionKeyValue2 });
+        await recomputeAndPinVisibleCount(container, companyRecord, {}, context);
 
         return json({ ok: true, review: updated }, 200);
       }
@@ -390,6 +393,7 @@ async function adminReviewsHandler(req, context) {
 
         const partitionKeyValue3 = String(companyRecord.normalized_domain || "unknown").trim();
         await container.items.upsert(companyRecord, { partitionKey: partitionKeyValue3 });
+        await recomputeAndPinVisibleCount(container, companyRecord, {}, context);
 
         return json({ ok: true, deleted: review_id }, 200);
       }
