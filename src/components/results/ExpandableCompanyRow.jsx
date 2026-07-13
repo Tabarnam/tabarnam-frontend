@@ -528,6 +528,19 @@ export default function ExpandableCompanyRow({
       const score = getQQScore(company);
       const iconType = getQQDefaultIconType(company);
 
+      // "Reviews available" must reflect what USERS can see, not the raw
+      // review_count (which also counts reviews removed/hidden from users).
+      // Prefer the actual fetched visible list, then the public/visible
+      // aggregate, then the legacy total only as a last-resort fallback.
+      const visibleReviewCount =
+        Array.isArray(company._reviews) && company._reviews.length > 0
+          ? company._reviews.length
+          : typeof company.public_review_count === "number"
+            ? company.public_review_count
+            : typeof company.reviews_count === "number"
+              ? company.reviews_count
+              : 0;
+
       return (
         <div className="space-y-2">
           <div className="group/qq flex items-center gap-1.5">
@@ -580,16 +593,13 @@ export default function ExpandableCompanyRow({
                       )}
                     </div>
                   ))}
-                  {(() => {
-                    const total = (Array.isArray(company._reviews) ? company._reviews.length : 0) || (typeof company.reviews_count === "number" ? company.reviews_count : 0);
-                    return total > 2 ? (
-                      <div className="text-xs text-muted-foreground">+{total - 2} more</div>
-                    ) : null;
-                  })()}
+                  {visibleReviewCount > 2 ? (
+                    <div className="text-xs text-muted-foreground">+{visibleReviewCount - 2} more</div>
+                  ) : null}
                 </div>
-              ) : typeof company.reviews_count === "number" && company.reviews_count > 0 ? (
+              ) : visibleReviewCount > 0 ? (
                 <div className="text-xs text-muted-foreground">
-                  {company.reviews_count} review{company.reviews_count === 1 ? "" : "s"} available
+                  {visibleReviewCount} review{visibleReviewCount === 1 ? "" : "s"} available
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground">No reviews available</div>
