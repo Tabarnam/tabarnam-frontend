@@ -225,6 +225,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: xadmin-api-census-companies");
+  require("./xadmin-api-census-companies/index.js");
+} catch (e) {
+  console.error("[api] Failed to load xadmin-api-census-companies:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: search-companies");
   require("./search-companies/index.js");
 } catch (e) {
