@@ -528,21 +528,18 @@ export default function ExpandableCompanyRow({
       const score = getQQScore(company);
       const iconType = getQQDefaultIconType(company);
 
-      // "Reviews available" must reflect what USERS can see, not the raw
-      // review_count (which also counts reviews removed/hidden from users).
-      // Prefer the actual fetched visible list (exact), then the API's fresh
-      // visible_review_count (computed per-request from the doc, never drifts),
-      // then legacy aggregates only as a last-resort fallback.
+      // "Reviews available" must reflect what USERS can see. The only fully
+      // authoritative source is the fetched visible list (get-reviews), which
+      // the card has once a row is expanded. Until then we fall back to the
+      // stored public/visible aggregate, then the legacy total.
       const visibleReviewCount =
         Array.isArray(company._reviews) && company._reviews.length > 0
           ? company._reviews.length
-          : typeof company.visible_review_count === "number"
-            ? company.visible_review_count
-            : typeof company.public_review_count === "number"
-              ? company.public_review_count
-              : typeof company.reviews_count === "number"
-                ? company.reviews_count
-                : 0;
+          : typeof company.public_review_count === "number"
+            ? company.public_review_count
+            : typeof company.reviews_count === "number"
+              ? company.reviews_count
+              : 0;
 
       return (
         <div className="space-y-2">
