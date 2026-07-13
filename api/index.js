@@ -232,6 +232,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: xadmin-api-cleanup-import-control");
+  require("./xadmin-api-cleanup-import-control/index.js");
+} catch (e) {
+  console.error("[api] Failed to load xadmin-api-cleanup-import-control:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: search-companies");
   require("./search-companies/index.js");
 } catch (e) {
