@@ -59,6 +59,34 @@ async function groupCount(container, field, where, { cap = 40 } = {}) {
   return rows.slice(0, cap);
 }
 
+// Sample up to `n` full docs matching `where`, measure serialized byte size.
+// One page (fetchNext) so RU stays bounded. Returns { sampled, avg_bytes,
+// min_bytes, max_bytes, example_keys }.
+async function sizeSample(container, where, { n = 50 } = {}) {
+  const query = `SELECT * FROM c WHERE ${where}`;
+  const page = await container.items
+    .query({ query }, { maxItemCount: n, enableCrossPartitionQuery: true })
+    .fetchNext();
+  const docs = Array.isArray(page?.resources) ? page.resources : [];
+  if (docs.length === 0) return { sampled: 0, avg_bytes: null, min_bytes: null, max_bytes: null, example_keys: [] };
+  let sum = 0;
+  let min = Infinity;
+  let max = 0;
+  for (const d of docs) {
+    const b = Buffer.byteLength(JSON.stringify(d), "utf8");
+    sum += b;
+    if (b < min) min = b;
+    if (b > max) max = b;
+  }
+  return {
+    sampled: docs.length,
+    avg_bytes: Math.round(sum / docs.length),
+    min_bytes: min,
+    max_bytes: max,
+    example_keys: Object.keys(docs[0] || {}).sort(),
+  };
+}
+
 async function censusHandler(req, context) {
   if (String(req.method || "").toUpperCase() === "OPTIONS") return { status: 200, headers: cors() };
 
@@ -123,6 +151,22 @@ async function censusHandler(req, context) {
     group("soft_deleted_by_source", "c.source", SOFT_DELETED_WHERE),
   ]);
 
+  // ── Byte-size sampling (isolated) to estimate storage per category ──
+  const sizing = {};
+  async function size(key, where) {
+    try {
+      sizing[key] = await sizeSample(container, where);
+    } catch (e) {
+      sizing[key] = null;
+      errors[`size:${key}`] = e?.message || String(e);
+    }
+  }
+  await Promise.all([
+    size("import_id", "STARTSWITH(c.id, '_import_')"),
+    size("live", LIVE_WHERE),
+    size("soft_deleted", SOFT_DELETED_WHERE),
+  ]);
+
   const exclusive_buckets = {
     refresh_job: counts.refresh_job,
     import_id: counts.import_id,
@@ -160,6 +204,21 @@ async function censusHandler(req, context) {
       soft_deleted_by_reason: groups.soft_deleted_by_reason,
       live_by_source: groups.live_by_source,
       soft_deleted_by_source: groups.soft_deleted_by_source,
+    },
+    sizing: {
+      import_id: sizing.import_id,
+      live: sizing.live,
+      soft_deleted: sizing.soft_deleted,
+      // Extrapolated total bytes = avg sample bytes × bucket count (docs only,
+      // excludes Cosmos index overhead which is typically comparable again).
+      est_import_id_doc_bytes:
+        sizing.import_id?.avg_bytes != null && typeof counts.import_id === "number"
+          ? sizing.import_id.avg_bytes * counts.import_id
+          : null,
+      est_live_doc_bytes:
+        sizing.live?.avg_bytes != null && typeof counts.live === "number"
+          ? sizing.live.avg_bytes * counts.live
+          : null,
     },
     errors: Object.keys(errors).length ? errors : undefined,
   });
