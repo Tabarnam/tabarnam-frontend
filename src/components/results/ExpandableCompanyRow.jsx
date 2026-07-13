@@ -546,7 +546,7 @@ export default function ExpandableCompanyRow({
             type="button"
             onClick={(e) => { e.stopPropagation(); setReviewOpen(true); }}
             title="submit a review"
-            className="w-[106px] inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-transparent py-1 text-xs font-medium text-foreground hover:bg-foreground/5 transition-colors"
+            className="w-[106px] inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-transparent py-[7px] text-xs font-medium text-foreground hover:bg-foreground/5 transition-colors"
           >
             <Pencil className="h-3 w-3" />
             Review
