@@ -12,6 +12,7 @@ const {
   setCompanyReviewCounts,
   buildReviewMatchQuerySpec,
 } = require("../_reviewCounts");
+const { isVisibleCurated } = require("../_visibleReviewCount");
 
 function json(obj, status = 200) {
   return {
@@ -73,8 +74,11 @@ async function adminRecalcReviewCountsHandler(req, context) {
 
     const curatedArr = Array.isArray(companyDoc.curated_reviews) ? companyDoc.curated_reviews : [];
     const curatedTotal = curatedArr.length;
-    const curatedPublic = curatedTotal;
-    const curatedPrivate = 0;
+    // Only curated reviews actually VISIBLE to users count toward the public
+    // total (previously every curated review was counted public, which over-
+    // stated public_review_count whenever an admin hid one).
+    const curatedPublic = curatedArr.filter(isVisibleCurated).length;
+    const curatedPrivate = curatedTotal - curatedPublic;
 
     const counts = {
       review_count: (countsFromReviews.review_count || 0) + curatedTotal,

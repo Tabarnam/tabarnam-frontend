@@ -10,6 +10,7 @@ const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
 const { parseQuery, foldDiacritics, normalizeQuery } = require("../_queryNormalizer");
 const { expandQueryTermsForFTS, expandProductSynonyms } = require("../_searchSynonyms");
+const { countVisibleReviews } = require("../_visibleReviewCount");
 const { isFuzzyNameMatch, damerauLevenshtein } = require("../_fuzzyMatch");
 const { simpleStem, stemWords } = require("../_stemmer");
 const {
@@ -853,6 +854,7 @@ const SELECT_FIELDS = [
   // Content
   "c.tagline",
   "c.curated_reviews",
+  "c.reviews",
   "c.notes_entries",
 
   // Ratings + stars
@@ -1420,6 +1422,10 @@ function mapCompanyToPublic(doc) {
     public_review_count,
     private_review_count,
     reviews_count: reviews_count ?? review_count,
+    // Count of reviews actually VISIBLE to users, computed fresh from the doc's
+    // curated + embedded-user reviews (never a maintained aggregate that can
+    // drift). This is what the card's "N reviews available" should show.
+    visible_review_count: countVisibleReviews(doc),
     created_at: doc.created_at,
     updated_at: doc.updated_at,
 

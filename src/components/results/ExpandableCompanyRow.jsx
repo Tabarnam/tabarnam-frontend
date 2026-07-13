@@ -530,16 +530,19 @@ export default function ExpandableCompanyRow({
 
       // "Reviews available" must reflect what USERS can see, not the raw
       // review_count (which also counts reviews removed/hidden from users).
-      // Prefer the actual fetched visible list, then the public/visible
-      // aggregate, then the legacy total only as a last-resort fallback.
+      // Prefer the actual fetched visible list (exact), then the API's fresh
+      // visible_review_count (computed per-request from the doc, never drifts),
+      // then legacy aggregates only as a last-resort fallback.
       const visibleReviewCount =
         Array.isArray(company._reviews) && company._reviews.length > 0
           ? company._reviews.length
-          : typeof company.public_review_count === "number"
-            ? company.public_review_count
-            : typeof company.reviews_count === "number"
-              ? company.reviews_count
-              : 0;
+          : typeof company.visible_review_count === "number"
+            ? company.visible_review_count
+            : typeof company.public_review_count === "number"
+              ? company.public_review_count
+              : typeof company.reviews_count === "number"
+                ? company.reviews_count
+                : 0;
 
       return (
         <div className="space-y-2">
