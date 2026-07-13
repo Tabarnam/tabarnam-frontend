@@ -681,6 +681,7 @@ async function scoreOneCompany(company, { companiesContainer, perCallTimeoutMs }
   const startedAt = new Date(startedAtMs).toISOString();
 
   try {
+    const ratingExistedInStore = Boolean(company.rating && typeof company.rating === "object");
     if (!company.rating || typeof company.rating !== "object") {
       company.rating = {};
     }
@@ -697,12 +698,36 @@ async function scoreOneCompany(company, { companiesContainer, perCallTimeoutMs }
     const existingStar5 = company.rating.star5 && typeof company.rating.star5 === "object"
       ? company.rating.star5 : { value: 0, notes: [] };
 
-    company.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning };
-    company.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning };
-    company.updated_at = new Date().toISOString();
+    const newStar4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning };
+    const newStar5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning };
+    const nowIso = new Date().toISOString();
+    company.rating.star4 = newStar4;
+    company.rating.star5 = newStar5;
+    company.updated_at = nowIso;
 
+    // Field-scoped patch (not a full-doc upsert): this backfill runs in the
+    // background and must not clobber concurrent admin edits (unknown_manufacturing,
+    // no_amazon_store, amazon_url_approved, star1/star2…). A patch only touches the
+    // rating scores.
     const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
-    await companiesContainer.items.upsert(company, { partitionKey: partitionKeyValue });
+    const companyId = String(company.id || company.company_id || "").trim();
+    const patchOps = [];
+    if (!ratingExistedInStore) patchOps.push({ op: "add", path: "/rating", value: {} });
+    patchOps.push({ op: "set", path: "/rating/star4", value: newStar4 });
+    patchOps.push({ op: "set", path: "/rating/star5", value: newStar5 });
+    patchOps.push({ op: "set", path: "/updated_at", value: nowIso });
+    try {
+      await companiesContainer.item(companyId, partitionKeyValue).patch(patchOps);
+    } catch (patchErr) {
+      // Recovery: re-read the current doc and set only the two stars on it.
+      const { resource: fresh } = await companiesContainer.item(companyId, partitionKeyValue).read();
+      const target = fresh && typeof fresh === "object" ? fresh : company;
+      if (!target.rating || typeof target.rating !== "object") target.rating = {};
+      target.rating.star4 = newStar4;
+      target.rating.star5 = newStar5;
+      target.updated_at = nowIso;
+      await companiesContainer.items.upsert(target, { partitionKey: partitionKeyValue });
+    }
 
     return {
       ok: true,

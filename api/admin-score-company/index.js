@@ -38,14 +38,17 @@ function getCompaniesContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-async function adminScoreCompanyHandler(req, context) {
+async function adminScoreCompanyHandler(req, context, deps = {}) {
   const method = String(req.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
     return { status: 200, headers: getCorsHeaders() };
   }
 
-  const companiesContainer = getCompaniesContainer();
+  // deps is an optional injection point for tests (container + scorer); prod uses
+  // the real Cosmos container and xAI scorer.
+  const computeScores = deps.computeScores || computeReputationQualityScores;
+  const companiesContainer = deps.container || getCompaniesContainer();
   if (!companiesContainer) {
     return json({ error: "Cosmos DB not configured" }, 500);
   }
@@ -81,7 +84,10 @@ async function adminScoreCompanyHandler(req, context) {
       return json({ error: "Company not found" }, 404);
     }
 
-    // Initialize rating object if missing
+    // Initialize rating object if missing. Track whether the STORED doc already had
+    // a /rating object — the field-scoped patch below sets /rating/star4 and
+    // /rating/star5 sub-paths, which requires /rating to exist in storage.
+    const ratingExistedInStore = Boolean(company.rating && typeof company.rating === "object");
     if (!company.rating || typeof company.rating !== "object") {
       company.rating = {};
     }
@@ -104,7 +110,7 @@ async function adminScoreCompanyHandler(req, context) {
 
     // Run scoring
     const startMs = Date.now();
-    const scoring = await computeReputationQualityScores(company, { timeoutMs: 60000, debug });
+    const scoring = await computeScores(company, { timeoutMs: 60000, debug });
     const durationMs = Date.now() - startMs;
 
     if (!scoring.ok) {
@@ -151,13 +157,48 @@ async function adminScoreCompanyHandler(req, context) {
     // company gains data; a real score clears the marker. See api/_scoringStatus.js.
     const insufficientData = scoring.skipped_xai_call === true;
 
-    company.rating.star4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning, insufficient_data: insufficientData };
-    company.rating.star5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning, insufficient_data: insufficientData };
-    company.updated_at = new Date().toISOString();
+    const newStar4 = { ...existingStar4, value: scoring.reputation_score, reasoning: scoring.reputation_reasoning, insufficient_data: insufficientData };
+    const newStar5 = { ...existingStar5, value: scoring.quality_score, reasoning: scoring.quality_reasoning, insufficient_data: insufficientData };
+    const nowIso = new Date().toISOString();
+    // Keep the in-memory copy consistent for the history diff below.
+    company.rating.star4 = newStar4;
+    company.rating.star5 = newStar5;
+    company.updated_at = nowIso;
 
-    // Upsert to Cosmos DB
-    const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
-    await companiesContainer.items.upsert(company, { partitionKey: partitionKeyValue });
+    // Persist ONLY the rating scores via a field-scoped Cosmos patch. This handler
+    // runs as a separate request seconds after Save & Close, so a full-doc upsert of
+    // the snapshot read at the top of the handler can clobber concurrent admin edits
+    // (unknown_manufacturing, no_amazon_store, amazon_url_approved, star1/star2…) if
+    // the read was stale. A patch touches only the listed paths and cannot drop other
+    // fields.
+    const partitionKeyValue = String(normalizedDomain || company.normalized_domain || "unknown").trim();
+    const patchOps = [];
+    if (!ratingExistedInStore) patchOps.push({ op: "add", path: "/rating", value: {} });
+    patchOps.push({ op: "set", path: "/rating/star4", value: newStar4 });
+    patchOps.push({ op: "set", path: "/rating/star5", value: newStar5 });
+    patchOps.push({ op: "set", path: "/updated_at", value: nowIso });
+    try {
+      await companiesContainer.item(companyId, partitionKeyValue).patch(patchOps);
+    } catch (patchErr) {
+      // Recovery: re-read the CURRENT doc and set only the two stars on it, so we
+      // still never write back the stale top-of-handler snapshot.
+      context.log(`[admin-score-company] rating patch failed, re-read+merge fallback: ${patchErr?.message || patchErr}`);
+      const { resource: fresh } = await companiesContainer.item(companyId, partitionKeyValue).read();
+      const target = fresh && typeof fresh === "object" ? fresh : company;
+      if (!target.rating || typeof target.rating !== "object") target.rating = {};
+      target.rating.star4 = newStar4;
+      target.rating.star5 = newStar5;
+      target.updated_at = nowIso;
+      await companiesContainer.items.upsert(target, { partitionKey: partitionKeyValue });
+    }
+
+    // Re-read the persisted doc so the response + score-history reflect the real
+    // current state (admin flags intact), not the possibly-stale top-of-handler
+    // snapshot. The caller replaces its list row with `company`, so this must be fresh.
+    try {
+      const { resource: persisted } = await companiesContainer.item(companyId, partitionKeyValue).read();
+      if (persisted && typeof persisted === "object") company = persisted;
+    } catch { /* keep in-memory company */ }
 
     context.log(`[admin-score-company] Scored ${company.company_name || normalizedDomain}: star4=${scoring.reputation_score.toFixed(2)}, star5=${scoring.quality_score.toFixed(2)}, duration=${(durationMs / 1000).toFixed(1)}s`);
 
@@ -202,4 +243,4 @@ app.http('adminScoreCompany', {
   handler: require("../_adminAuth").withAdminGuard(adminScoreCompanyHandler),
 });
 
-module.exports = { handler: adminScoreCompanyHandler };
+module.exports = { handler: adminScoreCompanyHandler, _test: { adminScoreCompanyHandler } };
