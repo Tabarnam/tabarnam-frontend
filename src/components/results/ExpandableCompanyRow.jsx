@@ -228,6 +228,10 @@ export default function ExpandableCompanyRow({
   // when typo correction fired, else what the user typed). Empty when
   // there's no active query (browse-by-location).
   query = "",
+  // Accurate count of reviews visible to users, from the batch /review-counts
+  // fetch (same source as get-reviews). Authoritative; when absent the card
+  // falls back to the stored aggregate.
+  reviewCount,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   // Review submission dialog for the collapsed-card "Review" button. The
@@ -528,18 +532,21 @@ export default function ExpandableCompanyRow({
       const score = getQQScore(company);
       const iconType = getQQDefaultIconType(company);
 
-      // "Reviews available" must reflect what USERS can see. The only fully
-      // authoritative source is the fetched visible list (get-reviews), which
-      // the card has once a row is expanded. Until then we fall back to the
-      // stored public/visible aggregate, then the legacy total.
+      // "Reviews available" must reflect what USERS can see. Prefer the exact
+      // fetched list (get-reviews, present once expanded), then the batch
+      // reviewCount prop (same source, fetched for all cards) — both are
+      // authoritative. Fall back to stored aggregates only until the batch
+      // count arrives.
       const visibleReviewCount =
         Array.isArray(company._reviews) && company._reviews.length > 0
           ? company._reviews.length
-          : typeof company.public_review_count === "number"
-            ? company.public_review_count
-            : typeof company.reviews_count === "number"
-              ? company.reviews_count
-              : 0;
+          : typeof reviewCount === "number"
+            ? reviewCount
+            : typeof company.public_review_count === "number"
+              ? company.public_review_count
+              : typeof company.reviews_count === "number"
+                ? company.reviews_count
+                : 0;
 
       return (
         <div className="space-y-2">

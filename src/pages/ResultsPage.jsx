@@ -241,11 +241,51 @@ export default function ResultsPage() {
   const bookmarks = useBookmarks();
 
   const [results, setResults] = useState([]);
+  // Accurate "reviews available" counts, fetched in one batch after results
+  // render. The number comes from /review-counts (which reuses get-reviews'
+  // exact visibility logic), so a card's teaser always equals what the user
+  // sees on open — no stored aggregate that can drift. Keyed by company id.
+  const [reviewCounts, setReviewCounts] = useState({});
   // The term to highlight on result cards. Defaults to what the user typed
   // (qParam); when the backend typo-corrected the query, we highlight the
   // CORRECTED form instead — that's what actually appears in the company
   // data. Set from the search response meta in doSearch.
   const [correctedHighlight, setCorrectedHighlight] = useState("");
+
+  // Stable key of the current result set's company ids — changes only when the
+  // set of companies changes, NOT when a row mutates (e.g. distance/review
+  // enrichment). Drives the one-shot batch count fetch below.
+  const resultIdsKey = useMemo(
+    () =>
+      Array.from(
+        new Set((results || []).map((c) => c && (c.company_id || c.id)).filter(Boolean))
+      ).join(","),
+    [results]
+  );
+
+  useEffect(() => {
+    const ids = resultIdsKey ? resultIdsKey.split(",") : [];
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/review-counts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        if (!r.ok) return;
+        const data = await r.json().catch(() => ({}));
+        if (cancelled || !data || typeof data.counts !== "object") return;
+        setReviewCounts((prev) => ({ ...prev, ...data.counts }));
+      } catch {
+        /* non-fatal: cards fall back to the stored aggregate */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [resultIdsKey]);
   // Start in loading state when the page mounts with a query/location already
   // in the URL (e.g. navigation from the home page, or a shared link). The
   // URL effect runs after the first render, so without this the very first
@@ -1374,6 +1414,7 @@ export default function ResultsPage() {
                     debugScores={debugScores}
                     onInView={requestReviewsForCompany}
                     query={correctedHighlight || qParam}
+                    reviewCount={reviewCounts[company.company_id || company.id]}
                   />
                 );
               }

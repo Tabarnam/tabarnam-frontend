@@ -190,6 +190,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: review-counts");
+  require("./review-counts/index.js");
+} catch (e) {
+  console.error("[api] Failed to load review-counts:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: review-action");
   require("./review-action/index.js");
 } catch (e) {
