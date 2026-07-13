@@ -11,7 +11,7 @@ export default function HelpPage() {
         <title>How Tabarnam Works – Help</title>
         <meta
           name="description"
-          content="A quick guide to searching Tabarnam, targeting a location, sorting results, reading a company profile, saving bookmarks, sharing, and giving feedback."
+          content="A quick guide to searching Tabarnam, targeting a location, sorting results, reading a company profile, adding reviews, saving bookmarks, sharing, and giving feedback."
         />
       </Helmet>
 
@@ -49,6 +49,7 @@ export default function HelpPage() {
             <li><a href="#qq" className="text-primary underline underline-offset-4">The QQ score</a></li>
             <li><a href="#row" className="text-primary underline underline-offset-4">Reading a result</a></li>
             <li><a href="#profile" className="text-primary underline underline-offset-4">Company profile</a></li>
+            <li><a href="#reviews" className="text-primary underline underline-offset-4">Reviews</a></li>
             <li><a href="#bookmarks" className="text-primary underline underline-offset-4">Bookmarks</a></li>
             <li><a href="#share" className="text-primary underline underline-offset-4">Sharing</a></li>
             <li><a href="#feedback" className="text-primary underline underline-offset-4">Feedback</a></li>
@@ -160,9 +161,35 @@ export default function HelpPage() {
               <li>Every headquarters location and every manufacturing location.</li>
               <li>The reputation and quality considerations that make up QQ.</li>
               <li>Industries and products associated with the company (each one is clickable to start a new search).</li>
-              <li>Reviews from external sources, with links back to the original review.</li>
+              <li>Reviews from external sources and from the Tabarnam community.</li>
               <li>Social media links and an Amazon link when available.</li>
             </ul>
+          </section>
+
+          <section id="reviews">
+            <h2 className="text-xl font-semibold text-foreground mb-3">Reviews</h2>
+            <p className="mb-3">
+              Anyone can review a company on Tabarnam — <strong className="text-foreground">no account
+              required</strong>. Your review helps other visitors and feeds into the company's reputation and
+              quality scores.
+            </p>
+            <ul className="list-disc pl-6 space-y-1.5 mb-3">
+              <li><strong className="text-foreground">Where to review</strong> — Click the <em>Review</em> button in the QQ column on any company row.</li>
+              <li><strong className="text-foreground">What to fill in</strong> — Only the review text is required (10 characters or more). Subject, name, email, and photos are all optional.</li>
+              <li><strong className="text-foreground">What's public, what's private</strong> — Your name (if you give one) appears with your review. Your email is <strong className="text-foreground">private by default</strong> — it's only shown to other users if you check the box, and Tabarnam uses it to email you the review's status.</li>
+              <li><strong className="text-foreground">How you're identified</strong> — By default a reviewer shows as <em>"Tabarnam Transparency Advocate."</em> Change it to something more specific like <em>customer</em>, <em>employee</em>, or <em>founder</em>.</li>
+              <li><strong className="text-foreground">Photos</strong> — Add up to 3 photos to your review.</li>
+              <li><strong className="text-foreground">Publishing</strong> — Reviews are held for a quick moderation pass before they go public. You'll see a confirmation right after you submit; if you left an email, a copy comes to your inbox and we email you again once it's approved.</li>
+            </ul>
+            <p className="mb-3">
+              Approved reviews appear in the <em>Features &amp; Reviews</em> panel inside the expanded company
+              profile, alongside external-source reviews.
+            </p>
+            <p>
+              <strong className="text-foreground">Why no star rating?</strong> The reputation and quality parts of
+              the QQ score are derived from what people actually <em>say</em> about a company. A star rating would
+              mislead reviewers into thinking their number sets the score — the words are what move it.
+            </p>
           </section>
 
           <section id="bookmarks">
