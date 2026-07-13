@@ -42,8 +42,16 @@ async function backfillHandler(req, context) {
   const continuation = body?.continuation ? String(body.continuation) : undefined;
   const pageSize = Math.min(MAX_PAGE, Math.max(1, Number(body?.pageSize) || DEFAULT_PAGE));
 
-  // Only the fields recompute+pin needs — keeps the page light.
-  const query = "SELECT c.id, c.company_id, c.company_name, c.normalized_domain FROM c";
+  // Only the fields recompute+pin needs — keeps the page light. Exclude the
+  // non-company docs that also live in this container (soft-deleted records and
+  // import/refresh control docs) so we don't waste work pinning junk — the same
+  // filter search-companies applies.
+  const query =
+    "SELECT c.id, c.company_id, c.company_name, c.normalized_domain FROM c " +
+    "WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) " +
+    "AND NOT STARTSWITH(c.id, 'refresh_job_') " +
+    "AND NOT STARTSWITH(c.id, '_import_') " +
+    "AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
   let page;
   try {
     page = await companiesContainer.items
