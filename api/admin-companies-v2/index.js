@@ -13,6 +13,7 @@ const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { computeMissingFields } = require("../_requiredFields");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { normalizeAmazonUrlForStorage } = require("../_amazonAffiliate");
+const { recomputeAndPinVisibleCount } = require("../_pinVisibleReviewCount");
 const { expandBusinessAbbreviations } = require("../_searchSynonyms");
 // Phase 4.36 — indexed admin search uses the same search_tokens helper
 // public /results search uses; see _searchTokens.js for the rationale.
@@ -2058,6 +2059,12 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             statusCode: result.statusCode,
             resourceId: result.resource?.id,
           });
+
+          // Pin the visible-review count on every Save & Close so it stays
+          // current after any company edit (importing then approving the
+          // Amazon link, curated edits, etc.) — not just the dedicated review
+          // paths. Best-effort; one get-reviews call, never blocks the save.
+          await recomputeAndPinVisibleCount(container, doc, {}, context);
 
           try {
             const auditAction = String(meta.action || (existingDoc ? "update" : "create")).trim() || (existingDoc ? "update" : "create");
