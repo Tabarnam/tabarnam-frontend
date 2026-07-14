@@ -68,18 +68,26 @@ async function cleanupHandler(req, context) {
   const timeBudgetMs = body?.time_budget_ms ?? body?.timeBudgetMs;
   const continuation = body?.continuation ? String(body.continuation) : undefined;
 
-  const result = await runImportControlCleanup({
-    container,
-    olderThanHours,
-    dryRun,
-    pageSize,
-    ...(Number.isFinite(Number(maxPages)) ? { maxPages: Number(maxPages) } : {}),
-    ...(Number.isFinite(Number(timeBudgetMs)) ? { timeBudgetMs: Number(timeBudgetMs) } : {}),
-    continuation,
-    context,
-  });
+  let result;
+  try {
+    result = await runImportControlCleanup({
+      container,
+      olderThanHours,
+      dryRun,
+      pageSize,
+      ...(Number.isFinite(Number(maxPages)) ? { maxPages: Number(maxPages) } : {}),
+      ...(Number.isFinite(Number(timeBudgetMs)) ? { timeBudgetMs: Number(timeBudgetMs) } : {}),
+      continuation,
+      context,
+    });
+  } catch (e) {
+    context?.log?.("[xadmin-api-cleanup-import-control] unhandled", { message: e?.message || String(e) });
+    return json({ ok: false, error: `cleanup crashed: ${e?.message || e}` }, 200);
+  }
 
-  return json(result, result.ok ? 200 : 500);
+  // Always 200 so partial failures (e.g. throttling) surface in the body rather
+  // than being swallowed as a thrown 500; callers inspect ok/failures/done.
+  return json(result, 200);
 }
 
 app.http("xadminApiCleanupImportControl", {

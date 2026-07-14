@@ -43,25 +43,24 @@ if (IS_DEDICATED_WORKER) {
 
       let totalProcessed = 0;
       let totalDeleted = 0;
-      let continuation;
       try {
-        // Drain within one invocation's budget; carry the continuation across
-        // internal iterations. (A single weekly run at steady state deletes only
-        // a small trickle, so this loop finishes in one pass.)
+        // Drain within one invocation's budget. Each call deletes a throttle-
+        // safe batch and returns done=true once nothing older than the grace
+        // window remains. (At steady state that's one quick pass.)
         for (;;) {
           const res = await runImportControlCleanup({
             container,
             olderThanHours,
             dryRun: false,
             pageSize: 200,
-            timeBudgetMs: TIME_BUDGET_MS,
-            continuation,
+            timeBudgetMs: 120000,
             context,
           });
           totalProcessed += res.processed || 0;
           totalDeleted += res.deleted || 0;
-          continuation = res.continuation || undefined;
-          if (res.done || !continuation || Date.now() - started >= TIME_BUDGET_MS) break;
+          // Continue only while draining is making progress; stop on done, a
+          // stalled batch (0 deletes), or the invocation budget.
+          if (res.done || (res.deleted || 0) === 0 || Date.now() - started >= TIME_BUDGET_MS) break;
         }
         log(
           `[cleanup-import-control-timer] done in ${Date.now() - started}ms: ` +
