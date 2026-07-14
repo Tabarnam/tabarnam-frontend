@@ -15,61 +15,82 @@
 // and can't be selected. Default grace is 24h; an absolute floor is enforced
 // by callers.
 //
-// HOT PARTITION: every control doc lives in ONE logical partition
-// (normalized_domain:"import"), so a bulk delete throttles hard (429s). The live
-// path therefore (a) queries a small TOP-N batch and deletes it, looping under a
-// strict wall-clock budget so each HTTP call returns well before any gateway
-// timeout, (b) re-queries from the top each batch (no continuation token over a
-// mutating set), (c) stops if a batch makes zero progress. Callers loop until
-// `done`.
+// HOT PARTITION + SDK RETRY: every control doc lives in ONE logical partition
+// (normalized_domain:"import"), so a bulk delete throttles hard (429s). The
+// @azure/cosmos default retry policy would then RETRY each throttled delete
+// internally for up to ~30s, hanging the invocation past the gateway timeout
+// (opaque 500). We therefore use a DEDICATED fail-fast client (short
+// requestTimeout + minimal throttle-retry) so a throttled delete returns 429 to
+// us quickly; we pace it ourselves, delete against the single known partition
+// key directly (no candidate cycling), and honour a hard per-call wall-clock
+// budget so every HTTP call returns well before any gateway timeout. Callers
+// loop until `done`.
 //
 // Both the manual endpoint (xadmin-api-cleanup-import-control) and the weekly
 // timer (cleanup-import-control-timer) call runImportControlCleanup so scheduled
 // and manual runs use identical logic.
 
-const { getCompaniesContainer } = require("./_reviewCounts");
-const {
-  getContainerPartitionKeyPath,
-  buildPartitionKeyCandidates,
-} = require("./_cosmosPartitionKey");
+const { getCosmosConfig } = require("./_cosmosConfig");
 
-const CONCURRENCY = 3; // modest: one hot partition throttles above this
+const CONCURRENCY = 3; // one hot partition throttles above this
 const DEFAULT_PAGE_SIZE = 200;
-const MAX_PAGE_SIZE = 1000;
+const MAX_PAGE_SIZE = 500;
 // Keep each HTTP invocation short so the SWA/gateway (~230s) never kills it
 // mid-delete; the client loops until done.
 const DEFAULT_TIME_BUDGET_MS = 60 * 1000;
 const HARD_MAX_TIME_BUDGET_MS = 150 * 1000;
-const DELETE_MAX_RETRIES = 4;
+const DELETE_MAX_RETRIES = 3;
+const MAX_THROTTLE_BATCHES = 6; // consecutive all-throttled batches before yielding the call
 
 // Control-doc kinds that carry a `type` field. Ids all start `_import_`, but the
 // primary-job/session/stop docs also identify by type, so we match on either.
 const CONTROL_TYPES = ["import_control", "import_stop", "import_primary_job", "import_session"];
 
-function isRateLimited(err) {
-  const code = err?.code ?? err?.statusCode ?? err?.status;
-  return Number(code) === 429;
+function statusCode(err) {
+  return Number(err?.code ?? err?.statusCode ?? err?.status);
 }
-
-function isNotFound(err) {
-  const code = err?.code ?? err?.statusCode ?? err?.status;
-  return Number(code) === 404;
-}
+const isRateLimited = (e) => statusCode(e) === 429;
+const isNotFound = (e) => statusCode(e) === 404;
 
 function retryAfterMs(err, attempt) {
   const hinted = Number(err?.retryAfterInMs ?? err?.retryAfterInMilliseconds);
-  if (Number.isFinite(hinted) && hinted > 0) return Math.min(hinted, 5000);
-  return Math.min(200 * 2 ** attempt, 3000);
+  if (Number.isFinite(hinted) && hinted > 0) return Math.min(hinted, 4000);
+  return Math.min(150 * 2 ** attempt, 2500);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Dedicated fail-fast Cosmos client for the delete storm (see header). Separate
+// from the shared client so its aggressive throttle policy doesn't affect other
+// endpoints.
+let _cleanupContainer = null;
+function getCleanupContainer() {
+  if (_cleanupContainer) return _cleanupContainer;
+  const { endpoint, key, databaseId, containerId } = getCosmosConfig();
+  if (!endpoint || !key) return null;
+  const { CosmosClient } = require("@azure/cosmos");
+  const client = new CosmosClient({
+    endpoint,
+    key,
+    connectionPolicy: {
+      requestTimeout: 12000,
+      retryOptions: {
+        maxRetryAttemptsOnThrottledRequests: 1,
+        fixedRetryIntervalInMilliseconds: 0, // honour server retry-after
+        maxWaitTimeInSeconds: 6,
+      },
+    },
+  });
+  _cleanupContainer = client.database(databaseId).container(containerId);
+  return _cleanupContainer;
+}
 
 /**
  * Select stale import-control docs older than `olderThanSeconds` (compared
  * against Cosmos `_ts`, epoch seconds). Never selects soft-deleted docs, real
  * companies, or refresh-job docs. Projects partition_key/normalized_domain so
- * the PK-candidate fallback resolves for every id kind. Optional `topN` caps the
- * result set for the live batch loop.
+ * we can delete against the doc's own partition key. Optional `topN` caps the
+ * batch for the live loop.
  */
 function buildControlCleanupQuery({ olderThanSeconds, topN }) {
   const cutoff = Math.floor(Number(olderThanSeconds));
@@ -78,7 +99,6 @@ function buildControlCleanupQuery({ olderThanSeconds, topN }) {
     { name: "@cutoff", value: cutoff },
     ...CONTROL_TYPES.map((t, i) => ({ name: `@type${i}`, value: t })),
   ];
-
   const top = Number.isFinite(Number(topN)) && Number(topN) > 0 ? `TOP ${Math.floor(Number(topN))} ` : "";
 
   const query = [
@@ -93,34 +113,41 @@ function buildControlCleanupQuery({ olderThanSeconds, topN }) {
 }
 
 /**
- * Delete a doc by trying each partition-key candidate; retry transient 429s.
- * Returns { ok, partitionKeyValue } or { ok:false, error }. A 404 counts as ok
- * (already gone). Never throws.
+ * Delete one control doc against its own partition key ("import" for all control
+ * docs). Returns { ok } | { ok:false, throttled:true } | { ok:false, error }.
+ * 404 counts as ok (already gone). Never throws.
  */
-async function deleteDocWithPkCandidates({ container, containerPkPath, doc, context }) {
-  const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: doc?.id });
-  let lastError = null;
+async function deleteOne(container, doc) {
+  const primaryPk = doc?.normalized_domain ?? doc?.partition_key ?? "import";
 
-  for (const partitionKeyValue of candidates) {
-    for (let attempt = 0; attempt < DELETE_MAX_RETRIES; attempt++) {
-      try {
-        await container.item(doc.id, partitionKeyValue).delete();
-        return { ok: true, partitionKeyValue };
-      } catch (e) {
-        if (isRateLimited(e)) {
+  for (let attempt = 0; attempt < DELETE_MAX_RETRIES; attempt++) {
+    try {
+      await container.item(doc.id, primaryPk).delete();
+      return { ok: true };
+    } catch (e) {
+      if (isNotFound(e)) return { ok: true, alreadyGone: true };
+      if (isRateLimited(e)) {
+        if (attempt < DELETE_MAX_RETRIES - 1) {
           await sleep(retryAfterMs(e, attempt));
-          continue; // retry same partition-key candidate
+          continue;
         }
-        if (isNotFound(e)) {
-          return { ok: true, partitionKeyValue, alreadyGone: true };
-        }
-        lastError = e?.message || String(e);
-        break; // not a 429/404 — try the next candidate
+        return { ok: false, throttled: true, error: "429" };
       }
+      // Non-throttle, non-404 (likely wrong PK) — one fallback against "import".
+      if (primaryPk !== "import") {
+        try {
+          await container.item(doc.id, "import").delete();
+          return { ok: true };
+        } catch (e2) {
+          if (isNotFound(e2)) return { ok: true, alreadyGone: true };
+          if (isRateLimited(e2)) return { ok: false, throttled: true, error: "429" };
+          return { ok: false, error: (e2?.message || String(e2)).slice(0, 250) };
+        }
+      }
+      return { ok: false, error: (e?.message || String(e)).slice(0, 250) };
     }
   }
-
-  return { ok: false, error: lastError || "all_partition_key_candidates_failed", candidateCount: candidates.length };
+  return { ok: false, throttled: true, error: "429" };
 }
 
 /**
@@ -128,11 +155,12 @@ async function deleteDocWithPkCandidates({ container, containerPkPath, doc, cont
  *
  * dryRun: counts matches via continuation paging (read-only).
  * live:   query-TOP-N-and-delete loop under a wall-clock budget; re-queries from
- *         the top each batch (deletes shrink the set), stops on zero progress.
+ *         the top each batch (deletes shrink the set). Backs off on all-throttled
+ *         batches; stops on hard-failure batches.
  *
- * @returns {Promise<{ ok, processed, deleted, failures, sample_errors,
- *   matched_so_far, done, dry_run, older_than_hours, cutoff_epoch, elapsed_ms,
- *   throttled_batches }>}
+ * @returns {Promise<{ ok, processed, deleted, failures, throttled, sample_errors,
+ *   matched_so_far, done, hard_error, dry_run, older_than_hours, cutoff_epoch,
+ *   elapsed_ms }>}
  */
 async function runImportControlCleanup({
   container,
@@ -144,7 +172,7 @@ async function runImportControlCleanup({
   continuation,
   context,
 } = {}) {
-  const cont = container || getCompaniesContainer();
+  const cont = container || getCleanupContainer();
   if (!cont) return { ok: false, error: "Cosmos not configured" };
 
   const startedAt = Date.now();
@@ -154,11 +182,7 @@ async function runImportControlCleanup({
   const budget = Math.min(HARD_MAX_TIME_BUDGET_MS, Math.max(5000, Number(timeBudgetMs) || DEFAULT_TIME_BUDGET_MS));
   const timeLeft = () => budget - (Date.now() - startedAt);
 
-  const containerPkPath = await getContainerPartitionKeyPath(cont, "/normalized_domain").catch(
-    () => "/normalized_domain",
-  );
-
-  // ── Dry run: count via continuation paging (read-only, no hot-partition risk) ──
+  // ── Dry run: count via continuation paging (read-only) ──
   if (dryRun) {
     const { query, parameters } = buildControlCleanupQuery({ olderThanSeconds: cutoffEpoch });
     let token = continuation || undefined;
@@ -180,7 +204,7 @@ async function runImportControlCleanup({
     } while (token);
 
     return {
-      ok: true, processed: matched, deleted: 0, failures: [], sample_errors: [],
+      ok: true, processed: matched, deleted: 0, failures: 0, throttled: 0, sample_errors: [],
       matched_so_far: matched, continuation: token || null, done: !token,
       dry_run: true, older_than_hours: hours, cutoff_epoch: cutoffEpoch, elapsed_ms: Date.now() - startedAt,
     };
@@ -191,65 +215,76 @@ async function runImportControlCleanup({
   let processed = 0;
   let deleted = 0;
   let failuresCount = 0;
-  let throttledBatches = 0;
+  let throttledCount = 0;
   const sampleErrors = [];
   let done = false;
+  let hardError = false;
   let batches = 0;
+  let throttleStreak = 0;
 
-  while (timeLeft() > 1500 && batches < maxPages) {
+  while (timeLeft() > 2000 && batches < maxPages) {
     let docs;
     try {
       const res = await cont.items.query({ query, parameters }, { enableCrossPartitionQuery: true }).fetchAll();
       docs = Array.isArray(res?.resources) ? res.resources : [];
     } catch (e) {
-      if (isRateLimited(e)) { throttledBatches += 1; await sleep(500); continue; }
-      return { ok: false, error: `query failed: ${e?.message || e}`, processed, deleted, failures: failuresCount, sample_errors: sampleErrors, done: false, dry_run: false, older_than_hours: hours, cutoff_epoch: cutoffEpoch, elapsed_ms: Date.now() - startedAt };
+      if (isRateLimited(e)) { await sleep(500); continue; }
+      return { ok: false, error: `query failed: ${e?.message || e}`, processed, deleted, failures: failuresCount, throttled: throttledCount, sample_errors: sampleErrors, done: false, hard_error: true, dry_run: false, older_than_hours: hours, cutoff_epoch: cutoffEpoch, elapsed_ms: Date.now() - startedAt };
     }
 
     batches += 1;
     if (docs.length === 0) { done = true; break; }
 
     let deletedThisBatch = 0;
+    let hardThisBatch = 0;
     let idx = 0;
     const worker = async () => {
       while (idx < docs.length) {
-        if (timeLeft() <= 500) return; // bail out before the gateway can time us out
+        if (timeLeft() <= 800) return; // bail before the gateway can time us out
         const doc = docs[idx++];
-        const res = await deleteDocWithPkCandidates({ container: cont, containerPkPath, doc, context });
+        const res = await deleteOne(cont, doc);
         processed += 1;
         if (res.ok) { deleted += 1; deletedThisBatch += 1; }
+        else if (res.throttled) { throttledCount += 1; }
         else {
-          failuresCount += 1;
-          if (sampleErrors.length < 5 && res.error) sampleErrors.push({ id: doc?.id, error: String(res.error).slice(0, 300) });
+          failuresCount += 1; hardThisBatch += 1;
+          if (sampleErrors.length < 5 && res.error) sampleErrors.push({ id: doc?.id, error: String(res.error).slice(0, 250) });
         }
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, docs.length) }, worker));
 
-    // Zero progress on a full batch → every delete is failing; stop rather than spin.
-    if (deletedThisBatch === 0) break;
+    if (deletedThisBatch > 0) { throttleStreak = 0; continue; }
+    // Zero progress this batch:
+    if (hardThisBatch > 0) { hardError = true; break; } // real errors, not throttling
+    // All throttled — back off, then retry within the budget.
+    throttleStreak += 1;
+    if (throttleStreak >= MAX_THROTTLE_BATCHES) break; // yield this call; client retries
+    await sleep(Math.min(800 * throttleStreak, 4000));
   }
 
   return {
-    ok: failuresCount === 0,
+    ok: failuresCount === 0 && !hardError,
     processed,
     deleted,
     failures: failuresCount,
+    throttled: throttledCount,
     sample_errors: sampleErrors,
     matched_so_far: processed,
     continuation: null,
     done,
+    hard_error: hardError,
     dry_run: false,
     older_than_hours: hours,
     cutoff_epoch: cutoffEpoch,
-    throttled_batches: throttledBatches,
     elapsed_ms: Date.now() - startedAt,
   };
 }
 
 module.exports = {
   runImportControlCleanup,
-  getCompaniesContainer,
+  getCleanupContainer,
+  getCompaniesContainer: getCleanupContainer, // back-compat alias
   CONTROL_TYPES,
-  _test: { buildControlCleanupQuery, deleteDocWithPkCandidates },
+  _test: { buildControlCleanupQuery, deleteOne },
 };
