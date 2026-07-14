@@ -1279,11 +1279,15 @@ export function getItemDedupKey(fieldKey, item) {
 
     case "curated_reviews": {
       if (typeof item !== "object") return asString(item).trim().toLowerCase();
-      // Prefer URL dedup; fall back to content hash
-      const urlKey = normalizeReviewDedupUrl(item.source_url || item.url);
-      if (urlKey) return `url:${urlKey}`;
+      // Prefer the CONTENT hash (title + text + author + date); fall back to the
+      // URL only when there's no content. Many distinct reviews legitimately
+      // share one source page (on-site testimonials all link https://brand.com),
+      // so a shared URL must not collapse them in the refresh diff. Mirrors
+      // mergeCuratedReviews.
       const hashKey = computeReviewDedupKey(item);
       if (hashKey) return `hash:${hashKey}`;
+      const urlKey = normalizeReviewDedupUrl(item.source_url || item.url);
+      if (urlKey) return `url:${urlKey}`;
       return "";
     }
 
