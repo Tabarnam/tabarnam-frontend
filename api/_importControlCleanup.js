@@ -213,7 +213,8 @@ async function runImportControlCleanup({
   // ── Live: query a small batch, delete it, repeat under the time budget ──
   const { query, parameters } = buildControlCleanupQuery({ olderThanSeconds: cutoffEpoch, topN: size });
   let processed = 0;
-  let deleted = 0;
+  let deleted = 0; // real 204 deletes only
+  let alreadyGone = 0; // 404s — index returning ids already deleted (phantoms)
   let failuresCount = 0;
   let throttledCount = 0;
   const sampleErrors = [];
@@ -235,7 +236,8 @@ async function runImportControlCleanup({
     batches += 1;
     if (docs.length === 0) { done = true; break; }
 
-    let deletedThisBatch = 0;
+    let realThisBatch = 0;
+    let goneThisBatch = 0;
     let hardThisBatch = 0;
     let idx = 0;
     const worker = async () => {
@@ -244,7 +246,8 @@ async function runImportControlCleanup({
         const doc = docs[idx++];
         const res = await deleteOne(cont, doc);
         processed += 1;
-        if (res.ok) { deleted += 1; deletedThisBatch += 1; }
+        if (res.ok && res.alreadyGone) { alreadyGone += 1; goneThisBatch += 1; }
+        else if (res.ok) { deleted += 1; realThisBatch += 1; }
         else if (res.throttled) { throttledCount += 1; }
         else {
           failuresCount += 1; hardThisBatch += 1;
@@ -254,9 +257,13 @@ async function runImportControlCleanup({
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, docs.length) }, worker));
 
-    if (deletedThisBatch > 0) { throttleStreak = 0; continue; }
-    // Zero progress this batch:
+    if (realThisBatch > 0) { throttleStreak = 0; continue; } // made real progress
+    // Zero real deletes this batch:
     if (hardThisBatch > 0) { hardError = true; break; } // real errors, not throttling
+    // A full batch of already-gone ids means the index is only returning docs we
+    // already deleted (stale-read lag) — the real backlog is drained. Stop
+    // cleanly instead of spinning; a later run re-queries a fresh index state.
+    if (goneThisBatch > 0) { done = true; break; }
     // All throttled — back off, then retry within the budget.
     throttleStreak += 1;
     if (throttleStreak >= MAX_THROTTLE_BATCHES) break; // yield this call; client retries
@@ -267,6 +274,7 @@ async function runImportControlCleanup({
     ok: failuresCount === 0 && !hardError,
     processed,
     deleted,
+    already_gone: alreadyGone,
     failures: failuresCount,
     throttled: throttledCount,
     sample_errors: sampleErrors,
