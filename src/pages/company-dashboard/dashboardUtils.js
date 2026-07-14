@@ -1080,7 +1080,13 @@ export function mergeCuratedReviews(existingCurated, proposedReviews) {
     const urlKey = normalizeReviewDedupUrl(p?.source_url || p?.url);
     const hashKey = computeReviewDedupKey(p);
 
-    if ((urlKey && urlSet.has(urlKey)) || (hashKey && hashSet.has(hashKey))) {
+    // Dedupe on CONTENT (title + text + author + date), not the source URL.
+    // Many distinct reviews legitimately share one page (e.g. on-site
+    // testimonials all linking https://brand.com), so a shared URL must NOT
+    // collapse them. Fall back to the URL only when a review carries no
+    // content to hash.
+    const isDuplicate = hashKey ? hashSet.has(hashKey) : Boolean(urlKey && urlSet.has(urlKey));
+    if (isDuplicate) {
       skippedDuplicates += 1;
       continue;
     }
