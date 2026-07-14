@@ -169,9 +169,8 @@ export default function HelpPage() {
           <section id="reviews">
             <h2 className="text-xl font-semibold text-foreground mb-3">Reviews</h2>
             <p className="mb-3">
-              Anyone can review a company on Tabarnam — <strong className="text-foreground">no account
-              required</strong>. Your review helps other visitors and feeds into the company's reputation and
-              quality scores.
+              Anyone can submit a review on Tabarnam. Your review informs the community and impacts the
+              company's score.
             </p>
             <ul className="list-disc pl-6 space-y-1.5 mb-3">
               <li><strong className="text-foreground">Where to review</strong> — Click the <em>Review</em> button in the QQ column on any company row.</li>
@@ -181,14 +180,9 @@ export default function HelpPage() {
               <li><strong className="text-foreground">Photos</strong> — Add up to 3 photos to your review.</li>
               <li><strong className="text-foreground">Publishing</strong> — Reviews are held for a quick moderation pass before they go public. You'll see a confirmation right after you submit; if you left an email, a copy comes to your inbox and we email you again once it's approved.</li>
             </ul>
-            <p className="mb-3">
+            <p>
               Approved reviews appear in the <em>Features &amp; Reviews</em> panel inside the expanded company
               profile, alongside external-source reviews.
-            </p>
-            <p>
-              <strong className="text-foreground">Why no star rating?</strong> The reputation and quality parts of
-              the QQ score are derived from what people actually <em>say</em> about a company. A star rating would
-              mislead reviewers into thinking their number sets the score — the words are what move it.
             </p>
           </section>
 
