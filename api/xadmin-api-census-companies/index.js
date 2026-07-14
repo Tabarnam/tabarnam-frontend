@@ -87,11 +87,82 @@ async function sizeSample(container, where, { n = 50 } = {}) {
   };
 }
 
+// Read a param from either the query string (GET) or JSON body (POST).
+async function readParam(req, name) {
+  try {
+    const v = req?.query?.get ? req.query.get(name) : undefined;
+    if (v != null && v !== "") return v;
+  } catch {}
+  try {
+    req.__body ||= (await req.json()) || {};
+    const v = req.__body?.[name];
+    if (v != null && v !== "") return v;
+  } catch {}
+  return undefined;
+}
+
+const CONTROL_PREDICATE =
+  "(STARTSWITH(c.id, '_import_') OR (IS_DEFINED(c.type) AND c.type IN ('import_control','import_stop','import_primary_job','import_session')))";
+
+// Read-only inspector: window control docs by _ts age and return real samples +
+// type/source/created-day breakdowns, so we can identify a burst of docs.
+async function inspectControlWindow(container, { ageMinHours, ageMaxHours }) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const hi = ageMinHours != null ? nowSec - Math.floor(ageMinHours * 3600) : null; // _ts <= hi (older than ageMin)
+  const lo = ageMaxHours != null ? nowSec - Math.floor(ageMaxHours * 3600) : null; // _ts > lo (younger than ageMax)
+
+  const clauses = [CONTROL_PREDICATE, "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)"];
+  const params = [];
+  if (hi != null) { clauses.push("c._ts <= @hi"); params.push({ name: "@hi", value: hi }); }
+  if (lo != null) { clauses.push("c._ts > @lo"); params.push({ name: "@lo", value: lo }); }
+  const where = clauses.join(" AND ");
+
+  const q = async (sql, extraParams = []) =>
+    (await container.items.query({ query: sql, parameters: [...params, ...extraParams] }, { enableCrossPartitionQuery: true }).fetchAll()).resources || [];
+
+  const [countRow, byType, bySource, byDay, sample] = await Promise.all([
+    q(`SELECT VALUE COUNT(1) FROM c WHERE ${where}`),
+    q(`SELECT c.type AS k, COUNT(1) AS n FROM c WHERE ${where} GROUP BY c.type`),
+    q(`SELECT c.source AS k, COUNT(1) AS n FROM c WHERE ${where} GROUP BY c.source`),
+    q(`SELECT SUBSTRING(c.created_at,0,13) AS k, COUNT(1) AS n FROM c WHERE ${where} GROUP BY SUBSTRING(c.created_at,0,13)`),
+    q(`SELECT TOP 25 c.id, c.type, c._ts, c.source, c.session_id, c.created_at, c.updated_at, c.status, c.company_name FROM c WHERE ${where}`),
+  ]);
+
+  const tidy = (rows) =>
+    rows.map((r) => ({ key: r?.k === undefined ? "(undefined)" : r.k === null ? "(null)" : r.k, count: Number(r?.n || 0) }))
+      .sort((a, b) => b.count - a.count).slice(0, 60);
+
+  return {
+    window: { age_min_hours: ageMinHours ?? null, age_max_hours: ageMaxHours ?? null, ts_lo: lo, ts_hi: hi },
+    count: Number(countRow[0] || 0),
+    by_type: tidy(byType),
+    by_source: tidy(bySource),
+    by_created_hour: tidy(byDay),
+    sample,
+  };
+}
+
 async function censusHandler(req, context) {
   if (String(req.method || "").toUpperCase() === "OPTIONS") return { status: 200, headers: cors() };
 
   const container = getCompaniesContainer();
   if (!container) return json({ ok: false, error: "Cosmos not configured" }, 503);
+
+  // Optional read-only inspector (does not run the full census).
+  const inspect = await readParam(req, "inspect");
+  if (inspect === "control") {
+    const ageMin = await readParam(req, "age_min_hours");
+    const ageMax = await readParam(req, "age_max_hours");
+    try {
+      const result = await inspectControlWindow(container, {
+        ageMinHours: ageMin != null ? Number(ageMin) : undefined,
+        ageMaxHours: ageMax != null ? Number(ageMax) : undefined,
+      });
+      return json({ ok: true, inspect: "control", ...result });
+    } catch (e) {
+      return json({ ok: false, error: `inspect failed: ${e?.message || e}` }, 500);
+    }
+  }
 
   const errors = {};
 
