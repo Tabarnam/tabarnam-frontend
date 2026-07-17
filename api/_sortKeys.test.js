@@ -39,6 +39,26 @@ test("computeIssueTags: a fully complete company has zero tags", () => {
   assert.equal(tags.length, 0, `expected no tags, got: ${JSON.stringify(tags)}`);
 });
 
+test("computeIssueTags: a present logo DROPS a stale 'logo' from enrichment_health (data-wins)", () => {
+  // Simulates adding/approving a logo in the editor: logo_url is now set, but the
+  // base enrichment_health.missing_fields still lists "logo" from before. The tag
+  // must clear (badge disappears) without waiting for a save/refresh.
+  const tags = computeIssueTags(
+    completeExceptLogo({
+      logo_url: "https://img/logo.png",
+      enrichment_health: { missing_fields: ["logo"] },
+    })
+  );
+  assert.ok(!tags.includes("logo"), `did not expect "logo" tag, got: ${JSON.stringify(tags)}`);
+});
+
+test("computeIssueTags: a stale 'logo' persists when there is genuinely no logo", () => {
+  const tags = computeIssueTags(
+    completeExceptLogo({ logo_url: "", enrichment_health: { missing_fields: ["logo"] } })
+  );
+  assert.ok(tags.includes("logo"), `expected "logo" tag, got: ${JSON.stringify(tags)}`);
+});
+
 test("computeIssueTags: a stale POSITIVE _kwRelevantCount is not trusted when the cache key no longer matches", () => {
   // enrichment_health flagged keywords missing, and a cached count claims 5 real
   // keywords — but the cache key doesn't match the live (empty) data, so the

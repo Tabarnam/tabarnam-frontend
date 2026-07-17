@@ -261,11 +261,17 @@ function computeIssueTags(company) {
     fields.push("keywords");
   }
 
-  // Add logo if missing. Mirrors the frontend getContractMissingFields so the
-  // stored issues_count (and the Incomplete badge) reflects the same "logo"
-  // chip the Issues column shows.
+  // Logo is a contract field (enrichment_health.missing_fields can carry it), so
+  // apply data-wins-over-flag like tagline/industries/HQ/MFG: a present logo_url
+  // DROPS any stale "logo"/"logo_url" from the base; only add "logo" when absent.
+  // Mirrors the frontend getContractMissingFields so the stored issues_count (and
+  // the Incomplete badge) matches the "logo" chip the Issues column shows.
   const hasLogo = Boolean(asString(company?.logo_url).trim());
-  if (!hasLogo && !fields.includes("logo") && !fields.includes("logo_url")) {
+  if (hasLogo) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] === "logo" || fields[i] === "logo_url") fields.splice(i, 1);
+    }
+  } else if (!fields.includes("logo") && !fields.includes("logo_url")) {
     fields.push("logo");
   }
 

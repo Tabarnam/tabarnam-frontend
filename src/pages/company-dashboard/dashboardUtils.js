@@ -662,11 +662,16 @@ export function getContractMissingFields(company) {
     fields.push("keywords");
   }
 
-  // Check for missing logo (client-side, in case backend didn't flag it).
-  // Mirrors the homepage pattern so clearing the logo in the editor surfaces
-  // the tag live — without waiting for a save round-trip.
+  // Logo is a contract field (enrichment_health.missing_fields can carry it), so
+  // apply data-wins-over-flag like tagline/industries/HQ/MFG: a present logo_url
+  // DROPS any stale "logo"/"logo_url" from the base so adding/approving a logo in
+  // the editor clears the badge live; only add "logo" when the logo is absent.
   const hasLogo = Boolean(asString(company?.logo_url).trim());
-  if (!hasLogo && !fields.includes("logo") && !fields.includes("logo_url")) {
+  if (hasLogo) {
+    for (let i = fields.length - 1; i >= 0; i--) {
+      if (fields[i] === "logo" || fields[i] === "logo_url") fields.splice(i, 1);
+    }
+  } else if (!fields.includes("logo") && !fields.includes("logo_url")) {
     fields.push("logo");
   }
 
