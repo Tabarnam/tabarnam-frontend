@@ -52,6 +52,56 @@ test("computeIssueTags: a present logo DROPS a stale 'logo' from enrichment_heal
   assert.ok(!tags.includes("logo"), `did not expect "logo" tag, got: ${JSON.stringify(tags)}`);
 });
 
+test("computeIssueTags: unknown_manufacturing clears the contract's 'manufacturing_locations' tag", () => {
+  // The required-fields contract emits "manufacturing_locations" (not
+  // "manufacturing") into enrichment_health.missing_fields. Checking "Unknown
+  // Manufacturing" must clear BOTH names or the MFG badge lingers.
+  const tags = computeIssueTags(
+    completeExceptLogo({
+      logo_url: "https://img/logo.png",
+      manufacturing_locations: [],
+      manufacturing_geocodes: [],
+      unknown_manufacturing: true,
+      enrichment_health: { missing_fields: ["manufacturing_locations"] },
+    })
+  );
+  assert.ok(
+    !tags.includes("manufacturing_locations") && !tags.includes("manufacturing"),
+    `expected no MFG tag, got: ${JSON.stringify(tags)}`
+  );
+});
+
+test("computeIssueTags: limited_manufacturing also clears 'manufacturing_locations'", () => {
+  const tags = computeIssueTags(
+    completeExceptLogo({
+      logo_url: "https://img/logo.png",
+      manufacturing_locations: [],
+      manufacturing_geocodes: [],
+      limited_manufacturing: true,
+      enrichment_health: { missing_fields: ["manufacturing_locations"] },
+    })
+  );
+  assert.ok(
+    !tags.includes("manufacturing_locations") && !tags.includes("manufacturing"),
+    `expected no MFG tag, got: ${JSON.stringify(tags)}`
+  );
+});
+
+test("computeIssueTags: MFG still flagged when neither flag is set and no locations", () => {
+  const tags = computeIssueTags(
+    completeExceptLogo({
+      logo_url: "https://img/logo.png",
+      manufacturing_locations: [],
+      manufacturing_geocodes: [],
+      enrichment_health: { missing_fields: ["manufacturing_locations"] },
+    })
+  );
+  assert.ok(
+    tags.includes("manufacturing_locations") || tags.includes("manufacturing"),
+    `expected an MFG tag, got: ${JSON.stringify(tags)}`
+  );
+});
+
 test("computeIssueTags: a stale 'logo' persists when there is genuinely no logo", () => {
   const tags = computeIssueTags(
     completeExceptLogo({ logo_url: "", enrichment_health: { missing_fields: ["logo"] } })

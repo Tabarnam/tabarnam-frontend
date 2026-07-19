@@ -193,10 +193,15 @@ function computeIssueTags(company) {
     }
   }
 
-  // Drop manufacturing if admin flagged limited / unknown.
+  // Drop manufacturing if admin flagged limited / unknown. Must clear BOTH names:
+  // the required-fields contract emits "manufacturing_locations" into
+  // enrichment_health.missing_fields, while the client-side check below adds
+  // "manufacturing". Dropping only the latter left the MFG badge/issue showing
+  // after checking "Unknown Manufacturing". Mirrors the hqVariants handling.
+  const mfgVariants = new Set(["manufacturing", "manufacturing_locations"]);
   if (company?.limited_manufacturing || company?.unknown_manufacturing) {
     for (let i = fields.length - 1; i >= 0; i--) {
-      if (fields[i] === "manufacturing") fields.splice(i, 1);
+      if (mfgVariants.has(fields[i])) fields.splice(i, 1);
     }
   }
 
@@ -222,7 +227,6 @@ function computeIssueTags(company) {
 
   // Add manufacturing if missing client-side.
   if (!company?.limited_manufacturing && !company?.unknown_manufacturing) {
-    const mfgVariants = new Set(["manufacturing", "manufacturing_locations"]);
     const hasMfgTag = fields.some((f) => mfgVariants.has(f));
     const hasMfg =
       (Array.isArray(company?.manufacturing_locations) && company.manufacturing_locations.length > 0) ||

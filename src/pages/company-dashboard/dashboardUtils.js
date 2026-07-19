@@ -590,10 +590,16 @@ export function getContractMissingFields(company) {
     }
   }
 
-  // Drop "manufacturing" if admin marked the company as limited or unknown manufacturing
+  // Drop manufacturing if admin marked the company as limited or unknown
+  // manufacturing. Must clear BOTH names: the required-fields contract emits
+  // "manufacturing_locations" into enrichment_health.missing_fields, while the
+  // client-side check below adds "manufacturing". Dropping only the latter left
+  // the MFG badge showing after checking "Unknown Manufacturing". Mirrors the
+  // hqVariants handling for unknown_hq.
+  const mfgVariants = new Set(["manufacturing", "manufacturing_locations"]);
   if (company?.limited_manufacturing || company?.unknown_manufacturing) {
     for (let i = fields.length - 1; i >= 0; i--) {
-      if (fields[i] === "manufacturing") fields.splice(i, 1);
+      if (mfgVariants.has(fields[i])) fields.splice(i, 1);
     }
   }
 
@@ -619,7 +625,6 @@ export function getContractMissingFields(company) {
 
   // Check for missing manufacturing (client-side, unless limited/unknown manufacturing)
   if (!company?.limited_manufacturing && !company?.unknown_manufacturing) {
-    const mfgVariants = new Set(["manufacturing", "manufacturing_locations"]);
     const hasMfgTag = fields.some((f) => mfgVariants.has(f));
     const hasMfg =
       (Array.isArray(company?.manufacturing_locations) && company.manufacturing_locations.length > 0) ||
