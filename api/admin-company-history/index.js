@@ -167,6 +167,12 @@ async function handler(req, context) {
 
 const ROUTE = "admin/companies/{company_id}/history";
 const ALIAS_ROUTE = "admin-company-history";
+// Production-reachable route. Everything under /api/admin* is blocked at the
+// edge (all /api/admin-* paths 404 while /api/xadmin-api-* reach the backend),
+// which is why every other admin endpoint uses the xadmin-api- prefix. Without
+// this the endpoint is live on the Function App but unreachable, and the editor
+// shows "History unavailable on this build".
+const XADMIN_ROUTE = "xadmin-api-company-history";
 
 // Register both the canonical route and the alias route for the v4 app model.
 //
@@ -185,6 +191,15 @@ if (!hasRoute(ROUTE)) {
 if (!hasRoute(ALIAS_ROUTE)) {
   app.http("adminCompanyHistoryAlias", {
     route: ALIAS_ROUTE,
+    methods: ["GET", "OPTIONS"],
+    authLevel: "anonymous",
+    handler: require("../_adminAuth").withAdminGuard(handler),
+  });
+}
+
+if (!hasRoute(XADMIN_ROUTE)) {
+  app.http("xadminApiCompanyHistory", {
+    route: XADMIN_ROUTE,
     methods: ["GET", "OPTIONS"],
     authLevel: "anonymous",
     handler: require("../_adminAuth").withAdminGuard(handler),

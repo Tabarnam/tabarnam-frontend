@@ -1690,10 +1690,16 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
+        // Audit actor: prefer the AUTHENTICATED identity that withAdminGuard
+        // derived server-side from the SWA clientPrincipal. The body-supplied
+        // actor is self-reported and therefore spoofable/omittable, so it is only
+        // a fallback (e.g. internal callers without a client principal). Matches
+        // admin-score-company, which already uses req.__admin_email.
+        const authedActorEmail = String((req && req.__admin_email) || "").trim();
         const meta = isPlainObject(body)
           ? {
-              actor_user_id: String(body.actor_user_id ?? body.actorUserId ?? body.actor ?? "").trim(),
-              actor_email: String(body.actor_email ?? body.actorEmail ?? "").trim(),
+              actor_user_id: authedActorEmail || String(body.actor_user_id ?? body.actorUserId ?? body.actor ?? "").trim(),
+              actor_email: authedActorEmail || String(body.actor_email ?? body.actorEmail ?? "").trim(),
               source: String(body.source ?? body.audit_source ?? body.auditSource ?? "").trim(),
               action: String(body.action ?? body.audit_action ?? body.auditAction ?? "").trim(),
               request_id: String(body.request_id ?? body.requestId ?? "").trim(),
@@ -1703,8 +1709,8 @@ async function adminCompaniesHandler(req, context, deps = {}) {
               batch_id: String(body.batch_id ?? body.batchId ?? "").trim(),
             }
           : {
-              actor_user_id: "",
-              actor_email: "",
+              actor_user_id: authedActorEmail,
+              actor_email: authedActorEmail,
               source: "",
               action: "",
               request_id: "",

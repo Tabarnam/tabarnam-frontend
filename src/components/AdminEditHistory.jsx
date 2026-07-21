@@ -157,13 +157,18 @@ export default function AdminEditHistory({ companyId }) {
   const buildHistoryUrl = useCallback(
     (cursor = null) => {
       const params = new URLSearchParams();
+      params.set("company_id", String(id || ""));
       params.set("limit", "25");
       if (cursor) params.set("cursor", cursor);
       if (fieldFilter) params.set("field", fieldFilter);
       if (searchQuery) params.set("q", searchQuery);
 
       const qs = params.toString();
-      return `/admin/companies/${encodeURIComponent(id)}/history?${qs}`;
+      // Must use the xadmin-api- prefix: /api/admin* is blocked at the edge (all
+      // /api/admin-* paths 404), which made the panel report "History unavailable
+      // on this build" even though the endpoint was live. The handler reads
+      // company_id from the query string as well as the route param.
+      return `/xadmin-api-company-history?${qs}`;
     },
     [fieldFilter, id, searchQuery]
   );
