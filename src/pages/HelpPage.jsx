@@ -15,7 +15,9 @@ export default function HelpPage() {
         />
       </Helmet>
 
-      <main className="max-w-3xl mx-auto px-4 py-16">
+      {/* Plain div (not <main>) because App.jsx's Layout wraps every route
+          in <main id="main-content"> — nesting mains is invalid HTML. */}
+      <div className="max-w-3xl mx-auto px-4 py-16">
         <div className="flex items-start justify-between gap-4 mb-8">
           <div className="flex items-start gap-4">
             <div className="rounded-2xl border border-border bg-card p-3">
@@ -265,7 +267,7 @@ export default function HelpPage() {
             </p>
           </section>
         </div>
-      </main>
+      </div>
     </>
   );
 }

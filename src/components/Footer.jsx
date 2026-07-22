@@ -26,6 +26,13 @@ const Footer = () => {
           >
             Privacy
           </Link>
+          <span className="text-muted-foreground/50" aria-hidden="true">·</span>
+          <Link
+            to="/accessibility"
+            className="text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Accessibility
+          </Link>
         </nav>
         {/* slate-600 in light mode: muted-foreground (slate-500) is 4.35:1 on
             the bg-muted footer — just under WCAG AA 4.5. Dark mode unchanged. */}
