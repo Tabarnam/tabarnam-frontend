@@ -5990,7 +5990,12 @@ export default function CompanyDashboard() {
                           </div>
                           </CollapsibleSection>
 
-                          {editorOriginalId ? <AdminEditHistory companyId={editorOriginalId} /> : null}
+                          {editorOriginalId ? (
+                            <AdminEditHistory
+                              companyId={editorOriginalId}
+                              companyName={editorDraft?.company_name || editorDraft?.name}
+                            />
+                          ) : null}
                         </div>
                       </div>
 
