@@ -140,6 +140,11 @@ const PRODUCT_SYNONYM_GROUPS = [
   ["diaper", "nappy"],
   ["diapers", "nappies"],
   // Electronics
+  // electric ↔ electronic: "electric keyboard" must reach brands tagged
+  // "electronic keyboard" (Casio, Korg…) — without this, the strict AND finds
+  // nothing and the broadening fallback returns computer-keyboard brands.
+  // Scoring is synonym-aware, so direct matches still outrank synonym-only.
+  ["electric", "electronic"],
   ["headphones", "earphones", "earbuds"],
   ["charger", "adapter", "power supply"],
   ["cable", "cord", "wire"],
