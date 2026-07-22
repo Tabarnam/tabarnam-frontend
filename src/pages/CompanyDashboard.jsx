@@ -3549,9 +3549,12 @@ export default function CompanyDashboard() {
               className="h-7 w-7 flex items-center justify-center rounded border border-slate-600 text-[9px] font-bold text-slate-400 hover:text-white hover:border-slate-400 transition-colors"
               onClick={async (e) => {
                 e.stopPropagation();
+                // Capture BEFORE the await: React nulls out the synthetic
+                // event's currentTarget once the handler yields, so reading it
+                // after copyToClipboard threw "Cannot set properties of null".
+                const el = e.currentTarget;
                 const ok = await copyToClipboard(text);
-                if (ok) {
-                  const el = e.currentTarget;
+                if (ok && el) {
                   el.textContent = "✓";
                   el.classList.add("text-emerald-400", "border-emerald-500");
                   setTimeout(() => {

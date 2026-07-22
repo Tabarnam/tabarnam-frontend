@@ -22,10 +22,16 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+// MUST always return a string. JSON.stringify returns undefined (it does NOT
+// throw) for undefined/functions/symbols, and a diff entry legitimately has an
+// undefined `before` when the field was newly added — so the raw result crashed
+// ValueBlock on text.length and took the whole edit dialog down with it.
 function pretty(value) {
   if (typeof value === "string") return value;
+  if (value === undefined) return "—";
   try {
-    return JSON.stringify(value, null, 2);
+    const out = JSON.stringify(value, null, 2);
+    return typeof out === "string" ? out : asString(value);
   } catch {
     return asString(value);
   }
@@ -60,6 +66,8 @@ async function copyToClipboard(text) {
     return false;
   }
 }
+
+export const __test__ = { pretty };
 
 function ValueBlock({ value }) {
   const text = useMemo(() => pretty(value), [value]);
