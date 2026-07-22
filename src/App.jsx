@@ -1,5 +1,6 @@
 import React, { useEffect, lazy, Suspense } from "react";
 import { HelmetProvider } from "react-helmet-async";
+import { MotionConfig } from "framer-motion";
 import {
   BrowserRouter as Router,
   Routes,
@@ -90,7 +91,11 @@ function Layout({ children }) {
     <div className="flex flex-col min-h-screen">
       {/* BetaBadge removed */}
       {showLayout && <SiteHeader />}
-      <div className="flex-grow">{children}</div>
+      {/* tabIndex={-1} lets the skip link move focus INTO the landmark (not
+          just scroll to it) without adding <main> to the tab order. */}
+      <main id="main-content" tabIndex={-1} className="flex-grow outline-none">
+        {children}
+      </main>
       {showLayout && <ContactFormDialog />}
       <ThemeToggle />
       {showLayout && <PrivacyBadge />}
@@ -118,10 +123,22 @@ export default function App() {
 
   return (
     <HelmetProvider>
+      {/* reducedMotion="user" — every framer-motion animation site-wide obeys
+          the OS "reduce motion" setting (transform/layout animations disabled,
+          opacity fades kept). CSS animations are covered by the matching
+          prefers-reduced-motion guard in index.css. */}
+      <MotionConfig reducedMotion="user">
       <ThemeProvider>
       <ErrorBoundary>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <BookmarksProvider>
+          {/* Skip link for keyboard users — visually hidden until focused (see
+              .skip-link in index.css). Rendered FIRST in the document so it's
+              the first tabbable element on every page; jumps past the header +
+              filter chrome straight to <main id="main-content"> in Layout. */}
+          <a href="#main-content" className="skip-link">
+            Skip to main content
+          </a>
           <AuthKeepAlive />
           <ScrollToHashOrTop />
           <TourController />
@@ -250,6 +267,7 @@ export default function App() {
         <Toaster />
       </ErrorBoundary>
       </ThemeProvider>
+      </MotionConfig>
     </HelmetProvider>
   );
 }

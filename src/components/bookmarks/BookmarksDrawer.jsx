@@ -662,6 +662,12 @@ export default function BookmarksDrawer() {
         role="dialog"
         aria-label="Bookmarked Companies"
         data-tour-step="bookmark-drawer-root"
+        // The closed drawer is only hidden by a transform (still mounted), so
+        // without `inert` its buttons stay in the keyboard tab order — keyboard
+        // users were tabbing into an invisible panel before anything visible.
+        // React 18 needs the empty-string form to emit the bare attribute.
+        inert={drawerOpen ? undefined : ""}
+        aria-hidden={drawerOpen ? undefined : true}
         className={`fixed inset-y-0 right-0 z-[100] w-80 sm:w-96 bg-card border-l border-border shadow-lg flex flex-col transition-transform duration-300 ease-in-out ${
           drawerOpen ? "translate-x-0" : "translate-x-full"
         }`}

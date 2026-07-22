@@ -260,3 +260,47 @@ html.transitioning *::after {
     opacity: 0.55;
   }
 }
+
+/* ── Accessibility: skip-to-content link ──────────────────────────────
+   First tabbable element on every page (rendered in App.jsx Layout).
+   Visually hidden until keyboard focus lands on it, then appears as a
+   branded pill at the top-left. Counter-zoom note: sits in normal flow
+   (not a Floating UI portal), so the html zoom doesn't misplace it. */
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: 100;
+  transform: translateY(-300%);
+  padding: 0.6rem 1rem;
+  border-radius: 0.5rem;
+  background: hsl(187 47% 30%);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-decoration: none;
+  transition: transform 150ms ease;
+}
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid hsl(187 47% 62%);
+  outline-offset: 2px;
+}
+
+/* ── Accessibility: honor the OS "reduce motion" preference site-wide ──
+   Collapses CSS animations/transitions to imperceptible durations and
+   disables smooth scrolling for users who've asked their OS to reduce
+   motion (vestibular disorders, motion sickness, seizure safety).
+   framer-motion (JS-driven, unaffected by CSS) is handled separately via
+   <MotionConfig reducedMotion="user"> in App.jsx. Spinners simply render
+   static — still visible, just not rotating. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
