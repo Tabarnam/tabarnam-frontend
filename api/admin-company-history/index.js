@@ -128,7 +128,13 @@ async function handler(req, context) {
     parameters.push({ name: "@q", value: search });
   }
 
-  const sql = `SELECT TOP @limit * FROM c WHERE ${where.join(" AND ")} ORDER BY c.created_at DESC, c.id DESC`;
+  // Single-field ORDER BY only. Cosmos needs a COMPOSITE INDEX to serve a
+  // multi-field ORDER BY, and company_edit_history has none — the previous
+  // "ORDER BY c.created_at DESC, c.id DESC" failed every request with
+  // 400 "The order by query does not have a corresponding composite index",
+  // which is why the Edit History panel never loaded. The id tiebreak is applied
+  // in memory below; the cursor WHERE clause still uses it for stable paging.
+  const sql = `SELECT TOP @limit * FROM c WHERE ${where.join(" AND ")} ORDER BY c.created_at DESC`;
 
   try {
     const { resources } = await container.items
@@ -136,6 +142,20 @@ async function handler(req, context) {
       .fetchAll();
 
     const items = Array.isArray(resources) ? resources : [];
+
+    // Re-apply the id tiebreak the SQL can no longer do (see composite-index note
+    // above) so entries sharing a created_at render in a stable order and the
+    // next_cursor below is computed from a deterministic last row.
+    items.sort((a, b) => {
+      const ac = String(a?.created_at || "");
+      const bc = String(b?.created_at || "");
+      if (ac !== bc) return ac < bc ? 1 : -1;
+      const ai = String(a?.id || "");
+      const bi = String(b?.id || "");
+      if (ai === bi) return 0;
+      return ai < bi ? 1 : -1;
+    });
+
     const last = items.length > 0 ? items[items.length - 1] : null;
     const next_cursor = items.length === limit && last ? encodeCursor({ created_at: last.created_at, id: last.id }) : "";
 
