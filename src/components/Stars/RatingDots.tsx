@@ -72,6 +72,10 @@ export function RatingDots({
   return (
     <div
       className={`inline-flex items-center gap-1 ${className}`}
+      // role="img": aria-label is prohibited on a generic div (WCAG
+      // aria-prohibited-attr); as an image role the rating reads as a single
+      // "3.6 out of 5" graphic to screen readers.
+      role="img"
       aria-label={`${formatA11yValue(safe)} out of ${max}`}
       style={{ fontSize: `${size}px`, lineHeight: 1 }}
     >

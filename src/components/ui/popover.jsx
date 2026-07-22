@@ -7,6 +7,12 @@ const Popover = PopoverPrimitive.Root
 
 const PopoverTrigger = PopoverPrimitive.Trigger
 
+// Positioning-only anchor: unlike Trigger, Radix does NOT inject button ARIA
+// (type/aria-haspopup/aria-expanded/aria-controls) onto the child. Use for
+// controlled typeahead popovers anchored to a plain wrapper div, where those
+// attributes are invalid (WCAG aria-allowed-attr) and misleading.
+const PopoverAnchor = PopoverPrimitive.Anchor
+
 const PopoverContent = React.forwardRef(({ className, align = "center", sideOffset = 4, ...props }, ref) => (
   <PopoverPrimitive.Portal>
     <PopoverPrimitive.Content
@@ -23,4 +29,4 @@ const PopoverContent = React.forwardRef(({ className, align = "center", sideOffs
 ))
 PopoverContent.displayName = PopoverPrimitive.Content.displayName
 
-export { Popover, PopoverTrigger, PopoverContent }
+export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent }

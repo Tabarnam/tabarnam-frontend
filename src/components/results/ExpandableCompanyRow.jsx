@@ -704,7 +704,7 @@ export default function ExpandableCompanyRow({
               {websiteUrl ? (
                 <CompanyNameWithUrlTooltip
                   href={withAmazonAffiliate(websiteUrl)}
-                  className="text-[1.2em] text-blue-700 hover:underline"
+                  className="text-[1.2em] text-blue-700 dark:text-blue-400 hover:underline"
                 >
                   {highlightExactPhrase(websiteLabel, query)}
                 </CompanyNameWithUrlTooltip>
@@ -981,7 +981,7 @@ export default function ExpandableCompanyRow({
           {websiteUrl ? (
             <CompanyNameWithUrlTooltip
               href={withAmazonAffiliate(websiteUrl)}
-              className="font-semibold text-[1.2em] text-blue-700 hover:underline"
+              className="font-semibold text-[1.2em] text-blue-700 dark:text-blue-400 hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
               {highlightExactPhrase(websiteLabel, query)}

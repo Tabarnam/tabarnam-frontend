@@ -6,7 +6,7 @@ import { useSearchCache } from '@/hooks/useSearchCache';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 // Select removed — sort/filter now uses Popover with radio buttons + checkbox
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Popover, PopoverTrigger, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { getCountries, resolveCountryText } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
 import { extractSearchTermFromUrl } from '@/lib/queryNormalizer';
@@ -763,6 +763,9 @@ export default function SearchCard({
             onFocus={(e) => { inputFocusedRef.current = true; handleInputFocus(e); }}
             onBlur={() => { inputFocusedRef.current = false; setTimeout(() => { setShowRecent(false); setSuggestions([]); }, 200); }}
             placeholder={q ? "" : PLACEHOLDERS[placeholderIdx]}
+            // Persistent accessible name — the rotating placeholder empties
+            // once the user types, leaving the field unlabeled (WCAG 4.1.2).
+            aria-label="Search products and companies"
             className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
             autoComplete="off"
             data-tour-step="search-input"
@@ -978,7 +981,10 @@ export default function SearchCard({
         </Popover>
 
         <Popover open={openCitySuggest && citySuggestions.length > 0}>
-          <PopoverTrigger asChild>
+          {/* Anchor, not Trigger: this popover is a typeahead opened by typing,
+              and Trigger would inject button ARIA onto this plain div
+              (invalid per WCAG aria-allowed-attr). */}
+          <PopoverAnchor asChild>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
               <Input
@@ -1013,7 +1019,7 @@ export default function SearchCard({
                 </button>
               )}
             </div>
-          </PopoverTrigger>
+          </PopoverAnchor>
           <PopoverContent
             className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1 max-h-72 overflow-y-auto"
             align="start"
@@ -1037,7 +1043,8 @@ export default function SearchCard({
         </Popover>
 
         <Popover open={openStateSuggest && stateSuggestions.length > 0}>
-          <PopoverTrigger asChild>
+          {/* Anchor, not Trigger — see the city popover above. */}
+          <PopoverAnchor asChild>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
               <Input
@@ -1070,7 +1077,7 @@ export default function SearchCard({
                 </button>
               )}
             </div>
-          </PopoverTrigger>
+          </PopoverAnchor>
           <PopoverContent
             className="w-[var(--radix-popover-trigger-width)] p-0 bg-popover border-border mt-1 max-h-72 overflow-y-auto"
             align="start"
