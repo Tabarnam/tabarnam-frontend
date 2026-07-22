@@ -18,7 +18,6 @@ import Login from "@pages/Login";
 import PrivacyPage from "@pages/PrivacyPage";
 import AboutPage from "@pages/AboutPage";
 import HelpPage from "@pages/HelpPage";
-import AccessibilityPage from "@pages/AccessibilityPage";
 
 import SiteHeader from "@/components/SiteHeader";
 import ContactFormDialog from "@/components/ContactFormDialog";
@@ -154,7 +153,6 @@ export default function App() {
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/how-it-works" element={<HelpPage />} />
-              <Route path="/accessibility" element={<AccessibilityPage />} />
               {/* legacy redirect — /help shipped before the rename */}
               <Route path="/help" element={<Navigate to="/how-it-works" replace />} />
 

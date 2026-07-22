@@ -55,6 +55,7 @@ export default function HelpPage() {
             <li><a href="#bookmarks" className="text-primary underline underline-offset-4">Bookmarks</a></li>
             <li><a href="#share" className="text-primary underline underline-offset-4">Sharing</a></li>
             <li><a href="#feedback" className="text-primary underline underline-offset-4">Feedback</a></li>
+            <li><a href="#accessibility" className="text-primary underline underline-offset-4">Accessibility</a></li>
             <li><a href="#privacy" className="text-primary underline underline-offset-4">Privacy</a></li>
           </ul>
         </nav>
@@ -254,6 +255,27 @@ export default function HelpPage() {
                 {contactEmail}
               </a>
               .
+            </p>
+          </section>
+
+          <section id="accessibility">
+            <h2 className="text-xl font-semibold text-foreground mb-3">Accessibility</h2>
+            <p className="mb-3">
+              Tabarnam is designed to work with the tools and settings you already use, rather than adding
+              overlays or widgets:
+            </p>
+            <ul className="list-disc pl-6 space-y-1.5 mb-3">
+              <li>Works with <strong className="text-foreground">screen readers</strong> and read-aloud tools — ratings are announced, fields are labeled, content is properly structured.</li>
+              <li>Fully <strong className="text-foreground">keyboard-navigable</strong> — press <em>Tab</em> on any page for a "Skip to main content" shortcut.</li>
+              <li>Honors your system's <strong className="text-foreground">reduced-motion</strong>, text-size, and zoom settings.</li>
+              <li>Color contrast is designed to meet <strong className="text-foreground">WCAG 2.1 AA</strong> in both light and dark themes.</li>
+            </ul>
+            <p>
+              Spot something hard to use? Tell us at{' '}
+              <a className="text-primary underline underline-offset-4" href={`mailto:${contactEmail}`}>
+                {contactEmail}
+              </a>
+              {' '}— we'll fix it.
             </p>
           </section>
 
