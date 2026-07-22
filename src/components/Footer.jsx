@@ -8,26 +8,28 @@ const Footer = () => {
         <nav className="flex items-center justify-center gap-4 mb-2 text-xs">
           <Link
             to="/how-it-works"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors"
           >
             How it works
           </Link>
           <span className="text-muted-foreground/50" aria-hidden="true">·</span>
           <Link
             to="/about"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors"
           >
             About
           </Link>
           <span className="text-muted-foreground/50" aria-hidden="true">·</span>
           <Link
             to="/privacy"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors"
           >
             Privacy
           </Link>
         </nav>
-        <p className="text-xs text-muted-foreground">
+        {/* slate-600 in light mode: muted-foreground (slate-500) is 4.35:1 on
+            the bg-muted footer — just under WCAG AA 4.5. Dark mode unchanged. */}
+        <p className="text-xs text-slate-600 dark:text-muted-foreground">
           Est 2016. Copyright © {new Date().getFullYear()} Tabarnam. All rights reserved
         </p>
       </div>

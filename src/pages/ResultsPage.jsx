@@ -1324,7 +1324,10 @@ export default function ResultsPage() {
                   "font-semibold rounded transition-colors text-[15px] px-2.5 py-1.5 border",
                   isSelected
                     ? "bg-tabarnam-blue text-gray-800 dark:text-gray-900 border-tabarnam-blue"
-                    : "bg-transparent text-tabarnam-blue-bold border-tabarnam-blue-bold"
+                    : // tabarnam-blue-dark in light mode: -bold (#649BA0) is only
+                      // 3.11:1 on white (WCAG AA needs 4.5). Dark mode keeps
+                      // -bold, which passes (5.4:1) on the dark background.
+                      "bg-transparent text-tabarnam-blue-dark dark:text-tabarnam-blue-bold border-tabarnam-blue-bold"
                 )}
                 data-tour-step={colKey === "stars" ? "sort-header-qq" : undefined}
               >
