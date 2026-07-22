@@ -3,8 +3,16 @@
 @tailwind utilities;
 
 html {
-  zoom: 0.9;
-  min-height: calc(100vh / 0.9);
+  /* Site-wide 90% scale. Previously `zoom: 0.9`, which is non-standard,
+     fought the user's own browser zoom / OS text-size settings (WCAG 1.4.4
+     Resize Text), and broke Floating UI positioning (visual vs. logical px),
+     forcing 1.111 counter-zoom hacks on Shepherd + popovers. A percentage
+     root font-size scales every rem-based (Tailwind) measurement to the
+     exact same rendered size as the old zoom — 18rem × 14.4px = 259.2px =
+     288px × 0.9 — while px-specified details (borders, icon px sizes) render
+     at their true size, browser zoom/text preferences compose correctly, and
+     Floating UI needs no compensation. */
+  font-size: 90%;
   /* Leave room for the sticky SiteHeader (h-10 logo + p-3 padding + border ≈ 65px)
      so anchor scrolls (TOC links, scrollIntoView) don't hide the target heading
      behind it. Applies to <a href="#…"> and element.scrollIntoView() globally. */
@@ -97,6 +105,15 @@ mark {
   background: #CAE9ED; /* Tabarnam Tint 82 */
   padding: 0 .15em;
   border-radius: .2em;
+}
+
+/* Contrast (WCAG AA): blue-600 link/chip text on the Tint 82 highlight is
+   4.03:1 — under the 4.5:1 bar for normal text. Darken highlighted link text
+   one step to blue-700 (5.2:1 on #CAE9ED). Light mode only: `.dark mark`
+   below is more specific and keeps its own color. */
+a mark,
+button mark {
+  color: #1D4ED8;
 }
 
 .dark mark {
@@ -262,10 +279,9 @@ html.transitioning *::after {
 }
 
 /* ── Accessibility: skip-to-content link ──────────────────────────────
-   First tabbable element on every page (rendered in App.jsx Layout).
+   First tabbable element on every page (rendered first in App.jsx).
    Visually hidden until keyboard focus lands on it, then appears as a
-   branded pill at the top-left. Counter-zoom note: sits in normal flow
-   (not a Floating UI portal), so the html zoom doesn't misplace it. */
+   branded pill at the top-left. */
 .skip-link {
   position: absolute;
   left: 0.75rem;

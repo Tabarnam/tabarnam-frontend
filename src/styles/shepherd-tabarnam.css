@@ -12,17 +12,10 @@
   z-index: 10000;
   /* Override base transition that fails to complete with HTMLDialogElement in v15. */
   transition: none;
-  /* Compensate for `html { zoom: 0.9 }` in index.css. Floating UI computes
-     popover positions from visual rects but sets inline top/left in logical
-     pixels, so without this counter-zoom the popover lands ~10% short of its
-     target and overlaps the highlighted element. */
-  zoom: 1.1111111;
-}
-
-/* Same compensation for the modal overlay so its SVG cutout aligns with the
-   actual visual position of the highlighted target. */
-.shepherd-modal-overlay-container {
-  zoom: 1.1111111;
+  /* NOTE: the 1.111 counter-zoom hacks that used to live here (and on the
+     modal overlay) compensated for `html { zoom: 0.9 }`. That zoom was
+     replaced with a rem-based root font-size, so Floating UI positions
+     correctly with no compensation. */
 }
 
 /* Dark mode: lift the popover well above the near-black page bg so it reads

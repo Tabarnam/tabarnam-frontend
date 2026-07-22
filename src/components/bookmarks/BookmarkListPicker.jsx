@@ -45,7 +45,6 @@ export default function BookmarkListPicker({ company, children, open, onOpenChan
       <PopoverContent
         align="start"
         className="w-56 p-3"
-        style={{ zoom: 1.1111111 }}
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-sm font-medium mb-2">Bookmark to list</p>
