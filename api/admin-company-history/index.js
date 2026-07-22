@@ -59,10 +59,33 @@ function normalizeQuery(req) {
   return q && typeof q === "object" ? q : {};
 }
 
+// Read a query param across BOTH Functions models. In the v4 model req.query is a
+// URLSearchParams (must use .get()); in v3 it's a plain object. Reading it as a
+// plain object returned undefined under v4, so company_id came back empty and every
+// request 400'd with "company_id required" — the route-param path masked this
+// because it resolved the id from context.bindingData instead. Falls back to
+// parsing req.url when neither shape carries the value.
 function getParam(req, name) {
   const q = normalizeQuery(req);
-  const v = q?.[name];
-  return v == null ? "" : String(v);
+
+  if (q && typeof q.get === "function") {
+    const v = q.get(name);
+    if (v != null && String(v) !== "") return String(v);
+  }
+
+  const direct = q?.[name];
+  if (direct != null && String(direct) !== "") return String(direct);
+
+  try {
+    const raw = req && req.url ? String(req.url) : "";
+    if (raw) {
+      const parsed = new URL(raw, "http://localhost");
+      const v = parsed.searchParams.get(name);
+      if (v != null) return String(v);
+    }
+  } catch { /* ignore malformed url */ }
+
+  return "";
 }
 
 async function handler(req, context) {

@@ -113,6 +113,12 @@ export default function AdminEditHistory({ companyId }) {
 
   const debounceRef = useRef(null);
   const mountedRef = useRef(false);
+  // Last URL the auto-load effect attempted. Guards an infinite retry loop: on a
+  // non-404 error the effect's guards stay open (historySupported is set true
+  // because the endpoint DID respond), and setLoading(false) re-renders and
+  // re-fires the effect — which re-requests, re-errors, forever. Keying on the URL
+  // still allows a reload when the filter/search changes, and Retry clears it.
+  const lastAttemptedUrlRef = useRef("");
 
   useEffect(() => {
     mountedRef.current = true;
@@ -309,6 +315,12 @@ export default function AdminEditHistory({ companyId }) {
     // If the endpoint was already detected as missing, do not retry unless user clicks Retry.
     if (historySupported === false || companyBlocked || history404ByCompanyId.has(id)) return;
 
+    // Only auto-load once per distinct request. Without this a failing request
+    // re-fires on every render (see lastAttemptedUrlRef) and hammers the API.
+    const url = buildHistoryUrl(null);
+    if (lastAttemptedUrlRef.current === url) return;
+    lastAttemptedUrlRef.current = url;
+
     loadFirstPage();
   }, [buildHistoryUrl, companyBlocked, historySupported, id, loadFirstPage, loading, open, userRequestedLoad]);
 
@@ -339,6 +351,8 @@ export default function AdminEditHistory({ companyId }) {
     // Explicit retry: allow a new attempt even if we previously saw a 404.
     history404ByCompanyId.delete(id);
     setCompanyBlocked(false);
+    // Clear the auto-load guard so this user-triggered retry actually re-requests.
+    lastAttemptedUrlRef.current = "";
 
     // Keep sessionHistorySupported=false (if it was detected) to avoid auto-fetch for other companies.
     // This call is explicitly user-triggered.
