@@ -13,12 +13,13 @@ const { isInternalJobRequest } = require("./_internalJobAuth");
 
 // ── Admin email list ────────────────────────────────────────────────
 // Env var takes precedence so the list can be updated without redeploying.
-// Fallback matches src/lib/azureAuth.ts (lines 5-9).
+// Fallback matches src/lib/azureAuth.ts.
+// NOTE: duh@tabarnam.com is a shared notification inbox (contact-send /
+// review-queue recipient), NOT a person — intentionally excluded from admin.
 const FALLBACK_ADMIN_EMAILS = [
   "jon@tabarnam.com",
   "ben@tabarnam.com",
   "kels@tabarnam.com",
-  "duh@tabarnam.com",
 ];
 
 function getAdminEmails() {
