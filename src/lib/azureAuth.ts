@@ -2,11 +2,11 @@
 // Checks /.auth/me endpoint provided by Azure Static Web Apps
 // No local authentication system - all auth is delegated to Azure
 
+// duh@tabarnam.com is a shared notification inbox (not a person) — excluded from admin.
 const ADMIN_USERS = [
   'jon@tabarnam.com',
   'ben@tabarnam.com',
-  'kels@tabarnam.com',
-  'duh@tabarnam.com'
+  'kels@tabarnam.com'
 ];
 
 export interface AdminUser {
