@@ -55,4 +55,46 @@ function companyScoringState(company) {
   return hasReasoning ? "scored" : "manual";
 }
 
-module.exports = { companyNeedsScoring, companyScoringState, INSUFFICIENT_DATA_REASON };
+// "Fully settled" — is every async post-import writer done, so an admin can
+// edit the company without a late backfill clobbering the edit? Composed from
+// the company doc only (no extra Cosmos reads). The contract is
+// TERMINAL-EVIDENCE, not mere absence: a field that is empty *with no terminal
+// marker* counts as still-pending (otherwise a row would flash "safe to edit"
+// the instant enrichment returns, before scoring/logo/geocode have run — the
+// exact bug this guards against). A terminal *failure* counts as settled.
+//
+//   scoring  — companyNeedsScoring(doc) === false (handles 0.25 placeholders)
+//   logo     — logo_url set, OR logo_status is any value except "pending"
+//              (every failure value — not_found_on_site, error, url_dead,
+//              skipped, … — is terminal; only "pending"/absent is in-flight)
+//   geocode  — manufacturing_geocodes populated, OR mfg_unknown === true, OR
+//              there are no manufacturing_locations to geocode
+//
+// Homepage image (homepage_image_url) is intentionally NOT gated on: there is
+// no homepage_status terminal marker in the schema, so blocking on it would
+// risk a permanently-"settling" row. Admins rarely hand-edit that field, and
+// the caller applies a poll-exhaustion fallback as a backstop. If a homepage
+// terminal marker is added later, fold it in here.
+//
+// Returns { settled: boolean, pending: string[] } — booleans/labels only, so a
+// caller can safely surface it on an unauthenticated endpoint without leaking
+// raw scoring values or internals.
+function companyFullySettled(company) {
+  const pending = [];
+
+  if (companyNeedsScoring(company)) pending.push("scoring");
+
+  const logoUrl = company && typeof company.logo_url === "string" ? company.logo_url.trim() : "";
+  const logoStatus = company && typeof company.logo_status === "string" ? company.logo_status.trim().toLowerCase() : "";
+  const logoTerminal = Boolean(logoUrl) || (logoStatus !== "" && logoStatus !== "pending");
+  if (!logoTerminal) pending.push("logo");
+
+  const mfgLocations = company && Array.isArray(company.manufacturing_locations) ? company.manufacturing_locations : [];
+  const mfgGeocodes = company && Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [];
+  const geocodeTerminal = mfgGeocodes.length > 0 || company?.mfg_unknown === true || mfgLocations.length === 0;
+  if (!geocodeTerminal) pending.push("geocode");
+
+  return { settled: pending.length === 0, pending };
+}
+
+module.exports = { companyNeedsScoring, companyScoringState, companyFullySettled, INSUFFICIENT_DATA_REASON };
