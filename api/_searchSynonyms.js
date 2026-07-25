@@ -145,6 +145,15 @@ const PRODUCT_SYNONYM_GROUPS = [
   // nothing and the broadening fallback returns computer-keyboard brands.
   // Scoring is synonym-aware, so direct matches still outrank synonym-only.
   ["electric", "electronic"],
+  // E-bike cluster: "e-bike" normalizes to "e bike" and the 1-char "e" is
+  // dropped by tokenization, so without these the spellings searched as plain
+  // "bike"/"bicycle" and returned disjoint (or non-electric) sets.
+  // Cross-pollinates e-bike / e-bicycle / electric bike / electronic bicycle
+  // (+ compact forms). "electronic *" must be listed explicitly — the
+  // electric↔electronic word pair above expands only one hop and doesn't
+  // chain into this group.
+  ["ebike", "e bike", "electric bike", "electronic bike", "ebicycle", "e bicycle", "electric bicycle", "electronic bicycle"],
+  ["ebikes", "e bikes", "electric bikes", "electronic bikes", "ebicycles", "e bicycles", "electric bicycles", "electronic bicycles"],
   ["headphones", "earphones", "earbuds"],
   ["charger", "adapter", "power supply"],
   ["cable", "cord", "wire"],
