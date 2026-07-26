@@ -246,11 +246,14 @@ export default function ResultsPage() {
   // exact visibility logic), so a card's teaser always equals what the user
   // sees on open — no stored aggregate that can drift. Keyed by company id.
   const [reviewCounts, setReviewCounts] = useState({});
-  // The term to highlight on result cards. Defaults to what the user typed
-  // (qParam); when the backend typo-corrected the query, we highlight the
-  // CORRECTED form instead — that's what actually appears in the company
-  // data. Set from the search response meta in doSearch.
+  // The term to highlight on result cards — always what the user actually
+  // typed (qParam). We never rewrite the query, so there's no "corrected"
+  // term to highlight; this stays for the highlight prop's shape.
   const [correctedHighlight, setCorrectedHighlight] = useState("");
+  // "Did you mean …?" suggestion — surfaced by the backend ONLY when the
+  // original query returned zero results. Purely a suggestion the user can
+  // choose; the search always ran on exactly what they typed.
+  const [didYouMean, setDidYouMean] = useState(null);
 
   // Stable key of the company ids that DON'T already carry a pinned
   // visible_review_count from the search response — those are the only ones the
@@ -768,9 +771,8 @@ export default function ResultsPage() {
       setResults([]);
       setHasMore(false);
       setNoResults(false); // the search is running — show skeleton, not empty-state
-      // Clear any prior typo-correction highlight so a stale corrected term
-      // can't briefly highlight the new search's results before its response.
       setCorrectedHighlight("");
+      setDidYouMean(null); // clear any prior suggestion while the new search runs
       // Only invalidate totalPages when the QUERY/FILTERS change — not on
       // page navigation. Walking pages 1 → 2 → 3 within the same query keeps
       // the previously-computed total visible the whole time.
@@ -861,9 +863,11 @@ export default function ResultsPage() {
       if (gen !== searchGenRef.current) return;
 
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
-      // Capture a typo-corrected query (if any) for result highlighting —
-      // we highlight the corrected term since that's what's in the data.
-      setCorrectedHighlight(meta?.correctedQuery?.corrected || "");
+      // Highlight the term the user typed (we never rewrite the query).
+      setCorrectedHighlight("");
+      // "Did you mean …?" — present only when the backend found nothing for the
+      // original query and has a spelling candidate.
+      setDidYouMean(meta?.did_you_mean || null);
       const distanced = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
 
       // Proximity sorts (sort=manu by nearest manufacturing, sort=hq by
@@ -1434,7 +1438,26 @@ export default function ResultsPage() {
           <div className="p-8 text-center">
             <div className="text-muted-foreground">
               <p className="text-lg font-medium mb-1">No companies found</p>
-              <p className="text-sm">Try adjusting your search terms or filters</p>
+              {didYouMean?.suggestion ? (
+                <p className="text-sm">
+                  Did you mean{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = new URLSearchParams(searchParams);
+                      next.set("q", didYouMean.suggestion);
+                      next.delete("page");
+                      setSearchParams(next);
+                    }}
+                    className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                  >
+                    {didYouMean.suggestion}
+                  </button>
+                  ?
+                </p>
+              ) : (
+                <p className="text-sm">Try adjusting your search terms or filters</p>
+              )}
             </div>
           </div>
         ) : (

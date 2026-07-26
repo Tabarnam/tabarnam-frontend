@@ -1602,16 +1602,16 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   //
   // Best-effort: if the dictionary isn't loaded yet (cold worker) or the
   // load fails, we just search with the original query — never blocks.
-  // The original q_norm is preserved in `corrected_query.original` for
-  // the response meta so the frontend can offer a "Showing results for
-  // X" UX later.
+  // We ALWAYS search the exact query the user typed; a spelling candidate is
+  // only surfaced as a non-destructive "Did you mean …?" suggestion (in
+  // meta.did_you_mean) when the original query returns nothing.
   // Kick the dictionary load in the background on every request — it's a
   // no-op once the cache is warm. First request after a worker recycle
   // sees no correction (dictionary still building), but every subsequent
   // request gets it. Cheaper than blocking the user's first query.
   if (container) startTypoBackgroundLoad(container);
 
-  let corrected_query = null;
+  let typo_suggestion = null; // a "Did you mean …?" candidate — NEVER auto-applied
   let _typoDiag = { attempted: false };
   if (q_norm && container) {
     _typoDiag.attempted = true;
@@ -1633,10 +1633,15 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         const rewritten = correctTypoQuery(q_norm, dictionary);
         _typoDiag.rewritten = rewritten;
         if (rewritten && rewritten !== q_norm) {
-          corrected_query = { original: q_norm, corrected: rewritten };
-          q_norm = rewritten;
-          q_compact = q_norm.replace(/\s+/g, "");
-          q_stemmed = stemWords(q_norm);
+          // We NEVER silently rewrite the user's query — that would change what
+          // they searched for without their knowledge (and can hijack a real,
+          // recently-added brand like "padron" → "patron" when the typo
+          // dictionary's protection set is stale). Instead we keep the original
+          // query as-is and merely REMEMBER a candidate. It's surfaced to the
+          // user as a "Did you mean …?" suggestion below — and only when the
+          // original query comes up empty, so it stays out of the way for good
+          // queries.
+          typo_suggestion = rewritten;
         }
       }
     } catch (typoErr) {
@@ -2353,7 +2358,12 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               : usedBroadenFallback
                 ? "tokens+broaden"
                 : "tokens",
-            ...(corrected_query ? { correctedQuery: corrected_query } : {}),
+            // "Did you mean …?" — only when the original query returned NOTHING,
+            // so we never nag on a query that already found results. Purely a
+            // suggestion; the search was run on exactly what the user typed.
+            ...(typo_suggestion && deduped.length === 0
+              ? { did_you_mean: { original: q_norm, suggestion: typo_suggestion } }
+              : {}),
             _typoDiag,
           },
         },

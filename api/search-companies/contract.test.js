@@ -1921,29 +1921,21 @@ test("typo correction: 'paintt' is rewritten to 'paint' end-to-end", async () =>
     _ts: 1700000000,
   };
 
-  // Container records the parameters of each query so we can assert that
-  // the corrected form ("paint") — not the typo ("paintt") — was issued.
+  // Mock matches only the EXACT token "paint"/"paints" — so a search for the
+  // typo "paintt" finds nothing, exercising the empty-results path that
+  // surfaces the suggestion.
   const sentParams = [];
   const companiesContainer = makeContainer(
     async (spec) => {
       sentParams.push(...(spec.parameters || []));
-      // Return the paint company for any query that's looking for "paint"
-      // (in @q, @q_compact, @q_wb, or as a literal token).
-      const sql = String(spec.query || "");
-      const looksForPaint =
-        (spec.parameters || []).some(
-          (p) =>
-            typeof p.value === "string" && p.value.toLowerCase().includes("paint")
-        ) || /\bpaint\b/i.test(sql);
-      return looksForPaint ? [paintCompany] : [];
+      const hit = (spec.parameters || []).some(
+        (p) => typeof p.value === "string" && ["paint", "paints"].includes(p.value.toLowerCase())
+      );
+      return hit ? [paintCompany] : [];
     },
     { indexDoc }
   );
 
-  // Pre-warm the dictionary cache. In production the handler kicks
-  // the load in the background and the FIRST request uses whatever is
-  // already cached (often nothing on a cold worker). For the test we
-  // want to assert the post-warm behavior, so we await the load explicitly.
   await warmTypoDictionary(companiesContainer);
 
   const res = await _test.searchCompaniesHandler(
@@ -1956,28 +1948,27 @@ test("typo correction: 'paintt' is rewritten to 'paint' end-to-end", async () =>
   const body = JSON.parse(res.body);
   assert.equal(body.ok, true);
 
-  // Meta surfaces both the original and corrected query.
-  assert.deepEqual(
-    body.meta?.correctedQuery,
-    { original: "paintt", corrected: "paint" },
-    `expected correctedQuery on meta; got: ${JSON.stringify(body.meta)}`
-  );
-
-  // At least one query was issued with the CORRECTED token, not the typo.
+  // We NEVER silently rewrite: the query must have been issued for the ORIGINAL
+  // typo, and the corrected term must NOT have replaced it in the Cosmos query.
   const sentValues = sentParams
     .map((p) => (typeof p.value === "string" ? p.value : ""))
     .join(" ");
+  assert.ok(sentValues.includes("paintt"), `original 'paintt' should be searched; got: ${sentValues}`);
   assert.ok(
-    sentValues.includes("paint"),
-    `expected Cosmos queries to include the corrected term 'paint'; got: ${sentValues}`
-  );
-  assert.ok(
-    !sentValues.includes("paintt"),
-    `Cosmos queries should NOT contain the original typo 'paintt'; got: ${sentValues}`
+    !sentValues.split(/\s+/).includes("paint"),
+    `Cosmos queries must NOT be silently rewritten to 'paint'; got: ${sentValues}`
   );
 
-  // The corrected search actually returned items.
-  assert.ok(body.items.length > 0, "corrected search should return matching companies");
+  // Original found nothing → surface a "Did you mean paint?" SUGGESTION (not an
+  // applied correction). No correctedQuery is ever emitted.
+  assert.equal(body.meta?.correctedQuery, undefined, "correctedQuery must not be emitted");
+  assert.deepEqual(
+    body.meta?.did_you_mean,
+    { original: "paintt", suggestion: "paint" },
+    `expected did_you_mean suggestion; got: ${JSON.stringify(body.meta)}`
+  );
+  assert.equal(body.meta?._typoDiag?.rewritten, "paint", "the candidate is still computed");
+  assert.equal(body.items.length, 0, "the original typo returns no results");
 });
 
 test("typo correction: an already-correct query gets no correctedQuery on meta", async () => {
