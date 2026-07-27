@@ -550,6 +550,14 @@ try {
   console.error("[api] ❌ Failed to load admin-company-history:", e?.message || e);
 }
 
+try {
+  console.log("[api] Registering: admin-roster");
+  require("./admin-roster/index.js");
+  console.log("[api] ✓ xadmin-api-roster registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-roster:", e?.message || e);
+}
+
 // Phase 4.35 — Recent Activity feed for the AdminImport page.
 try {
   console.log("[api] Registering: xadmin-api-recent-activity");

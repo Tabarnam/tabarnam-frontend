@@ -1,9 +1,17 @@
 // Authentication via Azure Entra ID (Microsoft Authenticator)
 // Checks /.auth/me endpoint provided by Azure Static Web Apps
 // No local authentication system - all auth is delegated to Azure
+//
+// WHO IS AN ADMIN lives in ONE place: the backend allowlist in
+// api/_adminAuth.js (ADMIN_EMAILS app setting, else its fallback array).
+// The frontend fetches that roster from /api/xadmin-api-roster and caches it;
+// FALLBACK_ADMIN_USERS below exists only so the UI still works before the
+// first fetch resolves (or when the API is unreachable). Add a new admin on
+// the backend and every dropdown/gate here follows automatically — do NOT
+// add emails to this file.
 
 // duh@tabarnam.com is a shared notification inbox (not a person) — excluded from admin.
-const ADMIN_USERS = [
+const FALLBACK_ADMIN_USERS = [
   'jon@tabarnam.com',
   'ben@tabarnam.com',
   'kels@tabarnam.com'
@@ -16,6 +24,82 @@ export interface AdminUser {
 let cachedUser: AdminUser | null = null;
 let cacheTime: number = 0;
 const CACHE_DURATION = 60000; // 1 minute cache
+
+// ── Admin roster (fetched from the backend allowlist) ────────────────
+const ROSTER_STORAGE_KEY = 'admin_roster_v1';
+const ROSTER_TTL_MS = 5 * 60 * 1000;
+
+let rosterCache: string[] | null = null;
+
+function readStoredRoster(): string[] | null {
+  try {
+    const raw = sessionStorage.getItem(ROSTER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.admins) || typeof parsed.ts !== 'number') return null;
+    if (Date.now() - parsed.ts > ROSTER_TTL_MS) return null;
+    const admins = parsed.admins.filter((e: unknown) => typeof e === 'string' && (e as string).trim());
+    return admins.length > 0 ? admins : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeRoster(admins: string[]): void {
+  rosterCache = admins;
+  try {
+    sessionStorage.setItem(ROSTER_STORAGE_KEY, JSON.stringify({ admins, ts: Date.now() }));
+  } catch {
+    // sessionStorage unavailable — module cache still works for this page
+  }
+}
+
+export type RosterFetchResult =
+  | { status: 'ok'; admins: string[] }
+  | { status: 'forbidden' }
+  | { status: 'error' };
+
+/**
+ * Fetch the admin allowlist from the backend (the single source of truth).
+ * 'forbidden' means the caller is authenticated but not an admin (401/403);
+ * 'error' means the endpoint was unreachable — callers should fall back to
+ * the last known / hardcoded list rather than locking anyone out.
+ */
+export async function fetchAdminRoster(): Promise<RosterFetchResult> {
+  try {
+    const res = await fetch('/api/xadmin-api-roster', { credentials: 'include' });
+    if (res.status === 401 || res.status === 403) return { status: 'forbidden' };
+    if (!res.ok) return { status: 'error' };
+
+    const data = await res.json().catch(() => null);
+    const admins: string[] = Array.isArray(data?.admins)
+      ? data.admins
+          .filter((e: unknown) => typeof e === 'string' && (e as string).trim())
+          .map((e: string) => e.trim().toLowerCase())
+      : [];
+    if (!data?.ok || admins.length === 0) return { status: 'error' };
+
+    storeRoster(admins);
+    return { status: 'ok', admins };
+  } catch {
+    return { status: 'error' };
+  }
+}
+
+/**
+ * Current admin allowlist, synchronously: fetched roster when available
+ * (module cache, then sessionStorage), else the hardcoded fallback. All
+ * owner/person dropdowns and UI gates read this.
+ */
+export function getAuthorizedAdminEmails(): string[] {
+  if (rosterCache && rosterCache.length > 0) return rosterCache;
+  const stored = readStoredRoster();
+  if (stored) {
+    rosterCache = stored;
+    return stored;
+  }
+  return FALLBACK_ADMIN_USERS;
+}
 
 /**
  * Get current admin user from Azure Entra ID
@@ -33,7 +117,7 @@ export function getAdminUser(): AdminUser | null {
     // Note: In production, consider making this async
     // For now, we use localStorage as a fallback during initial page load
     const storedEmail = sessionStorage.getItem('azure_user_email');
-    if (storedEmail && ADMIN_USERS.includes(storedEmail)) {
+    if (storedEmail && getAuthorizedAdminEmails().includes(storedEmail.toLowerCase())) {
       cachedUser = { email: storedEmail };
       cacheTime = now;
       return cachedUser;
@@ -82,6 +166,9 @@ export async function initializeAzureUser(): Promise<AdminUser | null> {
   }
 }
 
-export function getAuthorizedAdminEmails(): string[] {
-  return ADMIN_USERS;
+// Test hook: reset module caches between vitest cases.
+export function __resetAuthCachesForTest(): void {
+  cachedUser = null;
+  cacheTime = 0;
+  rosterCache = null;
 }

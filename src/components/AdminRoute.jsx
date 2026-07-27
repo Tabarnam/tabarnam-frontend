@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { getAuthorizedAdminEmails } from '@/lib/azureAuth';
+import { fetchAdminRoster, getAuthorizedAdminEmails } from '@/lib/azureAuth';
 
 // Pull the caller's email out of the SWA clientPrincipal (userDetails, or an
 // email-bearing claim). Mirrors api/_adminAuth.js::extractEmail so the UI gate
@@ -41,11 +41,24 @@ export default function AdminRoute({ children }) {
         }
 
         // Defense-in-depth: the UI must not render the admin shell for just any
-        // signed-in Microsoft account — validate the email against the allowlist
-        // (the backend guard remains the authoritative enforcement).
-        const email = extractPrincipalEmail(principal);
-        const admins = getAuthorizedAdminEmails().map((e) => e.toLowerCase());
-        if (!cancelled) setStatus(email && admins.includes(email) ? 'allowed' : 'forbidden');
+        // signed-in Microsoft account. The BACKEND allowlist is the single
+        // source of truth — ask it directly (the roster endpoint is itself
+        // admin-guarded, so a 200 IS the verdict). This also warms the roster
+        // cache every owner/person dropdown reads, and means an admin added on
+        // the backend works here with no frontend change. Only if the endpoint
+        // is unreachable do we fall back to the client-side list, so existing
+        // admins aren't locked out by an API blip.
+        const verdict = await fetchAdminRoster();
+        if (cancelled) return;
+        if (verdict.status === 'ok') {
+          setStatus('allowed');
+        } else if (verdict.status === 'forbidden') {
+          setStatus('forbidden');
+        } else {
+          const email = extractPrincipalEmail(principal);
+          const admins = getAuthorizedAdminEmails().map((e) => e.toLowerCase());
+          setStatus(email && admins.includes(email) ? 'allowed' : 'forbidden');
+        }
       } catch {
         // In non-SWA environments (local/dev), allow access so the page remains
         // usable. The backend guard is the real gate.
