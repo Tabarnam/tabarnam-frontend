@@ -4529,6 +4529,15 @@ export default function AdminImport() {
     setActiveStatus("running");
 
     try {
+      // Phase 4.38.D — thread the admin's sub-brand / force-new opt-in
+      // (banner buttons write to the same shared Sets used by bulk mode).
+      const singleIdx = 0;
+      const pfMatch = (preflightResults || []).find((r) => r.index === singleIdx);
+      const parentHint = subBrandOptIns.has(singleIdx) && pfMatch?.match?.id
+        ? String(pfMatch.match.id).trim()
+        : "";
+      const forceNew = forceNewOptIns.has(singleIdx);
+
       const res = await apiFetch("/import-one", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4536,6 +4545,8 @@ export default function AdminImport() {
           url,
           fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
           owner: batchOwner.trim().toLowerCase() || undefined,
+          parent_company_id: parentHint || undefined,
+          force_new: forceNew ? true : undefined,
         }),
       });
 
@@ -4696,7 +4707,7 @@ export default function AdminImport() {
       toast.error(msg);
       setActiveStatus("error");
     }
-  }, [query, importConfigured, resetPollAttempts, schedulePoll, batchOwner]);
+  }, [query, importConfigured, resetPollAttempts, schedulePoll, batchOwner, preflightResults, subBrandOptIns, forceNewOptIns]);
 
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
 
@@ -4715,6 +4726,24 @@ export default function AdminImport() {
     const q = query.trim();
     const isUrl = looksLikeUrlOrDomain(q);
 
+    // Phase 4.38.D — single-URL preflight banner uses index 0 for the
+    // one-and-only row. Surface the admin's sub-brand / force-new choice
+    // via the same refs the primary-slot payload builder reads. Without
+    // this, the escape-hatch buttons on the banner would set state but
+    // beginImport() would still send a payload with no hint.
+    const singleIdx = 0;
+    const pfMatch = (preflightResults || []).find((r) => r.index === singleIdx);
+    if (forceNewOptIns.has(singleIdx)) {
+      currentPrimaryParentIdRef.current = "";
+      currentPrimaryForceNewRef.current = true;
+    } else if (subBrandOptIns.has(singleIdx) && pfMatch?.match?.id) {
+      currentPrimaryParentIdRef.current = String(pfMatch.match.id).trim();
+      currentPrimaryForceNewRef.current = false;
+    } else {
+      currentPrimaryParentIdRef.current = "";
+      currentPrimaryForceNewRef.current = false;
+    }
+
     if (isUrl) {
       // Single URL import using new import-one endpoint
       beginImportOneUrl();
@@ -4730,7 +4759,7 @@ export default function AdminImport() {
         startImportRequestInFlightRef.current = false;
       }
     }, 0);
-  }, [query, beginImport, beginImportOneUrl, startImportDisabled]);
+  }, [query, beginImport, beginImportOneUrl, startImportDisabled, preflightResults, subBrandOptIns, forceNewOptIns]);
 
   const handleQueryInputEnter = useCallback(
     (e) => {
@@ -5827,7 +5856,11 @@ export default function AdminImport() {
                               );
                             }
 
-                            // Same-name true duplicate — legacy behavior.
+                            // Same-name (or same-URL) true-duplicate signal.
+                            // Phase 4.38.D — even here we offer force-new as
+                            // an override. Two real companies can share a
+                            // name (Cove home security vs Cove USA), and the
+                            // admin needs to be able to say "yes, distinct."
                             return (
                               <div className="flex flex-col gap-0.5 min-w-0">
                                 <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400 whitespace-nowrap">
@@ -5843,6 +5876,20 @@ export default function AdminImport() {
                                 >
                                   {pfResult.match?.company_name || pfResult.match?.normalized_domain || "View"}
                                 </a>
+                                <button
+                                  type="button"
+                                  className="text-xs text-blue-700 dark:text-blue-400 hover:underline text-left"
+                                  onClick={() => {
+                                    setForceNewOptIns((prev) => {
+                                      const next = new Set(prev);
+                                      next.add(i);
+                                      return next;
+                                    });
+                                  }}
+                                  title={`Import "${row.companyName}" as a distinct company (accept that a same-name record already exists).`}
+                                >
+                                  Import as new company
+                                </button>
                                 <button
                                   type="button"
                                   className="text-xs text-red-600 dark:text-red-400 hover:underline text-left"
@@ -5930,18 +5977,88 @@ export default function AdminImport() {
                     );
                   }
                   if (r.status === "exact_match") {
+                    // Phase 4.38.D — mirror the bulk-mode chip's escape
+                    // hatches on the single-URL banner. Same name doesn't
+                    // prove double-import (two real companies can share a
+                    // name); admin gets "Import as new company" as an
+                    // explicit override. Sub-brand path is offered when
+                    // pasted name differs from matched name.
+                    const singleIdx = r.index != null ? r.index : 0;
+                    const isConfirmedForceNew = forceNewOptIns.has(singleIdx);
+                    const isConfirmedSubBrand = subBrandOptIns.has(singleIdx);
+
+                    if (isConfirmedForceNew) {
+                      return (
+                        <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 text-sm text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-3">
+                          <span><Check className="inline h-4 w-4 mr-1" /> Will import as a new company (ignoring the match).</span>
+                          <button
+                            type="button"
+                            className="text-xs underline"
+                            onClick={() => setForceNewOptIns((prev) => { const n = new Set(prev); n.delete(singleIdx); return n; })}
+                          >Undo</button>
+                        </div>
+                      );
+                    }
+                    if (isConfirmedSubBrand) {
+                      return (
+                        <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 text-sm text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-3">
+                          <span><Check className="inline h-4 w-4 mr-1" /> Will import as sub-brand of {r.match?.company_name || "parent"}.</span>
+                          <button
+                            type="button"
+                            className="text-xs underline"
+                            onClick={() => setSubBrandOptIns((prev) => { const n = new Set(prev); n.delete(singleIdx); return n; })}
+                          >Undo</button>
+                        </div>
+                      );
+                    }
+
+                    // Detect sub-brand candidate (name differs from match).
+                    const normUrl = (u) => {
+                      const s = String(u || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "");
+                      return s.endsWith("/") ? s.slice(0, -1) : s;
+                    };
+                    const pastedName = String(query || "").trim().toLowerCase();
+                    const matchedName = String(r.match?.company_name || "").trim().toLowerCase();
+                    const pastedUrl = normUrl(companyUrl);
+                    const matchedUrl = normUrl(r.match?.website_url || r.match?.url || r.match?.canonical_url);
+                    const nameMatches = pastedName && matchedName && pastedName === matchedName;
+                    const urlMatches = pastedUrl && matchedUrl && pastedUrl === matchedUrl;
+                    const isSubBrandCandidate = pastedName && matchedName && !nameMatches && !urlMatches;
+
                     return (
-                      <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-300">
-                        Exact match found:{" "}
-                        <a
-                          href={`/admin?company_id=${encodeURIComponent(r.match?.id || "")}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-medium underline"
-                        >
-                          {r.match?.company_name || r.match?.normalized_domain || "View"}
-                        </a>
-                        {" "}(matched by {r.match?.match_type || "unknown"})
+                      <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-300 space-y-2">
+                        <div>
+                          Exact match found:{" "}
+                          <a
+                            href={`/admin?company_id=${encodeURIComponent(r.match?.id || "")}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium underline"
+                          >
+                            {r.match?.company_name || r.match?.normalized_domain || "View"}
+                          </a>
+                          {" "}(matched by {r.match?.match_type || "unknown"})
+                        </div>
+                        <div className="flex flex-wrap gap-3 text-xs">
+                          {isSubBrandCandidate ? (
+                            <button
+                              type="button"
+                              className="text-emerald-700 dark:text-emerald-400 hover:underline font-medium"
+                              onClick={() => setSubBrandOptIns((prev) => new Set(prev).add(singleIdx))}
+                              title={`Import "${query}" as a sub-brand under ${r.match?.company_name || "the parent"}.`}
+                            >
+                              Import as sub-brand
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="text-blue-700 dark:text-blue-400 hover:underline"
+                            onClick={() => setForceNewOptIns((prev) => new Set(prev).add(singleIdx))}
+                            title={`Import "${query}" as a standalone new company (ignore the ${r.match?.company_name || "existing"} match).`}
+                          >
+                            Import as new company
+                          </button>
+                        </div>
                       </div>
                     );
                   }
