@@ -391,7 +391,15 @@ async function handleImportOne(req, context) {
       body.parent_company_id || body.parentCompanyId || ""
     ).trim();
     // Phase 4.38.C — force-new bypass. When true, skip dup check entirely.
-    const forceNew = body.force_new === true || body.forceNew === true;
+    // Phase 4.38.E — set_as_parent_of: admin declared that the incoming
+    // record is the PARENT of an existing matched record. Import bypasses
+    // the dup check (implies force_new) AND, after the seed doc is
+    // created, patches the existing record to point at the new one.
+    const setAsParentOf = String(
+      body.set_as_parent_of || body.setAsParentOf || ""
+    ).trim();
+    const forceNew =
+      body.force_new === true || body.forceNew === true || Boolean(setAsParentOf);
 
     // Attribution: importer from the server-trusted principal (adminGuard set
     // req.__admin_email above); owner optionally overridden by the caller to
@@ -695,6 +703,51 @@ async function handleImportOne(req, context) {
                   company_name: company.company_name || company.name,
                   normalized_domain: seedResult.normalized_domain,
                 });
+
+                // Phase 4.38.E — if the caller declared this import is
+                // the PARENT of an existing record, patch that existing
+                // record's parent_company_id to point at the new seed.
+                // Best-effort: log failures but don't fail the import
+                // (the sub-brand doc got created either way; admin can
+                // fix the link via the editor).
+                if (setAsParentOf) {
+                  try {
+                    const { resources } = await container.items
+                      .query({
+                        query: "SELECT TOP 1 * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)",
+                        parameters: [{ name: "@id", value: setAsParentOf }],
+                      }, { enableCrossPartitionQuery: true })
+                      .fetchAll();
+                    const target = Array.isArray(resources) && resources[0] ? resources[0] : null;
+                    if (!target) {
+                      console.log("[import-one] set_as_parent_of_target_missing", {
+                        target_id: setAsParentOf,
+                      });
+                    } else {
+                      const oldParent = String(target.parent_company_id || "").trim();
+                      const patched = {
+                        ...target,
+                        parent_company_id: seedResult.company_id,
+                        updated_at: new Date().toISOString(),
+                      };
+                      const partitionKey = String(
+                        target.normalized_domain || target.partition_key || "unknown"
+                      ).trim() || "unknown";
+                      await container.item(target.id, partitionKey).replace(patched);
+                      console.log("[import-one] existing_reparented", {
+                        target_id: target.id,
+                        target_name: target.company_name,
+                        old_parent_company_id: oldParent || null,
+                        new_parent_company_id: seedResult.company_id,
+                      });
+                    }
+                  } catch (e) {
+                    console.log("[import-one] set_as_parent_of_patch_failed", {
+                      target_id: setAsParentOf,
+                      error: String(e?.message || e),
+                    });
+                  }
+                }
               } else {
                 console.log("[import-one] company_seed_failed", {
                   session_id: sessionId,

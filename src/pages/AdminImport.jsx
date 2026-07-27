@@ -351,6 +351,11 @@ export default function AdminImport() {
   // record is actually the parent). Rows in this Set bypass the dup
   // check via force_new: true on the request body.
   const [forceNewOptIns, setForceNewOptIns] = useState(() => new Set());
+  // Phase 4.38.E — rows the admin declared as the PARENT of the matched
+  // existing record. Map<rowIndex, existingMatchId>. Implies force_new
+  // (the new record bypasses the dup check) AND triggers the backend to
+  // patch the existing record's parent_company_id to point at the new one.
+  const [setAsParentOfIds, setSetAsParentOfIds] = useState(() => new Map());
   // Parent id for whichever row the primary slot is currently dispatching.
   // Ref (not state) so beginImport can read the freshest value without
   // re-render churn. Updated in the succession-queue setup / advance code.
@@ -358,6 +363,8 @@ export default function AdminImport() {
   // Phase 4.38.C — same shape for force-new. When set, beginImport
   // includes force_new: true in the request payload.
   const currentPrimaryForceNewRef = useRef(false);
+  // Phase 4.38.E — set-as-parent-of target id for the primary slot.
+  const currentPrimarySetAsParentOfRef = useRef("");
 
   const importConfigured = Boolean(API_BASE);
 
@@ -539,7 +546,7 @@ export default function AdminImport() {
       // Phase 4.38 — rows the admin explicitly confirmed as sub-brands
       // or as "import as new company" are going to import legitimately.
       // Exclude both from the "Remove matches" bulk-drop.
-      .filter((r) => !subBrandOptIns.has(r.index) && !forceNewOptIns.has(r.index))
+      .filter((r) => !subBrandOptIns.has(r.index) && !forceNewOptIns.has(r.index) && !setAsParentOfIds.has(r.index))
       // Phase 4.38.C — UNCONFIRMED sub-brand candidates (the row shows
       // the blue "Sub-brand of X?" chip because pasted name differs
       // from matched name AND URL differs from matched URL) also stay.
@@ -564,7 +571,7 @@ export default function AdminImport() {
         return !isSubBrandCandidate;
       })
       .map((r) => r.index);
-  }, [preflightResults, successionResults, subBrandOptIns, forceNewOptIns, successionRows]);
+  }, [preflightResults, successionResults, subBrandOptIns, forceNewOptIns, setAsParentOfIds, successionRows]);
 
   const exactMatchCount = eligibleExactMatchIndices.length;
 
@@ -2546,6 +2553,10 @@ export default function AdminImport() {
         // backend skips the domain/URL/name dup checks entirely and
         // creates a standalone record even if a domain match exists.
         force_new: currentPrimaryForceNewRef.current || Boolean(options.force_new) ? true : undefined,
+        // Phase 4.38.E — "import as parent of X" override. Backend implies
+        // force_new AND patches the existing record (id = value) to set
+        // parent_company_id = <this row's newly-created id>.
+        set_as_parent_of: (currentPrimarySetAsParentOfRef.current || options.set_as_parent_of || "").trim() || undefined,
       };
 
       // Pre-warm: fire a lightweight request to wake up the Function App before the heavy import.
@@ -3528,7 +3539,7 @@ export default function AdminImport() {
 
   // Shadow import (slot B) — simplified version of beginImport for concurrent succession.
   // Does NOT touch activeSessionId, activeStatus, or primary poll state.
-  const beginImportShadow = useCallback(async (shadowCompanyName, shadowCompanyUrl, shadowParentCompanyId = "", shadowForceNew = false) => {
+  const beginImportShadow = useCallback(async (shadowCompanyName, shadowCompanyUrl, shadowParentCompanyId = "", shadowForceNew = false, shadowSetAsParentOf = "") => {
     if (!importConfigured) return;
 
     const sid = globalThis.crypto?.randomUUID
@@ -3613,6 +3624,8 @@ export default function AdminImport() {
         parent_company_id: String(shadowParentCompanyId || "").trim() || undefined,
         // Phase 4.38.C — force-new override for the shadow slot.
         force_new: shadowForceNew ? true : undefined,
+        // Phase 4.38.E — set-as-parent-of override for the shadow slot.
+        set_as_parent_of: String(shadowSetAsParentOf || "").trim() || undefined,
       };
 
       setRuns((prev) =>
@@ -4537,6 +4550,11 @@ export default function AdminImport() {
         ? String(pfMatch.match.id).trim()
         : "";
       const forceNew = forceNewOptIns.has(singleIdx);
+      // Phase 4.38.E — set_as_parent_of trumps force_new. Backend
+      // implies force_new AND re-parents the existing record.
+      const setAsParentOf = setAsParentOfIds.has(singleIdx)
+        ? String(setAsParentOfIds.get(singleIdx) || "").trim()
+        : "";
 
       const res = await apiFetch("/import-one", {
         method: "POST",
@@ -4547,6 +4565,7 @@ export default function AdminImport() {
           owner: batchOwner.trim().toLowerCase() || undefined,
           parent_company_id: parentHint || undefined,
           force_new: forceNew ? true : undefined,
+          set_as_parent_of: setAsParentOf || undefined,
         }),
       });
 
@@ -4707,7 +4726,7 @@ export default function AdminImport() {
       toast.error(msg);
       setActiveStatus("error");
     }
-  }, [query, importConfigured, resetPollAttempts, schedulePoll, batchOwner, preflightResults, subBrandOptIns, forceNewOptIns]);
+  }, [query, importConfigured, resetPollAttempts, schedulePoll, batchOwner, preflightResults, subBrandOptIns, forceNewOptIns, setAsParentOfIds]);
 
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
 
@@ -4733,15 +4752,22 @@ export default function AdminImport() {
     // beginImport() would still send a payload with no hint.
     const singleIdx = 0;
     const pfMatch = (preflightResults || []).find((r) => r.index === singleIdx);
-    if (forceNewOptIns.has(singleIdx)) {
+    if (setAsParentOfIds.has(singleIdx)) {
+      currentPrimaryParentIdRef.current = "";
+      currentPrimaryForceNewRef.current = false; // backend implies force_new from set_as_parent_of
+      currentPrimarySetAsParentOfRef.current = setAsParentOfIds.get(singleIdx);
+    } else if (forceNewOptIns.has(singleIdx)) {
       currentPrimaryParentIdRef.current = "";
       currentPrimaryForceNewRef.current = true;
+      currentPrimarySetAsParentOfRef.current = "";
     } else if (subBrandOptIns.has(singleIdx) && pfMatch?.match?.id) {
       currentPrimaryParentIdRef.current = String(pfMatch.match.id).trim();
       currentPrimaryForceNewRef.current = false;
+      currentPrimarySetAsParentOfRef.current = "";
     } else {
       currentPrimaryParentIdRef.current = "";
       currentPrimaryForceNewRef.current = false;
+      currentPrimarySetAsParentOfRef.current = "";
     }
 
     if (isUrl) {
@@ -4759,7 +4785,7 @@ export default function AdminImport() {
         startImportRequestInFlightRef.current = false;
       }
     }, 0);
-  }, [query, beginImport, beginImportOneUrl, startImportDisabled, preflightResults, subBrandOptIns, forceNewOptIns]);
+  }, [query, beginImport, beginImportOneUrl, startImportDisabled, preflightResults, subBrandOptIns, forceNewOptIns, setAsParentOfIds]);
 
   const handleQueryInputEnter = useCallback(
     (e) => {
@@ -4785,7 +4811,8 @@ export default function AdminImport() {
       preflightResults.some(
         (r) => (r.status === "exact_match" || r.status === "fuzzy_match") &&
           !subBrandOptIns.has(r.index) &&
-          !forceNewOptIns.has(r.index)
+          !forceNewOptIns.has(r.index) &&
+          !setAsParentOfIds.has(r.index)
       );
 
     if (hasDuplicates) {
@@ -4808,6 +4835,12 @@ export default function AdminImport() {
         // walk the source array to find the matching preflight row.
         const originalIdx = successionRows.indexOf(row);
         if (originalIdx < 0) return { ...row };
+        // Phase 4.38.E — set_as_parent_of takes precedence over the others.
+        // Backend implies force_new for the dup check AND performs the
+        // post-write re-parent.
+        if (setAsParentOfIds.has(originalIdx)) {
+          return { ...row, set_as_parent_of: setAsParentOfIds.get(originalIdx) };
+        }
         // Phase 4.38.C — force-new takes precedence over sub-brand.
         // Admin explicitly chose "this is a separate company."
         if (forceNewOptIns.has(originalIdx)) return { ...row, force_new: true };
@@ -4840,16 +4873,17 @@ export default function AdminImport() {
     setCompanyUrl(first.companyUrl);
     currentPrimaryParentIdRef.current = String(first.parent_company_id || "").trim();
     currentPrimaryForceNewRef.current = Boolean(first.force_new);
+    currentPrimarySetAsParentOfRef.current = String(first.set_as_parent_of || "").trim();
     successionTriggerRef.current = true;
 
     // Launch shadow slot (slot B) for second company with 2s stagger
     if (SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1) {
       const second = validRows[1];
       setTimeout(() => {
-        beginImportShadow(second.companyName, second.companyUrl, second.parent_company_id || "", Boolean(second.force_new));
+        beginImportShadow(second.companyName, second.companyUrl, second.parent_company_id || "", Boolean(second.force_new), second.set_as_parent_of || "");
       }, 2000);
     }
-  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged, preflightResults, subBrandOptIns, beginImportShadow, SUCCESSION_CONCURRENCY]);
+  }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged, preflightResults, subBrandOptIns, forceNewOptIns, setAsParentOfIds, beginImportShadow, SUCCESSION_CONCURRENCY]);
 
   // Import Now: proceeds with import after duplicate dialog confirmation
   const handleImportNow = useCallback(() => {
@@ -4891,16 +4925,17 @@ export default function AdminImport() {
     setCompanyUrl(first.companyUrl);
     currentPrimaryParentIdRef.current = String(first.parent_company_id || "").trim();
     currentPrimaryForceNewRef.current = Boolean(first.force_new);
+    currentPrimarySetAsParentOfRef.current = String(first.set_as_parent_of || "").trim();
     successionTriggerRef.current = true;
 
     // Launch shadow slot (slot B) for second company with 2s stagger
     if (SUCCESSION_CONCURRENCY >= 2 && validRows.length > 1) {
       const second = validRows[1];
       setTimeout(() => {
-        beginImportShadow(second.companyName, second.companyUrl, second.parent_company_id || "", Boolean(second.force_new));
+        beginImportShadow(second.companyName, second.companyUrl, second.parent_company_id || "", Boolean(second.force_new), second.set_as_parent_of || "");
       }, 2000);
     }
-  }, [successionCount, successionRows, preflightResults, subBrandOptIns, handleStartImportStaged, beginImportShadow, SUCCESSION_CONCURRENCY]);
+  }, [successionCount, successionRows, preflightResults, subBrandOptIns, forceNewOptIns, setAsParentOfIds, handleStartImportStaged, beginImportShadow, SUCCESSION_CONCURRENCY]);
 
   // Succession import: trigger effect — fires the import after state has updated
   useEffect(() => {
@@ -5056,10 +5091,11 @@ export default function AdminImport() {
     const next = successionQueue[nextIdx];
     setQuery(next.companyName);
     setCompanyUrl(next.companyUrl);
-    // Phase 4.38 — update the primary-slot parent-id / force-new refs so
-    // beginImport reads the right values for the next row's request payload.
+    // Phase 4.38 — update the primary-slot refs so beginImport reads the
+    // right values for the next row's request payload.
     currentPrimaryParentIdRef.current = String(next.parent_company_id || "").trim();
     currentPrimaryForceNewRef.current = Boolean(next.force_new);
+    currentPrimarySetAsParentOfRef.current = String(next.set_as_parent_of || "").trim();
     setSuccessionIndex(nextIdx);
     successionTriggerRef.current = true;
   }, [activeStatus, successionIndex, successionQueue, activeSessionId, verifyEnrichment, isRunStrictlyComplete]);
@@ -5126,8 +5162,8 @@ export default function AdminImport() {
     const next = successionQueue[nextIdx];
     setSuccessionShadowIndex(nextIdx);
     setShadowStatus("idle"); // briefly idle to allow next status flip
-    // Phase 4.38 — forward the row's parent_company_id and force_new flag.
-    setTimeout(() => beginImportShadow(next.companyName, next.companyUrl, next.parent_company_id || "", Boolean(next.force_new)), 1000);
+    // Phase 4.38 — forward the row's sub-brand / force-new / set-as-parent flags.
+    setTimeout(() => beginImportShadow(next.companyName, next.companyUrl, next.parent_company_id || "", Boolean(next.force_new), next.set_as_parent_of || ""), 1000);
   }, [shadowStatus, successionShadowIndex, successionQueue, shadowSessionId, beginImportShadow, stopShadowPolling, verifyEnrichment, isRunStrictlyComplete]);
 
   // Phase 4.9 — slot-startedAt tracker. When a slot transitions to "running"
@@ -5743,6 +5779,32 @@ export default function AdminImport() {
                               pastedName && matchedName && !nameMatches && !urlMatches;
                             const isConfirmedSubBrand = subBrandOptIns.has(i);
                             const isConfirmedForceNew = forceNewOptIns.has(i);
+                            const isConfirmedSetAsParent = setAsParentOfIds.has(i);
+
+                            if (isConfirmedSetAsParent) {
+                              return (
+                                <div className="flex flex-col gap-0.5 min-w-0">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                                    <Check className="h-3 w-3" />
+                                    Parent of {pfResult.match?.company_name || "existing"}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="text-xs text-slate-500 dark:text-muted-foreground hover:underline text-left"
+                                    onClick={() => {
+                                      setSetAsParentOfIds((prev) => {
+                                        const next = new Map(prev);
+                                        next.delete(i);
+                                        return next;
+                                      });
+                                    }}
+                                    title="Undo — restore this row's original match warning."
+                                  >
+                                    Undo
+                                  </button>
+                                </div>
+                              );
+                            }
 
                             if (isConfirmedForceNew) {
                               return (
@@ -5824,13 +5886,33 @@ export default function AdminImport() {
                                   >
                                     Import as sub-brand
                                   </button>
+                                  {/* Phase 4.38.E — "Import as parent of X"
+                                      inverts the relationship: the new
+                                      record is the parent, X becomes its
+                                      sub-brand. Backend bypasses the dup
+                                      check for THIS import AND patches the
+                                      existing record's parent_company_id
+                                      to point at the newly-created doc. */}
+                                  {pfResult.match?.id ? (
+                                    <button
+                                      type="button"
+                                      className="text-xs text-purple-700 dark:text-purple-400 hover:underline text-left"
+                                      onClick={() => {
+                                        setSetAsParentOfIds((prev) => {
+                                          const next = new Map(prev);
+                                          next.set(i, String(pfResult.match.id).trim());
+                                          return next;
+                                        });
+                                      }}
+                                      title={`Import "${row.companyName}" as the parent of ${pfResult.match?.company_name || "the existing record"} — the existing record's parent link will be updated to point at the new company.`}
+                                    >
+                                      Import as parent of {pfResult.match?.company_name || "existing"}
+                                    </button>
+                                  ) : null}
                                   {/* Phase 4.38.C — "Import as new company"
                                       lets admin overrule the sub-brand hint
-                                      when the relationship is inverted
-                                      (e.g. the new record is actually the
-                                      parent) or the two are peers with a
-                                      shared domain. Bypasses the dup check
-                                      via force_new: true. */}
+                                      when the two are peers with a shared
+                                      domain but no parent/child link. */}
                                   <button
                                     type="button"
                                     className="text-xs text-blue-700 dark:text-blue-400 hover:underline text-left"
@@ -5841,7 +5923,7 @@ export default function AdminImport() {
                                         return next;
                                       });
                                     }}
-                                    title={`Import "${row.companyName}" as a standalone new company (ignore the ${pfResult.match?.company_name || "existing"} match).`}
+                                    title={`Import "${row.companyName}" as a standalone new company (ignore the ${pfResult.match?.company_name || "existing"} match, no relationship set).`}
                                   >
                                     Import as new company
                                   </button>
@@ -5986,6 +6068,20 @@ export default function AdminImport() {
                     const singleIdx = r.index != null ? r.index : 0;
                     const isConfirmedForceNew = forceNewOptIns.has(singleIdx);
                     const isConfirmedSubBrand = subBrandOptIns.has(singleIdx);
+                    const isConfirmedSetAsParent = setAsParentOfIds.has(singleIdx);
+
+                    if (isConfirmedSetAsParent) {
+                      return (
+                        <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 text-sm text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-3">
+                          <span><Check className="inline h-4 w-4 mr-1" /> Will import as parent of {r.match?.company_name || "existing"} (existing record's parent link will be updated).</span>
+                          <button
+                            type="button"
+                            className="text-xs underline"
+                            onClick={() => setSetAsParentOfIds((prev) => { const n = new Map(prev); n.delete(singleIdx); return n; })}
+                          >Undo</button>
+                        </div>
+                      );
+                    }
 
                     if (isConfirmedForceNew) {
                       return (
@@ -6050,11 +6146,21 @@ export default function AdminImport() {
                               Import as sub-brand
                             </button>
                           ) : null}
+                          {isSubBrandCandidate && r.match?.id ? (
+                            <button
+                              type="button"
+                              className="text-purple-700 dark:text-purple-400 hover:underline"
+                              onClick={() => setSetAsParentOfIds((prev) => new Map(prev).set(singleIdx, String(r.match.id).trim()))}
+                              title={`Import "${query}" as the parent of ${r.match?.company_name || "the existing record"} — the existing record's parent link will be updated to point at the new company.`}
+                            >
+                              Import as parent of {r.match?.company_name || "existing"}
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             className="text-blue-700 dark:text-blue-400 hover:underline"
                             onClick={() => setForceNewOptIns((prev) => new Set(prev).add(singleIdx))}
-                            title={`Import "${query}" as a standalone new company (ignore the ${r.match?.company_name || "existing"} match).`}
+                            title={`Import "${query}" as a standalone new company (ignore the ${r.match?.company_name || "existing"} match, no relationship set).`}
                           >
                             Import as new company
                           </button>

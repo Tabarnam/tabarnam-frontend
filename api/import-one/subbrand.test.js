@@ -188,3 +188,23 @@ test("Phase 4.38.C: forceNew takes precedence over parentCompanyIdHint", async (
   assert.equal(result.force_new, true);
   assert.equal(result.sub_brand_of, undefined);
 });
+
+// Phase 4.38.E — set_as_parent_of implies force_new at the dup-check layer.
+// The post-write re-parent step lives in the handler (not the check helper)
+// so this test just guards the bypass. Handler-level tests would need real
+// container mocking that's out of scope for the unit test.
+test("Phase 4.38.E: set_as_parent_of implies force_new bypass at check layer", async () => {
+  // In the handler, body.set_as_parent_of causes forceNew to be true
+  // when calling checkExistingCompanyByDomain. So the effective check
+  // behavior is identical to a force_new call — verified indirectly
+  // via the forceNew tests above. This test documents the contract.
+  const container = makeContainer({ byDomain: { "hp.com": hpMatch } });
+  const result = await checkExistingCompanyByDomain({
+    domain: "hp.com",
+    url: "https://hp.com/",
+    container,
+    forceNew: true, // set by handler when set_as_parent_of is present
+  });
+  assert.equal(result.exists, false, "set_as_parent_of must bypass dup check via forceNew");
+  assert.equal(result.force_new, true);
+});

@@ -2959,7 +2959,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   bodyObj?.parent_company_id || bodyObj?.parentCompanyId || ""
                 ).trim();
                 // Phase 4.38.C â€” force-new bypass at the pre-enrichment gate too.
-                const preEnrichForceNew = bodyObj?.force_new === true || bodyObj?.forceNew === true;
+                // Phase 4.38.E â€” set_as_parent_of implies force_new here so the
+                // new record (which will become the parent) isn't blocked.
+                const preEnrichSetAsParentOf = String(
+                  bodyObj?.set_as_parent_of || bodyObj?.setAsParentOf || ""
+                ).trim();
+                const preEnrichForceNew =
+                  bodyObj?.force_new === true ||
+                  bodyObj?.forceNew === true ||
+                  Boolean(preEnrichSetAsParentOf);
 
                 // Dedupe rule (imports): normalized_domain is the primary key; canonical_url is a secondary matcher.
                 // This prevents "seed-fallback" duplicates accumulating when URL formatting differs.
@@ -5427,7 +5435,16 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             const requestParentCompanyId = String(
               bodyObj?.parent_company_id || bodyObj?.parentCompanyId || ""
             ).trim();
-            const requestForceNew = bodyObj?.force_new === true || bodyObj?.forceNew === true;
+            // Phase 4.38.E â€” set_as_parent_of implies force_new; after the
+            // save, we also patch the existing record to point at the
+            // newly-created doc.
+            const requestSetAsParentOf = String(
+              bodyObj?.set_as_parent_of || bodyObj?.setAsParentOf || ""
+            ).trim();
+            const requestForceNew =
+              bodyObj?.force_new === true ||
+              bodyObj?.forceNew === true ||
+              Boolean(requestSetAsParentOf);
             const enrichedForSave =
               requestParentCompanyId || requestForceNew
                 ? enriched.map((c) => {
@@ -5472,6 +5489,62 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             console.log(
               `[import-start] session=${sessionId} saveCompaniesToCosmos done saved_verified=${verifiedCount} saved_write=${Number(saveResult.saved_write_count || 0) || 0} skipped=${saveResult.skipped} failed=${saveResult.failed}`
             );
+
+            // Phase 4.38.E â€” re-parent the matched existing record when
+            // the admin declared the incoming import is its parent. Runs
+            // AFTER a successful new-doc write so we have the id to patch
+            // into the target. Best-effort: log failures but don't fail
+            // the import (admin can fix the link via the editor).
+            if (requestSetAsParentOf && verifiedCount > 0) {
+              try {
+                const container = getCompaniesCosmosContainer();
+                if (container) {
+                  const savedIds = Array.isArray(saveResult.saved_company_ids_verified)
+                    ? saveResult.saved_company_ids_verified
+                    : [];
+                  const newParentId = savedIds[0];
+                  if (newParentId) {
+                    const { resources } = await container.items
+                      .query({
+                        query: "SELECT TOP 1 * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)",
+                        parameters: [{ name: "@id", value: requestSetAsParentOf }],
+                      }, { enableCrossPartitionQuery: true })
+                      .fetchAll();
+                    const target = Array.isArray(resources) && resources[0] ? resources[0] : null;
+                    if (!target) {
+                      console.log("[import-start] set_as_parent_of_target_missing", {
+                        target_id: requestSetAsParentOf,
+                        session_id: sessionId,
+                      });
+                    } else {
+                      const oldParent = String(target.parent_company_id || "").trim();
+                      const patched = {
+                        ...target,
+                        parent_company_id: newParentId,
+                        updated_at: new Date().toISOString(),
+                      };
+                      const partitionKey = String(
+                        target.normalized_domain || target.partition_key || "unknown"
+                      ).trim() || "unknown";
+                      await container.item(target.id, partitionKey).replace(patched);
+                      console.log("[import-start] existing_reparented", {
+                        session_id: sessionId,
+                        target_id: target.id,
+                        target_name: target.company_name,
+                        old_parent_company_id: oldParent || null,
+                        new_parent_company_id: newParentId,
+                      });
+                    }
+                  }
+                }
+              } catch (e) {
+                console.log("[import-start] set_as_parent_of_patch_failed", {
+                  target_id: requestSetAsParentOf,
+                  session_id: sessionId,
+                  error: String(e?.message || e),
+                });
+              }
+            }
 
             // (Backfill auto-trigger moved to resume-worker after xAI completion;
             // see api/import/resume-worker/handler.js)
