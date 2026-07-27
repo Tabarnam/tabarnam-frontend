@@ -4698,20 +4698,6 @@ export default function CompanyDashboard() {
                                 </div>
                               ) : null}
 
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setBulkPasteText("");
-                                  setBulkPasteOpen(true);
-                                }}
-                                disabled={refreshLoading || editorSaving}
-                                title="Paste Grok response to populate fields"
-                              >
-                                <ClipboardPaste className="h-4 w-4 mr-2" />
-                                Bulk paste
-                              </Button>
-
                               {/* Which admin is working this company. Defaults to the
                                   importer; reassigning hands it off — saved like any
                                   field, so it lands in edit history with the acting
@@ -4739,6 +4725,22 @@ export default function CompanyDashboard() {
                                   ))}
                                 </select>
                               </div>
+
+                              {/* Most-used control in the editor — the ONLY filled-primary
+                                  button on this row (same treatment as "+ Company") so it
+                                  reads as the dominant action at a glance. */}
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  setBulkPasteText("");
+                                  setBulkPasteOpen(true);
+                                }}
+                                disabled={refreshLoading || editorSaving}
+                                title="Paste Grok response to populate fields"
+                              >
+                                <ClipboardPaste className="h-4 w-4 mr-2" />
+                                Bulk paste
+                              </Button>
 
                               {editorProfileInfo ? (
                                 <div className="flex items-center gap-2 ml-auto">
