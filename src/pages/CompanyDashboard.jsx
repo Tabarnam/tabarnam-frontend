@@ -3623,7 +3623,8 @@ export default function CompanyDashboard() {
             </button>
           );
         },
-        width: "45px",
+        width: "42px",
+        compact: true,
       },
       {
         name: "Edit",
@@ -3633,7 +3634,8 @@ export default function CompanyDashboard() {
             <Pencil className="h-4 w-4" />
           </Button>
         ),
-        width: "70px",
+        width: "48px",
+        compact: true,
       },
       {
         id: "name",
@@ -3645,7 +3647,7 @@ export default function CompanyDashboard() {
         // right-hand columns (Issues, Delete) off-screen. Names are generally
         // concise; the rare long one wraps to a second row.
         grow: 0,
-        width: "215px",
+        width: "170px",
         cell: (row) => {
           const name = getCompanyName(row);
           return (
@@ -4025,7 +4027,10 @@ export default function CompanyDashboard() {
             </div>
           );
         },
-        width: "240px",
+        // The one flexible column: grows to absorb whatever width is left so
+        // the table always fills to the Delete edge — no dead space after it.
+        grow: 1,
+        minWidth: "220px",
       },
       {
         name: "Delete",
@@ -4156,10 +4161,17 @@ export default function CompanyDashboard() {
     [isDark]
   );
 
-  const contextActions = useMemo(() => {
-    if (!selectedRows || selectedRows.length === 0) return null;
-    return (
-      <div className="flex items-center gap-2">
+  // Bulk-selection toolbar, rendered above the table whenever rows are checked.
+  // Deliberately NOT react-data-table-component's contextActions: RDT only
+  // shows those inside its own title header, which this table doesn't render —
+  // the actions silently never appeared.
+  const selectionToolbar =
+    !selectedRows || selectedRows.length === 0 ? null : (
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2">
+        <span className="text-sm font-medium text-slate-800 dark:text-foreground">
+          {selectedRows.length} selected
+        </span>
+
         {/* Reassign every selected company to one admin. Choosing an email fires
             immediately — the select resets itself via the cleared selection. */}
         <select
@@ -4185,15 +4197,27 @@ export default function CompanyDashboard() {
 
         <Button
           variant="outline"
+          size="sm"
           className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
           onClick={deleteSelected}
         >
           <Trash2 className="h-4 w-4 mr-2" />
           Delete selected ({selectedRows.length})
         </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          onClick={() => {
+            setSelectedRows([]);
+            setClearRowsToggle((v) => !v);
+          }}
+        >
+          Clear selection
+        </Button>
       </div>
     );
-  }, [bulkAssignLoading, bulkAssignOwner, deleteSelected, selectedRows]);
 
   const noDataComponent = useMemo(() => {
     if (lastError && (lastError.status === 503 || lastError.status === 404 || lastError.status >= 500)) {
@@ -4288,18 +4312,35 @@ export default function CompanyDashboard() {
               <label className="text-sm text-slate-700 dark:text-muted-foreground">Companies per page</label>
               {/* Single source of truth for how many companies to load+show.
                   Drives the backend fetch size `take` (auto-reloads via the
-                  [search, take] effect), replacing both the old "Take" input
-                  and the DataTable's bottom rows-per-page selector. */}
-              <select
-                value={String(take)}
-                onChange={(e) => setTake(Number(e.target.value) || DEFAULT_TAKE)}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                  [search, take] effect). A number input backed by a datalist:
+                  the dropdown arrow offers the usual presets, but any value
+                  1–1000 can be typed directly (commits on Enter or blur). */}
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={1000}
+                step={1}
+                list="companies-per-page-presets"
+                defaultValue={String(take)}
+                key={`take-${take}`}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                onBlur={(e) => {
+                  const n = Math.max(1, Math.min(1000, Math.trunc(Number(e.target.value)) || DEFAULT_TAKE));
+                  e.target.value = String(n);
+                  if (n !== take) setTake(n);
+                }}
+                className="h-9 w-20 rounded-md border border-input bg-background px-2 text-sm text-foreground"
                 aria-label="Companies per page"
-              >
+                title="Type any number up to 1000, or pick a preset"
+              />
+              <datalist id="companies-per-page-presets">
                 {[25, 50, 100, 250, 500, 1000].map((n) => (
-                  <option key={n} value={n}>{n}</option>
+                  <option key={n} value={n} />
                 ))}
-              </select>
+              </datalist>
             </div>
 
             <Button
@@ -4399,6 +4440,7 @@ export default function CompanyDashboard() {
           )}
 
           <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card overflow-x-auto">
+            {selectionToolbar}
             <DataTable
               key={`${search.trim() ? "search" : (sortColumn?.id || "default")}-${sortDirection}-${filteredItems.length}`}
               columns={columns}
@@ -4414,12 +4456,10 @@ export default function CompanyDashboard() {
               ]}
               progressPending={loading && items.length === 0}
               progressComponent={progressComponent}
-              // Row selection powers the bulk toolbar (assign owner / delete).
-              // contextActions renders in RDT's contextual header when rows are
-              // checked; clearSelectedRows flips to uncheck after a bulk action.
+              // Row selection powers the selectionToolbar rendered above the
+              // table; clearSelectedRows flips to uncheck after a bulk action.
               selectableRows
               onSelectedRowsChange={({ selectedRows: rows }) => setSelectedRows(rows || [])}
-              contextActions={contextActions}
               clearSelectedRows={clearRowsToggle}
               pagination
               // Page size is the fetched count: the top "Rows per page" control

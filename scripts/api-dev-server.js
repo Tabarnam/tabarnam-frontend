@@ -44,12 +44,17 @@ export function devApiMiddleware(server) {
     
     // Find the matching registration
     const registrations = app._test.listHttpRegistrations();
-    
-    // Try to match by route first, then by name
-    let registration = registrations.find(r => String(r.route || "").toLowerCase() === routePath.toLowerCase());
-    if (!registration) {
-      registration = registrations.find(r => String(r.name || "").toLowerCase() === routePath.toLowerCase());
-    }
+
+    // Try to match by route first, then by name. Registrations may declare a
+    // trailing OPTIONAL route param (e.g. "xadmin-api-companies/{id?}"); the
+    // exact-string compare missed those, so such routes silently fell through
+    // to the proxy and 500'd locally. Strip optional segments for comparison.
+    const stripOptionalParams = (r) => String(r || "").toLowerCase().replace(/(\/\{[^}]*\?\})+$/, "");
+    const want = routePath.toLowerCase();
+    let registration =
+      registrations.find(r => String(r.route || "").toLowerCase() === want) ||
+      registrations.find(r => stripOptionalParams(r.route) === want) ||
+      registrations.find(r => String(r.name || "").toLowerCase() === want);
 
     if (!registration || typeof registration.handler !== "function") {
       // If no local handler, let it fall through to the proxy (if configured) or 404
