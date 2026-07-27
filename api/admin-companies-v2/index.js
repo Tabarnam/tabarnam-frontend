@@ -1462,6 +1462,24 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           whereClauses.push("IS_DEFINED(c.issues_count) AND c.issues_count > 0");
         }
 
+        // Optional person filters: ?owner= / ?imported_by= narrow to the admin
+        // working (owner, reassignable) or the admin who first imported
+        // (imported_by, immutable). Values are lowercased emails — stamped
+        // lowercase at import time so plain equality matches. The sentinel
+        // "__none__" selects unattributed rows (field missing or null), the
+        // bucket legacy pre-attribution docs live in.
+        for (const [param, field] of [["owner", "c.owner"], ["imported_by", "c.imported_by"]]) {
+          const raw = String(req.query?.[param] || "").trim().toLowerCase();
+          if (!raw) continue;
+          if (raw === "__none__") {
+            whereClauses.push(`(NOT IS_DEFINED(${field}) OR IS_NULL(${field}) OR ${field} = "")`);
+          } else {
+            const paramName = `@person_${param}`;
+            whereClauses.push(`IS_DEFINED(${field}) AND ${field} = ${paramName}`);
+            parameters.push({ name: paramName, value: raw });
+          }
+        }
+
         if (search) {
           // Phase 4.36 — dispatch on `?deep=true` (or `?deep=1`) to either
           // the fast indexed path (default) or the legacy CONTAINS-spam

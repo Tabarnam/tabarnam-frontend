@@ -29,6 +29,24 @@ const { applyEnrichment } = require("../_applyEnrichment");
 const { applySortKeys, looksLikeCompanyDoc } = require("../_sortKeys");
 const { computeContractEnrichmentHealth } = require("../_contractHealth");
 
+// Importer/owner attribution for a doc about to be persisted. imported_by and
+// imported_by_at are immutable provenance; owner starts as the importer and is
+// reassigned only through the editor save path. All three are stamped on first
+// create and PRESERVED on update (mirroring created_at), so enrichment re-saves
+// and re-imports can never null or reassign an already-attributed doc.
+function resolveImportAttribution({ existingDoc, shouldUpdateExisting, importedByEmail, nowIso }) {
+  const keep = (field) =>
+    shouldUpdateExisting && existingDoc && typeof existingDoc[field] === "string" && existingDoc[field].trim()
+      ? existingDoc[field].trim()
+      : null;
+  const email = typeof importedByEmail === "string" && importedByEmail.trim() ? importedByEmail.trim().toLowerCase() : null;
+  return {
+    imported_by: keep("imported_by") || email,
+    imported_by_at: keep("imported_by_at") || (email ? nowIso : null),
+    owner: keep("owner") || email,
+  };
+}
+
 // Stamp the admin-sort scalars (qq_score, issues_count) on a company doc before
 // it's persisted, refreshing enrichment_health from the live contract first so
 // issues_count is accurate. Without this, first-pass imports save with NO
@@ -589,10 +607,18 @@ async function saveCompaniesToCosmos({
   getRemainingMs,
   allowUpdateExisting = false,
   fieldsToEnrich,
+  importedBy,
 }) {
   try {
     const list = Array.isArray(companies) ? companies : [];
     const sid = String(sessionId || "").trim();
+
+    // Authenticated admin who initiated this import, lowercased for stable
+    // equality with the dashboard filter. null for internal/queue jobs that
+    // carry no principal (enrichment re-saves, expansion) — preserve-on-update
+    // below guarantees those never null an already-attributed doc.
+    const importedByEmail =
+      typeof importedBy === "string" && importedBy.trim() ? importedBy.trim().toLowerCase() : null;
 
     const importRequestId = typeof requestId === "string" && requestId.trim() ? requestId.trim() : null;
     const importCreatedAt =
@@ -1017,6 +1043,7 @@ async function saveCompaniesToCosmos({
                   ? existingDoc.created_at.trim()
                   : nowIso,
               updated_at: nowIso,
+              ...resolveImportAttribution({ existingDoc, shouldUpdateExisting, importedByEmail, nowIso }),
             };
 
             // Canonical import contract:
@@ -1549,4 +1576,5 @@ module.exports = {
   isEnrichmentComplete,
   fetchLogo,
   requireImportCompanyLogo,
+  resolveImportAttribution,
 };

@@ -140,6 +140,12 @@ const FIELD_META = {
   notes: { label: "Admin notes", type: "text" },
   notes_entries: { label: "Admin notes", type: "count" },
 
+  // Attribution: owner is reassigned in the editor (a real admin decision);
+  // imported_by/imported_by_at are stamped once at import time.
+  owner: { label: "Owner", type: "text" },
+  imported_by: { label: "Imported by", type: "text" },
+  imported_by_at: { label: "Imported at", type: "text", system: true },
+
   // Server-derived. Rewritten on nearly every save; never an admin decision.
   enrichment_health: { label: "Enrichment health", type: "blob", system: true },
   search_tokens: { label: "Search tokens", type: "list", system: true },

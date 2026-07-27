@@ -143,6 +143,12 @@ async function handler(context, req) {
     // Generate batch ID
     const batchId = uuidv4();
     const requestedBy = asString(body.requested_by).trim() || "admin_ui";
+    // Authenticated admin's email from the caller's session — threaded through
+    // the queue → worker → import-start so the created company doc records who
+    // imported it. Distinct from requested_by (a free-form label defaulting to
+    // "admin_ui"); imported_by must never fall back to that placeholder, so it
+    // stays null when the caller sent no email.
+    const importedBy = asString(body.imported_by).trim().toLowerCase() || null;
     const enqueuedAt = nowIso();
 
     // Optional field selection — passed through queue messages to worker → import-start
@@ -187,6 +193,7 @@ async function handler(context, req) {
         position: job.position,
         batch_id: batchId,
         requested_by: requestedBy,
+        imported_by: importedBy,
         enqueued_at: enqueuedAt,
         run_after_ms: 0, // Immediate visibility
         fields_to_enrich: fieldsToEnrich,

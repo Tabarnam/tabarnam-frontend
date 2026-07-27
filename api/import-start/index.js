@@ -738,6 +738,16 @@ const importStartHandlerInner = async (req, context) => {
 
       const bodyObj = payload && typeof payload === "object" ? payload : {};
 
+      // Who imported: prefer the server-trusted authenticated admin (adminGuard
+      // set req.__admin_email above) for direct interactive imports. The bulk
+      // path reaches here via an in-process mockReq that has NO principal, so it
+      // falls back to bodyObj.imported_by, which the worker threads from the
+      // queue message. Internal/queue re-saves with neither → null (unattributed).
+      const importedBy =
+        (typeof req?.__admin_email === "string" && req.__admin_email.trim() && req.__admin_email.trim().toLowerCase()) ||
+        (typeof bodyObj?.imported_by === "string" && bodyObj.imported_by.trim() && bodyObj.imported_by.trim().toLowerCase()) ||
+        null;
+
       const hasBodySessionId = Boolean(bodyObj && typeof bodyObj === "object" && Object.prototype.hasOwnProperty.call(bodyObj, "session_id"));
       const bodySessionIdValue = hasBodySessionId ? bodyObj.session_id : undefined;
 
@@ -3031,6 +3041,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     getRemainingMs,
                     allowUpdateExisting: isExplicitCompanyImport || forceUpdateForIncompleteDuplicate,
                     fieldsToEnrich,
+                    importedBy,
                   });
 
                   const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
@@ -5435,6 +5446,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               getRemainingMs,
               allowUpdateExisting: isExplicitCompanyImportMain,
               fieldsToEnrich,
+              importedBy,
             });
 
             const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
@@ -6320,6 +6332,7 @@ Return ONLY the JSON array, no other text.`,
                       saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
                       getRemainingMs,
                       fieldsToEnrich,
+                      importedBy,
                     });
 
                     const expansionVerification = await verifySavedCompaniesReadAfterWrite(expansionRaw).catch(() => ({

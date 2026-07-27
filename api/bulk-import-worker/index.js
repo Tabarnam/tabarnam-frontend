@@ -28,6 +28,9 @@ async function processQueueMessage(message, context) {
   const url = asString(message?.url).trim();
   const batchId = asString(message?.batch_id).trim();
   const fieldsToEnrich = Array.isArray(message?.fields_to_enrich) ? message.fields_to_enrich : undefined;
+  // Importing admin, threaded from the enqueue request. mockReq below carries no
+  // auth principal, so import-start reads this off the body to attribute the doc.
+  const importedBy = asString(message?.imported_by).trim().toLowerCase() || null;
   const invocationId = context?.invocationId || "unknown";
 
   if (!jobId) {
@@ -74,6 +77,7 @@ async function processQueueMessage(message, context) {
         bulk_import_job_id: jobId,
         bulk_import_batch_id: batchId,
         fields_to_enrich: fieldsToEnrich,
+        imported_by: importedBy,
       },
       json: async () => ({
         query: url,
@@ -83,6 +87,7 @@ async function processQueueMessage(message, context) {
         bulk_import_job_id: jobId,
         bulk_import_batch_id: batchId,
         fields_to_enrich: fieldsToEnrich,
+        imported_by: importedBy,
       }),
       query: {},
       __in_process: true, // Trust as internal call

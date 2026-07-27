@@ -140,3 +140,87 @@ test("Phase 3.4.A: isEnrichmentComplete mixed case — one infra failure + one p
     "Even one infra-failure field must block 'complete' status"
   );
 });
+
+// ── Importer/owner attribution ──────────────────────────────────────────────
+//
+// resolveImportAttribution stamps imported_by / imported_by_at / owner on
+// create and PRESERVES them on update (mirroring created_at), so enrichment
+// re-saves and re-imports can never null or reassign an attributed doc.
+
+const { resolveImportAttribution } = require("./_importStartSaveCompanies");
+
+const NOW = "2026-07-27T00:00:00.000Z";
+
+test("attribution: create with an actor stamps importer, timestamp, and owner", () => {
+  const out = resolveImportAttribution({
+    existingDoc: null,
+    shouldUpdateExisting: false,
+    importedByEmail: "a@x.com",
+    nowIso: NOW,
+  });
+  assert.deepEqual(out, { imported_by: "a@x.com", imported_by_at: NOW, owner: "a@x.com" });
+});
+
+test("attribution: create with no actor leaves all three null (unattributed)", () => {
+  const out = resolveImportAttribution({
+    existingDoc: null,
+    shouldUpdateExisting: false,
+    importedByEmail: null,
+    nowIso: NOW,
+  });
+  assert.deepEqual(out, { imported_by: null, imported_by_at: null, owner: null });
+});
+
+test("attribution: update preserves the original importer over a new actor", () => {
+  const out = resolveImportAttribution({
+    existingDoc: { imported_by: "a@x.com", imported_by_at: "2026-01-01T00:00:00.000Z", owner: "a@x.com" },
+    shouldUpdateExisting: true,
+    importedByEmail: "b@x.com",
+    nowIso: NOW,
+  });
+  assert.equal(out.imported_by, "a@x.com", "imported_by is immutable provenance");
+  assert.equal(out.imported_by_at, "2026-01-01T00:00:00.000Z");
+});
+
+test("attribution: update preserves a reassigned owner (editor handoff survives re-import)", () => {
+  const out = resolveImportAttribution({
+    existingDoc: { imported_by: "a@x.com", imported_by_at: "2026-01-01T00:00:00.000Z", owner: "c@x.com" },
+    shouldUpdateExisting: true,
+    importedByEmail: "a@x.com",
+    nowIso: NOW,
+  });
+  assert.equal(out.owner, "c@x.com", "a re-import must not steal ownership back");
+});
+
+test("attribution: actorless update of an attributed doc never nulls the fields", () => {
+  const out = resolveImportAttribution({
+    existingDoc: { imported_by: "a@x.com", imported_by_at: "2026-01-01T00:00:00.000Z", owner: "a@x.com" },
+    shouldUpdateExisting: true,
+    importedByEmail: null,
+    nowIso: NOW,
+  });
+  assert.equal(out.imported_by, "a@x.com", "enrichment/queue re-saves carry no actor but must preserve");
+  assert.equal(out.owner, "a@x.com");
+});
+
+test("attribution: update of a legacy unattributed doc adopts the current actor", () => {
+  const out = resolveImportAttribution({
+    existingDoc: { company_name: "Legacy Co" },
+    shouldUpdateExisting: true,
+    importedByEmail: "b@x.com",
+    nowIso: NOW,
+  });
+  assert.equal(out.imported_by, "b@x.com", "empty field = nothing to preserve; attribute the re-importer");
+  assert.equal(out.owner, "b@x.com");
+});
+
+test("attribution: email is lowercased for stable filter equality", () => {
+  const out = resolveImportAttribution({
+    existingDoc: null,
+    shouldUpdateExisting: false,
+    importedByEmail: "  Jon@Tabarnam.COM ",
+    nowIso: NOW,
+  });
+  assert.equal(out.imported_by, "jon@tabarnam.com");
+  assert.equal(out.owner, "jon@tabarnam.com");
+});

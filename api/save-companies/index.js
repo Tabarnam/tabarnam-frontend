@@ -634,6 +634,19 @@ async function saveCompaniesHandler(req, context) {
           const nowIso = new Date().toISOString();
           const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+          // Importer/owner attribution. This handler runs under withAdminGuard, so
+          // req.__admin_email is the authenticated admin. Honor an incoming value
+          // first (so a re-save of an already-attributed doc can't be reassigned
+          // here) — owner reassignment happens only through the editor save path.
+          const authedImporter =
+            (typeof req?.__admin_email === "string" && req.__admin_email.trim() && req.__admin_email.trim().toLowerCase()) || null;
+          const carriedImporter =
+            (typeof company?.imported_by === "string" && company.imported_by.trim() && company.imported_by.trim().toLowerCase()) || null;
+          const carriedOwner =
+            (typeof company?.owner === "string" && company.owner.trim() && company.owner.trim().toLowerCase()) || null;
+          const importedByEmail = carriedImporter || authedImporter;
+          const ownerEmail = carriedOwner || importedByEmail;
+
           const existingLogoUrl = String(company?.logo_url || "").trim();
           const providedLogoSourceUrl = String(company?.logo_source_url || "").trim();
 
@@ -752,6 +765,9 @@ async function saveCompaniesHandler(req, context) {
             session_id: sessionId,
             created_at: nowIso,
             updated_at: nowIso,
+            imported_by: importedByEmail,
+            imported_by_at: importedByEmail ? nowIso : null,
+            owner: ownerEmail,
           };
 
           try {

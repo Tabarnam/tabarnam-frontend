@@ -5342,12 +5342,17 @@ export default function AdminImport() {
     }
     setBulkEnqueueLoading(true);
     try {
+      // Attribute the import to the signed-in admin. The enqueue endpoint threads
+      // this through the queue → worker → import-start onto the company doc's
+      // imported_by. Undefined when not signed in (dev) → doc stays unattributed.
+      const importerEmail = (typeof getAdminUser === "function" ? getAdminUser() : null)?.email || undefined;
       const res = await fetch(`${API_BASE}/bulk-import/enqueue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           urls,
           fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
+          imported_by: importerEmail,
         }),
       });
       const data = await res.json();

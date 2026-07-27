@@ -42,7 +42,7 @@ import { API_BASE, apiFetch, apiFetchParsed, getCachedBuildId, getLastApiRequest
 import { deleteHomepageBlob, deleteLogoBlob, uploadHomepageBlobFile, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getCompanyHomepageUrl } from "@/lib/homepageUrl";
-import { getAdminUser } from "@/lib/azureAuth";
+import { getAdminUser, getAuthorizedAdminEmails } from "@/lib/azureAuth";
 import {
   Dialog,
   DialogContent,
@@ -618,6 +618,9 @@ export default function CompanyDashboard() {
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
+  // Person filter: "" = All, else "owner:<email>" / "imported_by:<email>" /
+  // "owner:__none__" (unattributed). Split into axis+value when fetching.
+  const [personFilter, setPersonFilter] = useState("");
   // DB-wide count of companies with issues (issues_count > 0), returned by the
   // server each load. Powers the Incomplete button label across the whole DB.
   const [incompleteTotal, setIncompleteTotal] = useState(null);
@@ -883,6 +886,14 @@ export default function CompanyDashboard() {
         // Server-side "Incomplete" filter — issues_count > 0 across the whole DB,
         // not just the loaded window.
         if (onlyIncomplete) params.set("incomplete", "true");
+        // Person filter — "axis:value" → ?owner= / ?imported_by= (server-side,
+        // whole-DB, mirrors the incomplete filter).
+        if (personFilter) {
+          const sep = personFilter.indexOf(":");
+          const axis = sep > 0 ? personFilter.slice(0, sep) : "";
+          const person = sep > 0 ? personFilter.slice(sep + 1) : "";
+          if ((axis === "owner" || axis === "imported_by") && person) params.set(axis, person);
+        }
 
         const res = await apiFetch(`/xadmin-api-companies?${params.toString()}`, { signal: controller.signal });
         const body = await res.json().catch(() => ({}));
@@ -960,7 +971,7 @@ export default function CompanyDashboard() {
         if (seq === requestSeqRef.current) setLoading(false);
       }
     },
-    [search, take, onlyIncomplete]
+    [search, take, onlyIncomplete, personFilter]
   );
 
   useEffect(() => {
@@ -975,7 +986,7 @@ export default function CompanyDashboard() {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [loadCompanies, search, take, onlyIncomplete]);
+  }, [loadCompanies, search, take, onlyIncomplete, personFilter]);
 
   // Phase 2.13.A — auto-refetch the list when the tab becomes visible again
   // and on a 60-second interval while the tab is visible.
@@ -2764,6 +2775,9 @@ export default function CompanyDashboard() {
         show_location_sources_to_users: Boolean(draftForSave.show_location_sources_to_users),
         visibility,
         location_sources,
+        // Reassignable owner (admin email, "" = unassigned). imported_by is NOT
+        // sent — it's immutable provenance stamped at import time.
+        owner: asString(draftForSave.owner).trim().toLowerCase() || null,
       };
 
       if (
@@ -4231,6 +4245,43 @@ export default function CompanyDashboard() {
               Incomplete ({incompleteCount})
             </Button>
 
+            {/* Person filter: narrow to one admin's companies by either axis —
+                owner (who's working it now, reassignable in the editor) or
+                imported-by (who first imported it, immutable). Values encode
+                as "axis:email"; "" = All (the default), "owner:__none__" =
+                unattributed legacy rows. Options come from the live admin
+                allowlist so newly added admins appear automatically. */}
+            <select
+              value={personFilter}
+              onChange={(e) => setPersonFilter(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+              aria-label="Filter companies by admin"
+              title="Filter by which admin owns or imported the companies"
+            >
+              <option value="">All companies</option>
+              <optgroup label="Owner">
+                {getAdminUser()?.email ? (
+                  <option value={`owner:${getAdminUser().email.toLowerCase()}`}>Mine</option>
+                ) : null}
+                {getAuthorizedAdminEmails()
+                  .filter((email) => email !== (getAdminUser()?.email || "").toLowerCase())
+                  .map((email) => (
+                    <option key={`owner:${email}`} value={`owner:${email}`}>{email}</option>
+                  ))}
+              </optgroup>
+              <optgroup label="Imported by">
+                {getAdminUser()?.email ? (
+                  <option value={`imported_by:${getAdminUser().email.toLowerCase()}`}>Mine</option>
+                ) : null}
+                {getAuthorizedAdminEmails()
+                  .filter((email) => email !== (getAdminUser()?.email || "").toLowerCase())
+                  .map((email) => (
+                    <option key={`imported_by:${email}`} value={`imported_by:${email}`}>{email}</option>
+                  ))}
+              </optgroup>
+              <option value="owner:__none__">(unattributed)</option>
+            </select>
+
             {loading && (
               <div className="text-sm text-slate-600 dark:text-muted-foreground">
                 Loading…
@@ -5149,6 +5200,35 @@ export default function CompanyDashboard() {
                                 onChange={(e) => setEditorDraft((d) => ({ ...d, tagline: e.target.value }))}
                                 placeholder="Mission statement…"
                               />
+                            </div>
+
+                            <div className="space-y-1 md:col-span-2">
+                              <div className="flex items-center gap-3">
+                                <label className="text-sm text-slate-700 dark:text-muted-foreground">Owner</label>
+                                {asString(editorDraft.imported_by).trim() ? (
+                                  <span className="text-[11px] text-slate-500 dark:text-muted-foreground">
+                                    Imported by {asString(editorDraft.imported_by).trim()}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {/* Which admin is working this company. Defaults to the
+                                  importer; reassigning hands the company off — the change
+                                  is saved like any field and lands in edit history with
+                                  the acting admin's email. Options come from the live
+                                  admin allowlist, so new admins appear automatically. */}
+                              <select
+                                value={asString(editorDraft.owner).trim().toLowerCase()}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, owner: e.target.value }))}
+                                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                                aria-label="Owner"
+                              >
+                                <option value="">(unassigned)</option>
+                                {getAuthorizedAdminEmails().map((email) => (
+                                  <option key={email} value={email}>
+                                    {email}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
 
                             <div className="space-y-1 md:col-span-2">
