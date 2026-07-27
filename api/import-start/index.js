@@ -1,4 +1,4 @@
-let app;
+﻿let app;
 try {
   ({ app } = require("../_app"));
 } catch {
@@ -84,7 +84,7 @@ const {
   upsertJob: upsertImportPrimaryJob,
 } = require("../_importPrimaryJobStore");
 
-// â”€â”€ Extracted module: pure company/review utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Extracted module: pure company/review utilities Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const {
   normalizeIndustries,
   toBrandTokenFromWebsiteUrl,
@@ -110,7 +110,7 @@ const {
   pushMissingFieldEntry,
 } = require("./_importStartCompanyUtils");
 
-// ── Extracted module: request/body parsing, URL utilities, xAI helpers ────────
+// â”€â”€ Extracted module: request/body parsing, URL utilities, xAI helpers â”€â”€â”€â”€â”€â”€â”€â”€
 const {
   XAI_SYSTEM_PROMPT,
   isResponsesEndpoint,
@@ -167,7 +167,7 @@ const {
   buildSaveReport,
 } = require("./_importStartRequestUtils");
 
-// ── Extracted module: Cosmos DB operations ────────────────────────────────────
+// â”€â”€ Extracted module: Cosmos DB operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const {
   getCompaniesCosmosContainer,
   getCompaniesPartitionKeyPath,
@@ -185,13 +185,13 @@ const {
 } = require("./_importStartCosmos");
 const { getCosmosConfig } = require("../_cosmosConfig");
 
-// ── Extracted module: inline enrichment (keywords, industries, tagline) ────
+// â”€â”€ Extracted module: inline enrichment (keywords, industries, tagline) â”€â”€â”€â”€
 const {
   mapWithConcurrency: _mapWithConcurrency,
   ensureCompanyKeywords: _ensureCompanyKeywordsBase,
 } = require("./_importStartInlineEnrichment");
 
-// ── Extracted module: XAI request pipeline ───────────────────────────────────
+// â”€â”€ Extracted module: XAI request pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const {
   DEFAULT_UPSTREAM_TIMEOUT_MS,
   STAGE_MAX_MS,
@@ -205,7 +205,7 @@ const {
   shouldRetryUpstreamStatus,
 } = require("./_importStartXaiRequest");
 
-// ── Extracted module: save-companies, geocoding, logo fetch ──────────────────
+// â”€â”€ Extracted module: save-companies, geocoding, logo fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const {
   saveCompaniesToCosmos,
   geocodeCompanyLocations,
@@ -221,7 +221,7 @@ const {
 // network and CPU on the same Function App instance, blocking xAI Phase 1
 // past the 215s heartbeat-stale threshold and triggering kill+restart loops.
 
-// ── Extracted module: enrichment orchestration + editorial reviews ─────────────
+// â”€â”€ Extracted module: enrichment orchestration + editorial reviews â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const {
   MANDATORY_ENRICH_FIELDS,
   buildReviewsUpstreamPayloadForImportStart,
@@ -252,7 +252,7 @@ try {
   });
 } catch {}
 
-// SWA-safe timeout for external (browserâ†’SWAâ†’Function) calls.
+// SWA-safe timeout for external (browserÃ¢â€ â€™SWAÃ¢â€ â€™Function) calls.
 // The Azure SWA reverse-proxy kills connections after ~30-50 seconds with a
 // "Backend call failure" 500 and empty headers, BEFORE the Function returns.
 // We set the budget to 8 seconds so import-start returns `accepted` quickly
@@ -356,7 +356,7 @@ function buildCounts({ enriched, debugOutput }) {
 // buildReviewsUpstreamPayloadForImportStart, fetchEditorialReviews, maybeQueueAndInvokeMandatoryEnrichment
 // moved to ./_importStartEnrichment.js
 
-// ── REMOVED: fetchEditorialReviews (was here) ──
+// â”€â”€ REMOVED: fetchEditorialReviews (was here) â”€â”€
 // Placeholder marker kept so line-level git blame stays readable.
 // Original signature:
 // async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx, warn) {
@@ -557,11 +557,11 @@ const importStartHandlerInner = async (req, context) => {
         };
       }
 
-      // ── Admin auth gate ──────────────────────────────────────────
+      // â”€â”€ Admin auth gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       const { adminGuard } = require("../_adminAuth");
       const authError = adminGuard(req, context);
       if (authError) return authError;
-      // ─────────────────────────────────────────────────────────────
+      // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
       const pingRaw = readQueryParam(req, "ping");
       if (String(pingRaw || "").trim() === "1") {
@@ -742,11 +742,17 @@ const importStartHandlerInner = async (req, context) => {
       // set req.__admin_email above) for direct interactive imports. The bulk
       // path reaches here via an in-process mockReq that has NO principal, so it
       // falls back to bodyObj.imported_by, which the worker threads from the
-      // queue message. Internal/queue re-saves with neither → null (unattributed).
+      // queue message. Internal/queue re-saves with neither â†’ null (unattributed).
       const importedBy =
         (typeof req?.__admin_email === "string" && req.__admin_email.trim() && req.__admin_email.trim().toLowerCase()) ||
         (typeof bodyObj?.imported_by === "string" && bodyObj.imported_by.trim() && bodyObj.imported_by.trim().toLowerCase()) ||
         null;
+
+      // Batch-level owner assignment (like batch_industries): lets the importer
+      // hand every company in this run to another admin. Client-chosen on
+      // purpose â€” unlike imported_by it is an explicit instruction, not identity.
+      const ownerOverride =
+        (typeof bodyObj?.owner === "string" && bodyObj.owner.trim() && bodyObj.owner.trim().toLowerCase()) || null;
 
       const hasBodySessionId = Boolean(bodyObj && typeof bodyObj === "object" && Object.prototype.hasOwnProperty.call(bodyObj, "session_id"));
       const bodySessionIdValue = hasBodySessionId ? bodyObj.session_id : undefined;
@@ -825,15 +831,15 @@ const importStartHandlerInner = async (req, context) => {
       bodyObj.queryType = normalizedQueryType;
       bodyObj.queryTypes = queryTypes.length > 0 ? queryTypes : [normalizedQueryType];
 
-      // Parse optional field selection — when provided, only these fields are enriched.
-      // Omitted or empty → all fields (backward compatible).
+      // Parse optional field selection â€” when provided, only these fields are enriched.
+      // Omitted or empty â†’ all fields (backward compatible).
       const rawFieldsToEnrich = Array.isArray(bodyObj.fields_to_enrich) ? bodyObj.fields_to_enrich : undefined;
       const fieldsToEnrich = rawFieldsToEnrich
         ? rawFieldsToEnrich.map((f) => String(f || "").trim()).filter(Boolean)
         : undefined;
       bodyObj.fields_to_enrich = fieldsToEnrich;
 
-      // Parse optional batch industries/keywords — applied to all companies in this batch
+      // Parse optional batch industries/keywords â€” applied to all companies in this batch
       const rawBatchIndustries = bodyObj.batch_industries;
       const batchIndustries = rawBatchIndustries
         ? String(rawBatchIndustries).split(",").map((s) => s.trim()).filter(Boolean)
@@ -1100,7 +1106,7 @@ const importStartHandlerInner = async (req, context) => {
       const providedCompaniesRaw = Array.isArray(bodyObj.companies) ? bodyObj.companies : [];
       const providedCompanies = providedCompaniesRaw.filter((c) => c && typeof c === "object");
 
-      // ── Seed validation (delegated to _importStartCompanyUtils.js) ──
+      // â”€â”€ Seed validation (delegated to _importStartCompanyUtils.js) â”€â”€
       const isMeaningfulString = _isMeaningfulString;
       const hasMeaningfulSeedEnrichment = _hasMeaningfulSeedEnrichment;
       const isValidSeedCompany = _isValidSeedCompany;
@@ -1924,7 +1930,7 @@ const importStartHandlerInner = async (req, context) => {
 
               // Primary-job enrichment runs in-process via import-status's poll
               // (runPrimaryJob); the legacy fire-and-forget to the
-              // import/primary-worker HTTP route was removed — that route never
+              // import/primary-worker HTTP route was removed â€” that route never
               // registered in production (404) and the enrichment happens anyway.
             }
           })().catch(() => null);
@@ -2005,7 +2011,7 @@ const importStartHandlerInner = async (req, context) => {
         // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)
         const xaiEndpointRaw = getXAIEndpoint();
         const xaiKey = getXAIKey();
-        // Phase 4.0 — pinned to grok-4.3 (replacement for retiring grok-4
+        // Phase 4.0 â€” pinned to grok-4.3 (replacement for retiring grok-4
         // family per xAI's May 15 2026 deprecation). Honors env override.
         // Use plain String() since `asString` isn't in scope here.
         const xaiModel = String(process.env.XAI_MODEL || "").trim() || DEFAULT_XAI_MODEL;
@@ -2050,7 +2056,7 @@ const importStartHandlerInner = async (req, context) => {
 
         const getRemainingMs = () => budget.getRemainingMs();
 
-        // throwAccepted stays in handler — it closes over respondAcceptedBeforeGatewayTimeout
+        // throwAccepted stays in handler â€” it closes over respondAcceptedBeforeGatewayTimeout
         const throwAccepted = (nextStageBeacon, reason, extra) => {
           const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
           const remainingMs = getRemainingMs();
@@ -2074,7 +2080,7 @@ const importStartHandlerInner = async (req, context) => {
           );
         };
 
-        // ── XAI request pipeline (delegated to _importStartXaiRequest.js) ──
+        // â”€â”€ XAI request pipeline (delegated to _importStartXaiRequest.js) â”€â”€
         const _xaiReqCtx = { budget, requestId, sessionId, xaiUrl, xaiKey, throwAccepted };
         const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) =>
           _ensureStageBudgetOrThrow(stageKey, nextStageBeacon, _xaiReqCtx);
@@ -2279,16 +2285,16 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    - If government guides or B2B directories list the company as a "Manufacturer" with specific location, include that location
    - If packaging or product listings consistently say "Made in [X]", include X even if the brand website doesn't explicitly state it
    - If multiple independent sources consistently point to one or more countries, include those countries
-   - "All made in the USA" or similar inclusive statements â†’ manufacturing_locations: ["USA"]
+   - "All made in the USA" or similar inclusive statements Ã¢â€ â€™ manufacturing_locations: ["USA"]
    - If only country-level information is available after exhaustive checking, country-only entries are FULLY VALID and PREFERRED
    - When inferring from suppliers, customs, packaging, or government guides, set location_confidence to "medium" and note the inference source in red_flag_reason
    - Inferred manufacturing locations from secondary sources should NOT trigger red_flag: true (the flag is only for completely unknown locations)
 
 3. CONFIDENCE AND RED FLAGS:
    - location_confidence: "high" if HQ and manufacturing are clearly stated on official site; "medium" if inferred from reliable secondary sources (government guides, B2B directories, customs, packaging); "low" if from limited sources
-   - If HQ is found but manufacturing is completely unknown AFTER exhaustive checking â†’ red_flag: true, reason: "Manufacturing location unknown, not found in official site, government guides, B2B directories, customs records, or packaging"
-   - If manufacturing is inferred from government guides, B2B directories, customs data, suppliers, or packaging â†’ red_flag: false (this is NOT a reason to flag), location_confidence: "medium"
-   - If BOTH HQ and manufacturing are documented â†’ red_flag: false, reason: ""
+   - If HQ is found but manufacturing is completely unknown AFTER exhaustive checking Ã¢â€ â€™ red_flag: true, reason: "Manufacturing location unknown, not found in official site, government guides, B2B directories, customs records, or packaging"
+   - If manufacturing is inferred from government guides, B2B directories, customs data, suppliers, or packaging Ã¢â€ â€™ red_flag: false (this is NOT a reason to flag), location_confidence: "medium"
+   - If BOTH HQ and manufacturing are documented Ã¢â€ â€™ red_flag: false, reason: ""
    - Only leave manufacturing_locations empty and red_flag: true if there is TRULY no credible signal after checking government guides, B2B directories, custom records, supplier data, packaging, and media
 
 4. SOURCE PRIORITY FOR HQ:
@@ -2316,20 +2322,20 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
 
 7. PRODUCT KEYWORDS (Required - MUST follow these rules strictly):
    You are extracting structured product intelligence for a consumer-facing company.
-   Your task is to generate a comprehensive, concrete list of the companyâ€™s actual products and product categories.
+   Your task is to generate a comprehensive, concrete list of the companyÃ¢â‚¬â„¢s actual products and product categories.
    Rules:
-   â€¢ Return up to 200 product keywords
-   â€¢ Each keyword must be a real product, product line, or specific product category
-   â€¢ Avoid vague marketing terms (e.g., â€œpremium,â€ â€œhigh-quality,â€ â€œinnovative,â€ â€œlifestyleâ€)
-   â€¢ Prefer noun-based product names
-   â€¢ Include both flagship products and secondary products
-   â€¢ If exact product names are not available, infer industry-standard product types sold by the company
-   â€¢ Do NOT repeat near-duplicates (e.g., â€œwater bottleâ€ and â€œbottlesâ€)
-   â€¢ Do NOT include services unless the company primarily sells services
+   Ã¢â‚¬Â¢ Return up to 200 product keywords
+   Ã¢â‚¬Â¢ Each keyword must be a real product, product line, or specific product category
+   Ã¢â‚¬Â¢ Avoid vague marketing terms (e.g., Ã¢â‚¬Å“premium,Ã¢â‚¬Â Ã¢â‚¬Å“high-quality,Ã¢â‚¬Â Ã¢â‚¬Å“innovative,Ã¢â‚¬Â Ã¢â‚¬Å“lifestyleÃ¢â‚¬Â)
+   Ã¢â‚¬Â¢ Prefer noun-based product names
+   Ã¢â‚¬Â¢ Include both flagship products and secondary products
+   Ã¢â‚¬Â¢ If exact product names are not available, infer industry-standard product types sold by the company
+   Ã¢â‚¬Â¢ Do NOT repeat near-duplicates (e.g., Ã¢â‚¬Å“water bottleÃ¢â‚¬Â and Ã¢â‚¬Å“bottlesÃ¢â‚¬Â)
+   Ã¢â‚¬Â¢ Do NOT include services unless the company primarily sells services
    Output format for product_keywords field:
-   â€¢ Return a comma-separated list
-   â€¢ Maximum 200 items
-   â€¢ No explanations or extra text
+   Ã¢â‚¬Â¢ Return a comma-separated list
+   Ã¢â‚¬Â¢ Maximum 200 items
+   Ã¢â‚¬Â¢ No explanations or extra text
 
 CRITICAL REQUIREMENTS FOR THIS SEARCH:
 - Do NOT return empty manufacturing_locations arrays unless you have exhaustively checked government guides, B2B directories, and trade data
@@ -2945,14 +2951,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               try {
                 const container = getCompaniesCosmosContainer();
 
-                // Phase 4.38 — sub-brand hint from the request body. If the
+                // Phase 4.38 â€” sub-brand hint from the request body. If the
                 // caller declared a parent and it matches the record the
                 // dup check would return, findExistingCompany yields null
                 // so we fall through to the normal save/enrichment path.
                 const preEnrichParentIdHint = String(
                   bodyObj?.parent_company_id || bodyObj?.parentCompanyId || ""
                 ).trim();
-                // Phase 4.38.C — force-new bypass at the pre-enrichment gate too.
+                // Phase 4.38.C â€” force-new bypass at the pre-enrichment gate too.
                 const preEnrichForceNew = bodyObj?.force_new === true || bodyObj?.forceNew === true;
 
                 // Dedupe rule (imports): normalized_domain is the primary key; canonical_url is a secondary matcher.
@@ -2968,13 +2974,13 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                 const duplicateOfId = existingRow && existingRow.id ? String(existingRow.id).trim() : "";
 
-                // Phase 3.4.A — if the existing company is incomplete (per
+                // Phase 3.4.A â€” if the existing company is incomplete (per
                 // isEnrichmentComplete, which now recognizes upstream_503 /
                 // sse_stall / etc. as NOT-decided), fall through to the normal
                 // save path with allowUpdateExisting=true so re-enrichment can
                 // run. Without this, the user couldn't re-import HIC Kitchen /
                 // Greater Goods after xAI infrastructure failures on their
-                // first attempt — the dedup gate fired in 4-6 seconds returning
+                // first attempt â€” the dedup gate fired in 4-6 seconds returning
                 // "duplicate_detected" without ever invoking the canonical call.
                 const existingIsComplete = isEnrichmentComplete(existingRow);
                 const shouldShortCircuitDuplicate = duplicateOfId && container && existingIsComplete;
@@ -3025,7 +3031,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   const isExplicitCompanyImport =
                     String(bodyObj?.queryType || "").trim() === "company_url" ||
                     Boolean(String(bodyObj?.company_url_hint || "").trim());
-                  // Phase 3.4.A — if we found an existing duplicate but it's
+                  // Phase 3.4.A â€” if we found an existing duplicate but it's
                   // INCOMPLETE (e.g. prior xAI 503/sse_stall), force
                   // allowUpdateExisting=true so saveCompaniesToCosmos re-runs
                   // enrichment against the existing doc instead of skipping
@@ -3042,6 +3048,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     allowUpdateExisting: isExplicitCompanyImport || forceUpdateForIncompleteDuplicate,
                     fieldsToEnrich,
                     importedBy,
+                    ownerOverride,
                   });
 
                   const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
@@ -3767,7 +3774,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
               // Primary-job enrichment runs in-process via import-status's poll
               // (runPrimaryJob); the legacy fire-and-forget to the
-              // import/primary-worker HTTP route was removed — that route never
+              // import/primary-worker HTTP route was removed â€” that route never
               // registered in production (404) and the enrichment happens anyway.
 
               return jsonWithRequestId(
@@ -3827,7 +3834,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           ensureStageBudgetOrThrow("primary", "xai_primary_fetch_start");
           mark("xai_primary_fetch_start");
 
-          // Phase 2.19.E — skip xAI primary call when companyUrl is provided.
+          // Phase 2.19.E â€” skip xAI primary call when companyUrl is provided.
           //
           // Empirical: each import-start call wastes ~5-7s + xAI tokens
           // doing a synchronous "search for this company by name+URL"
@@ -3840,7 +3847,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           //
           // When companyUrl is provided AND we can build a valid seed
           // from it, short-circuit to the seed and skip xAI. Net:
-          // saves ~5-7s × N companies per batch.
+          // saves ~5-7s Ã— N companies per batch.
           const hasCompanyUrlHint = !!(xaiPayload.company_url_hint && String(xaiPayload.company_url_hint).trim());
           const canSkipPrimaryXaiViaUrl = inputCompanies.length === 0 && hasCompanyUrlHint;
 
@@ -3888,7 +3895,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 },
               };
             } else {
-              // Seed builder couldn't extract a hostname — rare edge
+              // Seed builder couldn't extract a hostname â€” rare edge
               // case (malformed URL). Fall through to the xAI primary
               // call so we still have a chance to resolve via Grok.
               try {
@@ -4065,13 +4072,13 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               });
 
               if (matchIdx >= 0) {
-                // Grok found the company â€” ensure website_url and normalized_domain are set
+                // Grok found the company Ã¢â‚¬â€ ensure website_url and normalized_domain are set
                 const match = enriched[matchIdx];
                 if (!match.website_url) match.website_url = `https://${hintDomain}/`;
                 if (!match.normalized_domain) match.normalized_domain = hintDomain;
                 console.log(`[import-start] company_url_hint matched enriched[${matchIdx}] "${match.company_name}" (${hintDomain})`);
               } else {
-                // Grok didn't return a company matching the hint domain â€” inject a seed
+                // Grok didn't return a company matching the hint domain Ã¢â‚¬â€ inject a seed
                 const hintSeed = buildCompanyUrlSeedFromQuery(query);
                 if (hintSeed) {
                   enriched.unshift(hintSeed);
@@ -4228,7 +4235,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             );
           }
 
-          // ── Enrichment functions (delegated to _importStartInlineEnrichment.js) ──
+          // â”€â”€ Enrichment functions (delegated to _importStartInlineEnrichment.js) â”€â”€
           const mapWithConcurrency = _mapWithConcurrency;
           const ensureCompanyKeywords = (company) =>
             _ensureCompanyKeywordsBase(company, {
@@ -4278,7 +4285,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             );
           }
 
-          // â”€â”€ Fast-path: for company_url imports, skip inline enrichment entirely. â”€â”€
+          // Ã¢â€â‚¬Ã¢â€â‚¬ Fast-path: for company_url imports, skip inline enrichment entirely. Ã¢â€â‚¬Ã¢â€â‚¬
           // Save the stub company to Cosmos now, return 202, and let
           // maybeQueueAndInvokeMandatoryEnrichment handle ALL enrichment async.
           // This prevents the SWA gateway from killing the connection during the
@@ -4303,7 +4310,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
             mark("fast_path_company_url_skip_inline_enrichment");
             console.log(
-              `[import-start] session=${sessionId} FAST PATH: company_url import â€” skipping keywords/location/geocode stages, saving stub immediately`
+              `[import-start] session=${sessionId} FAST PATH: company_url import Ã¢â‚¬â€ skipping keywords/location/geocode stages, saving stub immediately`
             );
           }
 
@@ -5221,7 +5228,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   ensureMissing("website_url", "missing", "website_url missing; set to placeholder 'Unknown'", false);
                 }
 
-                // industries â€” quality gate
+                // industries Ã¢â‚¬â€ quality gate
                 const industriesRaw = Array.isArray(base.industries) ? base.industries : [];
                 const industriesSanitized = sanitizeIndustries(industriesRaw);
 
@@ -5248,7 +5255,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   base.industries_unknown = false;
                 }
 
-                // product keywords â€” sanitize + quality gate
+                // product keywords Ã¢â‚¬â€ sanitize + quality gate
                 if (!Array.isArray(base.keywords)) base.keywords = [];
 
                 const keywordStats = sanitizeKeywords({
@@ -5400,7 +5407,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 enriched[i] = base;
               }
             } catch (placeholderErr) {
-              // Never block imports on placeholder enforcement — but log for diagnostics.
+              // Never block imports on placeholder enforcement â€” but log for diagnostics.
               console.warn(`[import-start] session=${sessionId} placeholder enforcement error for company[${i}]: ${placeholderErr?.message || placeholderErr}`);
             }
 
@@ -5411,7 +5418,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               String(bodyObj?.queryType || "").trim() === "company_url" ||
               Boolean(String(bodyObj?.company_url_hint || "").trim());
 
-            // Phase 4.38 — stamp parent_company_id and/or force_new from
+            // Phase 4.38 â€” stamp parent_company_id and/or force_new from
             // the request body onto each enriched company doc so the
             // post-enrichment findExistingCompany sees the correct hints.
             // Frontend sends these top-level per request (one row = one
@@ -5447,6 +5454,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               allowUpdateExisting: isExplicitCompanyImportMain,
               fieldsToEnrich,
               importedBy,
+              ownerOverride,
             });
 
             const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
@@ -5492,7 +5500,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               .filter(Boolean)
               .slice(0, 50);
 
-            // â”€â”€ Sync in-memory store IMMEDIATELY after company save â”€â”€
+            // Ã¢â€â‚¬Ã¢â€â‚¬ Sync in-memory store IMMEDIATELY after company save Ã¢â€â‚¬Ã¢â€â‚¬
             // import-status may poll at any moment on the same Azure Functions process.
             // By updating the in-memory store here (before the Cosmos session doc upsert),
             // we ensure that even the earliest status polls see the correct seed data.
@@ -5541,7 +5549,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 console.error(`[import-start] session=${sessionId} pre-202 session doc upsert FAILED: ${preSessionResult?.error || "unknown"}`);
               }
 
-              // â”€â”€ CHANGE 3: Read-back verification â”€â”€
+              // Ã¢â€â‚¬Ã¢â€â‚¬ CHANGE 3: Read-back verification Ã¢â€â‚¬Ã¢â€â‚¬
               // Verify the upsert actually persisted seed_saved_enriching_async.
               // If the read-back shows a stale beacon, force a direct upsert with explicit PK.
               if (preSessionResult?.ok) {
@@ -5612,14 +5620,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 }
               }
 
-              // â”€â”€ Fast-path 202: return BEFORE enrichment so SWA doesn't kill the connection â”€â”€
+              // Ã¢â€â‚¬Ã¢â€â‚¬ Fast-path 202: return BEFORE enrichment so SWA doesn't kill the connection Ã¢â€â‚¬Ã¢â€â‚¬
               if (isCompanyUrlFastPath && mandatoryCompanyIds.length > 0) {
                 mark("fast_path_202_accepted");
 
-                // (In-memory store sync moved earlier â€” runs immediately after saveCompaniesToCosmos,
+                // (In-memory store sync moved earlier Ã¢â‚¬â€ runs immediately after saveCompaniesToCosmos,
                 // before the Cosmos session doc upsert, to close the race window.)
 
-                // â”€â”€ CHANGE 2: Write accept doc for fast-path 202 â”€â”€
+                // Ã¢â€â‚¬Ã¢â€â‚¬ CHANGE 2: Write accept doc for fast-path 202 Ã¢â€â‚¬Ã¢â€â‚¬
                 // The fast-path 202 bypasses AcceptedResponseError, which is where accept docs
                 // are normally written. Without this, import-status returns accepted: false.
                 try {
@@ -5655,12 +5663,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     requested_by: "import_start",
                     enqueue_at: new Date().toISOString(),
                     cycle_count: 0,
-                    run_after_ms: 1000, // 1s delay — seed is already saved
+                    run_after_ms: 1000, // 1s delay â€” seed is already saved
                   }).catch(() => null);
                   console.log(`[import-start] session=${sessionId} resume enqueued (1s delay, ${mandatoryCompanyIds.length} companies)`);
                 } catch {}
 
-                // Phase 2.18.A1 — safety-net enqueue.
+                // Phase 2.18.A1 â€” safety-net enqueue.
                 //
                 // Empirical (Dearfoams 2026-05-09 22:45:05): the primary
                 // queue message above was successfully enqueued (we saw the
@@ -5691,15 +5699,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     reason: "fast_path_202_safety_net",
                     requested_by: "import_start",
                     enqueue_at: new Date().toISOString(),
-                    cycle_count: 0, // same cycle_count → idempotent with primary
-                    run_after_ms: 90_000, // 90s delay — fires only if primary is lost
+                    cycle_count: 0, // same cycle_count â†’ idempotent with primary
+                    run_after_ms: 90_000, // 90s delay â€” fires only if primary is lost
                   }).catch(() => null);
                   console.log(`[import-start] session=${sessionId} resume safety-net enqueued (90s delay, ${mandatoryCompanyIds.length} companies)`);
                 } catch {}
 
                 // Fire-and-forget: run enrichment asynchronously.
                 // The Azure Function runtime keeps the execution context alive after
-                // returning the HTTP response. Don't await â€” let it run in background.
+                // returning the HTTP response. Don't await Ã¢â‚¬â€ let it run in background.
                 maybeQueueAndInvokeMandatoryEnrichment({
                   sessionId,
                   requestId,
@@ -6121,7 +6129,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             }
           }
 
-          // Detect when ALL results were skipped as duplicates â€” short-circuit expansion and return immediately
+          // Detect when ALL results were skipped as duplicates Ã¢â‚¬â€ short-circuit expansion and return immediately
           const allSkippedAsDuplicates =
             cosmosEnabled &&
             Number(saveResult.saved || 0) === 0 &&
@@ -6307,7 +6315,7 @@ Return ONLY the JSON array, no other text.`,
                       const geoResult = await geocodeHQLocation(company.headquarters_location);
                       if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
                         enrichedExpansion[i] = { ...company, ...geoResult };
-                        console.log(`[import-start] Geocoded expansion company ${company.company_name}: ${company.headquarters_location} â†’ (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
+                        console.log(`[import-start] Geocoded expansion company ${company.company_name}: ${company.headquarters_location} Ã¢â€ â€™ (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
                       }
                     }
                   }
@@ -6333,6 +6341,7 @@ Return ONLY the JSON array, no other text.`,
                       getRemainingMs,
                       fieldsToEnrich,
                       importedBy,
+                      ownerOverride,
                     });
 
                     const expansionVerification = await verifySavedCompaniesReadAfterWrite(expansionRaw).catch(() => ({
@@ -7306,7 +7315,7 @@ const importStartHandler = async (req, context) => {
   }
 };
 
-// ── Extracted module: xAI smoke handler + safe handler wrapper ─────────────
+// â”€â”€ Extracted module: xAI smoke handler + safe handler wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const { xaiSmokeHandler, createSafeHandler } = require("./_importStartXaiSmoke");
 
 app.http("xai-smoke", {

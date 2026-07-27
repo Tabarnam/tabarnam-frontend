@@ -30,20 +30,23 @@ const { applySortKeys, looksLikeCompanyDoc } = require("../_sortKeys");
 const { computeContractEnrichmentHealth } = require("../_contractHealth");
 
 // Importer/owner attribution for a doc about to be persisted. imported_by and
-// imported_by_at are immutable provenance; owner starts as the importer and is
-// reassigned only through the editor save path. All three are stamped on first
-// create and PRESERVED on update (mirroring created_at), so enrichment re-saves
-// and re-imports can never null or reassign an already-attributed doc.
-function resolveImportAttribution({ existingDoc, shouldUpdateExisting, importedByEmail, nowIso }) {
+// imported_by_at are immutable provenance; owner starts as the importer (or the
+// batch-level ownerOverride the importer chose, like batch_industries) and is
+// reassigned afterward only through the editor save path. All three are stamped
+// on first create and PRESERVED on update (mirroring created_at), so enrichment
+// re-saves and re-imports can never null or reassign an already-attributed doc.
+function resolveImportAttribution({ existingDoc, shouldUpdateExisting, importedByEmail, ownerOverrideEmail, nowIso }) {
   const keep = (field) =>
     shouldUpdateExisting && existingDoc && typeof existingDoc[field] === "string" && existingDoc[field].trim()
       ? existingDoc[field].trim()
       : null;
   const email = typeof importedByEmail === "string" && importedByEmail.trim() ? importedByEmail.trim().toLowerCase() : null;
+  const ownerEmail =
+    typeof ownerOverrideEmail === "string" && ownerOverrideEmail.trim() ? ownerOverrideEmail.trim().toLowerCase() : null;
   return {
     imported_by: keep("imported_by") || email,
     imported_by_at: keep("imported_by_at") || (email ? nowIso : null),
-    owner: keep("owner") || email,
+    owner: keep("owner") || ownerEmail || email,
   };
 }
 
@@ -608,6 +611,7 @@ async function saveCompaniesToCosmos({
   allowUpdateExisting = false,
   fieldsToEnrich,
   importedBy,
+  ownerOverride,
 }) {
   try {
     const list = Array.isArray(companies) ? companies : [];
@@ -619,6 +623,12 @@ async function saveCompaniesToCosmos({
     // below guarantees those never null an already-attributed doc.
     const importedByEmail =
       typeof importedBy === "string" && importedBy.trim() ? importedBy.trim().toLowerCase() : null;
+
+    // Optional batch-level owner assignment (like batch_industries): the
+    // importer can hand the whole run to another admin at import time. Only
+    // affects newly created docs; existing owners are preserved below.
+    const ownerOverrideEmail =
+      typeof ownerOverride === "string" && ownerOverride.trim() ? ownerOverride.trim().toLowerCase() : null;
 
     const importRequestId = typeof requestId === "string" && requestId.trim() ? requestId.trim() : null;
     const importCreatedAt =
@@ -1043,7 +1053,7 @@ async function saveCompaniesToCosmos({
                   ? existingDoc.created_at.trim()
                   : nowIso,
               updated_at: nowIso,
-              ...resolveImportAttribution({ existingDoc, shouldUpdateExisting, importedByEmail, nowIso }),
+              ...resolveImportAttribution({ existingDoc, shouldUpdateExisting, importedByEmail, ownerOverrideEmail, nowIso }),
             };
 
             // Canonical import contract:

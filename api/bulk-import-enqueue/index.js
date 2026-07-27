@@ -149,6 +149,9 @@ async function handler(context, req) {
     // "admin_ui"); imported_by must never fall back to that placeholder, so it
     // stays null when the caller sent no email.
     const importedBy = asString(body.imported_by).trim().toLowerCase() || null;
+    // Optional batch-level owner assignment chosen by the importer (may differ
+    // from imported_by when queuing work for another admin).
+    const ownerOverride = asString(body.owner).trim().toLowerCase() || null;
     const enqueuedAt = nowIso();
 
     // Optional field selection — passed through queue messages to worker → import-start
@@ -194,6 +197,7 @@ async function handler(context, req) {
         batch_id: batchId,
         requested_by: requestedBy,
         imported_by: importedBy,
+        owner: ownerOverride,
         enqueued_at: enqueuedAt,
         run_after_ms: 0, // Immediate visibility
         fields_to_enrich: fieldsToEnrich,

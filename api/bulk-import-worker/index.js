@@ -31,6 +31,7 @@ async function processQueueMessage(message, context) {
   // Importing admin, threaded from the enqueue request. mockReq below carries no
   // auth principal, so import-start reads this off the body to attribute the doc.
   const importedBy = asString(message?.imported_by).trim().toLowerCase() || null;
+  const ownerOverride = asString(message?.owner).trim().toLowerCase() || null;
   const invocationId = context?.invocationId || "unknown";
 
   if (!jobId) {
@@ -78,6 +79,7 @@ async function processQueueMessage(message, context) {
         bulk_import_batch_id: batchId,
         fields_to_enrich: fieldsToEnrich,
         imported_by: importedBy,
+        owner: ownerOverride,
       },
       json: async () => ({
         query: url,
@@ -88,6 +90,7 @@ async function processQueueMessage(message, context) {
         bulk_import_batch_id: batchId,
         fields_to_enrich: fieldsToEnrich,
         imported_by: importedBy,
+        owner: ownerOverride,
       }),
       query: {},
       __in_process: true, // Trust as internal call

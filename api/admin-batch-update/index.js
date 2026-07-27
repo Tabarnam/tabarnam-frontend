@@ -82,6 +82,26 @@ async function adminBatchUpdateHandler(req, context) {
 
     const op = String(operation || "set").trim();
 
+    // Attribution fields store lowercased emails; normalize so the dashboard
+    // filter's equality WHERE matches whatever a batch assign wrote.
+    const normalizedValue =
+      (field === "owner" || field === "imported_by") && typeof value === "string"
+        ? value.trim().toLowerCase()
+        : value;
+
+    // Acting admin for the per-company edit-history entries. Prefer the
+    // server-trusted identity from adminGuard over the client-supplied label.
+    const actorEmail = String((req && req.__admin_email) || actor || "").trim().toLowerCase();
+    // One batch_id across all entries so the Recent Activity feed can fold the
+    // N per-company rows rather than flooding (same convention as bulk import).
+    const batchId = `batch_update_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let historyWriter = null;
+    try {
+      historyWriter = require("../_companyEditHistory").writeCompanyEditHistoryEntry;
+    } catch {
+      historyWriter = null;
+    }
+
     let updated = 0;
     const now = new Date().toISOString();
 
@@ -102,19 +122,19 @@ async function adminBatchUpdateHandler(req, context) {
           if (op === "remove_from_array") {
             // Remove a value from an array field (case-insensitive match)
             if (Array.isArray(existing[field])) {
-              const valLower = String(value).toLowerCase();
+              const valLower = String(normalizedValue).toLowerCase();
               existing[field] = existing[field].filter((item) => String(item).toLowerCase() !== valLower);
             }
           } else if (op === "add_to_array") {
             // Add a value to an array field (skip if already present, case-insensitive)
             if (!Array.isArray(existing[field])) existing[field] = [];
-            const valLower = String(value).toLowerCase();
+            const valLower = String(normalizedValue).toLowerCase();
             if (!existing[field].some((item) => String(item).toLowerCase() === valLower)) {
-              existing[field].push(value);
+              existing[field].push(normalizedValue);
             }
           } else {
             // Default: set the field to the value
-            existing[field] = field === "star_rating" ? Number(value) : value;
+            existing[field] = field === "star_rating" ? Number(normalizedValue) : normalizedValue;
           }
 
           existing.updated_at = now;
@@ -136,6 +156,23 @@ async function adminBatchUpdateHandler(req, context) {
               is_undone: false,
             };
             await undoContainer.items.create(historyDoc);
+          }
+
+          // Per-company edit-history entry so the change (e.g. an owner
+          // reassignment) shows on the company's Edit History page, attributed
+          // to the acting admin. batch_id keeps the global feed to one summary.
+          if (historyWriter) {
+            try {
+              await historyWriter({
+                company_id: id,
+                before: { ...existing, [field]: oldValue },
+                after: existing,
+                action: "update",
+                source: "admin-batch-update",
+                actor_email: actorEmail || undefined,
+                batch_id: batchId,
+              });
+            } catch { /* history is best-effort; the update itself succeeded */ }
           }
 
           updated += 1;

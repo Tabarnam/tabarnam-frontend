@@ -72,7 +72,7 @@ import ImportDebugPanel from "./admin-import/ImportDebugPanel";
 import ImportReportSection from "./admin-import/ImportReportSection";
 import StatusAlerts from "./admin-import/StatusAlerts";
 import ImportResultsPanels from "./admin-import/ImportResultsPanels";
-import { getAdminUser } from "@/lib/azureAuth";
+import { getAdminUser, getAuthorizedAdminEmails } from "@/lib/azureAuth";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader,
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
@@ -195,6 +195,9 @@ export default function AdminImport() {
   const [location, setLocation] = useState("");
   const [batchIndustries, setBatchIndustries] = useState("");
   const [batchKeywords, setBatchKeywords] = useState("");
+  // Batch-level owner assignment: hands every company in this run to the chosen
+  // admin. Empty = default (owner = the importing admin).
+  const [batchOwner, setBatchOwner] = useState("");
 
   // Succession import state
   const [successionCountInput, setSuccessionCountInput] = useState(String(SUCCESSION_DEFAULT));
@@ -2534,6 +2537,7 @@ export default function AdminImport() {
         fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
         batch_industries: batchIndustries.trim() || undefined,
         batch_keywords: batchKeywords.trim() || undefined,
+        owner: batchOwner.trim().toLowerCase() || undefined,
         // Phase 4.38 — sub-brand declaration for this row. Backend accepts
         // and uses to override the duplicate check when the id matches an
         // existing catalog record.
@@ -3517,6 +3521,7 @@ export default function AdminImport() {
     urlTypeValidationError,
     batchIndustries,
     batchKeywords,
+    batchOwner,
     enrichFields,
     companyUrl,
   ]);
@@ -3603,6 +3608,7 @@ export default function AdminImport() {
         fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
         batch_industries: batchIndustries.trim() || undefined,
         batch_keywords: batchKeywords.trim() || undefined,
+        owner: batchOwner.trim().toLowerCase() || undefined,
         // Phase 4.38 — sub-brand declaration for the shadow slot's row.
         parent_company_id: String(shadowParentCompanyId || "").trim() || undefined,
         // Phase 4.38.C — force-new override for the shadow slot.
@@ -3702,7 +3708,7 @@ export default function AdminImport() {
       );
       setShadowStatus("error");
     }
-  }, [importConfigured, queryTypes, location, enrichFields, scheduleShadowPoll, batchIndustries, batchKeywords]);
+  }, [importConfigured, queryTypes, location, enrichFields, scheduleShadowPoll, batchIndustries, batchKeywords, batchOwner]);
 
   const explainImportPayload = useCallback(async () => {
     const q = query.trim();
@@ -4529,6 +4535,7 @@ export default function AdminImport() {
         body: JSON.stringify({
           url,
           fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
+          owner: batchOwner.trim().toLowerCase() || undefined,
         }),
       });
 
@@ -4689,7 +4696,7 @@ export default function AdminImport() {
       toast.error(msg);
       setActiveStatus("error");
     }
-  }, [query, importConfigured, resetPollAttempts, schedulePoll]);
+  }, [query, importConfigured, resetPollAttempts, schedulePoll, batchOwner]);
 
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
 
@@ -5353,6 +5360,7 @@ export default function AdminImport() {
           urls,
           fields_to_enrich: enrichFields.length < ALL_ENRICH_FIELD_KEYS.length ? enrichFields : undefined,
           imported_by: importerEmail,
+          owner: batchOwner.trim().toLowerCase() || undefined,
         }),
       });
       const data = await res.json();
@@ -5369,7 +5377,7 @@ export default function AdminImport() {
     } finally {
       setBulkEnqueueLoading(false);
     }
-  }, [bulkUrls, bulkEnqueueLoading]);
+  }, [batchOwner, bulkUrls, bulkEnqueueLoading]);
 
   // Poll for batch status with exponential backoff (5s → 10s → 20s → 30s cap)
   useEffect(() => {
@@ -6393,7 +6401,7 @@ export default function AdminImport() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <div className="space-y-1">
                 <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch industries</label>
                 <input
@@ -6404,6 +6412,25 @@ export default function AdminImport() {
                   className="w-full rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-1.5 text-sm text-slate-800 dark:text-foreground placeholder:text-slate-400 dark:placeholder:text-muted-foreground"
                 />
                 <div className="text-xs text-slate-500 dark:text-muted-foreground">Applied to all companies in this batch (comma-separated)</div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Assign owner</label>
+                <select
+                  value={batchOwner}
+                  onChange={(e) => setBatchOwner(e.target.value)}
+                  className="w-full rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-1.5 text-sm text-slate-800 dark:text-foreground"
+                  aria-label="Assign owner for this batch"
+                >
+                  <option value="">Me (importer)</option>
+                  {getAuthorizedAdminEmails()
+                    .filter((email) => email !== (getAdminUser()?.email || "").toLowerCase())
+                    .map((email) => (
+                      <option key={email} value={email}>
+                        {email}
+                      </option>
+                    ))}
+                </select>
+                <div className="text-xs text-slate-500 dark:text-muted-foreground">Every company in this batch is assigned to this admin</div>
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Batch products</label>

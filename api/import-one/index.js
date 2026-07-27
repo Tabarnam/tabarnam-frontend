@@ -29,6 +29,7 @@ const { randomUUID } = require("crypto");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
 const { buildPrimaryJobId: buildImportPrimaryJobId, upsertJob: upsertImportPrimaryJob, getJob: getImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
+const { resolveImportAttribution } = require("../import-start/_importStartSaveCompanies");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
 const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
@@ -47,7 +48,7 @@ function toNormalizedDomain(urlStr) {
 }
 
 // Seed a single company to Cosmos companies container
-async function seedCompanyToCosmos({ company, sessionId, container, fieldsToEnrich, parentCompanyId }) {
+async function seedCompanyToCosmos({ company, sessionId, container, fieldsToEnrich, parentCompanyId, importedBy, ownerOverride }) {
   if (!container || !company) return { ok: false, error: "missing_args" };
 
   const companyName = String(company.company_name || company.name || "").trim();
@@ -95,6 +96,16 @@ async function seedCompanyToCosmos({ company, sessionId, container, fieldsToEnri
     created_at: nowIso,
     updated_at: nowIso,
     import_created_at: nowIso,
+
+    // Attribution: same immutable-importer / reassignable-owner convention as
+    // the import-start doc builder (fresh seed → no existing doc to preserve).
+    ...resolveImportAttribution({
+      existingDoc: null,
+      shouldUpdateExisting: false,
+      importedByEmail: importedBy,
+      ownerOverrideEmail: ownerOverride,
+      nowIso,
+    }),
 
     // Initialize empty fields that will be enriched
     industries: [],
@@ -382,6 +393,16 @@ async function handleImportOne(req, context) {
     // Phase 4.38.C — force-new bypass. When true, skip dup check entirely.
     const forceNew = body.force_new === true || body.forceNew === true;
 
+    // Attribution: importer from the server-trusted principal (adminGuard set
+    // req.__admin_email above); owner optionally overridden by the caller to
+    // hand this import to another admin (same as import-start's bodyObj.owner).
+    const importedBy =
+      (typeof req?.__admin_email === "string" && req.__admin_email.trim() && req.__admin_email.trim().toLowerCase()) ||
+      (typeof body.imported_by === "string" && body.imported_by.trim() && body.imported_by.trim().toLowerCase()) ||
+      null;
+    const ownerOverride =
+      (typeof body.owner === "string" && body.owner.trim() && body.owner.trim().toLowerCase()) || null;
+
     const normalizedUrl = normalizeUrl(url);
     if (!normalizedUrl) {
       return json({
@@ -663,6 +684,8 @@ async function handleImportOne(req, context) {
                 container,
                 fieldsToEnrich,
                 parentCompanyId: parentCompanyIdHint,
+                importedBy,
+                ownerOverride,
               });
               if (seedResult.ok) {
                 seededCompanyIds.push(seedResult.company_id);

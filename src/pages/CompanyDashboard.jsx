@@ -638,6 +638,9 @@ export default function CompanyDashboard() {
   const [rowErrors, setRowErrors] = useState({});
 
   const [selectedRows, setSelectedRows] = useState([]);
+  const [bulkAssignLoading, setBulkAssignLoading] = useState(false);
+  // RDT clears its checkboxes when this flips (clearSelectedRows prop).
+  const [clearRowsToggle, setClearRowsToggle] = useState(false);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorSaving, setEditorSaving] = useState(false);
@@ -3547,6 +3550,44 @@ export default function CompanyDashboard() {
     openDeleteConfirm({ kind: "bulk", ids, label: `${ids.length} selected compan${ids.length === 1 ? "y" : "ies"}` });
   }, [openDeleteConfirm, selectedRows]);
 
+  // Bulk owner reassignment: select rows (filter first to scope, e.g. Owner →
+  // someone, or search), pick a target admin in the selection toolbar, Assign.
+  // Server writes owner on each doc and records a per-company edit-history
+  // entry attributed to the acting admin.
+  const bulkAssignOwner = useCallback(async (targetEmail) => {
+    const ids = selectedRows.map((r) => getCompanyId(r)).filter(Boolean);
+    const email = asString(targetEmail).trim().toLowerCase();
+    if (ids.length === 0 || !email) return;
+
+    setBulkAssignLoading(true);
+    try {
+      const res = await apiFetch("/xadmin-api-batch-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          field: "owner",
+          value: email,
+          companyIds: ids,
+          actor: getAdminUser()?.email || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.error) {
+        toast.error(asString(body?.error) || `Assign failed (HTTP ${res.status})`);
+        return;
+      }
+      const n = Number(body?.updated) || ids.length;
+      toast.success(`Assigned ${n} compan${n === 1 ? "y" : "ies"} to ${email}`);
+      setSelectedRows([]);
+      setClearRowsToggle((v) => !v);
+      loadCompanies({ search: search.trim(), take });
+    } catch (e) {
+      toast.error(toErrorString(e) || "Assign failed");
+    } finally {
+      setBulkAssignLoading(false);
+    }
+  }, [loadCompanies, search, selectedRows, take]);
+
   const columns = useMemo(() => {
     return [
       {
@@ -4118,16 +4159,41 @@ export default function CompanyDashboard() {
   const contextActions = useMemo(() => {
     if (!selectedRows || selectedRows.length === 0) return null;
     return (
-      <Button
-        variant="outline"
-        className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-        onClick={deleteSelected}
-      >
-        <Trash2 className="h-4 w-4 mr-2" />
-        Delete selected ({selectedRows.length})
-      </Button>
+      <div className="flex items-center gap-2">
+        {/* Reassign every selected company to one admin. Choosing an email fires
+            immediately — the select resets itself via the cleared selection. */}
+        <select
+          defaultValue=""
+          disabled={bulkAssignLoading}
+          onChange={(e) => {
+            const email = e.target.value;
+            e.target.value = "";
+            if (email) bulkAssignOwner(email);
+          }}
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+          aria-label={`Assign ${selectedRows.length} selected to owner`}
+        >
+          <option value="" disabled>
+            {bulkAssignLoading ? "Assigning…" : `Assign ${selectedRows.length} to…`}
+          </option>
+          {getAuthorizedAdminEmails().map((email) => (
+            <option key={email} value={email}>
+              {email}
+            </option>
+          ))}
+        </select>
+
+        <Button
+          variant="outline"
+          className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+          onClick={deleteSelected}
+        >
+          <Trash2 className="h-4 w-4 mr-2" />
+          Delete selected ({selectedRows.length})
+        </Button>
+      </div>
     );
-  }, [deleteSelected, selectedRows]);
+  }, [bulkAssignLoading, bulkAssignOwner, deleteSelected, selectedRows]);
 
   const noDataComponent = useMemo(() => {
     if (lastError && (lastError.status === 503 || lastError.status === 404 || lastError.status >= 500)) {
@@ -4348,6 +4414,13 @@ export default function CompanyDashboard() {
               ]}
               progressPending={loading && items.length === 0}
               progressComponent={progressComponent}
+              // Row selection powers the bulk toolbar (assign owner / delete).
+              // contextActions renders in RDT's contextual header when rows are
+              // checked; clearSelectedRows flips to uncheck after a bulk action.
+              selectableRows
+              onSelectedRowsChange={({ selectedRows: rows }) => setSelectedRows(rows || [])}
+              contextActions={contextActions}
+              clearSelectedRows={clearRowsToggle}
               pagination
               // Page size is the fetched count: the top "Rows per page" control
               // sets `take`, so everything loaded shows on one page. The bottom
@@ -4598,6 +4671,34 @@ export default function CompanyDashboard() {
                                 <ClipboardPaste className="h-4 w-4 mr-2" />
                                 Bulk paste
                               </Button>
+
+                              {/* Which admin is working this company. Defaults to the
+                                  importer; reassigning hands it off — saved like any
+                                  field, so it lands in edit history with the acting
+                                  admin's email. Options come from the live allowlist. */}
+                              <div
+                                className="flex items-center gap-1.5"
+                                title={
+                                  asString(editorDraft.imported_by).trim()
+                                    ? `Imported by ${asString(editorDraft.imported_by).trim()}`
+                                    : "Importer not recorded"
+                                }
+                              >
+                                <label className="text-xs text-slate-600 dark:text-muted-foreground">Owner</label>
+                                <select
+                                  value={asString(editorDraft.owner).trim().toLowerCase()}
+                                  onChange={(e) => setEditorDraft((d) => ({ ...d, owner: e.target.value }))}
+                                  className="h-8 w-44 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                                  aria-label="Owner"
+                                >
+                                  <option value="">(unassigned)</option>
+                                  {getAuthorizedAdminEmails().map((email) => (
+                                    <option key={email} value={email}>
+                                      {email}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
 
                               {editorProfileInfo ? (
                                 <div className="flex items-center gap-2 ml-auto">
@@ -5200,35 +5301,6 @@ export default function CompanyDashboard() {
                                 onChange={(e) => setEditorDraft((d) => ({ ...d, tagline: e.target.value }))}
                                 placeholder="Mission statement…"
                               />
-                            </div>
-
-                            <div className="space-y-1 md:col-span-2">
-                              <div className="flex items-center gap-3">
-                                <label className="text-sm text-slate-700 dark:text-muted-foreground">Owner</label>
-                                {asString(editorDraft.imported_by).trim() ? (
-                                  <span className="text-[11px] text-slate-500 dark:text-muted-foreground">
-                                    Imported by {asString(editorDraft.imported_by).trim()}
-                                  </span>
-                                ) : null}
-                              </div>
-                              {/* Which admin is working this company. Defaults to the
-                                  importer; reassigning hands the company off — the change
-                                  is saved like any field and lands in edit history with
-                                  the acting admin's email. Options come from the live
-                                  admin allowlist, so new admins appear automatically. */}
-                              <select
-                                value={asString(editorDraft.owner).trim().toLowerCase()}
-                                onChange={(e) => setEditorDraft((d) => ({ ...d, owner: e.target.value }))}
-                                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-                                aria-label="Owner"
-                              >
-                                <option value="">(unassigned)</option>
-                                {getAuthorizedAdminEmails().map((email) => (
-                                  <option key={email} value={email}>
-                                    {email}
-                                  </option>
-                                ))}
-                              </select>
                             </div>
 
                             <div className="space-y-1 md:col-span-2">

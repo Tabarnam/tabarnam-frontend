@@ -224,3 +224,40 @@ test("attribution: email is lowercased for stable filter equality", () => {
   assert.equal(out.imported_by, "jon@tabarnam.com");
   assert.equal(out.owner, "jon@tabarnam.com");
 });
+
+// ── Batch-level owner override (Assign owner at import time) ────────────────
+
+test("attribution: ownerOverride assigns owner while importer stays the actor", () => {
+  const out = resolveImportAttribution({
+    existingDoc: null,
+    shouldUpdateExisting: false,
+    importedByEmail: "jon@tabarnam.com",
+    ownerOverrideEmail: "Ben@Tabarnam.com",
+    nowIso: NOW,
+  });
+  assert.equal(out.imported_by, "jon@tabarnam.com", "override must never touch provenance");
+  assert.equal(out.owner, "ben@tabarnam.com", "owner goes to the assigned admin, lowercased");
+});
+
+test("attribution: ownerOverride does NOT steal ownership on update", () => {
+  const out = resolveImportAttribution({
+    existingDoc: { imported_by: "jon@tabarnam.com", imported_by_at: "2026-01-01T00:00:00.000Z", owner: "kels@tabarnam.com" },
+    shouldUpdateExisting: true,
+    importedByEmail: "jon@tabarnam.com",
+    ownerOverrideEmail: "ben@tabarnam.com",
+    nowIso: NOW,
+  });
+  assert.equal(out.owner, "kels@tabarnam.com", "existing owner wins over a re-import's override");
+});
+
+test("attribution: ownerOverride works even when the import has no actor (queue path)", () => {
+  const out = resolveImportAttribution({
+    existingDoc: null,
+    shouldUpdateExisting: false,
+    importedByEmail: null,
+    ownerOverrideEmail: "ben@tabarnam.com",
+    nowIso: NOW,
+  });
+  assert.equal(out.imported_by, null);
+  assert.equal(out.owner, "ben@tabarnam.com", "assignment still lands without importer identity");
+});
