@@ -235,6 +235,9 @@ export default function ResultsPage() {
   const amazonParam = searchParams.get("amazon") === "1";
   const hqCountryParam = searchParams.get("hqCountry") || "";
   const mfgCountryParam = searchParams.get("mfgCountry") || "";
+  // Pasted-URL search: exact normalized_domain the backend looks up directly,
+  // bypassing the brand-token pipeline. Empty for ordinary text searches.
+  const domainParam = (searchParams.get("domain") ?? "").toString().trim().toLowerCase();
   const debugScores = searchParams.get("debug") === "scores";
   const listParam = searchParams.get("list") || "";
 
@@ -254,6 +257,13 @@ export default function ResultsPage() {
   // original query returned zero results. Purely a suggestion the user can
   // choose; the search always ran on exactly what they typed.
   const [didYouMean, setDidYouMean] = useState(null);
+
+  // Pasted-URL (domain) search state. Populated only when the current search
+  // carried a ?domain= param. Drives BOTH the opt-in "Explore related" strip
+  // under a matched company and the "No company found for <domain>" empty
+  // state — each with clickable like-brand + industry suggestions that DROP
+  // the domain lock. Shape: { domain, matchedBy, domainSearch, alternatives }.
+  const [domainSearchMeta, setDomainSearchMeta] = useState(null);
 
   // Stable key of the company ids that DON'T already carry a pinned
   // visible_review_count from the search response — those are the only ones the
@@ -591,6 +601,7 @@ export default function ResultsPage() {
           amazon: amazonParam,
           hqCountry: hqCountryParam,
           mfgCountry: mfgCountryParam,
+          domain: domainParam,
           take: initialTake,
           skip: (pageParam - 1) * PAGE_SIZE,
           location: loc,
@@ -604,7 +615,7 @@ export default function ResultsPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam]);
+  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam, domainParam]);
 
   // Called by the top search bar.
   // opts.urlOnly === true means "the 1s auto-search already populated
@@ -624,6 +635,7 @@ export default function ResultsPage() {
     const amazon = params.amazon === "1" || params.amazon === true;
     const hqCountry = (params.hqCountry ?? "").toString();
     const mfgCountry = (params.mfgCountry ?? "").toString();
+    const domain = (params.domain ?? "").toString().trim().toLowerCase();
     // SearchCard no longer passes lat/lng (we don't expose raw coords in
     // URLs anymore, and re-resolving on this side guarantees the URL
     // mirrors only what the user typed). Resolution from city/country
@@ -639,6 +651,7 @@ export default function ResultsPage() {
     if (amazon) next.set("amazon", "1");
     if (hqCountry) next.set("hqCountry", hqCountry);
     if (mfgCountry) next.set("mfgCountry", mfgCountry);
+    if (domain) next.set("domain", domain);
     // Reset to page 1 on new search
     next.delete("page");
     skipUrlEffectRef.current = true;
@@ -730,19 +743,19 @@ export default function ResultsPage() {
 
     const isLocationOnlyInline = !q && !!(city || state || country);
     const inlineTake = isLocationOnlyInline ? PAGE_SIZE * 2 : PAGE_SIZE;
-    await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: inlineTake, skip: 0, location: searchLocation });
+    await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: inlineTake, skip: 0, location: searchLocation });
   }
 
   // Lightweight auto-search: fetches results without updating URL (avoids input interruption)
-  function handleAutoSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry }) {
+  function handleAutoSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain }) {
     if (!q && !country && !state && !city) return;
-    doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take: PAGE_SIZE, skip: 0 });
+    doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: PAGE_SIZE, skip: 0 });
   }
 
   // Track the current search generation so stale responses are ignored
   const searchGenRef = useRef(0);
 
-  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, take = PAGE_SIZE, skip = 0, location, append = false }) {
+  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain = "", take = PAGE_SIZE, skip = 0, location, append = false }) {
     setLoading(true);
 
     // The "search key" identifies a query + filter combination independently
@@ -757,6 +770,7 @@ export default function ResultsPage() {
       amazon: !!amazon,
       hqCountry: hqCountry || "",
       mfgCountry: mfgCountry || "",
+      domain: domain || "",
     });
     const isNewSearchKey = searchKey !== lastCountedKeyRef.current;
 
@@ -773,6 +787,7 @@ export default function ResultsPage() {
       setNoResults(false); // the search is running — show skeleton, not empty-state
       setCorrectedHighlight("");
       setDidYouMean(null); // clear any prior suggestion while the new search runs
+      if (!append) setDomainSearchMeta(null); // clear prior domain-search UI
       // Only invalidate totalPages when the QUERY/FILTERS change — not on
       // page navigation. Walking pages 1 → 2 → 3 within the same query keeps
       // the previously-computed total visible the whole time.
@@ -805,7 +820,7 @@ export default function ResultsPage() {
       const stateFilter = "";
       const countryFilter = "";
 
-      const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
+      const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, domain, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
 
       // Fire quick (Pass 1 only) and full search in parallel
       const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;
@@ -868,6 +883,22 @@ export default function ResultsPage() {
       // "Did you mean …?" — present only when the backend found nothing for the
       // original query and has a spelling candidate.
       setDidYouMean(meta?.did_you_mean || null);
+      // Pasted-URL (domain) search: capture the opt-in alternatives + match
+      // state so the UI can render the "Explore related" strip (on a match) or
+      // the "No company found for <domain>" state (on a miss). Only when this
+      // search actually carried a domain lock; plain searches clear it above.
+      if (!append) {
+        setDomainSearchMeta(
+          domain
+            ? {
+                domain,
+                matchedBy: meta?.matched_by || null,
+                domainSearch: meta?.domain_search || null,
+                alternatives: meta?.alternatives || null,
+              }
+            : null
+        );
+      }
       const distanced = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
 
       // Proximity sorts (sort=manu by nearest manufacturing, sort=hq by
@@ -1003,6 +1034,7 @@ export default function ResultsPage() {
         amazon: amazonParam,
         hqCountry: hqCountryParam,
         mfgCountry: mfgCountryParam,
+        domain: domainParam,
         take: PAGE_SIZE,
         skip: results.length,
         location: userLoc,
@@ -1086,6 +1118,21 @@ export default function ResultsPage() {
   function handleKeywordSearch(keyword) {
     const next = new URLSearchParams(searchParams);
     next.set("q", keyword);
+    next.delete("page");
+    // A keyword/industry click is a fresh brand-search intent — never inherit a
+    // pasted-URL domain lock from the current search.
+    next.delete("domain");
+    setSearchParams(next);
+  }
+
+  // Run a search for a specific brand/company NAME, dropping any domain lock —
+  // used by the opt-in "like brand" suggestion chips after a domain search.
+  function searchForBrand(brandName) {
+    const name = (brandName ?? "").toString().trim();
+    if (!name) return;
+    const next = new URLSearchParams(searchParams);
+    next.set("q", name);
+    next.delete("domain");
     next.delete("page");
     setSearchParams(next);
   }
@@ -1435,31 +1482,65 @@ export default function ResultsPage() {
             })()}
           </div>
         ) : noResults ? (
-          <div className="p-8 text-center">
-            <div className="text-muted-foreground">
-              <p className="text-lg font-medium mb-1">No companies found</p>
-              {didYouMean?.suggestion ? (
-                <p className="text-sm">
-                  Did you mean{" "}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = new URLSearchParams(searchParams);
-                      next.set("q", didYouMean.suggestion);
-                      next.delete("page");
-                      setSearchParams(next);
-                    }}
-                    className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
-                  >
-                    {didYouMean.suggestion}
-                  </button>
-                  ?
+          domainSearchMeta && !domainSearchMeta.matchedBy ? (
+            // Pasted-URL search that matched no company on that exact domain.
+            // Name the domain, offer the brand-label search as the primary
+            // broaden action, then the seeded opt-in like-brand + industry
+            // chips. Nothing runs until the user affirmatively clicks.
+            <div className="p-8 text-center">
+              <div className="text-muted-foreground max-w-md mx-auto">
+                <p className="text-lg font-medium mb-1">
+                  No company found for {domainSearchMeta.domain}
                 </p>
-              ) : (
-                <p className="text-sm">Try adjusting your search terms or filters</p>
-              )}
+                {qParam ? (
+                  <p className="text-sm mb-1">
+                    <button
+                      type="button"
+                      onClick={() => searchForBrand(qParam)}
+                      className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                    >
+                      Search for "{qParam}" instead
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-sm">Try adjusting your search terms or filters</p>
+                )}
+                <DomainAlternativesStrip
+                  heading="Or explore"
+                  alternatives={domainSearchMeta.alternatives}
+                  onBrand={searchForBrand}
+                  onIndustry={handleKeywordSearch}
+                  className="text-left"
+                />
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="p-8 text-center">
+              <div className="text-muted-foreground">
+                <p className="text-lg font-medium mb-1">No companies found</p>
+                {didYouMean?.suggestion ? (
+                  <p className="text-sm">
+                    Did you mean{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = new URLSearchParams(searchParams);
+                        next.set("q", didYouMean.suggestion);
+                        next.delete("page");
+                        setSearchParams(next);
+                      }}
+                      className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                    >
+                      {didYouMean.suggestion}
+                    </button>
+                    ?
+                  </p>
+                ) : (
+                  <p className="text-sm">Try adjusting your search terms or filters</p>
+                )}
+              </div>
+            </div>
+          )
         ) : (
           <div className="space-y-0">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -1468,6 +1549,20 @@ export default function ResultsPage() {
           </div>
         )}
       </div>
+
+      {/* Pasted-URL MATCH: opt-in "Explore related" strip below the pinned
+          company. Silent otherwise (no "matched by website" cue). Chips run a
+          new search with the domain lock dropped. */}
+      {domainSearchMeta?.matchedBy && sorted.length > 0 && (
+        <div className="mb-4">
+          <DomainAlternativesStrip
+            heading="Explore related"
+            alternatives={domainSearchMeta.alternatives}
+            onBrand={searchForBrand}
+            onIndustry={handleKeywordSearch}
+          />
+        </div>
+      )}
 
       {isLocationOnly ? (
         <div ref={loadMoreRef} className="py-6 text-center text-sm text-muted-foreground">
@@ -1489,6 +1584,64 @@ export default function ResultsPage() {
 }
 
 /* ---------- helpers ---------- */
+
+/**
+ * Opt-in alternative-query suggestions shown after a pasted-URL (domain)
+ * search — in BOTH outcomes (a company was matched, or none was). Every chip
+ * is inert until clicked; clicking runs a NEW search with the domain lock
+ * dropped (see searchForBrand / handleKeywordSearch, which both delete
+ * `domain`). Industry chips run an industry/keyword search; like-brand chips
+ * run a search for that brand NAME (not open-the-company, per the design).
+ */
+function DomainAlternativesStrip({ heading, alternatives, onBrand, onIndustry, className = "" }) {
+  const brands = Array.isArray(alternatives?.brands)
+    ? alternatives.brands.filter((b) => b && b.company_name)
+    : [];
+  const industries = Array.isArray(alternatives?.industries)
+    ? alternatives.industries.filter(Boolean)
+    : [];
+  if (!brands.length && !industries.length) return null;
+
+  const chip =
+    "rounded-full border border-border bg-background px-3 py-1 text-sm hover:border-primary hover:text-primary transition-colors";
+
+  return (
+    <div className={`mt-3 rounded-lg border border-border bg-muted/30 p-4 ${className}`}>
+      <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+        {heading}
+      </div>
+      {industries.length > 0 && (
+        <div className={brands.length > 0 ? "mb-3" : ""}>
+          <div className="text-xs text-muted-foreground/80 mb-1.5">Industries</div>
+          <div className="flex flex-wrap gap-2">
+            {industries.map((ind) => (
+              <button key={ind} type="button" className={chip} onClick={() => onIndustry(ind)}>
+                {ind}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {brands.length > 0 && (
+        <div>
+          <div className="text-xs text-muted-foreground/80 mb-1.5">Like brands</div>
+          <div className="flex flex-wrap gap-2">
+            {brands.map((b) => (
+              <button
+                key={b.company_id || b.company_name}
+                type="button"
+                className={chip}
+                onClick={() => onBrand(b.company_name)}
+              >
+                {b.company_name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Generate alternative query forms for fallback search retry

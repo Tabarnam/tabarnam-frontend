@@ -139,6 +139,43 @@ export function extractSearchTermFromUrl(input: string): string {
 }
 
 /**
+ * If the input is a URL/domain, return its stored `normalized_domain` form
+ * (lowercase hostname, leading `www.` stripped) so we can look a company up by
+ * its exact domain. Returns "" when the input is NOT URL-like (plain search
+ * text), so callers treat empty as "not a domain paste".
+ *
+ *   "https://www.Cove.com/products" → "cove.com"
+ *   "cove.com"                      → "cove.com"
+ *   "shop.cove.com"                 → "shop.cove.com"  (subdomain kept)
+ *   "www.acme-corp.co.uk"           → "acme-corp.co.uk"
+ *   "organic soap" / ""             → ""               (not a domain)
+ *
+ * MUST match the canonical backend `toNormalizedDomain`
+ * (api/import-start/_importStartCompanyUtils.js) for every URL/domain input —
+ * a contract test locks them to a shared fixture list. (The backend returns
+ * "unknown" for non-URL input; this returns "" — both mean "no domain".)
+ */
+export function extractNormalizedDomain(input: string): string {
+  const trimmed = (input || "").trim();
+  if (!trimmed) return "";
+
+  const urlPattern = /^https?:\/\//i;
+  const domainLike =
+    /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(\/.*)?$/i;
+  // Only genuine URL/domain input is a domain paste; plain text → "".
+  if (!urlPattern.test(trimmed) && !domainLike.test(trimmed)) return "";
+
+  try {
+    const u = urlPattern.test(trimmed) ? new URL(trimmed) : new URL(`https://${trimmed}`);
+    let h = u.hostname.toLowerCase();
+    if (h.startsWith("www.")) h = h.slice(4);
+    return h || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Split a raw query on commas into distinct "concepts", then normalize each
  * concept independently. Users type comma-separated queries when they want
  * all of the listed concepts to match — e.g. "air compressor, tires" means

@@ -30,6 +30,8 @@ export interface SearchOptions {
   hqCountry?: string;
   mfgCountry?: string;
   quick?: boolean;
+  /** Exact stored normalized_domain for a pasted-URL search (domain-only retrieval). */
+  domain?: unknown;
 }
 
 export interface Company {
@@ -104,6 +106,9 @@ export async function searchCompanies(opts: SearchOptions) {
   if (opts.hqCountry) params.set("hqCountry", opts.hqCountry);
   if (opts.mfgCountry) params.set("mfgCountry", opts.mfgCountry);
   if (opts.quick) params.set("quick", "1");
+  // Pasted-URL search: exact domain lookup, bypasses the brand-token pipeline.
+  const domain = asStr(opts.domain).trim().toLowerCase();
+  if (domain) params.set("domain", domain);
 
   const latStr = asStr(opts.lat);
   const lngStr = asStr(opts.lng);

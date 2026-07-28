@@ -2395,3 +2395,171 @@ test("fridge query surfaces a refrigerator-only brand end-to-end", async () => {
   const ids = JSON.parse(res.body).items.map((i) => i.id);
   assert.ok(ids.includes("ka"), "refrigerator-only brand survives for a fridge query");
 });
+
+// ── Pasted-URL (domain) search ─────────────────────────────────────────────
+// A `?domain=` param triggers exact normalized_domain retrieval that BYPASSES
+// the brand-token pipeline entirely, exempts the match from filters, and seeds
+// opt-in alternative suggestions (like-brands + industries) in meta.
+
+// Marks whether the brand-token pipeline (keyword query) was reached — it must
+// NOT run for a domain search.
+function domainQueryResponder(overrides = {}) {
+  const flags = { ranTokenPipeline: false };
+  const coveDomainDoc = overrides.coveDomainDoc ?? {
+    id: "cove_security",
+    company_id: "cove_security",
+    company_name: "Cove Security",
+    normalized_domain: "cove.com",
+    industries: ["Home Security"],
+    manufacturing_locations: ["Texas, US"],
+    _ts: 1700000000,
+  };
+  const responder = async (spec) => {
+    const q = String(spec?.query || "");
+    const params = spec?.parameters || [];
+    const getP = (n) => (params.find((p) => p.name === n) || {}).value;
+
+    if (q.includes("c.normalized_domain = @dom")) {
+      return getP("@dom") === "cove.com" && overrides.domainHit !== false
+        ? [coveDomainDoc]
+        : [];
+    }
+    // Match-case peer alternatives (industry EXISTS, excluding the family).
+    if (q.includes("c.industries") && q.includes("!= @dom")) {
+      return overrides.peers ?? [
+        {
+          id: "simplisafe",
+          company_id: "simplisafe",
+          company_name: "SimpliSafe",
+          normalized_domain: "simplisafe.com",
+          industries: ["Home Security"],
+          _ts: 1699000000,
+        },
+      ];
+    }
+    // No-match alternatives seed (brand token over search_tokens).
+    if (q.includes("ARRAY_CONTAINS(c.search_tokens")) {
+      return overrides.seed ?? [
+        {
+          id: "cove_kitchen",
+          company_id: "cove_kitchen",
+          company_name: "Cove Cookware",
+          normalized_domain: "covecookware.com",
+          industries: ["Cookware"],
+          search_tokens: ["cove"],
+          _ts: 1698000000,
+        },
+      ];
+    }
+    // Brand-token pipeline — MUST NOT run for a domain search.
+    if (q.includes("c.keywords")) {
+      flags.ranTokenPipeline = true;
+      return [
+        {
+          id: "wrong_cove",
+          company_id: "wrong_cove",
+          company_name: "Cove",
+          normalized_domain: "someothercove.com",
+          industries: ["Furniture"],
+          _ts: 1697000000,
+        },
+      ];
+    }
+    return [];
+  };
+  return { responder, flags };
+}
+
+test("domain search: matches ONLY the on-domain company and skips the brand pipeline", async () => {
+  const { responder, flags } = domainQueryResponder();
+  const companiesContainer = makeContainer(responder);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=cove&norm=cove&compact=cove&domain=cove.com&take=25"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.items.length, 1, "only the on-domain company is returned");
+  assert.equal(body.items[0].id, "cove_security");
+  assert.equal(body.items[0].normalized_domain, "cove.com");
+  assert.equal(body.items[0]._matchType, "website");
+  assert.equal(flags.ranTokenPipeline, false, "brand-token pipeline must be skipped");
+
+  assert.ok(body.meta.matched_by, "meta.matched_by present on a match");
+  assert.equal(body.meta.matched_by.type, "website");
+  assert.equal(body.meta.matched_by.domain, "cove.com");
+  assert.equal(body.meta.matched_by.company_id, "cove_security");
+
+  // Alternatives seeded from the matched company's industry; must EXCLUDE the
+  // matched family and list peers.
+  assert.ok(body.meta.alternatives, "meta.alternatives present");
+  const altDomains = body.meta.alternatives.brands.map((b) => b.normalized_domain);
+  assert.ok(!altDomains.includes("cove.com"), "matched family excluded from alternatives");
+  assert.ok(body.meta.alternatives.brands.some((b) => b.company_id === "simplisafe"));
+  assert.ok(body.meta.alternatives.industries.includes("Home Security"));
+});
+
+test("domain search: no on-domain company → empty items + seeded alternatives", async () => {
+  const { responder, flags } = domainQueryResponder({ domainHit: false });
+  const companiesContainer = makeContainer(responder);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=cove&norm=cove&compact=cove&domain=cove.com&take=25"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.items.length, 0, "no company matched the domain");
+  assert.equal(flags.ranTokenPipeline, false, "brand pipeline still skipped");
+
+  assert.ok(body.meta.domain_search, "meta.domain_search present on a miss");
+  assert.equal(body.meta.domain_search.matched, false);
+  assert.equal(body.meta.domain_search.domain, "cove.com");
+  assert.ok(!body.meta.matched_by, "no matched_by on a miss");
+
+  // Seeded like-brands + industries from the brand-token pipeline (one query).
+  assert.ok(body.meta.alternatives, "alternatives seeded on a miss");
+  assert.ok(body.meta.alternatives.brands.some((b) => b.company_id === "cove_kitchen"));
+  assert.ok(body.meta.alternatives.industries.includes("Cookware"));
+});
+
+test("domain search: on-domain company is exempt from active filters", async () => {
+  // amazon=1 is active, and the on-domain company has NO amazon link — it must
+  // still be returned, because a pasted URL overrides filters.
+  const { responder } = domainQueryResponder();
+  const companiesContainer = makeContainer(responder);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=cove&norm=cove&compact=cove&domain=cove.com&amazon=1&take=25"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.items.length, 1, "filter does not hide the on-domain company");
+  assert.equal(body.items[0].id, "cove_security");
+});
+
+test("no domain param: normal brand pipeline runs, no domain meta", async () => {
+  const { responder, flags } = domainQueryResponder();
+  const companiesContainer = makeContainer(responder);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=cove&norm=cove&compact=cove&take=25"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(flags.ranTokenPipeline, true, "brand-token pipeline runs without a domain");
+  assert.ok(!body.meta.matched_by, "no matched_by without a domain");
+  assert.ok(!body.meta.domain_search, "no domain_search without a domain");
+  assert.ok(!body.meta.alternatives, "no alternatives without a domain");
+});

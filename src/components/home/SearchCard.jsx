@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { getCountries, resolveCountryText } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
-import { extractSearchTermFromUrl } from '@/lib/queryNormalizer';
+import { extractSearchTermFromUrl, extractNormalizedDomain } from '@/lib/queryNormalizer';
 import { placesAutocomplete, placeDetails, resolveLocation, topCityForState, geocode } from '@/lib/google';
 import { cn } from '@/lib/utils';
 
@@ -302,7 +302,7 @@ export default function SearchCard({
 
     debounceSearchRef.current = setTimeout(() => {
       lastSearchedQRef.current = trimmed;
-      onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly, hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '' });
+      onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly, hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '', domain: extractNormalizedDomain(trimmed) });
     }, 1000);
 
     // Delayed URL commit: sync the URL 3 s after last keystroke so the
@@ -483,8 +483,12 @@ export default function SearchCard({
 
     // Read from the DOM ref to handle paste + immediate Enter (React state may be stale)
     const rawQ = (overrideQ !== undefined ? String(overrideQ) : (inputRef.current?.value ?? q)).trim();
-    // If the user pasted a URL, extract the brand name so search works
+    // If the user pasted a URL, extract the brand name so search works — and
+    // capture the exact normalized_domain (computed from the RAW paste, before
+    // the input is rewritten to the brand label) so the backend can do an
+    // exact "find the company at THIS domain" lookup. "" for plain text.
     const extracted = extractSearchTermFromUrl(rawQ);
+    const pastedDomain = extractNormalizedDomain(rawQ);
     if (extracted !== rawQ) setQ(extracted); // update input so user sees what was searched
     else if (rawQ !== q) setQ(rawQ); // sync React state with DOM (paste + Enter race)
 
@@ -587,6 +591,7 @@ export default function SearchCard({
         amazon: amazonOnly ? '1' : '',
         hqCountry: hqInCountry ? userCountryCode : '',
         mfgCountry: mfgInCountry ? userCountryCode : '',
+        domain: pastedDomain || '',
       };
       if (onSubmitParams) onSubmitParams(params, { urlOnly });
       else nav(`/results?${toQs(params)}`);

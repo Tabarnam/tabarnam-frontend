@@ -12,6 +12,7 @@ const { parseQuery, foldDiacritics, normalizeQuery } = require("../_queryNormali
 const { expandQueryTermsForFTS, expandProductSynonyms } = require("../_searchSynonyms");
 const { isFuzzyNameMatch, damerauLevenshtein } = require("../_fuzzyMatch");
 const { simpleStem, stemWords } = require("../_stemmer");
+const { toNormalizedDomain } = require("../import-start/_importStartCompanyUtils");
 const {
   loadIndustryAffinityIndex,
   getAffinityIndustriesFromIndex,
@@ -1518,6 +1519,20 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     q_stemmed = parsed.q_stemmed || (q_norm ? stemWords(q_norm) : "");
   }
 
+  // ── Domain search ──────────────────────────────────────────────────────────
+  // When the user pastes a URL, the frontend sends the exact normalized_domain
+  // (?domain=cove.com). A domain search is the narrowest possible intent, so
+  // when it's present we look the company up by that domain ONLY (see the
+  // short-circuit in the retrieval block below). Defensively derive from the
+  // raw query for direct API callers that pass a full URL as ?q=.
+  let domainParam = (url.searchParams.get("domain") || "").trim().toLowerCase();
+  if (!domainParam && q_raw) {
+    const derived = toNormalizedDomain(q_raw);
+    if (derived && derived !== "unknown") domainParam = derived;
+  }
+  // Only a real host (has a dot, not the "unknown" sentinel) is a domain search.
+  if (!domainParam.includes(".") || domainParam === "unknown") domainParam = "";
+
   const sort = (url.searchParams.get("sort") || "recent").toLowerCase();
   const sortField = (url.searchParams.get("sortField") || "").toLowerCase();
   const sortDir = (url.searchParams.get("sortDir") || "asc").toLowerCase() === "desc" ? "desc" : "asc";
@@ -1662,6 +1677,27 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
 
+      // ── Domain-only exact retrieval (pasted-URL search) ──
+      // When `domainParam` is set, the search is a narrow "find the company at
+      // THIS domain" lookup. Query by exact normalized_domain (the partition
+      // key → single-partition point lookup, cheapest possible) and SKIP the
+      // whole brand-token pipeline below (token/broadening/fuzzy/Pass 4). TOP 5
+      // covers a legitimate same-domain family (HP + HP Calculators). If the
+      // domain isn't in the DB, items stays empty → the frontend shows the
+      // opt-in "did you mean / explore" state; alternatives ride in meta only.
+      if (domainParam) {
+        const domRes = await container.items
+          .query(
+            {
+              query: `SELECT TOP 5 ${SELECT_FIELDS} FROM c WHERE c.normalized_domain = @dom AND ${softDeleteFilter}`,
+              parameters: [{ name: "@dom", value: domainParam }],
+            },
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll();
+        items = (domRes.resources || []).map((r) => ({ ...r, _domainExactMatch: true }));
+      }
+
       // Expand query into phrase variants using synonyms + business abbreviations.
       // In quick mode, skip synonym expansion entirely for fastest response.
       // These phrases drive the token-match WHERE built below.
@@ -1685,7 +1721,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       //     filler word ("the", "of") to be present; stored tokens keep them.
       // sort=manu / stars / distance are all handled by the post-fetch reranker
       // below, so retrieval is identical for every sort (no special manu path).
-      {
+      // Skipped entirely for a domain search (domainParam) — that path already
+      // populated `items` with the exact on-domain company above.
+      if (!domainParam) {
         const SEARCH_STOPWORDS = new Set([
           "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "by",
           "with", "at", "from", "as", "is", "are", "be",
@@ -1791,6 +1829,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const BROADEN_FALLBACK_THRESHOLD = 10;
       let usedBroadenFallback = false;
       if (
+        !domainParam &&
         !quickMode &&
         q_norm &&
         !hasStrongNameMatch &&
@@ -1847,7 +1886,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // post-filter when primary search produces no real name match for the query.
       // Tries a 4-char prefix first, then a 3-char prefix.
 
-      if (!hasStrongNameMatch && q_norm && q_norm.length >= 4 && !quickMode) {
+      if (!domainParam && !hasStrongNameMatch && q_norm && q_norm.length >= 4 && !quickMode) {
         try {
           const prefixLengths = [4, 3]; // try longer prefix first for precision, then shorter
           const existingIds = new Set(items.map((i) => i.id));
@@ -1906,7 +1945,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // Skipped: in quickMode, on pages > 1 (related companies belong with
       // the primary on page 1), and when no primary brand match exists in
       // the result set.
-      if (!quickMode && q_norm && skip === 0) {
+      if (!domainParam && !quickMode && q_norm && skip === 0) {
         let primary = null;
         let primaryScore = 0;
         for (const c of items) {
@@ -2065,12 +2104,18 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           if (pub && r._substringOnly) pub._substringOnly = true;
           if (pub && r._broadenedMatch) pub._broadenedMatch = true;
           if (pub && r._industryRelated) pub._industryRelated = true;
+          if (pub && r._domainExactMatch) pub._domainExactMatch = true;
           return pub;
         })
         .filter((c) => c && c.id);
 
       let deduped = mapped;
 
+      // A domain search (pasted URL) is explicit "find THIS company" intent, so
+      // it overrides all filters — the on-domain company is never dropped by an
+      // active Amazon-only / location / concept filter. Skip the filter block
+      // entirely (every item here is the exact domain match).
+      if (!domainParam) {
       // Amazon-only filter: keep only companies that have an amazon_url
       if (amazonOnly) {
         deduped = deduped.filter((c) => c.amazon_url && c.amazon_url.trim() !== "");
@@ -2108,6 +2153,18 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       if (q_concepts.length >= 2) {
         deduped = deduped.filter((c) => companyMatchesAllConcepts(c, q_concepts));
       }
+      } // end filter block (skipped for a domain search)
+
+      // Pin exact website (domain) matches to the top tier so they lead the
+      // result set regardless of q_norm/sort — tier -1 is `_nameMatchScore >= 100`
+      // (see relevanceTier). The main scoring loop below skips them.
+      for (const c of deduped) {
+        if (c._domainExactMatch) {
+          c._nameMatchScore = 100;
+          c._relevanceScore = 100;
+          c._matchType = "website";
+        }
+      }
 
       // Resolve the affinity industries for this query once (data-driven inverted
       // index — replaces the old hand-curated PRODUCT_INDUSTRY_AFFINITY map).
@@ -2126,6 +2183,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // Attach relevance scores so the frontend can prioritise strong matches
       if (q_norm) {
         for (const company of deduped) {
+          if (company._domainExactMatch) {
+            // Already pinned to tier -1 above (exact website match) — don't let
+            // the normal name/keyword scoring overwrite it.
+            continue;
+          }
           if (company._industryRelated) {
             // Pass 4 surfaced this company because it shares industry tags
             // with the primary brand match — not because it matches the
@@ -2337,6 +2399,101 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const paged = deduped.slice(skip, skip + take);
       const hasMore = deduped.length > skip + take;
 
+      // Domain-search meta. On a match we're silent (the pinned company IS the
+      // answer); on a miss we flag matched:false so the frontend renders the
+      // opt-in empty state. `alternatives` (like-brands + industries) is added
+      // by Stage 5g below.
+      const domainMatch = domainParam ? deduped.find((c) => c._domainExactMatch) : null;
+      const domainMeta = domainParam
+        ? domainMatch
+          ? { matched_by: { type: "website", domain: domainParam, company_id: domainMatch.company_id || domainMatch.id } }
+          : { domain_search: { domain: domainParam, matched: false } }
+        : {};
+
+      // ── Stage 5g: opt-in alternative suggestions (never auto-results) ──
+      // Offered in BOTH domain outcomes. On a match: the found company's own
+      // industries + a few same-industry peer brands. On a miss: seed from the
+      // brand-token pipeline (one extra query) so the empty state can suggest
+      // like brands + industries. Best-effort — a failure just omits them. The
+      // frontend renders these as clickable chips that DROP the domain param.
+      let domainAlternatives = null;
+      if (domainParam) {
+        try {
+          const altBrands = [];
+          const altIndustries = new Set();
+          const pushBrand = (r) => {
+            if (!r) return;
+            const dom = String(r.normalized_domain || "").toLowerCase();
+            if (dom === domainParam) return; // exclude the matched family
+            const cid = r.company_id || r.id || "";
+            if (altBrands.some((b) => b.company_id === cid)) return;
+            altBrands.push({
+              company_name: r.company_name || r.name || "",
+              company_id: cid,
+              normalized_domain: dom,
+            });
+          };
+
+          if (domainMatch) {
+            // Match: industries straight off the found company; peers by them.
+            const inds = normalizeStringArray(domainMatch.industries).slice(0, 5);
+            inds.forEach((i) => altIndustries.add(i));
+            const seed = inds
+              .map((i) => String(i).toLowerCase().trim())
+              .filter((i) => i.length >= 3)
+              .slice(0, 6);
+            if (seed.length) {
+              const p = [{ name: "@t", value: 12 }, { name: "@dom", value: domainParam }];
+              const clauses = seed.map((term, i) => {
+                p.push({ name: `@a${i}`, value: term });
+                return `EXISTS(SELECT VALUE x FROM x IN c.industries WHERE CONTAINS(LOWER(x), @a${i}))`;
+              });
+              const sql = `SELECT TOP @t ${SELECT_FIELDS} FROM c WHERE (${clauses.join(" OR ")}) AND c.normalized_domain != @dom AND ${softDeleteFilter} ORDER BY c._ts DESC`;
+              const res = await container.items
+                .query({ query: sql, parameters: p }, { enableCrossPartitionQuery: true })
+                .fetchAll();
+              for (const r of res.resources || []) {
+                pushBrand(r);
+                if (altBrands.length >= 5) break;
+              }
+            }
+          } else if (q_norm) {
+            // No match: seed like-brands from the brand token; industries follow.
+            const words = q_norm
+              .split(/\s+/)
+              .map((w) => w.trim())
+              .filter((w) => w.length >= 2)
+              .slice(0, 6);
+            if (words.length) {
+              const p = [{ name: "@t", value: 12 }];
+              const clauses = words.map((w, i) => {
+                p.push({ name: `@w${i}`, value: w });
+                return `ARRAY_CONTAINS(c.search_tokens, @w${i})`;
+              });
+              const sql = `SELECT TOP @t ${SELECT_FIELDS} FROM c WHERE (${clauses.join(" OR ")}) AND ${softDeleteFilter} ORDER BY c._ts DESC`;
+              const res = await container.items
+                .query({ query: sql, parameters: p }, { enableCrossPartitionQuery: true })
+                .fetchAll();
+              for (const r of res.resources || []) {
+                pushBrand(r);
+                normalizeStringArray(r.industries).forEach((i) => altIndustries.add(i));
+                if (altBrands.length >= 5) break;
+              }
+            }
+          }
+
+          const industries = [...altIndustries]
+            .map((i) => String(i).trim())
+            .filter(Boolean)
+            .slice(0, 5);
+          if (altBrands.length || industries.length) {
+            domainAlternatives = { brands: altBrands.slice(0, 5), industries };
+          }
+        } catch (altErr) {
+          context.log("[search-companies] domain alternatives error:", altErr?.message);
+        }
+      }
+
       return json(
         {
           ok: true,
@@ -2364,6 +2521,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ...(typo_suggestion && deduped.length === 0
               ? { did_you_mean: { original: q_norm, suggestion: typo_suggestion } }
               : {}),
+            ...domainMeta,
+            ...(domainAlternatives ? { alternatives: domainAlternatives } : {}),
             _typoDiag,
           },
         },
