@@ -847,8 +847,12 @@ export default function ResultsPage() {
       // Stale check: if a newer search was started, discard these results
       if (gen !== searchGenRef.current) return;
 
-      // If no results on page 1, try alternative query forms (fallback retry)
-      if (searchResult.items?.length === 0 && !skip && q) {
+      // If no results on page 1, try alternative query forms (fallback retry).
+      // NEVER for a domain (pasted-URL) search: a domain miss must stay a miss
+      // so the opt-in "No company found for <domain>" state shows — silently
+      // broadening to a brand search here would clobber it (and drop the domain
+      // param, defeating the exact-match intent entirely).
+      if (searchResult.items?.length === 0 && !skip && q && !domain) {
         const alternatives = generateQueryAlternatives(q);
         for (const altQuery of alternatives) {
           if (altQuery !== q) {
