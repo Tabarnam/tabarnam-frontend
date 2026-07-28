@@ -2410,7 +2410,7 @@ function domainQueryResponder(overrides = {}) {
     company_id: "cove_security",
     company_name: "Cove Security",
     normalized_domain: "cove.com",
-    industries: ["Home Security"],
+    industries: ["Home Security", "Smart Home", "Alarms"],
     manufacturing_locations: ["Texas, US"],
     _ts: 1700000000,
   };
@@ -2425,17 +2425,29 @@ function domainQueryResponder(overrides = {}) {
         : [];
     }
     // Match-case peer alternatives (industry EXISTS, excluding the family).
+    // Returned in LOW-overlap-first order so the handler's tag-overlap ranking
+    // has to reorder them: `low_overlap` shares 1 tag, `high_overlap` shares 3.
     if (q.includes("c.industries") && q.includes("!= @dom")) {
-      return overrides.peers ?? [
-        {
-          id: "simplisafe",
-          company_id: "simplisafe",
-          company_name: "SimpliSafe",
-          normalized_domain: "simplisafe.com",
-          industries: ["Home Security"],
-          _ts: 1699000000,
-        },
-      ];
+      return (
+        overrides.peers ?? [
+          {
+            id: "low_overlap",
+            company_id: "low_overlap",
+            company_name: "Loosely Related Co",
+            normalized_domain: "loose.com",
+            industries: ["Home Security", "Furniture"],
+            _ts: 1699500000,
+          },
+          {
+            id: "high_overlap",
+            company_id: "high_overlap",
+            company_name: "SimpliSafe",
+            normalized_domain: "simplisafe.com",
+            industries: ["Home Security", "Smart Home", "Alarms"],
+            _ts: 1699000000,
+          },
+        ]
+      );
     }
     // No-match alternatives seed (brand token over search_tokens).
     if (q.includes("ARRAY_CONTAINS(c.search_tokens")) {
@@ -2494,11 +2506,18 @@ test("domain search: matches ONLY the on-domain company and skips the brand pipe
   assert.equal(body.meta.matched_by.company_id, "cove_security");
 
   // Alternatives seeded from the matched company's industry; must EXCLUDE the
-  // matched family and list peers.
+  // matched family and list peers RANKED by industry-tag overlap.
   assert.ok(body.meta.alternatives, "meta.alternatives present");
   const altDomains = body.meta.alternatives.brands.map((b) => b.normalized_domain);
   assert.ok(!altDomains.includes("cove.com"), "matched family excluded from alternatives");
-  assert.ok(body.meta.alternatives.brands.some((b) => b.company_id === "simplisafe"));
+  assert.ok(body.meta.alternatives.brands.some((b) => b.company_id === "high_overlap"));
+  // Tag-overlap ranking: the peer sharing 3 tags outranks the one sharing 1,
+  // even though it was returned second (and is older) by the query.
+  assert.equal(
+    body.meta.alternatives.brands[0].company_id,
+    "high_overlap",
+    "peer with more shared industry tags ranks first"
+  );
   assert.ok(body.meta.alternatives.industries.includes("Home Security"));
 });
 

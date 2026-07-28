@@ -2434,25 +2434,52 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             });
           };
 
+          // Slim projection — alternatives only need identity + industries,
+          // not the full SELECT_FIELDS payload (keeps RU/response small).
+          const ALT_FIELDS =
+            "c.company_name, c.company_id, c.id, c.normalized_domain, c.industries, c._ts";
+
           if (domainMatch) {
-            // Match: industries straight off the found company; peers by them.
-            const inds = normalizeStringArray(domainMatch.industries).slice(0, 5);
-            inds.forEach((i) => altIndustries.add(i));
-            const seed = inds
+            // Match: the found company's own industries (shown as-is), plus
+            // peer brands RANKED by how much of its industry fingerprint they
+            // share. A broad OR-query over the tags gives a candidate pool;
+            // we then score each by tag overlap so a peer that shares several
+            // tags beats one that merely shares a single broad tag (e.g.
+            // "food" pulling in food-packaging companies for an apparel brand).
+            const myInds = normalizeStringArray(domainMatch.industries);
+            myInds.slice(0, 5).forEach((i) => altIndustries.add(i));
+            // Normalized tag fingerprint — wider window than the 5 shown so the
+            // overlap score sees the company's full industry profile.
+            const myTags = myInds
               .map((i) => String(i).toLowerCase().trim())
               .filter((i) => i.length >= 3)
-              .slice(0, 6);
+              .slice(0, 15);
+            const seed = myTags.slice(0, 8);
             if (seed.length) {
-              const p = [{ name: "@t", value: 12 }, { name: "@dom", value: domainParam }];
+              const p = [{ name: "@t", value: 40 }, { name: "@dom", value: domainParam }];
               const clauses = seed.map((term, i) => {
                 p.push({ name: `@a${i}`, value: term });
                 return `EXISTS(SELECT VALUE x FROM x IN c.industries WHERE CONTAINS(LOWER(x), @a${i}))`;
               });
-              const sql = `SELECT TOP @t ${SELECT_FIELDS} FROM c WHERE (${clauses.join(" OR ")}) AND c.normalized_domain != @dom AND ${softDeleteFilter} ORDER BY c._ts DESC`;
+              const sql = `SELECT TOP @t ${ALT_FIELDS} FROM c WHERE (${clauses.join(" OR ")}) AND c.normalized_domain != @dom AND ${softDeleteFilter}`;
               const res = await container.items
                 .query({ query: sql, parameters: p }, { enableCrossPartitionQuery: true })
                 .fetchAll();
-              for (const r of res.resources || []) {
+              // Rank by tag overlap: count how many of MY tags each candidate
+              // covers (exact match or containment either direction). Tie-break
+              // by recency so ordering is deterministic.
+              const scored = (res.resources || []).map((r) => {
+                const theirTags = normalizeStringArray(r.industries)
+                  .map((i) => String(i).toLowerCase().trim())
+                  .filter(Boolean);
+                let overlap = 0;
+                for (const m of myTags) {
+                  if (theirTags.some((t) => t === m || t.includes(m) || m.includes(t))) overlap++;
+                }
+                return { r, overlap, ts: Number(r._ts) || 0 };
+              });
+              scored.sort((a, b) => b.overlap - a.overlap || b.ts - a.ts);
+              for (const { r } of scored) {
                 pushBrand(r);
                 if (altBrands.length >= 5) break;
               }
@@ -2470,7 +2497,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
                 p.push({ name: `@w${i}`, value: w });
                 return `ARRAY_CONTAINS(c.search_tokens, @w${i})`;
               });
-              const sql = `SELECT TOP @t ${SELECT_FIELDS} FROM c WHERE (${clauses.join(" OR ")}) AND ${softDeleteFilter} ORDER BY c._ts DESC`;
+              const sql = `SELECT TOP @t ${ALT_FIELDS} FROM c WHERE (${clauses.join(" OR ")}) AND ${softDeleteFilter} ORDER BY c._ts DESC`;
               const res = await container.items
                 .query({ query: sql, parameters: p }, { enableCrossPartitionQuery: true })
                 .fetchAll();
