@@ -991,7 +991,10 @@ export default function ResultsPage() {
           setStatus(`⚠️ Search API unavailable – showing ${withDistances.length} sample companies.`);
         }
       } else if (withDistances.length === 0) {
-        setStatus("No companies found matching your criteria.");
+        // A domain (pasted-URL) miss has its own richer empty state
+        // ("No company found for <domain>" + opt-in suggestions) — suppress
+        // the generic status so the two don't stack.
+        setStatus(domain ? "" : "No companies found matching your criteria.");
       } else if (meta?.error) {
         setStatus(`⚠️ ${meta.error}`);
       } else {
