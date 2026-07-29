@@ -9,6 +9,7 @@ const {
   deriveMissingReason,
   isTerminalMissingField,
 } = require("../_requiredFields");
+const { companyFullySettled } = require("../_scoringStatus");
 
 /**
  * Phase 4.6 — defensive recompute of `import_missing_fields` against the
@@ -748,8 +749,16 @@ function toSavedCompanies(docs, { fieldsToEnrich } = {}) {
       const canonicalUrl = String(doc?.canonical_url || "").trim();
       const websiteUrl = String(doc?.website_url || doc?.url || "").trim();
 
+      // Phase 4.40 — "fully settled" gate for the admin import UI checkmark.
+      // Computed from the already-fetched doc (no extra Cosmos reads). Booleans
+      // and labels only — never raw scoring/doc internals — so this is safe to
+      // surface on the anonymous /import/status endpoint.
+      const settleState = companyFullySettled(doc);
+
       return {
         company_id: companyId,
+        settled: settleState.settled,
+        pending_backfills: settleState.pending,
         company_name: String(doc?.company_name || doc?.name || "").trim() || "Unknown company",
         canonical_url: canonicalUrl,
         website_url: websiteUrl || canonicalUrl,
