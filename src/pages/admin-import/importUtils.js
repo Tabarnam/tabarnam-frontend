@@ -25,6 +25,20 @@ export function importMissingReasonLabel(raw) {
   return map[normalized] || key;
 }
 
+// What a preflight duplicate-match actually hit on, from match_type
+// (import-preflight passes findExistingCompany's duplicate_match_key through:
+// normalized_domain / canonical_url / website_url / company_name, plus the
+// fuzzy tiers fuzzy_name / domain_substring). The dup-check chips use this so
+// an admin can see "URL match" vs "Name match" without opening the profile.
+// Substring-based on purpose — resilient to new key names, which will almost
+// certainly contain "url"/"domain" or "name".
+export function describeMatchBasis(matchType) {
+  const t = asString(matchType).trim().toLowerCase();
+  if (t.includes("domain") || t.includes("url")) return { basis: "url", label: "URL match" };
+  if (t.includes("name")) return { basis: "name", label: "Name match" };
+  return { basis: "other", label: "Exact match" };
+}
+
 export function looksLikeUrlOrDomain(raw) {
   const s = asString(raw).trim();
   if (!s) return false;

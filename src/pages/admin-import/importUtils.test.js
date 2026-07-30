@@ -4,7 +4,29 @@
 // /api/import-start (202 + polling).
 
 import { describe, it, expect } from "vitest";
-import { looksLikeUrlOrDomain } from "./importUtils";
+import { describeMatchBasis, looksLikeUrlOrDomain } from "./importUtils";
+
+// The dup-check chips must tell the admin WHAT hit — URL or name — straight
+// from the preflight's match_type, so a URL match is visible without opening
+// the company profile (name matches were already visible via the chip text).
+describe("describeMatchBasis", () => {
+  it.each([
+    ["normalized_domain", "url", "URL match"],
+    ["canonical_url", "url", "URL match"],
+    ["website_url", "url", "URL match"],
+    ["domain_substring", "url", "URL match"],
+    ["company_name", "name", "Name match"],
+    ["fuzzy_name", "name", "Name match"],
+  ])("%s → %s (%s)", (matchType, basis, label) => {
+    expect(describeMatchBasis(matchType)).toEqual({ basis, label });
+  });
+
+  it("unknown or missing match_type falls back to the generic label", () => {
+    expect(describeMatchBasis("unknown")).toEqual({ basis: "other", label: "Exact match" });
+    expect(describeMatchBasis(undefined)).toEqual({ basis: "other", label: "Exact match" });
+    expect(describeMatchBasis("")).toEqual({ basis: "other", label: "Exact match" });
+  });
+});
 
 describe("looksLikeUrlOrDomain", () => {
   describe("classifies real URLs as URLs", () => {

@@ -67,6 +67,7 @@ import {
   formatDurationShort,
   normalizeImportLimit,
   normalizeSuccessionCount,
+  describeMatchBasis,
 } from "./admin-import/importUtils";
 import ImportDebugPanel from "./admin-import/ImportDebugPanel";
 import ImportReportSection from "./admin-import/ImportReportSection";
@@ -5857,11 +5858,22 @@ export default function AdminImport() {
                             }
 
                             if (isSubBrandCandidate) {
+                              const basis = describeMatchBasis(pfResult.match?.match_type);
                               return (
                                 <div className="flex flex-col gap-0.5 min-w-0">
                                   <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 dark:bg-sky-900/30 px-2 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-400 whitespace-nowrap">
                                     <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
                                     Sub-brand of {pfResult.match?.company_name || "?"}?
+                                  </span>
+                                  {/* WHY it matched, without opening the profile: the
+                                      sub-brand hint usually fires on a shared domain,
+                                      and the admin needs to see that basis here. */}
+                                  <span className="text-[11px] text-slate-500 dark:text-muted-foreground truncate max-w-[170px]" title={pfResult.match?.normalized_domain || undefined}>
+                                    {basis.basis === "url"
+                                      ? `URL match · ${pfResult.match?.normalized_domain || "same domain"}`
+                                      : basis.basis === "name"
+                                        ? "Name match"
+                                        : null}
                                   </span>
                                   <a
                                     href={`/admin?company_id=${encodeURIComponent(pfResult.match?.id || "")}`}
@@ -5943,12 +5955,21 @@ export default function AdminImport() {
                             // an override. Two real companies can share a
                             // name (Cove home security vs Cove USA), and the
                             // admin needs to be able to say "yes, distinct."
+                            // The chip names the BASIS (URL match / Name match,
+                            // from the preflight's match_type) so the admin
+                            // sees what hit without opening the profile.
+                            const dupBasis = describeMatchBasis(pfResult.match?.match_type);
                             return (
                               <div className="flex flex-col gap-0.5 min-w-0">
                                 <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400 whitespace-nowrap">
                                   <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                                  Exact match
+                                  {dupBasis.label}
                                 </span>
+                                {dupBasis.basis === "url" && pfResult.match?.normalized_domain ? (
+                                  <span className="text-[11px] text-slate-500 dark:text-muted-foreground truncate max-w-[170px]" title={pfResult.match.normalized_domain}>
+                                    {pfResult.match.normalized_domain}
+                                  </span>
+                                ) : null}
                                 <a
                                   href={`/admin?company_id=${encodeURIComponent(pfResult.match?.id || "")}`}
                                   target="_blank"
@@ -5997,7 +6018,11 @@ export default function AdminImport() {
                                 {pfResult.match?.company_name || pfResult.match?.normalized_domain || "View"}
                               </a>
                               <span className="text-xs opacity-50">
-                                via {pfResult.match?.match_type === "fuzzy_name" ? "name similarity" : pfResult.match?.match_type === "domain_substring" ? "domain" : pfResult.match?.match_type || "match"}
+                                via {pfResult.match?.match_type === "fuzzy_name"
+                                  ? "name similarity"
+                                  : pfResult.match?.match_type === "domain_substring"
+                                    ? `URL (${pfResult.match?.normalized_domain || "similar domain"})`
+                                    : pfResult.match?.match_type || "match"}
                               </span>
                               <button
                                 type="button"
@@ -6133,7 +6158,13 @@ export default function AdminImport() {
                           >
                             {r.match?.company_name || r.match?.normalized_domain || "View"}
                           </a>
-                          {" "}(matched by {r.match?.match_type || "unknown"})
+                          {" "}
+                          {(() => {
+                            const b = describeMatchBasis(r.match?.match_type);
+                            if (b.basis === "url") return `(URL match${r.match?.normalized_domain ? `: ${r.match.normalized_domain}` : ""})`;
+                            if (b.basis === "name") return "(name match)";
+                            return `(matched by ${r.match?.match_type || "unknown"})`;
+                          })()}
                         </div>
                         <div className="flex flex-wrap gap-3 text-xs">
                           {isSubBrandCandidate ? (
