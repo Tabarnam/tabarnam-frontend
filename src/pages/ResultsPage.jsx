@@ -234,11 +234,11 @@ export default function ResultsPage() {
   const pageParam = Math.max(1, Math.floor(Number(searchParams.get("page")) || 1));
   // Results-per-page: user-controllable via the "Per page" control at the
   // bottom of the results. Defaults to PAGE_SIZE (25), clamped to the backend's
-  // 1–200 range. An absent/invalid `size` param means the default.
+  // 1–100 range. An absent/invalid `size` param means the default.
   const pageSize = (() => {
     const raw = Math.floor(Number(searchParams.get("size")) || 0);
     if (!Number.isFinite(raw) || raw < 1) return PAGE_SIZE;
-    return Math.min(200, raw);
+    return Math.min(100, raw);
   })();
   const amazonParam = searchParams.get("amazon") === "1";
   const hqCountryParam = searchParams.get("hqCountry") || "";
@@ -1172,12 +1172,12 @@ export default function ResultsPage() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }
 
-  // Change results-per-page. Clamp to the backend's 1–200 range, drop `size`
+  // Change results-per-page. Clamp to the backend's 1–100 range, drop `size`
   // entirely when it equals the default (keeps URLs clean), and reset to page 1
   // so the user never lands on a now-out-of-range page. The URL effect re-runs
   // the search because `pageSize` is in its dependency list.
   function handlePerPageChange(n) {
-    const size = Math.max(1, Math.min(200, Math.floor(Number(n) || 0)));
+    const size = Math.max(1, Math.min(100, Math.floor(Number(n) || 0)));
     if (!size) return;
     const next = new URLSearchParams(searchParams);
     if (size === PAGE_SIZE) next.delete("size");
@@ -1636,7 +1636,7 @@ export default function ResultsPage() {
 
 /**
  * "Per page" control shown next to the bottom Pagination. Quick presets
- * (25/50/100) plus a free-form number the user can type (clamped 1–200 on
+ * (25/50/100) plus a free-form number the user can type (clamped 1–100 on
  * commit). The active size is highlighted; a custom (non-preset) size shows in
  * the input. Purely presentational — the parent owns the URL `size` param.
  */
@@ -1654,7 +1654,7 @@ function PerPageControl({ pageSize, onChange }) {
 
   const commitCustom = () => {
     const n = Math.floor(Number(custom));
-    if (Number.isFinite(n) && n >= 1 && n !== pageSize) onChange(Math.min(200, n));
+    if (Number.isFinite(n) && n >= 1 && n !== pageSize) onChange(Math.min(100, n));
   };
 
   const btn = (active) =>
@@ -1676,7 +1676,7 @@ function PerPageControl({ pageSize, onChange }) {
         <input
           type="number"
           min="1"
-          max="200"
+          max="100"
           inputMode="numeric"
           value={custom}
           onChange={(e) => setCustom(e.target.value)}

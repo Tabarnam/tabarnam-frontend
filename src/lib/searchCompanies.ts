@@ -77,7 +77,7 @@ export async function searchCompanies(opts: SearchOptions) {
   if (!q && !hasLocation) throw new Error("Please enter a search term, choose a location, or enter a postal/ZIP code.");
 
   const sort = normalizeSort(opts.sort);
-  const take = Math.max(1, Math.min(Number(opts.take ?? 25) || 25, 200));
+  const take = Math.max(1, Math.min(Number(opts.take ?? 25) || 25, 100));
   const skip = Math.max(0, Number(opts.skip ?? 0) || 0);
 
   // Parse query into raw, normalized, and compact forms (skip if no text query)
@@ -370,7 +370,7 @@ export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "c
   if (!q && !hasLocation) return null;
 
   const sort = normalizeSort(opts.sort);
-  const take = Math.max(1, Math.min(Number(opts.take ?? 50) || 50, 200));
+  const take = Math.max(1, Math.min(Number(opts.take ?? 50) || 50, 100));
 
   let q_raw = "", q_norm = "", q_compact = "";
   if (q) {

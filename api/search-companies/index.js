@@ -1541,7 +1541,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const user_location = lat != null && lng != null ? { lat, lng } : null;
 
   const takeParam = toFiniteNumber(url.searchParams.get("take"));
-  const take = clamp(Math.floor(takeParam ?? 50), 1, 200);
+  // Results-per-page ceiling is 100 (the user-facing "Per page" max). Anything
+  // larger — a hand-edited URL or direct API caller — is capped here.
+  const take = clamp(Math.floor(takeParam ?? 50), 1, 100);
 
   const skipParam = toFiniteNumber(url.searchParams.get("skip"));
   const skip = Math.max(0, Math.floor(skipParam ?? 0));
