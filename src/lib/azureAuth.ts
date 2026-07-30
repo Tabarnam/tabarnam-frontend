@@ -21,6 +21,25 @@ export interface AdminUser {
   email: string;
 }
 
+/**
+ * The ONLY way this app should read auth state (/.auth/me, the admin roster, or
+ * anything else whose answer is "are you signed in / are you an admin").
+ *
+ * Always sends credentials and always bypasses the HTTP cache. A cached auth
+ * answer is a correctness bug, not an optimisation: a stored
+ * "clientPrincipal: null" made valid sessions look permanently signed-out and
+ * produced an unfixable-by-re-login sign-in loop.
+ *
+ * NOTE: the service worker must also skip these paths (see
+ * public/service-worker.js) — a SW intercepts before the HTTP cache, so
+ * `cache: 'no-store'` alone is not sufficient.
+ *
+ * Do not call fetch() directly for auth state; use this.
+ */
+export function fetchAuthState(url: string, init?: RequestInit): Promise<Response> {
+  return fetch(url, { ...(init || {}), credentials: 'include', cache: 'no-store' });
+}
+
 let cachedUser: AdminUser | null = null;
 let cacheTime: number = 0;
 const CACHE_DURATION = 60000; // 1 minute cache
@@ -75,7 +94,7 @@ export type RosterFetchResult =
  */
 export async function fetchAdminRoster(): Promise<RosterFetchResult> {
   try {
-    const res = await fetch('/api/xadmin-api-roster', { credentials: 'include' });
+    const res = await fetchAuthState('/api/xadmin-api-roster');
     if (res.status === 401) return { status: 'unauthenticated' };
     if (res.status === 403) return { status: 'forbidden' };
     if (!res.ok) return { status: 'error' };
@@ -142,7 +161,7 @@ export function getAdminUser(): AdminUser | null {
  */
 export async function initializeAzureUser(): Promise<AdminUser | null> {
   try {
-    const res = await fetch('/.auth/me', { credentials: 'include' });
+    const res = await fetchAuthState('/.auth/me');
     if (!res.ok) return null;
 
     // Check content type to ensure we're getting JSON (not HTML error pages)

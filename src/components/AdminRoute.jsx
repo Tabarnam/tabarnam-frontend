@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
-import { fetchAdminRoster, getAuthorizedAdminEmails } from '@/lib/azureAuth';
+import { fetchAdminRoster, fetchAuthState, getAuthorizedAdminEmails } from '@/lib/azureAuth';
 
 // Pull the caller's email out of the SWA clientPrincipal (userDetails, or an
 // email-bearing claim). Mirrors api/_adminAuth.js::extractEmail so the UI gate
@@ -69,7 +69,11 @@ export default function AdminRoute({ children }) {
     const check = async () => {
       let principal = null;
       try {
-        const res = await fetch('/.auth/me', { credentials: 'include' });
+        // fetchAuthState always sets cache:'no-store'. Never plain fetch() here:
+        // a cached "clientPrincipal: null" (e.g. from an earlier visit to
+        // /.auth/me while signed out) makes a perfectly valid session look
+        // signed-out forever — the cause of the Brave sign-in loop.
+        const res = await fetchAuthState('/.auth/me');
         if (!res.ok) throw new Error('auth unavailable');
         // /.auth/me only exists on SWA; locally it 404s or returns HTML.
         const contentType = res.headers.get('content-type') || '';

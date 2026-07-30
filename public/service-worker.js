@@ -1,5 +1,8 @@
-const STATIC_CACHE = "tabarnam-static-v1";
-const RUNTIME_CACHE = "tabarnam-runtime-v1";
+// v2: bumped so the `activate` handler purges v1 caches, which may hold a stale
+// /.auth/me response (a cached "clientPrincipal: null" made valid sessions look
+// signed-out — see the /.auth/ exclusion in the fetch handler below).
+const STATIC_CACHE = "tabarnam-static-v2";
+const RUNTIME_CACHE = "tabarnam-runtime-v2";
 const APP_SHELL = ["/", "/manifest.json", "/tabarnam-icon.png", "/pwa/icon-192.png", "/pwa/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -27,6 +30,13 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
+  // NEVER touch the auth endpoints. /.auth/me is a same-origin GET, so without
+  // this it fell into the cache-first branch below and got cache.put() — after
+  // which the SW served a stale "clientPrincipal: null" forever, making a valid
+  // session look permanently signed-out. A service worker intercepts BEFORE the
+  // HTTP cache, so `cache: 'no-store'` on the fetch cannot save us here; the
+  // request must bypass the SW entirely.
+  if (url.pathname.startsWith("/.auth/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(
