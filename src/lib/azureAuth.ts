@@ -56,19 +56,28 @@ function storeRoster(admins: string[]): void {
 
 export type RosterFetchResult =
   | { status: 'ok'; admins: string[] }
+  | { status: 'unauthenticated' }
   | { status: 'forbidden' }
   | { status: 'error' };
 
 /**
  * Fetch the admin allowlist from the backend (the single source of truth).
- * 'forbidden' means the caller is authenticated but not an admin (401/403);
- * 'error' means the endpoint was unreachable — callers should fall back to
- * the last known / hardcoded list rather than locking anyone out.
+ *
+ * The backend distinguishes these deliberately (api/_adminAuth.js): 403 =
+ * `not_admin` (authenticated, but not on the allowlist) and 401 = `missing_auth`
+ * (no/invalid credentials on THIS request). They must NOT be conflated:
+ *   'forbidden'       — 403 only. A real authorization failure; tell the user.
+ *   'unauthenticated' — 401. The session expired / wasn't attached / is mid-refresh.
+ *                       Recoverable: re-authenticate, never accuse a valid admin of
+ *                       "not authorized" (that was the old intermittent bug).
+ *   'error'           — endpoint unreachable; callers fall back to the last known /
+ *                       hardcoded list rather than locking anyone out.
  */
 export async function fetchAdminRoster(): Promise<RosterFetchResult> {
   try {
     const res = await fetch('/api/xadmin-api-roster', { credentials: 'include' });
-    if (res.status === 401 || res.status === 403) return { status: 'forbidden' };
+    if (res.status === 401) return { status: 'unauthenticated' };
+    if (res.status === 403) return { status: 'forbidden' };
     if (!res.ok) return { status: 'error' };
 
     const data = await res.json().catch(() => null);

@@ -54,9 +54,17 @@ describe("getAuthorizedAdminEmails", () => {
     expect(getAuthorizedAdminEmails()).toContain("jon@tabarnam.com");
   });
 
-  test("401/403 reports forbidden — the caller is not an admin", async () => {
+  test("403 reports forbidden — the caller is authenticated but not an admin", async () => {
     mockRosterResponse({ error: "Forbidden" }, 403);
     expect((await fetchAdminRoster()).status).toBe("forbidden");
+  });
+
+  // Regression: a 401 used to be reported as 'forbidden', so an expired or
+  // not-yet-attached session told a legitimate admin "your account is not
+  // authorized". 401 means re-authenticate, NOT unauthorized.
+  test("401 reports unauthenticated — session expired, not an authorization failure", async () => {
+    mockRosterResponse({ error: "Unauthorized", auth_error: "missing_auth" }, 401);
+    expect((await fetchAdminRoster()).status).toBe("unauthenticated");
   });
 
   test("an empty admins array is treated as an error, never an empty allowlist", async () => {
