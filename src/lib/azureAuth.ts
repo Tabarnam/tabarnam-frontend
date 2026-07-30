@@ -75,7 +75,8 @@ export type RosterFetchResult =
  */
 export async function fetchAdminRoster(): Promise<RosterFetchResult> {
   try {
-    const res = await fetch('/api/xadmin-api-roster', { credentials: 'include' });
+    // no-store: an auth verdict must never be served from cache.
+    const res = await fetch('/api/xadmin-api-roster', { credentials: 'include', cache: 'no-store' });
     if (res.status === 401) return { status: 'unauthenticated' };
     if (res.status === 403) return { status: 'forbidden' };
     if (!res.ok) return { status: 'error' };
@@ -142,7 +143,9 @@ export function getAdminUser(): AdminUser | null {
  */
 export async function initializeAzureUser(): Promise<AdminUser | null> {
   try {
-    const res = await fetch('/.auth/me', { credentials: 'include' });
+    // no-store: see AdminRoute — a cached null principal makes a valid session
+    // look signed-out.
+    const res = await fetch('/.auth/me', { credentials: 'include', cache: 'no-store' });
     if (!res.ok) return null;
 
     // Check content type to ensure we're getting JSON (not HTML error pages)

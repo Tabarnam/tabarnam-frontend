@@ -69,7 +69,11 @@ export default function AdminRoute({ children }) {
     const check = async () => {
       let principal = null;
       try {
-        const res = await fetch('/.auth/me', { credentials: 'include' });
+        // cache: 'no-store' is REQUIRED. Without it the browser can serve a
+        // cached "clientPrincipal: null" (e.g. from an earlier visit to
+        // /.auth/me while signed out), which makes a perfectly valid session
+        // look signed-out forever — the cause of the Brave sign-in loop.
+        const res = await fetch('/.auth/me', { credentials: 'include', cache: 'no-store' });
         if (!res.ok) throw new Error('auth unavailable');
         // /.auth/me only exists on SWA; locally it 404s or returns HTML.
         const contentType = res.headers.get('content-type') || '';
