@@ -232,6 +232,14 @@ export default function ResultsPage() {
   const latParam = (searchParams.get("lat") ?? "").toString();
   const lngParam = (searchParams.get("lng") ?? "").toString();
   const pageParam = Math.max(1, Math.floor(Number(searchParams.get("page")) || 1));
+  // Results-per-page: user-controllable via the "Per page" control at the
+  // bottom of the results. Defaults to PAGE_SIZE (25), clamped to the backend's
+  // 1–200 range. An absent/invalid `size` param means the default.
+  const pageSize = (() => {
+    const raw = Math.floor(Number(searchParams.get("size")) || 0);
+    if (!Number.isFinite(raw) || raw < 1) return PAGE_SIZE;
+    return Math.min(200, raw);
+  })();
   const amazonParam = searchParams.get("amazon") === "1";
   const hqCountryParam = searchParams.get("hqCountry") || "";
   const mfgCountryParam = searchParams.get("mfgCountry") || "";
@@ -591,7 +599,7 @@ export default function ResultsPage() {
         }
         poppingStateRef.current = false;
         // Location-only: load 2 pages eagerly, then lazy-load on scroll
-        const initialTake = isLocationOnly && pageParam === 1 ? PAGE_SIZE * 2 : PAGE_SIZE;
+        const initialTake = isLocationOnly && pageParam === 1 ? pageSize * 2 : pageSize;
         await doSearch({
           q: qParam,
           sort: sortParam,
@@ -603,7 +611,7 @@ export default function ResultsPage() {
           mfgCountry: mfgCountryParam,
           domain: domainParam,
           take: initialTake,
-          skip: (pageParam - 1) * PAGE_SIZE,
+          skip: (pageParam - 1) * pageSize,
           location: loc,
         });
       } else if (!cancelled) {
@@ -615,7 +623,7 @@ export default function ResultsPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam, domainParam]);
+  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam, domainParam, pageSize]);
 
   // Called by the top search bar.
   // opts.urlOnly === true means "the 1s auto-search already populated
@@ -652,6 +660,9 @@ export default function ResultsPage() {
     if (hqCountry) next.set("hqCountry", hqCountry);
     if (mfgCountry) next.set("mfgCountry", mfgCountry);
     if (domain) next.set("domain", domain);
+    // Per-page is a sticky preference — carry the current non-default size onto
+    // the new search so the user's choice survives running another query.
+    if (pageSize !== PAGE_SIZE) next.set("size", String(pageSize));
     // Reset to page 1 on new search
     next.delete("page");
     skipUrlEffectRef.current = true;
@@ -742,14 +753,14 @@ export default function ResultsPage() {
     navigatingHistoryRef.current = false;
 
     const isLocationOnlyInline = !q && !!(city || state || country);
-    const inlineTake = isLocationOnlyInline ? PAGE_SIZE * 2 : PAGE_SIZE;
+    const inlineTake = isLocationOnlyInline ? pageSize * 2 : pageSize;
     await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: inlineTake, skip: 0, location: searchLocation });
   }
 
   // Lightweight auto-search: fetches results without updating URL (avoids input interruption)
   function handleAutoSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain }) {
     if (!q && !country && !state && !city) return;
-    doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: PAGE_SIZE, skip: 0 });
+    doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: pageSize, skip: 0 });
   }
 
   // Track the current search generation so stale responses are ignored
@@ -771,6 +782,9 @@ export default function ResultsPage() {
       hqCountry: hqCountry || "",
       mfgCountry: mfgCountry || "",
       domain: domain || "",
+      // Page size is part of the key: changing it changes totalPages, so a
+      // cached count from a different size must not be reused.
+      take: take || PAGE_SIZE,
     });
     const isNewSearchKey = searchKey !== lastCountedKeyRef.current;
 
@@ -971,7 +985,7 @@ export default function ResultsPage() {
           amazon,
           hqCountry,
           mfgCountry,
-          take: PAGE_SIZE,
+          take: pageSize,
           lat: effectiveLocation?.lat,
           lng: effectiveLocation?.lng,
         })
@@ -1042,7 +1056,7 @@ export default function ResultsPage() {
         hqCountry: hqCountryParam,
         mfgCountry: mfgCountryParam,
         domain: domainParam,
-        take: PAGE_SIZE,
+        take: pageSize,
         skip: results.length,
         location: userLoc,
         append: true,
@@ -1158,6 +1172,20 @@ export default function ResultsPage() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }
 
+  // Change results-per-page. Clamp to the backend's 1–200 range, drop `size`
+  // entirely when it equals the default (keeps URLs clean), and reset to page 1
+  // so the user never lands on a now-out-of-range page. The URL effect re-runs
+  // the search because `pageSize` is in its dependency list.
+  function handlePerPageChange(n) {
+    const size = Math.max(1, Math.min(200, Math.floor(Number(n) || 0)));
+    if (!size) return;
+    const next = new URLSearchParams(searchParams);
+    if (size === PAGE_SIZE) next.delete("size");
+    else next.set("size", String(size));
+    next.delete("page");
+    setSearchParams(next);
+  }
+
   // Persist search history to sessionStorage
   useEffect(() => {
     try {
@@ -1195,7 +1223,7 @@ export default function ResultsPage() {
     next.delete("page");
     setSearchParams(next, { replace: true });
 
-    doSearch({ q: entry.q, sort: entry.sort, country: entry.country, state: entry.state, city: entry.city, take: PAGE_SIZE, skip: 0 });
+    doSearch({ q: entry.q, sort: entry.sort, country: entry.country, state: entry.state, city: entry.city, take: pageSize, skip: 0 });
   }
 
   const canGoBack = historyIndex > 0;
@@ -1576,21 +1604,99 @@ export default function ResultsPage() {
           {hasMore ? (loading ? "Loading more…" : "Scroll for more") : (results.length > 0 ? "End of results" : null)}
         </div>
       ) : (
-        (hasMore || pageParam > 1 || (totalPages && totalPages > 1)) && (
-          <Pagination
-            currentPage={pageParam}
-            hasMore={hasMore}
-            totalPages={totalPages}
-            onPageChange={goToPage}
-            disabled={loading}
-          />
-        )
+        (() => {
+          const showPager = hasMore || pageParam > 1 || (totalPages && totalPages > 1);
+          // Offer the per-page control whenever paging is relevant OR the user
+          // has already set a non-default size (so they can change it back).
+          const showPerPage = sorted.length > 0 && (showPager || pageSize !== PAGE_SIZE);
+          if (!showPager && !showPerPage) return null;
+          return (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                {showPager && (
+                  <Pagination
+                    currentPage={pageParam}
+                    hasMore={hasMore}
+                    totalPages={totalPages}
+                    onPageChange={goToPage}
+                    disabled={loading}
+                  />
+                )}
+              </div>
+              {showPerPage && <PerPageControl pageSize={pageSize} onChange={handlePerPageChange} />}
+            </div>
+          );
+        })()
       )}
     </div>
   );
 }
 
 /* ---------- helpers ---------- */
+
+/**
+ * "Per page" control shown next to the bottom Pagination. Quick presets
+ * (25/50/100) plus a free-form number the user can type (clamped 1–200 on
+ * commit). The active size is highlighted; a custom (non-preset) size shows in
+ * the input. Purely presentational — the parent owns the URL `size` param.
+ */
+function PerPageControl({ pageSize, onChange }) {
+  const PRESETS = [25, 50, 100];
+  const isPreset = PRESETS.includes(pageSize);
+  const [custom, setCustom] = useState(isPreset ? "" : String(pageSize));
+
+  // Keep the input in sync when the size changes from elsewhere (URL nav,
+  // preset click): clear it on a preset, show the value on a custom size.
+  useEffect(() => {
+    setCustom(PRESETS.includes(pageSize) ? "" : String(pageSize));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageSize]);
+
+  const commitCustom = () => {
+    const n = Math.floor(Number(custom));
+    if (Number.isFinite(n) && n >= 1 && n !== pageSize) onChange(Math.min(200, n));
+  };
+
+  const btn = (active) =>
+    `inline-flex items-center justify-center min-w-[34px] h-8 px-2 text-sm rounded transition-colors select-none ${
+      active
+        ? "bg-primary text-primary-foreground"
+        : "border border-border text-foreground hover:border-primary hover:text-primary"
+    }`;
+
+  return (
+    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <span className="whitespace-nowrap">Per page</span>
+      <div className="flex items-center gap-1">
+        {PRESETS.map((n) => (
+          <button key={n} type="button" className={btn(pageSize === n)} onClick={() => onChange(n)}>
+            {n}
+          </button>
+        ))}
+        <input
+          type="number"
+          min="1"
+          max="200"
+          inputMode="numeric"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitCustom();
+            }
+          }}
+          onBlur={commitCustom}
+          placeholder="Custom"
+          aria-label="Custom results per page"
+          className={`w-[72px] h-8 px-2 rounded border bg-background text-sm text-foreground ${
+            !isPreset ? "border-primary text-primary" : "border-border"
+          }`}
+        />
+      </div>
+    </div>
+  );
+}
 
 /**
  * Opt-in alternative-query suggestions shown after a pasted-URL (domain)
