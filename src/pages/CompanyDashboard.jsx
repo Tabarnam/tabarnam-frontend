@@ -1184,6 +1184,19 @@ export default function CompanyDashboard() {
   }, [editorOpen, editorOriginalId]);
 
   const closeEditor = useCallback(() => {
+    // Drop the ?company_id= deep-link param once the editor closes. It's only
+    // read on mount (to open a linked company); leaving it in the address bar
+    // meant a refresh — even long after closing — re-opened that company's
+    // editor instead of showing the list. Refresh WHILE editing still restores
+    // the same company, since the param is only cleared here.
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("company_id")) {
+        url.searchParams.delete("company_id");
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+    } catch { /* URL cleanup is cosmetic — never block closing */ }
+
     setEditorOpen(false);
     editorHistory.resetHistory(null);
     setEditorOriginalId(null);
