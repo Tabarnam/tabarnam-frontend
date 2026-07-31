@@ -1057,11 +1057,11 @@ export default function ExpandableCompanyRow({
           </div>
         )}
 
-        {/* Industries - inline in column 1, one line only */}
+        {/* Industries - inline in column 1, up to 3 lines then ellipsis */}
         {Array.isArray(company.industries) && company.industries.length > 0 && (
           <div className="mt-2">
             <div className="text-xs font-semibold text-muted-foreground mb-1">Industries</div>
-            <div className="text-xs truncate">
+            <div className="text-xs line-clamp-3">
               {company.industries.map((ind, idx) => (
                 <React.Fragment key={idx}>
                   {idx > 0 && <span className="text-muted-foreground mx-1">·</span>}
