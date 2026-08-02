@@ -240,6 +240,12 @@ export default function ResultsPage() {
     if (!Number.isFinite(raw) || raw < 1) return PAGE_SIZE;
     return Math.min(100, raw);
   })();
+  // Column-header sort (QQ/Manufacturing/Home-HQ). Its own URL param so the
+  // default (absent) view is unchanged and the choice is shareable + sticky
+  // across searches — distinct from the search-bar `sort` dropdown. Empty →
+  // no column sort (relevance / raw order, no header highlighted).
+  const colSortParam = (searchParams.get("colsort") ?? "").toString();
+  const sortBy = ["manu", "hq", "stars"].includes(colSortParam) ? colSortParam : null;
   const amazonParam = searchParams.get("amazon") === "1";
   const hqCountryParam = searchParams.get("hqCountry") || "";
   const mfgCountryParam = searchParams.get("mfgCountry") || "";
@@ -359,7 +365,7 @@ export default function ResultsPage() {
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
   const [userCountryCode, setUserCountryCode] = useState("");
-  const [sortBy, setSortBy] = useState(null);
+  // `sortBy` is now derived from the `colsort` URL param (see above) — no state.
 
   // Detect browser back/forward to avoid corrupting internal search history
   useEffect(() => {
@@ -587,7 +593,8 @@ export default function ResultsPage() {
       // putting Vermont (3060 mi from EDI) at the top of a Texas search.
       if (!cancelled) setUserLoc(loc ? { lat: loc.lat, lng: loc.lng } : null);
 
-      setSortBy(null);
+      // (Column sort is no longer reset here — it persists via the `colsort`
+      // URL param so a reorganization survives subsequent searches.)
 
       const hasCoordParam = !!(latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam)));
       const hasLocationFilter = !!(cityParam || stateParam || countryParam || hasCoordParam);
@@ -663,6 +670,9 @@ export default function ResultsPage() {
     // Per-page is a sticky preference — carry the current non-default size onto
     // the new search so the user's choice survives running another query.
     if (pageSize !== PAGE_SIZE) next.set("size", String(pageSize));
+    // Column-header sort is likewise sticky — carry the current organization
+    // onto the new search so a reorganize-by-Manufacturing survives.
+    if (colSortParam) next.set("colsort", colSortParam);
     // Reset to page 1 on new search
     next.delete("page");
     skipUrlEffectRef.current = true;
@@ -744,7 +754,7 @@ export default function ResultsPage() {
       }
     }
 
-    setSortBy(null);
+    // (Column sort persists via the `colsort` URL param — not reset here.)
 
     // Track in search history (skip if this was triggered by back/forward navigation)
     if (!navigatingHistoryRef.current) {
@@ -1130,10 +1140,16 @@ export default function ResultsPage() {
     }`;
   const cellClassFor = (key) => `p-2 ${sortBy === key ? "bg-amber-50 dark:bg-amber-900/20 text-foreground" : ""}`;
 
+  // Reorganize by a column header. Writes the choice to the `colsort` URL
+  // param so it persists (shareable, sticks across subsequent searches), and
+  // sets the skip flag so this URL change re-sorts the already-loaded page
+  // client-side instantly — no refetch (same snappy behavior as before).
   const clickSort = (key) => {
-    if (key === "manu") setSortBy("manu");
-    else if (key === "hq") setSortBy("hq");
-    else setSortBy("stars");
+    const val = key === "manu" ? "manu" : key === "hq" ? "hq" : "stars";
+    const next = new URLSearchParams(searchParams);
+    next.set("colsort", val);
+    skipUrlEffectRef.current = true;
+    setSearchParams(next);
   };
 
   function handleKeywordSearch(keyword) {
