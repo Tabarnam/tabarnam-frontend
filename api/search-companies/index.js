@@ -834,6 +834,11 @@ const SELECT_FIELDS = [
   "c.amazon_url",
   "c.normalized_domain",
 
+  // Phase 4.38 — sub-brand relationship. Included so search responses
+  // can render "part of {parent}" context, and so admin diagnostics
+  // can confirm the parent link without opening the record editor.
+  "c.parent_company_id",
+
   // Timestamps
   "c.created_at",
   "c.updated_at",
