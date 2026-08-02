@@ -339,7 +339,9 @@ export default function ScrollScrubber({
 
         <div
           ref={trackRef}
-          className={`relative w-[10px] flex-1 rounded-full ${disabled ? "bg-muted" : "bg-muted"}`}
+          // 20px wide (was 10) — the thumb spans the full track width, and the
+          // old sliver was hard to grab with a mouse.
+          className={`relative w-[20px] flex-1 rounded-full ${disabled ? "bg-muted" : "bg-muted"}`}
           style={{ touchAction: "none" }}
           onPointerDown={onTrackPointerDown}
           aria-hidden={disabled}
