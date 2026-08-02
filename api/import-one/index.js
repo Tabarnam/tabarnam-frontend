@@ -186,17 +186,29 @@ async function checkExistingCompanyByDomain({ domain, url, container, parentComp
 
     if (Array.isArray(resources) && resources[0]) {
       // Phase 4.38 — sub-brand override on domain match.
-      if (hint && hint === String(resources[0].id || "").trim()) {
+      // Phase 4.38.F — also honor the sibling-sub-brand case: when the
+      // matched record isn't the declared parent itself but IS ALREADY
+      // a sub-brand of the declared parent, the incoming row is a
+      // sibling. Common in same-batch imports where one sibling landed
+      // just before this one (e.g. Simply and Minute Maid both under
+      // Coca-Cola, imported in the same succession).
+      const matchedId = String(resources[0].id || "").trim();
+      const matchedParentId = String(resources[0].parent_company_id || "").trim();
+      const isDirectParent = hint && hint === matchedId;
+      const isSiblingSubBrand = hint && matchedParentId && hint === matchedParentId;
+      if (isDirectParent || isSiblingSubBrand) {
         console.log("[import-one] sub_brand_allowed", {
           domain,
           parent_id: hint,
-          parent_name: resources[0].company_name,
+          matched_id: matchedId,
+          matched_name: resources[0].company_name,
+          reason: isDirectParent ? "hint_is_matched_id" : "hint_is_matched_parent_id",
           match_type: "normalized_domain",
         });
         return {
           exists: false,
           sub_brand_of: {
-            id: resources[0].id,
+            id: matchedId,
             company_id: resources[0].company_id,
             company_name: resources[0].company_name,
             normalized_domain: resources[0].normalized_domain,

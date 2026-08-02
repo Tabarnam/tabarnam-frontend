@@ -189,6 +189,75 @@ test("Phase 4.38.C: forceNew takes precedence over parentCompanyIdHint", async (
   assert.equal(result.sub_brand_of, undefined);
 });
 
+// Phase 4.38.F — sibling-sub-brand override. Same-batch imports of
+// multiple sub-brands under a common parent (e.g. Simply + Minute Maid,
+// both under Coca-Cola). Whichever imports first creates a matching
+// record at the shared domain; the second import must not be blocked.
+test("Phase 4.38.F: hint matches an ALREADY-imported sibling's parent → allowed", async () => {
+  // Simply already imported: its record lives at coca-cola.com with
+  // parent_company_id pointing at Coca-Cola.
+  const simplyDoc = {
+    id: "company_simply_9999",
+    company_id: "company_simply_9999",
+    company_name: "Simply",
+    normalized_domain: "coca-cola.com",
+    website_url: "https://www.coca-cola.com/us/en/brands/simply",
+    parent_company_id: "company_coca_cola_1234",
+  };
+  const container = makeContainer({ byDomain: { "coca-cola.com": simplyDoc } });
+
+  // Minute Maid arrives with hint = Coca-Cola's id (the parent).
+  const result = await checkExistingCompanyByDomain({
+    domain: "coca-cola.com",
+    url: "https://www.coca-cola.com/us/en/brands/minute-maid",
+    container,
+    parentCompanyIdHint: "company_coca_cola_1234",
+  });
+  assert.equal(result.exists, false, "sibling sub-brand must not be blocked");
+  assert.ok(result.sub_brand_of);
+  // The override should surface the MATCHED record so caller can log context.
+  assert.equal(result.sub_brand_of.id, "company_simply_9999");
+});
+
+test("Phase 4.38.F: hint DOES NOT match matched's parent → still blocks", async () => {
+  // The matched sibling is under a different parent — no override.
+  const someoneElseDoc = {
+    id: "company_other_5555",
+    company_name: "OtherBrand",
+    normalized_domain: "coca-cola.com",
+    parent_company_id: "company_someone_else_9999",
+  };
+  const container = makeContainer({ byDomain: { "coca-cola.com": someoneElseDoc } });
+  const result = await checkExistingCompanyByDomain({
+    domain: "coca-cola.com",
+    url: "https://coca-cola.com/some-page",
+    container,
+    parentCompanyIdHint: "company_coca_cola_1234",
+  });
+  assert.equal(result.exists, true, "mismatched parent means still-blocked");
+  assert.equal(result.existing_company.id, "company_other_5555");
+});
+
+test("Phase 4.38.F: matched record has NO parent_company_id → only direct match wins", async () => {
+  // Simply's DB record has no parent link. If Minute Maid tries to
+  // import with hint=Coca-Cola id, override does NOT fire since
+  // matched.parent_company_id is empty and hint !== matched.id.
+  const orphanDoc = {
+    id: "company_orphan_7777",
+    company_name: "Simply-No-Parent",
+    normalized_domain: "coca-cola.com",
+    // parent_company_id omitted
+  };
+  const container = makeContainer({ byDomain: { "coca-cola.com": orphanDoc } });
+  const result = await checkExistingCompanyByDomain({
+    domain: "coca-cola.com",
+    url: "https://coca-cola.com/brand-x",
+    container,
+    parentCompanyIdHint: "company_coca_cola_1234",
+  });
+  assert.equal(result.exists, true, "orphan match blocks — admin should re-parent first");
+});
+
 // Phase 4.38.E — set_as_parent_of implies force_new at the dup-check layer.
 // The post-write re-parent step lives in the handler (not the check helper)
 // so this test just guards the bypass. Handler-level tests would need real

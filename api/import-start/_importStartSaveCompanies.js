@@ -275,12 +275,22 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
 
   // Local helper: given a matched doc, decide whether it's an accidental
   // duplicate or a legitimate sub-brand of the declared parent.
+  // Phase 4.38.F — also allow the sibling-sub-brand case: the matched
+  // record is itself already a sub-brand of the declared parent. This
+  // handles same-batch imports where an earlier sibling landed first
+  // (e.g. Simply then Minute Maid, both under Coca-Cola).
   function subBrandOverride(matched, matchKind) {
     if (!hint) return null;
-    if (String(matched?.id || "").trim() !== hint) return null;
+    const matchedId = String(matched?.id || "").trim();
+    const matchedParentId = String(matched?.parent_company_id || "").trim();
+    const isDirectParent = matchedId === hint;
+    const isSiblingSubBrand = matchedParentId && matchedParentId === hint;
+    if (!isDirectParent && !isSiblingSubBrand) return null;
     console.log("[import-start] sub_brand_allowed", {
       parent_id: hint,
-      parent_name: matched?.company_name,
+      matched_id: matchedId,
+      matched_name: matched?.company_name,
+      reason: isDirectParent ? "hint_is_matched_id" : "hint_is_matched_parent_id",
       match_kind: matchKind,
       new_domain: domain,
       new_name: companyName,

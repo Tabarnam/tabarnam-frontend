@@ -146,6 +146,44 @@ test("Phase 4.38 bulk: EXACT canonical_url match STILL BLOCKS with matching pare
   assert.equal(result.duplicate_match_key, "canonical_url");
 });
 
+// Phase 4.38.F — sibling-sub-brand override in the bulk-path helper.
+test("Phase 4.38.F bulk: hint matches sibling's parent → allowed (null)", async () => {
+  const simplyDoc = {
+    id: "company_simply_9999",
+    company_name: "Simply",
+    normalized_domain: "coca-cola.com",
+    partition_key: "coca-cola.com",
+    parent_company_id: "company_coca_cola_1234",
+  };
+  const container = makeContainer({ byDomain: { "coca-cola.com": simplyDoc } });
+  const result = await findExistingCompany(
+    container,
+    "coca-cola.com",
+    "Minute Maid",
+    "https://www.coca-cola.com/us/en/brands/minute-maid",
+    "company_coca_cola_1234"
+  );
+  assert.equal(result, null, "sibling under same parent must not be blocked");
+});
+
+test("Phase 4.38.F bulk: sibling with different parent still blocks", async () => {
+  const otherDoc = {
+    id: "company_other_5555",
+    company_name: "OtherBrand",
+    normalized_domain: "coca-cola.com",
+    parent_company_id: "company_someone_else_9999",
+  };
+  const container = makeContainer({ byDomain: { "coca-cola.com": otherDoc } });
+  const result = await findExistingCompany(
+    container,
+    "coca-cola.com",
+    "Minute Maid",
+    "https://coca-cola.com/brand-x",
+    "company_coca_cola_1234"
+  );
+  assert.ok(result, "mismatched parent chain must block");
+});
+
 // Phase 4.38.C — force-new bypass tests for the bulk-path helper.
 test("Phase 4.38.C bulk: forceNew=true bypasses domain match", async () => {
   const container = makeContainer({ byDomain: { "sierracantabria.com": hpMatch } });
