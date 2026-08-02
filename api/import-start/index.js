@@ -5526,23 +5526,39 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       const partitionKey = String(
                         target.normalized_domain || target.partition_key || "unknown"
                       ).trim() || "unknown";
-                      await container.item(target.id, partitionKey).replace(patched);
-                      console.log("[import-start] existing_reparented", {
-                        session_id: sessionId,
-                        target_id: target.id,
-                        target_name: target.company_name,
-                        old_parent_company_id: oldParent || null,
-                        new_parent_company_id: newParentId,
-                      });
+                      // Phase 4.38.G — flatten the log to a single one-line
+                      // string so App Insights doesn't truncate the object.
+                      // Previously the multi-line pretty print was cut at
+                      // the opening brace, making it impossible to see the
+                      // actual id values from the log.
+                      console.log(
+                        `[import-start] existing_reparented_attempt session=${sessionId} target_id=${target.id} target_name=${JSON.stringify(target.company_name)} old_parent=${JSON.stringify(oldParent || null)} new_parent=${newParentId} patch_has_field=${Object.prototype.hasOwnProperty.call(patched, "parent_company_id")} patch_value=${JSON.stringify(patched.parent_company_id)}`
+                      );
+                      const replaceResult = await container.item(target.id, partitionKey).replace(patched);
+                      // Phase 4.38.G — POST-WRITE VERIFICATION. Cosmos should
+                      // echo the persisted doc back in .resource. If
+                      // parent_company_id is missing here, the replace
+                      // didn't actually persist the field — a serialization
+                      // or SDK bug we need to find. If it IS here, then
+                      // something ELSE is stripping it after our write.
+                      const persistedParent = replaceResult && replaceResult.resource
+                        ? String(replaceResult.resource.parent_company_id || "").trim() || null
+                        : null;
+                      console.log(
+                        `[import-start] existing_reparented session=${sessionId} target_id=${target.id} target_name=${JSON.stringify(target.company_name)} old_parent=${JSON.stringify(oldParent || null)} new_parent=${newParentId} persisted_parent=${JSON.stringify(persistedParent)}`
+                      );
+                      if (persistedParent !== newParentId) {
+                        console.log(
+                          `[import-start] existing_reparented_mismatch session=${sessionId} target_id=${target.id} intended=${newParentId} persisted=${JSON.stringify(persistedParent)}`
+                        );
+                      }
                     }
                   }
                 }
               } catch (e) {
-                console.log("[import-start] set_as_parent_of_patch_failed", {
-                  target_id: requestSetAsParentOf,
-                  session_id: sessionId,
-                  error: String(e?.message || e),
-                });
+                console.log(
+                  `[import-start] set_as_parent_of_patch_failed session=${sessionId} target_id=${requestSetAsParentOf} error=${JSON.stringify(String(e?.message || e))}`
+                );
               }
             }
 
