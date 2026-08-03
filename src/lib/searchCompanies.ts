@@ -361,7 +361,7 @@ export async function getStateSuggestions(q: unknown, country?: string): Promise
  * Lightweight call that returns only totalCount/totalPages (no items).
  * Intended to be fired in the background after results are already displayed.
  */
-export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon" | "hqCountry" | "mfgCountry"> & { take?: number }): Promise<{ totalCount: number; totalPages: number } | null> {
+export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon" | "hqCountry" | "mfgCountry"> & { take?: number }): Promise<{ totalCount: number; totalPages: number; directCount: number | null } | null> {
   const q = asStr(opts.q).trim();
   const latNum = Number(asStr(opts.lat));
   const lngNum = Number(asStr(opts.lng));
@@ -409,6 +409,8 @@ export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "c
     return {
       totalCount: Number(data?.totalCount) || 0,
       totalPages: Number(data?.totalPages) || 1,
+      // Count of direct (strong) matches; null for location-only searches.
+      directCount: typeof data?.directCount === "number" ? data.directCount : null,
     };
   } catch {
     return null;

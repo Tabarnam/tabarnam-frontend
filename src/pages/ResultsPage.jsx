@@ -340,6 +340,11 @@ export default function ResultsPage() {
   const [status, setStatus] = useState("");
   const [hasMore, setHasMore] = useState(false);
   const [totalPages, setTotalPages] = useState(null);
+  // Direct (strong) match count shown next to the query label — whole result
+  // set, not just the current page. null = unknown / location-only (hidden).
+  // `totalMatchCount` is only used to decide the tooltip's "…more below" line.
+  const [directCount, setDirectCount] = useState(null);
+  const [totalMatchCount, setTotalMatchCount] = useState(0);
 
   // Tracks the search-key (query + filters, page-independent) we last fetched
   // a count for. Page navigation within the same key reuses the existing
@@ -816,6 +821,9 @@ export default function ResultsPage() {
       // page navigation. Walking pages 1 → 2 → 3 within the same query keeps
       // the previously-computed total visible the whole time.
       if (isNewSearchKey) setTotalPages(null);
+      // Clear the direct-match count on a genuinely new query/filter set so a
+      // stale number never lingers while the new count resolves.
+      if (isNewSearchKey) setDirectCount(null);
     }
     const gen = append ? searchGenRef.current : ++searchGenRef.current;
     try {
@@ -984,6 +992,10 @@ export default function ResultsPage() {
       if (!apiHasMore && skip === 0) {
         setTotalPages(1);
         lastCountedKeyRef.current = searchKey;
+        // Whole result set is on this one page → count direct matches locally,
+        // no count round-trip needed. Mirrors the divider's isLooselyRelated.
+        setDirectCount(q ? withDistances.filter((c) => !isLooselyRelated(c)).length : null);
+        setTotalMatchCount(withDistances.length);
       } else if (needCount) {
         lastCountedKeyRef.current = searchKey;
         getSearchCount({
@@ -1004,6 +1016,10 @@ export default function ResultsPage() {
             // a count from the old one.
             if (gen !== searchGenRef.current) return;
             if (r && Number.isFinite(r.totalPages)) setTotalPages(r.totalPages);
+            if (r) {
+              setDirectCount(typeof r.directCount === "number" ? r.directCount : null);
+              setTotalMatchCount(Number(r.totalCount) || 0);
+            }
           })
           .catch(() => {});
       }
@@ -1370,7 +1386,7 @@ export default function ResultsPage() {
       {/* Column Headers + page info — same grid as ExpandableCompanyRow */}
       {results.length > 0 && (
         <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 mb-4 px-2 items-center">
-          <div className="col-span-6 lg:col-span-2 text-sm text-muted-foreground flex items-center gap-2">
+          <div className="col-span-6 lg:col-span-2 text-sm text-muted-foreground flex flex-wrap items-center gap-2">
             {qParam && (
               <>
                 {/* Compact page navigator sits in this row, to the left of
@@ -1401,6 +1417,30 @@ export default function ResultsPage() {
                     </>
                   );
                 })()}
+                {/* Direct-match count — companies above the "Loosely related"
+                    divider. Self-labeled so it's clear without the tooltip
+                    (which never fires on touch); tooltip adds context. Hidden
+                    for 0 / location-only (directCount null). */}
+                {directCount != null && directCount > 0 && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="whitespace-nowrap cursor-default">
+                          · {directCount >= 500 ? "500+" : directCount} direct{" "}
+                          {directCount === 1 ? "result" : "results"}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[280px] text-xs">
+                        <p className="m-0">
+                          {directCount >= 500 ? "500+" : directCount} companies directly match "{qParam}".
+                          {totalMatchCount > directCount
+                            ? " More loosely-related companies appear further down."
+                            : ""}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
                 <ShareButton
                   title={`Search results for "${qParam}" on Tabarnam`}
                   text={`Search results for "${qParam}" on Tabarnam`}

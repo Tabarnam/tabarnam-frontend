@@ -83,6 +83,47 @@ test("/api/search-companies maps keywords to public payload", async () => {
   assert.deepEqual(item.keywords, ["fish oil", "omega-3", "wild Alaskan", "Alaska"]);
 });
 
+test("countOnly returns directCount = number of strong (tier<2) matches for a scored query", async () => {
+  // Two exact-name "Popcorn" matches on distinct domains → both tier -1
+  // (nameScore 100), i.e. direct. directCount should count both.
+  const docs = [
+    { id: "p1", company_id: "p1", company_name: "Popcorn", normalized_domain: "popcorn1.com", keywords: ["popcorn"], industries: ["Snacks"], _ts: 1700000000 },
+    { id: "p2", company_id: "p2", company_name: "Popcorn", normalized_domain: "popcorn2.com", keywords: ["popcorn"], industries: ["Snacks"], _ts: 1700000001 },
+  ];
+  const companiesContainer = makeContainer(async (spec) => {
+    const q = String(spec?.query || "");
+    return q.includes("c.keywords") ? docs : [];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=popcorn&norm=popcorn&compact=popcorn&countOnly=1&take=25"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.totalCount, 2);
+  assert.equal(body.directCount, 2, "both exact-name matches counted as direct");
+  assert.ok(body.directCount <= body.totalCount, "directCount never exceeds totalCount");
+});
+
+test("countOnly returns directCount = null for a location-only search (no query text)", async () => {
+  const doc = { id: "x1", company_id: "x1", company_name: "Anything", normalized_domain: "anything.com", industries: ["Snacks"], manufacturing_locations: ["Texas, US"], _ts: 1700000000 };
+  const companiesContainer = makeContainer(async () => [doc]);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?countOnly=1&country=US&take=25"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  // No scoring runs without query text, so a direct count would be misleading.
+  assert.equal(body.directCount, null);
+});
+
 test("/api/search-companies uses keywords in Cosmos filter when q is present", async () => {
   let lastSpec = null;
   const companiesContainer = makeContainer(async (spec) => {

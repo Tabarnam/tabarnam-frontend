@@ -2396,8 +2396,19 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       if (countOnly) {
         const totalCount = deduped.length;
         const totalPages = Math.ceil(totalCount / take);
+        // Count of DIRECT (strong) matches — the companies that appear above the
+        // "Loosely related to …" divider on the frontend. Direct = relevanceTier
+        // < 2 (the LOOSE_TIER_CUTOFF mirrored in ResultsPage.jsx). Only meaningful
+        // when a text query was scored; location-only counts skip scoring, so we
+        // return null there rather than a misleading 0.
+        const LOOSE_TIER_CUTOFF = 2;
+        const directCount = q_norm
+          ? deduped.filter(
+              (c) => relevanceTier(c._relevanceScore || 0, c._nameMatchScore || 0) < LOOSE_TIER_CUTOFF
+            ).length
+          : null;
         return json(
-          { ok: true, success: true, totalCount, totalPages, meta: { q: q_raw, sort, take } },
+          { ok: true, success: true, totalCount, totalPages, directCount, meta: { q: q_raw, sort, take } },
           200,
           req
         );
