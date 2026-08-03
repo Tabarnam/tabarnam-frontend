@@ -1,0 +1,5520 @@
+{
+  "capturedAt": "2026-08-03T16:15:20Z",
+  "base": "https://www.tabarnam.com",
+  "topN": 20,
+  "queries": {
+    "patagonia": {
+      "q": "patagonia",
+      "class": "A",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "patagonia.com",
+          "name": "Patagonia",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "patagoniaprovisions.com",
+          "name": "Patagonia Provisions",
+          "score": 76,
+          "tier": 1
+        },
+        {
+          "pos": 2,
+          "domain": "huckberry.com",
+          "name": "Huckberry",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 3,
+          "domain": "milestartires.com",
+          "name": "Milestar",
+          "score": 47,
+          "tier": 2
+        },
+        {
+          "pos": 4,
+          "domain": "victormill.com",
+          "name": "Victor Mill",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 5,
+          "domain": "serratellihatcompany.com",
+          "name": "Serratelli",
+          "score": 47,
+          "tier": 2
+        },
+        {
+          "pos": 6,
+          "domain": "rarehawaiianhoney.com",
+          "name": "Rare Hawaiian Honey Company",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 7,
+          "domain": "rei.com",
+          "name": "REI Co-op",
+          "score": 47,
+          "tier": 2
+        },
+        {
+          "pos": 8,
+          "domain": "anthropologie.com",
+          "name": "Anthropologie",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "wonderfulpistachios.com",
+          "name": "Wonderful Pistachios",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "jfc.com",
+          "name": "JFC International",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "fishernuts.com",
+          "name": "Fisher Nuts",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "jakesnutroasters.com",
+          "name": "Jake's Nut Roasters",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "obrilo.com",
+          "name": "Obrilo",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "ranchogordo.com",
+          "name": "Rancho Gordo",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "boomchickapop.com",
+          "name": "Angie's Boomchickapop",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "amys.com",
+          "name": "Amy's Kitchen",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "conagrabrands.com",
+          "name": "Conagra Brands",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "brewingamerica.com",
+          "name": "Brewing America",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "bobsredmill.com",
+          "name": "Bob's Red Mill",
+          "score": 20,
+          "tier": 3
+        }
+      ],
+      "totalCount": 58,
+      "cosmos_ms": 393,
+      "total_ms": 527
+    },
+    "yeti": {
+      "q": "yeti",
+      "class": "A",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "yeti.com",
+          "name": "Yeti",
+          "score": 113,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "rustysurfboards.com",
+          "name": "Rusty Surfboards",
+          "score": 69,
+          "tier": 1
+        },
+        {
+          "pos": 2,
+          "domain": "yeticycles.com",
+          "name": "Yeti Cycles",
+          "score": 76,
+          "tier": 1
+        },
+        {
+          "pos": 3,
+          "domain": "huckberry.com",
+          "name": "Huckberry",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 4,
+          "domain": "usatuff.com",
+          "name": "USATuff",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 5,
+          "domain": "clothworks.com",
+          "name": "Clothworks",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 6,
+          "domain": "staccato2011.com",
+          "name": "Staccato (2011 pistols)",
+          "score": 55,
+          "tier": 2
+        },
+        {
+          "pos": 7,
+          "domain": "framesdirect.com",
+          "name": "FramesDirect",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 8,
+          "domain": "americanmadeoutdoorz.com",
+          "name": "American Made Outdoorz",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 9,
+          "domain": "roguefitness.com",
+          "name": "Rogue Fitness",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 10,
+          "domain": "dukesmayo.com",
+          "name": "Duke's Mayonnaise",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 11,
+          "domain": "williams-sonoma.com",
+          "name": "Williams Sonoma",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 12,
+          "domain": "stjamessmokehouse.com",
+          "name": "St. James Smokehouse",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 13,
+          "domain": "crisppickles.com",
+          "name": "Crisp Pickles",
+          "score": 41,
+          "tier": 2
+        },
+        {
+          "pos": 14,
+          "domain": "claraandfritz.com",
+          "name": "Clara & Fritz",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 15,
+          "domain": "icebreaker.com",
+          "name": "Icebreaker",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 16,
+          "domain": "goalzero.com",
+          "name": "Goal Zero",
+          "score": 47,
+          "tier": 2
+        },
+        {
+          "pos": 17,
+          "domain": "discnation.com",
+          "name": "DISC NATION",
+          "score": 55,
+          "tier": 2
+        },
+        {
+          "pos": 18,
+          "domain": "inthechainsshop.com",
+          "name": "In The Chains",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 19,
+          "domain": "dickssportinggoods.com",
+          "name": "Dick's Sporting Goods",
+          "score": 41,
+          "tier": 2
+        }
+      ],
+      "totalCount": 71,
+      "cosmos_ms": 389,
+      "total_ms": 485
+    },
+    "hydro flask": {
+      "q": "hydro flask",
+      "class": "A",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "hydroflask.com",
+          "name": "Hydro Flask",
+          "score": 155,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "northernwaterssmokehaus.com",
+          "name": "Northern Waters Smokehaus",
+          "score": 64,
+          "tier": 1
+        },
+        {
+          "pos": 2,
+          "domain": "swimways.com",
+          "name": "SwimWays",
+          "score": 62,
+          "tier": 1
+        },
+        {
+          "pos": 3,
+          "domain": "osprey.com",
+          "name": "Osprey",
+          "score": 62,
+          "tier": 1
+        },
+        {
+          "pos": 4,
+          "domain": "scottycameron.com",
+          "name": "Scotty Cameron",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 5,
+          "domain": "nomadgoods.com",
+          "name": "Nomad Goods",
+          "score": 56,
+          "tier": 2
+        },
+        {
+          "pos": 6,
+          "domain": "strawesome.com",
+          "name": "Strawesome",
+          "score": 56,
+          "tier": 2
+        },
+        {
+          "pos": 7,
+          "domain": "integritybottles.com",
+          "name": "Integrity Bottles",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 8,
+          "domain": "cascadedesigns.com",
+          "name": "Therm-a-Rest",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "hydrapak.com",
+          "name": "HydraPak",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "simplemodern.com",
+          "name": "Simple Modern",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "lifestraw.com",
+          "name": "LifeStraw",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "yeti.com",
+          "name": "Yeti",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "rubbermaid.com",
+          "name": "Rubbermaid",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "coleman.com",
+          "name": "The Coleman Company",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "libbey.com",
+          "name": "Libbey",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "walmart.com",
+          "name": "Mainstays (Walmart)",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "grayl.com",
+          "name": "Grayl",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "vapur.us",
+          "name": "Vapur",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "kayakjack.com",
+          "name": "Kayak Jack",
+          "score": 18,
+          "tier": 3
+        }
+      ],
+      "totalCount": 60,
+      "cosmos_ms": 440,
+      "total_ms": 519
+    },
+    "blue bottle coffee": {
+      "q": "blue bottle coffee",
+      "class": "A",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "bluebottlecoffee.com",
+          "name": "Blue Bottle Coffee",
+          "score": 129,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "nestle.com",
+          "name": "Nestlé",
+          "score": 78,
+          "tier": 1
+        },
+        {
+          "pos": 2,
+          "domain": "floydhome.com",
+          "name": "Floyd",
+          "score": 62,
+          "tier": 1
+        },
+        {
+          "pos": 3,
+          "domain": "raen.com",
+          "name": "Raen",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 4,
+          "domain": "mountainroseherbs.com",
+          "name": "Mountain Rose Herbs",
+          "score": 39,
+          "tier": 2
+        },
+        {
+          "pos": 5,
+          "domain": "coloradothreads.com",
+          "name": "Colorado Threads",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 6,
+          "domain": "urbanoutfitters.com",
+          "name": "Urban Outfitters",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 7,
+          "domain": "oxo.com",
+          "name": "OXO",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 8,
+          "domain": "walmart.com",
+          "name": "Mainstays (Walmart)",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 9,
+          "domain": "properpatriot.com",
+          "name": "Proper Patriot",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 10,
+          "domain": "buffchick.com",
+          "name": "Buff Chick",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 11,
+          "domain": "ferrara.com",
+          "name": "Ferrara Candy Company",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 12,
+          "domain": "chicagoimporting.com",
+          "name": "Chicago Importing Company",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 13,
+          "domain": "nowfoods.com",
+          "name": "NOW Foods",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 14,
+          "domain": "thistlefarms.org",
+          "name": "Thistle Farms",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 15,
+          "domain": "baltispore.com",
+          "name": "BaltiSpore",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 16,
+          "domain": "adanola.com",
+          "name": "Adanola",
+          "score": 39,
+          "tier": 2
+        },
+        {
+          "pos": 17,
+          "domain": "hydroflask.com",
+          "name": "Hydro Flask",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 18,
+          "domain": "marucoffee.com",
+          "name": "Maru Coffee",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "theboyandthebear.com",
+          "name": "The Boy & The Bear",
+          "score": 20,
+          "tier": 3
+        }
+      ],
+      "totalCount": 67,
+      "cosmos_ms": 420,
+      "total_ms": 529
+    },
+    "sub-zero": {
+      "q": "sub-zero",
+      "class": "A",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "subzero-wolf.com",
+          "name": "Sub-Zero",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "subzero.com",
+          "name": "Sub-Zero & Wolf & Cove",
+          "score": 76,
+          "tier": 1
+        },
+        {
+          "pos": 2,
+          "domain": "dacor.com",
+          "name": "Dacor",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 3,
+          "domain": "hestanappliances.com",
+          "name": "Hestan",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 4,
+          "domain": "newair.com",
+          "name": "NewAir",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 5,
+          "domain": "ovente.com",
+          "name": "OVENTE",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 6,
+          "domain": "vinotemp.com",
+          "name": "Vinotemp",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 7,
+          "domain": "maytag.com",
+          "name": "Maytag",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 8,
+          "domain": "frigidaire.com",
+          "name": "Frigidaire",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "fisherpaykel.com",
+          "name": "Fisher & Paykel",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "danby.com",
+          "name": "Danby",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "perlick.com",
+          "name": "Perlick",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "kitchenaid.com",
+          "name": "KitchenAid",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "lecachewinecabinets.com",
+          "name": "Le Cache",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "jennair.com",
+          "name": "Jenn-Air",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "amana.com",
+          "name": "Amana",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "vikingrange.com",
+          "name": "Viking Outdoor",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "earthbreeze.com",
+          "name": "earth breeze",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "monogram.com",
+          "name": "Monogram",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "cafeappliances.com",
+          "name": "Cafe",
+          "score": 20,
+          "tier": 3
+        }
+      ],
+      "totalCount": 42,
+      "cosmos_ms": 367,
+      "total_ms": 438
+    },
+    "allbirds": {
+      "q": "allbirds",
+      "class": "A",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "allbirds.com",
+          "name": "Allbirds",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "avocadogreenmattress.com",
+          "name": "Avocado",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 2,
+          "domain": "canyoncoffee.co",
+          "name": "Canyon Coffee",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 3,
+          "domain": "labcoffee.com",
+          "name": "LaB Coffee & Roasters",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 4,
+          "domain": "citybeanroasters.com",
+          "name": "City Bean Roasters",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 5,
+          "domain": "lightwavecoffee.com",
+          "name": "Lightwave Coffee",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 6,
+          "domain": "anthropologie.com",
+          "name": "Anthropologie",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 7,
+          "domain": "impossiblefoods.com",
+          "name": "Impossible Foods",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 8,
+          "domain": "jfc.com",
+          "name": "JFC International",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "gantri.com",
+          "name": "Gantri",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "genpak.com",
+          "name": "Genpak",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "rockymountainatvmc.com",
+          "name": "Rocky Mountain ATV/MC",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "arhaus.com",
+          "name": "Arhaus",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "freepeople.com",
+          "name": "Free People",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "graphicpkg.com",
+          "name": "Graphic Packaging",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "sabert.com",
+          "name": "Sabert",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "thuma.co",
+          "name": "THUMA",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "nordstrom.com",
+          "name": "Nordstrom",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "preserve.eco",
+          "name": "Preserve",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "worldcentric.com",
+          "name": "World Centric",
+          "score": 20,
+          "tier": 3
+        }
+      ],
+      "totalCount": 51,
+      "cosmos_ms": 401,
+      "total_ms": 509
+    },
+    "clif bar": {
+      "q": "clif bar",
+      "class": "A",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "clifbar.com",
+          "name": "Clif Bar",
+          "score": 125,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "sansmealbar.com",
+          "name": "SANS Meal Bars",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 2,
+          "domain": "moshlife.com",
+          "name": "MOSH",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 3,
+          "domain": "powercrunch.com",
+          "name": "Power Crunch",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 4,
+          "domain": "orgain.com",
+          "name": "Orgain",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 5,
+          "domain": "perfectbar.com",
+          "name": "Perfect Bar",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 6,
+          "domain": "bhufoods.com",
+          "name": "BHU Foods",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 7,
+          "domain": "tcho.com",
+          "name": "Tcho",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 8,
+          "domain": "rowdyhealth.com",
+          "name": "Rowdy Energy",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "builtbar.com",
+          "name": "Built Bar",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "theprobar.com",
+          "name": "ProBar",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "aloha.com",
+          "name": "ALOHA",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "nocow.com",
+          "name": "No Cow",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "eatbobos.com",
+          "name": "Bobo's",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "premierprotein.com",
+          "name": "Premier Protein",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "thunderbirdbar.com",
+          "name": "Thunderbird",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "soylent.com",
+          "name": "Soylent",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "larabar.com",
+          "name": "Larabar",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "kindsnacks.com",
+          "name": "KIND",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "iqbar.com",
+          "name": "IQBAR",
+          "score": 20,
+          "tier": 3
+        }
+      ],
+      "totalCount": 41,
+      "cosmos_ms": 278,
+      "total_ms": 350
+    },
+    "the north face": {
+      "q": "the north face",
+      "class": "A",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "thenorthface.com",
+          "name": "The North Face",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "bialetti.com",
+          "name": "Bialetti",
+          "score": 64,
+          "tier": 1
+        },
+        {
+          "pos": 2,
+          "domain": "soulshinesoapcompany.com",
+          "name": "SoulShine Soap Company",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 3,
+          "domain": "bodegasmontebaco.com",
+          "name": "Montebaco",
+          "score": 34,
+          "tier": 2
+        },
+        {
+          "pos": 4,
+          "domain": "marucoffee.com",
+          "name": "Maru Coffee",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 5,
+          "domain": "jettycoffeeroasters.com",
+          "name": "Jetty Coffee Roasters",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 6,
+          "domain": "anthropologie.com",
+          "name": "Anthropologie",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 7,
+          "domain": "filtron.com",
+          "name": "Filtron",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 8,
+          "domain": "lookoptic.com",
+          "name": "Look Optic",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "infocus.com",
+          "name": "InFocus",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "ratiocoffee.com",
+          "name": "Ratio",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "milwaukeetool.com",
+          "name": "Milwaukee Tool",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "coleman.com",
+          "name": "The Coleman Company",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "alfi.com",
+          "name": "Alfi",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "blackanddecker.com",
+          "name": "Black+Decker",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "compasshealthbrands.com",
+          "name": "Compass Health",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "santamedical.com",
+          "name": "Santamedical",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "karmanhealthcare.com",
+          "name": "Karman Healthcare",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "ergoactives.com",
+          "name": "Ergoactives",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "invacare.com",
+          "name": "Invacare",
+          "score": 20,
+          "tier": 3
+        }
+      ],
+      "totalCount": 54,
+      "cosmos_ms": 340,
+      "total_ms": 406
+    },
+    "alo yoga": {
+      "q": "alo yoga",
+      "class": "B",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "aloyoga.com",
+          "name": "ALO",
+          "score": 69,
+          "tier": 1
+        },
+        {
+          "pos": 1,
+          "domain": "tokalonclothing.com",
+          "name": "Tokalon Clothing",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 2,
+          "domain": "studiokyogawear.com",
+          "name": "STUDIO K",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 3,
+          "domain": "sokoishop.com",
+          "name": "SOKOI",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 4,
+          "domain": "runyon.co",
+          "name": "Runyon Canyon Apparel",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 5,
+          "domain": "recycleclothing.com",
+          "name": "Recycle Clothing",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 6,
+          "domain": "montiel.com",
+          "name": "Montiel Activewear",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 7,
+          "domain": "mikabodywear.com",
+          "name": "Mika Body Wear",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 8,
+          "domain": "hardtailforever.com",
+          "name": "Hard Tail Forever",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 9,
+          "domain": "beyondyoga.com",
+          "name": "Beyond Yoga",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 10,
+          "domain": "groceriesapparel.com",
+          "name": "Groceries Apparel",
+          "score": 39,
+          "tier": 2
+        },
+        {
+          "pos": 11,
+          "domain": "argylehaus.com",
+          "name": "ARGYLE Haus of Apparel",
+          "score": 39,
+          "tier": 2
+        },
+        {
+          "pos": 12,
+          "domain": "pansy.co",
+          "name": "Pansy",
+          "score": 39,
+          "tier": 2
+        },
+        {
+          "pos": 13,
+          "domain": "allamericanclothing.com",
+          "name": "All American Clothing Co.",
+          "score": 39,
+          "tier": 2
+        },
+        {
+          "pos": 14,
+          "domain": "yogademocracy.com",
+          "name": "Yoga Democracy",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 15,
+          "domain": "huggermugger.com",
+          "name": "Hugger Mugger",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 16,
+          "domain": "innerwaves.org",
+          "name": "Inner Waves",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 17,
+          "domain": "glyderapparel.com",
+          "name": "Glyder",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 18,
+          "domain": "barefootyoga.com",
+          "name": "Barefoot Yoga Co.",
+          "score": 48,
+          "tier": 2
+        },
+        {
+          "pos": 19,
+          "domain": "alphaleteathletics.com",
+          "name": "Alphalete",
+          "score": 39,
+          "tier": 2
+        }
+      ],
+      "totalCount": 199,
+      "cosmos_ms": 1701,
+      "total_ms": 1857
+    },
+    "my pillow": {
+      "q": "my pillow",
+      "class": "B",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "mypillow.com",
+          "name": "MyPillow",
+          "score": 133,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "theorganicbedroom.com",
+          "name": "The Organic Bedroom",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 2,
+          "domain": "makeyourownpolish.com",
+          "name": "Taylor Made Polish",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 3,
+          "domain": "mainstreamintl.com",
+          "name": "Mainstream International",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 4,
+          "domain": "infantino.com",
+          "name": "Infantino",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 5,
+          "domain": "shop.americantourister.com",
+          "name": "American Tourister",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 6,
+          "domain": "avocadogreenmattress.com",
+          "name": "Avocado",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 7,
+          "domain": "shepherdsdream.com",
+          "name": "Shepherd's Dream",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 8,
+          "domain": "parachutehome.com",
+          "name": "Parachute",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "shoppe.amberinteriordesign.com",
+          "name": "Shoppe Amber Interiors",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "natcohome.com",
+          "name": "Natco Home",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "the-citizenry.com",
+          "name": "The Citizenry",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "aslanmattress.com",
+          "name": "Aslan Mattress",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "fieldfans.com",
+          "name": "Field Fans",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "anngish.com",
+          "name": "Ann Gish",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "mykitsch.com",
+          "name": "Kitsch",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "jonathanadler.com",
+          "name": "Jonathan Adler",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "mcgeeandco.com",
+          "name": "McGee & Co.",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "mattresssafe.com",
+          "name": "Mattress Safe",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "happsy.com",
+          "name": "Happsy",
+          "score": 20,
+          "tier": 3
+        }
+      ],
+      "totalCount": 59,
+      "cosmos_ms": 266,
+      "total_ms": 330
+    },
+    "death wish coffee": {
+      "q": "death wish coffee",
+      "class": "B",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "deathwishcoffee.com",
+          "name": "Death Wish Coffee",
+          "score": 147,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "marucoffee.com",
+          "name": "Maru Coffee",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 2,
+          "domain": "theboyandthebear.com",
+          "name": "The Boy & The Bear",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 3,
+          "domain": "bebrightcoffee.com",
+          "name": "Be Bright Coffee",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 4,
+          "domain": "loquatcoffee.com",
+          "name": "Loquat Coffee",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 5,
+          "domain": "canyoncoffee.co",
+          "name": "Canyon Coffee",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 6,
+          "domain": "labcoffee.com",
+          "name": "LaB Coffee & Roasters",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 7,
+          "domain": "citybeanroasters.com",
+          "name": "City Bean Roasters",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 8,
+          "domain": "lightwavecoffee.com",
+          "name": "Lightwave Coffee",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "jettycoffeeroasters.com",
+          "name": "Jetty Coffee Roasters",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "filtron.com",
+          "name": "Filtron",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "brewingamerica.com",
+          "name": "Brewing America",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "toddy.com",
+          "name": "Toddy",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "ratiocoffee.com",
+          "name": "Ratio",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "norpro.com",
+          "name": "Norpro",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "coleman.com",
+          "name": "The Coleman Company",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "roomandboard.com",
+          "name": "Room & Board",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "kitchenaid.com",
+          "name": "KitchenAid",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "oxo.com",
+          "name": "OXO",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "aeropress.com",
+          "name": "AeroPress",
+          "score": 20,
+          "tier": 3
+        }
+      ],
+      "totalCount": 51,
+      "cosmos_ms": 247,
+      "total_ms": 321
+    },
+    "grand teton organic grains": {
+      "q": "grand teton organic grains",
+      "class": "B",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "ancientgrains.com",
+          "name": "Grand Teton Ancient Grains",
+          "score": 103,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "wonderfulpistachios.com",
+          "name": "Wonderful Pistachios",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 2,
+          "domain": "jfc.com",
+          "name": "JFC International",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 3,
+          "domain": "fishernuts.com",
+          "name": "Fisher Nuts",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 4,
+          "domain": "jakesnutroasters.com",
+          "name": "Jake's Nut Roasters",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 5,
+          "domain": "obrilo.com",
+          "name": "Obrilo",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 6,
+          "domain": "ranchogordo.com",
+          "name": "Rancho Gordo",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 7,
+          "domain": "boomchickapop.com",
+          "name": "Angie's Boomchickapop",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 8,
+          "domain": "amys.com",
+          "name": "Amy's Kitchen",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "conagrabrands.com",
+          "name": "Conagra Brands",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "brewingamerica.com",
+          "name": "Brewing America",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "bobsredmill.com",
+          "name": "Bob's Red Mill",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "pepsico.com",
+          "name": "PepsiCo",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "rubbermaid.com",
+          "name": "Rubbermaid",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "terrasoul.com",
+          "name": "Terrasoul Superfoods",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "rebellionharvest.com",
+          "name": "Rebellion Harvest",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "chinookseedery.com",
+          "name": "Chinook Seedery",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "goya.com",
+          "name": "Goya",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "kitchenaid.com",
+          "name": "KitchenAid",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "breville.com",
+          "name": "Breville",
+          "score": 20,
+          "tier": 3
+        }
+      ],
+      "totalCount": 51,
+      "cosmos_ms": 290,
+      "total_ms": 354
+    },
+    "coffee": {
+      "q": "coffee",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "marucoffee.com",
+          "name": "Maru Coffee",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "bebrightcoffee.com",
+          "name": "Be Bright Coffee",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "loquatcoffee.com",
+          "name": "Loquat Coffee",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "canyoncoffee.co",
+          "name": "Canyon Coffee",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "labcoffee.com",
+          "name": "LaB Coffee & Roasters",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "lightwavecoffee.com",
+          "name": "Lightwave Coffee",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "jettycoffeeroasters.com",
+          "name": "Jetty Coffee Roasters",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "mudwtr.com",
+          "name": "MUD\\WTR",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "vervecoffee.com",
+          "name": "Verve Coffee Roasters",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "bluebottlecoffee.com",
+          "name": "Blue Bottle Coffee",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "emerils.com",
+          "name": "Emeril Lagasse",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "highplainsspicecompany.com",
+          "name": "High Plains Spice Company",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "bonefrogcoffee.com",
+          "name": "Bonefrog Coffee Company",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "batchatx.com",
+          "name": "Batch Craft Beer and Kolaches",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "legendaryaviationcoffee.com",
+          "name": "Legendary Aviation Coffee Company",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "diverdowncoffee.com",
+          "name": "Diver Down Coffee Company",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "aeropress.com",
+          "name": "AeroPress",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "bulletproof.com",
+          "name": "Bulletproof",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "gotyoursixcoffee.com",
+          "name": "Got Your Six Coffee Co.",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "noaircoffee.com",
+          "name": "NoAir Coffee",
+          "score": 119,
+          "tier": 0
+        }
+      ],
+      "totalCount": 498,
+      "cosmos_ms": 1610,
+      "total_ms": 1704
+    },
+    "water": {
+      "q": "water",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "jawsproducts.com",
+          "name": "JAWS (Just Add Water Solutions)",
+          "score": 110,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "cwrenviro.com",
+          "name": "Clean Water Revival",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "chillywater.com",
+          "name": "Chilly Water",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "waterrower.com",
+          "name": "WaterRower",
+          "score": 129,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "esdwater.com",
+          "name": "ESD Water",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "jobesports.com",
+          "name": "Jobe Watersports",
+          "score": 115,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "drinkarizona.com",
+          "name": "AriZona Beverage Co. (Arizona Iced Tea)",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 7,
+          "domain": "idlube.com",
+          "name": "ID Lubricants",
+          "score": 77,
+          "tier": 1
+        },
+        {
+          "pos": 8,
+          "domain": "bubbleskincare.com",
+          "name": "Bubble Skincare",
+          "score": 66,
+          "tier": 1
+        },
+        {
+          "pos": 9,
+          "domain": "tower28beauty.com",
+          "name": "Tower 28",
+          "score": 66,
+          "tier": 1
+        },
+        {
+          "pos": 10,
+          "domain": "dermalogica.com",
+          "name": "Dermalogica",
+          "score": 66,
+          "tier": 1
+        },
+        {
+          "pos": 11,
+          "domain": "seychelle.com",
+          "name": "Seychelle Environmental Technologies, Inc.",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 12,
+          "domain": "weldental.com",
+          "name": "Welmints",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 13,
+          "domain": "koparibeauty.com",
+          "name": "Kopari Beauty",
+          "score": 66,
+          "tier": 1
+        },
+        {
+          "pos": 14,
+          "domain": "integritybottles.com",
+          "name": "Integrity Bottles",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 15,
+          "domain": "rainbird.com",
+          "name": "Rain Bird",
+          "score": 66,
+          "tier": 1
+        },
+        {
+          "pos": 16,
+          "domain": "diamondcrystal.com",
+          "name": "Diamond Crystal Salt Co.",
+          "score": 77,
+          "tier": 1
+        },
+        {
+          "pos": 17,
+          "domain": "water.com",
+          "name": "Primo Brands",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 18,
+          "domain": "cocokind.com",
+          "name": "cocokind",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 19,
+          "domain": "malibuboats.com",
+          "name": "Malibu Boats",
+          "score": 66,
+          "tier": 1
+        }
+      ],
+      "totalCount": 532,
+      "cosmos_ms": 1668,
+      "total_ms": 1752
+    },
+    "shoes": {
+      "q": "shoes",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "anthropologie.com",
+          "name": "Anthropologie",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "badgleymischka.com",
+          "name": "Badgley Mischka",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "staud.clothing",
+          "name": "Staud",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "simpsonraceproducts.com",
+          "name": "Simpson Race Products",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "stormbowling.com",
+          "name": "Storm Bowling",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "neimanmarcus.com",
+          "name": "Neiman Marcus",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "freepeople.com",
+          "name": "Free People",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "guess.com",
+          "name": "Guess",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "stevemadden.com",
+          "name": "Steve Madden",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "bornshoes.com",
+          "name": "Born",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "sebago.com",
+          "name": "Sebago",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "klogsfootwear.com",
+          "name": "KLOGS Footwear",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "nordstrom.com",
+          "name": "Nordstrom",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "capezio.com",
+          "name": "Capezio",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "shoemgk.com",
+          "name": "Shoe MGK",
+          "score": 103,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "taosfootwear.com",
+          "name": "Taos",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "thursdayboots.com",
+          "name": "Thursday Boot Co.",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "svensclogs.com",
+          "name": "Sven Clogs",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "strike-mvmnt.com",
+          "name": "STRIKE MVMNT",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "usa.mizuno.com",
+          "name": "Mizuno",
+          "score": 90,
+          "tier": 0
+        }
+      ],
+      "totalCount": 500,
+      "cosmos_ms": 1347,
+      "total_ms": 1500
+    },
+    "socks": {
+      "q": "socks",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "lebonshoppe.com",
+          "name": "Le Bon Shoppe",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "filson.com",
+          "name": "Filson",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "wuruwool.com",
+          "name": "WŪRU Wool Co.",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "kneehighsocks.org",
+          "name": "Chrissy's Socks",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "smoothtoe.com",
+          "name": "SmoothToe Energizing Socks",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "toughapparel.com",
+          "name": "Tough Apparel",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "birddogbay.com",
+          "name": "Bird Dog Bay",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "kentwang.com",
+          "name": "Kent Wang",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "faribaultmill.com",
+          "name": "Fairbault Mill",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "wigwam.com",
+          "name": "Wigwam Socks",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "balancesockstore.com",
+          "name": "Balance Sock",
+          "score": 122,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "cloudlineapparel.com",
+          "name": "CloudLine",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "shopmashburn.com",
+          "name": "Sid Mashburn",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "socksmith.com",
+          "name": "Socksmith",
+          "score": 145,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "thorlo.com",
+          "name": "Thorlo",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "foxsox.com",
+          "name": "Fox River Socks",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "farmtofeet.com",
+          "name": "Farm to Feet",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "pro-tectsocks.com",
+          "name": "Pro-Tect Socks",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "hanes.com",
+          "name": "Hanes",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "upstatestock.com",
+          "name": "Upstate Stock",
+          "score": 90,
+          "tier": 0
+        }
+      ],
+      "totalCount": 398,
+      "cosmos_ms": 1385,
+      "total_ms": 1489
+    },
+    "granola": {
+      "q": "granola",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "foodforlife.com",
+          "name": "Food for Life",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "realcereal.com",
+          "name": "The Real Cereal Company",
+          "score": 101,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "enzooliveoil.com",
+          "name": "ENZO Olive Oil Company",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "kodiakcakes.com",
+          "name": "Kodiak Cakes",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "generalmills.com",
+          "name": "General Mills Inc.",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "udisglutenfree.com",
+          "name": "Udi's",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "purelyelizabeth.com",
+          "name": "Purely Elizabeth",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "bobsredmill.com",
+          "name": "Bob's Red Mill",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "onedegreeorganics.com",
+          "name": "One Degree Organics",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "naturespath.com",
+          "name": "Nature's Path",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "threewishescereal.com",
+          "name": "Three Wishes",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "kashi.com",
+          "name": "Kashi",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "cascadianfarm.com",
+          "name": "Cascadian Farm",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "nutrail.com",
+          "name": "NuTrail",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "shop.atkins.com",
+          "name": "Atkins Nutritionals",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "kindsnacks.com",
+          "name": "KIND",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "magicspoon.com",
+          "name": "Magic Spoon",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "backtonaturefoods.com",
+          "name": "Back to Nature",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "annies.com",
+          "name": "Annie's",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "sevensundays.com",
+          "name": "Seven Sundays",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 140,
+      "cosmos_ms": 484,
+      "total_ms": 591
+    },
+    "tea": {
+      "q": "tea",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "drinkarizona.com",
+          "name": "AriZona Beverage Co. (Arizona Iced Tea)",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "artoftea.com",
+          "name": "Art of Tea",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "coffeebean.com",
+          "name": "The Coffee Bean & Tea Leaf",
+          "score": 113,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "numitea.com",
+          "name": "Numi Organic Tea",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "davidsonstea.com",
+          "name": "Davidson's Organics",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "traditionalmedicinals.com",
+          "name": "Traditional Medicinals",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "fullleafteacompany.com",
+          "name": "Full Leaf Tea Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "twoleavestea.com",
+          "name": "Two Leaves and a Bud",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "yogi-life.com",
+          "name": "Yogi Tea",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "celestialseasonings.com",
+          "name": "Celestial Seasonings",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "theteaspot.com",
+          "name": "The Tea Spot",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "stashtea.com",
+          "name": "Stash Tea",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "smithtea.com",
+          "name": "Smith Teamaker (Steven Smith)",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "plumdeluxe.com",
+          "name": "Plum Deluxe",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "tazo.com",
+          "name": "Tazo",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "zhitea.com",
+          "name": "Zhi Tea",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "snapple.com",
+          "name": "Snapple",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "peets.com",
+          "name": "Peet's Coffee",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "bighearttea.com",
+          "name": "Big Heart Tea Co.",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "greatmsteacompany.com",
+          "name": "Great Mississippi Tea Company",
+          "score": 131,
+          "tier": 0
+        }
+      ],
+      "totalCount": 500,
+      "cosmos_ms": 1699,
+      "total_ms": 1801
+    },
+    "soap": {
+      "q": "soap",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "belowsealevelcosmetics.com",
+          "name": "Below Sea Level",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "herosoapcompany.com",
+          "name": "Hero Soap Company",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "juniperandsagesoap.com",
+          "name": "Juniper & Sage Soap Co",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "ticklecreeksoap.com",
+          "name": "Tickle Creek Soap",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "bnbsoapco.com",
+          "name": "Boots & Briskets Soap Co",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "shopslappys.com",
+          "name": "Slappy's Soaps",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "naplessoap.com",
+          "name": "Naples Soap Company",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "sacredtallow.com",
+          "name": "Sacred Tallow",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "simplifiedsoap.com",
+          "name": "Simplified Soap",
+          "score": 113,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "mionartisansoap.com",
+          "name": "Mion Artisan Soap",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "sugarmountaintrading.com",
+          "name": "Sugar Mountain Trading Co.",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "naturallyrusticsoaps.com",
+          "name": "Naturally Rustic Soaps",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "amishcountrysoapco.com",
+          "name": "Amish Country Soap & Candle Co.",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "kbarsoapco.com",
+          "name": "K Bar Soap Company",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "aloetallow.com",
+          "name": "ALOE TALLOW",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 15,
+          "domain": "taddostallow.com",
+          "name": "Taddo's Tallow",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 16,
+          "domain": "ofpfarms.com",
+          "name": "OFP Farms",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 17,
+          "domain": "wyld-terra.com",
+          "name": "Wyld Terra",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 18,
+          "domain": "classicshaving.com",
+          "name": "Classic Shaving",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 19,
+          "domain": "vintagetradition.com",
+          "name": "Vintage Tradition",
+          "score": 85,
+          "tier": 1
+        }
+      ],
+      "totalCount": 499,
+      "cosmos_ms": 1533,
+      "total_ms": 1626
+    },
+    "candles": {
+      "q": "candles",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "pfcandleco.com",
+          "name": "P.F. Candle Co.",
+          "score": 127,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "bodha.com",
+          "name": "Bodha",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "oceanista.com",
+          "name": "Oceanista",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "candlefactorystore.com",
+          "name": "Armadilla Wax Works",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "hazelcandleco.com",
+          "name": "Hazel Candle Co.",
+          "score": 127,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "juniperridge.com",
+          "name": "Juniper Ridge",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "busybeescandleco.com",
+          "name": "Busy Bees Candle Co.",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "bluecorncandles.com",
+          "name": "Bluecorn Candles",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "brokentopcandleco.com",
+          "name": "Broken Top Candle Co.",
+          "score": 127,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "woolywaxcandles.com",
+          "name": "Wooly Wax Candles",
+          "score": 127,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "imaginaryauthors.com",
+          "name": "Imaginary Authors",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "bigdipperwaxworks.com",
+          "name": "Big Dipper Wax Works",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "leathercandle.com",
+          "name": "76008 Candle Co.",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "beeswaxco.com",
+          "name": "The Beeswax Co.",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "calyanwaxco.com",
+          "name": "Calyan Wax Co.",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "roamhomegrown.com",
+          "name": "ROAM Homegrown",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "lighthousecandlescrafts.com",
+          "name": "Lighthouse Candles & Crafts",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "goosecreek.com",
+          "name": "Goose Creek Candle",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "beehivecandles.com",
+          "name": "Bee Hive Candles",
+          "score": 127,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "litupcandleco.com",
+          "name": "Lit Up Candle Co.",
+          "score": 127,
+          "tier": 0
+        }
+      ],
+      "totalCount": 349,
+      "cosmos_ms": 1323,
+      "total_ms": 1467
+    },
+    "honey": {
+      "q": "honey",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "dickinsonfamilyfarms.com",
+          "name": "Dickinson's",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "sandiegohoney.com",
+          "name": "San Diego Honey Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "pasolivo.com",
+          "name": "Pasolivo",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "thecaliforniaolive.com",
+          "name": "The California Olive",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "brightland.co",
+          "name": "Brightland",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "mikeandnikishoney.com",
+          "name": "Mike & Niki's Honey",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "cavecreekoliveoil.com",
+          "name": "Cave Creek Olive Oil",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "crocketthoney.com",
+          "name": "Crockett Honey Co.",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "azqueenbee.com",
+          "name": "AZ Queen Bee",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "queencreekolivemill.com",
+          "name": "Queen Creek Olive Mill",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "nuvooliveoil.com",
+          "name": "Nuvo Olive Oil",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "millershoneycompany.com",
+          "name": "Miller's Honey Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "coxhoney.com",
+          "name": "Cox Honey",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "beeyondthehive.com",
+          "name": "Beeyond the Hive",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "prescotthoney.com",
+          "name": "Prescott Honey Farms",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "honeysmokedfish.com",
+          "name": "Honey Smoked Fish Co.",
+          "score": 103,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "madhavafoods.com",
+          "name": "Madhava",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "sunnyhoneyco.com",
+          "name": "Sunny Honey Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "barkmanhoney.com",
+          "name": "Barkman Honey",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "ysecobeefarms.com",
+          "name": "Y.S. Eco Bee Farms",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 516,
+      "cosmos_ms": 1780,
+      "total_ms": 1869
+    },
+    "chocolate": {
+      "q": "chocolate",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "compartes.com",
+          "name": "Compartes Chocolatier",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "sees.com",
+          "name": "See's Candies",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "parliamentchocolate.com",
+          "name": "Parliament Chocolate",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "barauchocolat.com",
+          "name": "Bar Au Chocolat",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "blommer.com",
+          "name": "Blommer Chocolate Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "ghirardelli.com",
+          "name": "Ghirardelli Chocolate Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "guittard.com",
+          "name": "Guittard Chocolate Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "tcho.com",
+          "name": "Tcho",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "dandelionchocolate.com",
+          "name": "Dandelion Chocolate",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "barry-callebaut.com",
+          "name": "Barry Callebaut USA LLC",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "cqc.com",
+          "name": "Clasen Quality Chocolate",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "amanochocolate.com",
+          "name": "Amano Artisan Chocolate",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "ritualchocolate.com",
+          "name": "Ritual Chocolate",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "dicktaylorchocolate.com",
+          "name": "Dick Taylor Craft Chocolate",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "rmcf.com",
+          "name": "Rocky Mountain Chocolate Factory",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "mapchocolate.com",
+          "name": "Map Chocolate Co.",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "chocolove.com",
+          "name": "Chocolove",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "culturachocolate.com",
+          "name": "Cultura Craft Chocolate",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "liftchocolates.com",
+          "name": "Lift Chocolate",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "nuancechocolate.com",
+          "name": "Nuance Chocolate",
+          "score": 131,
+          "tier": 0
+        }
+      ],
+      "totalCount": 500,
+      "cosmos_ms": 1323,
+      "total_ms": 1485
+    },
+    "backpack": {
+      "q": "backpack",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "killspencer.com",
+          "name": "KILLSPENCER",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "filson.com",
+          "name": "Filson",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "everlane.com",
+          "name": "Everlane",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "patagonia.com",
+          "name": "Patagonia",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "beistravel.com",
+          "name": "Béis",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "timbuk2.com",
+          "name": "Timbuk2",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "nomatic.com",
+          "name": "Nomatic",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "cotopaxi.com",
+          "name": "Cotopaxi",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "gregory.com",
+          "name": "Gregory",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "llbean.com",
+          "name": "L.L.Bean",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "jansport.com",
+          "name": "JanSport",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "topodesigns.com",
+          "name": "Topo Designs",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "northstbags.com",
+          "name": "North St. Bags",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "nikestrength.com",
+          "name": "Nike Strength",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "mysteryranch.com",
+          "name": "Mystery Ranch",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "tombihn.com",
+          "name": "Tom Bihn",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "arcteryx.com",
+          "name": "Arc'teryx",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "hyperlitemountaingear.com",
+          "name": "Hyperlite Mountain Gear",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "thenorthface.com",
+          "name": "The North Face",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "landsend.com",
+          "name": "Lands' End",
+          "score": 90,
+          "tier": 0
+        }
+      ],
+      "totalCount": 470,
+      "cosmos_ms": 1414,
+      "total_ms": 1539
+    },
+    "mattress": {
+      "q": "mattress",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "aireloom.com",
+          "name": "Aireloom",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "avocadogreenmattress.com",
+          "name": "Avocado",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "brentwoodhome.com",
+          "name": "Brentwood Home",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "luxisleep.com",
+          "name": "Luxi",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "customcomfortmattress.com",
+          "name": "Custom Comfort Mattress",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "tuftandneedle.com",
+          "name": "Tuft & Needle",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "saatva.com",
+          "name": "Saatva",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "diamondmattress.com",
+          "name": "Diamond Mattress",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "plushbeds.com",
+          "name": "PlushBeds",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "ecoterrabeds.com",
+          "name": "Eco Terra",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "mattressmakers.com",
+          "name": "Mattress Makers",
+          "score": 133,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "helixsleep.com",
+          "name": "Helix",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "ecosleep.com",
+          "name": "EcoSleep",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "dreamfoambedding.com",
+          "name": "Dreamfoam Bedding",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "kingsdown.com",
+          "name": "Kingsdown",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "bearmattress.com",
+          "name": "Bear (Mattress)",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "winkbeds.com",
+          "name": "WinkBeds",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "nestbedding.com",
+          "name": "Nest Bedding",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "leesa.com",
+          "name": "Leesa",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "awarasleep.com",
+          "name": "Awara",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 199,
+      "cosmos_ms": 654,
+      "total_ms": 741
+    },
+    "sunglasses": {
+      "q": "sunglasses",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "us.louisvuitton.com",
+          "name": "Louis Vuitton",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "pixeleyewear.com",
+          "name": "Pixel Eyewear",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "pocketsquareclothing.com",
+          "name": "Pocket Square Clothing",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "stussy.com",
+          "name": "Stussy",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "oakley.com",
+          "name": "Oakley",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "shopcovry.com",
+          "name": "Covry",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "raen.com",
+          "name": "Raen",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "100percent.com",
+          "name": "100%",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "warbyparker.com",
+          "name": "Warby Parker",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "suncloudoptics.com",
+          "name": "Suncloud",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "smithoptics.com",
+          "name": "Smith Optics",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "iwantproof.com",
+          "name": "Proof Eyewear",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "shwoodshop.com",
+          "name": "Shwood",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "framesdirect.com",
+          "name": "FramesDirect",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "roka.com",
+          "name": "Roka",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "wileyx.com",
+          "name": "Wiley X",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "speert.com",
+          "name": "Speert",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "lelesadoughi.com",
+          "name": "Lele Sadoughi",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "topdrawershop.com",
+          "name": "Top Drawer",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "madsonofamerica.com",
+          "name": "Madson of America",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 345,
+      "cosmos_ms": 1317,
+      "total_ms": 1453
+    },
+    "jeans": {
+      "q": "jeans",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "frankandeileen.com",
+          "name": "Frank & Eileen",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "fashionnova.com",
+          "name": "Fashion Nova",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "shopfavoritedaughter.com",
+          "name": "Favorite Daughter",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "thisisthegreat.com",
+          "name": "The Great",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "ariat.com",
+          "name": "Ariat",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "wrangler.com",
+          "name": "Wrangler",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "dickies.com",
+          "name": "Dickies",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "gloria-vanderbilt.com",
+          "name": "Gloria Vanderbilt",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "cinchjeans.com",
+          "name": "Cinch",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "round-house.com",
+          "name": "Round House Jeans",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "spanx.com",
+          "name": "Spanx",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "raleighdenimworkshop.com",
+          "name": "Raleigh Denim",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "universalstandard.com",
+          "name": "Universal Standard",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "jny.com",
+          "name": "Jones New York",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "missguided.com",
+          "name": "Missguided",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "peachyden.co.uk",
+          "name": "Peachy Den",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "laislabonitastore.com",
+          "name": "La Isla Bonita",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "dsquared2.com",
+          "name": "Dsquared2",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "garageclothing.com",
+          "name": "Garage",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "torrid.com",
+          "name": "Torrid",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 260,
+      "cosmos_ms": 830,
+      "total_ms": 913
+    },
+    "sneakers": {
+      "q": "sneakers",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "vans.com",
+          "name": "Vans",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "amiri.com",
+          "name": "Amiri",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "comunitymade.com",
+          "name": "COMUNITYmade",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "carbon38.com",
+          "name": "Carbon38",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "altrarunning.com",
+          "name": "Altra",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "underarmour.com",
+          "name": "Under Armour",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "softstarshoes.com",
+          "name": "Softstar Shoes",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "sasshoes.com",
+          "name": "San Antonio Shoemakers (SAS)",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "sofftshoe.com",
+          "name": "Söfft",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "nisolo.com",
+          "name": "Nisolo",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "stevemadden.com",
+          "name": "Steve Madden",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "crocs.com",
+          "name": "Crocs",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "brooksrunning.com",
+          "name": "Brooks Running",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "madeplus.com",
+          "name": "made+",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "carsonfw.com",
+          "name": "Carson Footwear",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "thursdayboots.com",
+          "name": "Thursday Boot Co.",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "taosfootwear.com",
+          "name": "Taos",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "volatileusa.com",
+          "name": "Volatile",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "munroshoes.com",
+          "name": "Munro",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "nike.com",
+          "name": "Nike",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 331,
+      "cosmos_ms": 1074,
+      "total_ms": 1205
+    },
+    "pillow": {
+      "q": "pillow",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "avocadogreenmattress.com",
+          "name": "Avocado",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "coopsleepgoods.com",
+          "name": "Coop Sleep Goods",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "tuftandneedle.com",
+          "name": "Tuft & Needle",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "saatva.com",
+          "name": "Saatva",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "plushbeds.com",
+          "name": "PlushBeds",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "helixsleep.com",
+          "name": "Helix",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "nestbedding.com",
+          "name": "Nest Bedding",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "leesa.com",
+          "name": "Leesa",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "brooklynbedding.com",
+          "name": "Brooklyn Bedding",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "laylasleep.com",
+          "name": "Layla",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "bedgear.com",
+          "name": "Bedgear",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "sleepnumber.com",
+          "name": "Sleep Number",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "maloufhome.com",
+          "name": "Malouf",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "linenspa.com",
+          "name": "Linenspa",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "tempurpedic.com",
+          "name": "Tempur-Pedic",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "parachutehome.com",
+          "name": "Parachute",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "holylamborganics.com",
+          "name": "Holy Lamb Organics",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "nectarsleep.com",
+          "name": "Nectar",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "unitedpillow.com",
+          "name": "United Pillow Manufacturing",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "lincove.com",
+          "name": "Lincove",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 453,
+      "cosmos_ms": 1311,
+      "total_ms": 1406
+    },
+    "knife": {
+      "q": "knife",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "modernspartansystems.com",
+          "name": "Modern Spartan Systems",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "macknife.com",
+          "name": "MAC Knife",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "uwk.com",
+          "name": "Underwater Kinetics",
+          "score": 78,
+          "tier": 1
+        },
+        {
+          "pos": 3,
+          "domain": "hogueinc.com",
+          "name": "Hogue Inc.",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 4,
+          "domain": "everythingetched.com",
+          "name": "Everything Etched",
+          "score": 78,
+          "tier": 1
+        },
+        {
+          "pos": 5,
+          "domain": "bonedaddy-knives.com",
+          "name": "Bone Daddy's",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 6,
+          "domain": "thejamesbrand.com",
+          "name": "The James Brand",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 7,
+          "domain": "montanaknifecompany.com",
+          "name": "MKC Montana Knife Company",
+          "score": 89,
+          "tier": 1
+        },
+        {
+          "pos": 8,
+          "domain": "bladeandblue.com",
+          "name": "Blade + Blue",
+          "score": 76,
+          "tier": 1
+        },
+        {
+          "pos": 9,
+          "domain": "lindsayengraving.com",
+          "name": "Lindsay Engraving",
+          "score": 77,
+          "tier": 1
+        },
+        {
+          "pos": 10,
+          "domain": "bullardleather.com",
+          "name": "Bullard Leather",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 11,
+          "domain": "madeincookware.com",
+          "name": "Made In",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 12,
+          "domain": "vikingsblade.com",
+          "name": "Viking Blade",
+          "score": 86,
+          "tier": 1
+        },
+        {
+          "pos": 13,
+          "domain": "coldsteel.com",
+          "name": "Cold Steel",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 14,
+          "domain": "cusocuts.com",
+          "name": "Cuso's",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 15,
+          "domain": "materialkitchen.com",
+          "name": "Material Kitchen",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 16,
+          "domain": "sogknives.com",
+          "name": "SOG",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 17,
+          "domain": "chicagocutleryco.com",
+          "name": "Chicago Cutlery",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 18,
+          "domain": "danswhetstone.com",
+          "name": "Dan's Whetstone",
+          "score": 79,
+          "tier": 1
+        },
+        {
+          "pos": 19,
+          "domain": "smithsproducts.com",
+          "name": "Smith's Knives & Sharpeners",
+          "score": 77,
+          "tier": 1
+        }
+      ],
+      "totalCount": 367,
+      "cosmos_ms": 1057,
+      "total_ms": 1160
+    },
+    "watch": {
+      "q": "watch",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "devonworks.com",
+          "name": "Devon",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "americanwatch.com",
+          "name": "American Watch Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "noduswatches.com",
+          "name": "Nodus Watches",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "vaerwatches.com",
+          "name": "Vaer",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "jnshapirowatches.com",
+          "name": "J.N. Shapiro",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "sangininstruments.com",
+          "name": "Sangin Instruments",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "rescoinstruments.com",
+          "name": "Resco Instruments",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "ginault.com",
+          "name": "Ginault",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "barrelhand.com",
+          "name": "Barrelhand",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "vorticwatches.com",
+          "name": "Vortic Watch Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "areswatches.com",
+          "name": "Ares Watch Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "halioswatches.com",
+          "name": "Halios Watch Co.",
+          "score": 127,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "havenwatchco.com",
+          "name": "Haven Watch Company",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "bernhardtwatch.com",
+          "name": "Bernhardt Watch",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "knopfwatches.com",
+          "name": "KNOPF Watches",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "2awatchcompany.com",
+          "name": "2A Watch Company",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "wassonwatch.com",
+          "name": "Wasson Watch",
+          "score": 119,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "wornandwound.com",
+          "name": "Worn & Wound",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "timex.com",
+          "name": "Timex",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "nomos-glashuette.com",
+          "name": "Nomos Glashütte",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 252,
+      "cosmos_ms": 906,
+      "total_ms": 996
+    },
+    "toothpaste": {
+      "q": "toothpaste",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "bitetoothpastebits.com",
+          "name": "Bite Toothpaste Bits",
+          "score": 131,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "publicgoods.com",
+          "name": "PUBLIC GOODS",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "davids-usa.com",
+          "name": "Davids",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "drbronner.com",
+          "name": "Dr. Bronner's",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "cleure.com",
+          "name": "Cleure",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "supermouth.com",
+          "name": "SuperMouth",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "trysnow.com",
+          "name": "Snow",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "canarycleanco.com",
+          "name": "Canary",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "sprysmile.com",
+          "name": "Spry",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "epicdental.com",
+          "name": "Epic Dental",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "redmond.life",
+          "name": "Redmond Life",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "oxyfresh.com",
+          "name": "Oxyfresh",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "periosciences.com",
+          "name": "PerioSciences",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "colgate.com",
+          "name": "Colgate",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "orlcares.com",
+          "name": "ORL",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "hello-products.com",
+          "name": "Hello",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "yayzebra.com",
+          "name": "ZEBRA",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "thenaturaldentist.com",
+          "name": "The Natural Dentist",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "mouthwatchers.com",
+          "name": "Mouth Watchers",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "risewell.com",
+          "name": "RiseWell",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 97,
+      "cosmos_ms": 306,
+      "total_ms": 384
+    },
+    "shampoo": {
+      "q": "shampoo",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "splathaircolor.com",
+          "name": "Splat",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "prose.com",
+          "name": "Prose",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "arcticfoxhaircolor.com",
+          "name": "Arctic Fox",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "suavecito.com",
+          "name": "Suavecito",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "honest.com",
+          "name": "The Honest Company",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "tower28beauty.com",
+          "name": "Tower 28",
+          "score": 99,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "olaplex.com",
+          "name": "OPALEX",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "esalon.com",
+          "name": "eSalon",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "oseamalibu.com",
+          "name": "OSEA Malibu",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "paulmitchell.com",
+          "name": "Paul Mitchell",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "koparibeauty.com",
+          "name": "Kopari Beauty",
+          "score": 90,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "drwatsons.shop",
+          "name": "Dr. Watson's Hair & Skin Care",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "helloeverist.com",
+          "name": "Everist",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "johnmasters.com",
+          "name": "John Masters Organics",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "100percentpure.com",
+          "name": "100% Pure",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "burtsbees.com",
+          "name": "Burt's Bees",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "fobihaircare.com",
+          "name": "FOBI Haircare",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "ag.care",
+          "name": "AG Care",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "sexyhair.com",
+          "name": "Sexy Hair",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "wella.com",
+          "name": "Wella Professionals",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 479,
+      "cosmos_ms": 1329,
+      "total_ms": 1452
+    },
+    "olive oil": {
+      "q": "olive oil",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "123farm.com",
+          "name": "123 Farm",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "temeculaoliveoil.com",
+          "name": "Temecula Olive Oil Company",
+          "score": 152,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "katzfarm.com",
+          "name": "Katz Farm",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "sbolive.com",
+          "name": "Santa Barbara Olive Co.",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "basqueaway.com",
+          "name": "Basque Away",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "pasolivo.com",
+          "name": "Pasolivo",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "kilerridge.com",
+          "name": "Kiler Ridge Olive Farm",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "thecaliforniaolive.com",
+          "name": "The California Olive",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "brightland.co",
+          "name": "Brightland",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "starfinefoods.com",
+          "name": "Star Fine Foods",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "enzooliveoil.com",
+          "name": "ENZO Olive Oil Company",
+          "score": 152,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "bellavistaoil.com",
+          "name": "Bella Vista Ranch",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "frantoiogrove.com",
+          "name": "Frantoio Grove",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "birchcreekoliveorchard.com",
+          "name": "Birch Creek Olive Orchard",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "cavecreekoliveoil.com",
+          "name": "Cave Creek Olive Oil",
+          "score": 152,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "corto-olive.com",
+          "name": "Corto Olive",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "fat.gold",
+          "name": "Fat Gold",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "queencreekolivemill.com",
+          "name": "Queen Creek Olive Mill",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "welcometowondervalley.com",
+          "name": "Wonder Valley",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "delallo.com",
+          "name": "DeLallo",
+          "score": 100,
+          "tier": 0
+        }
+      ],
+      "totalCount": 227,
+      "cosmos_ms": 887,
+      "total_ms": 966
+    },
+    "hot sauce": {
+      "q": "hot sauce",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "huyfong.com",
+          "name": "Huy Fong Foods (Sriracha)",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "tapatiohotsauce.com",
+          "name": "Tapatio",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "californiahotsaucesolutions.com",
+          "name": "California Hot Sauce Solutions",
+          "score": 152,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "truff.com",
+          "name": "Truff",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "blaze619hotsauce.com",
+          "name": "Blaze 619",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "azspiceco.com",
+          "name": "Arizona Spice Co",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "mezzetta.com",
+          "name": "Mezzetta",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "chicoblanco-shop.fourthwall.com",
+          "name": "Chico Blanco",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 8,
+          "domain": "daniellessauces.com",
+          "name": "Danielle's Sauces",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 9,
+          "domain": "pexpeppers.com",
+          "name": "Pex Peppers",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 10,
+          "domain": "cooperssmallbatch.com",
+          "name": "Cooper's Small Batch",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 11,
+          "domain": "secretaardvark.com",
+          "name": "Secret Aardvark",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 12,
+          "domain": "habsauces.com",
+          "name": "HAB Sauce",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 13,
+          "domain": "hotmamasalsa.com",
+          "name": "Hot Mama Salsa",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 14,
+          "domain": "localhivehoney.com",
+          "name": "Local Hive",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 15,
+          "domain": "highplainsspicecompany.com",
+          "name": "High Plains Spice Company",
+          "score": 100,
+          "tier": 0
+        },
+        {
+          "pos": 16,
+          "domain": "elixirsauce.com",
+          "name": "Elixir Sauce Co.",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 17,
+          "domain": "tialupitafoods.com",
+          "name": "Tia Lupita",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 18,
+          "domain": "yellowbirdfoods.com",
+          "name": "Yellowbird",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 19,
+          "domain": "sietefoods.com",
+          "name": "Siete Foods",
+          "score": 108,
+          "tier": 0
+        }
+      ],
+      "totalCount": 249,
+      "cosmos_ms": 894,
+      "total_ms": 971
+    },
+    "fridge": {
+      "q": "fridge",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "subzero.com",
+          "name": "Sub-Zero & Wolf & Cove",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 1,
+          "domain": "hisense-usa.com",
+          "name": "Hisense",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 2,
+          "domain": "fisherpaykel.com",
+          "name": "Fisher & Paykel",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 3,
+          "domain": "fridgemagnets.com",
+          "name": "FridgeMagnets.com",
+          "score": 133,
+          "tier": 0
+        },
+        {
+          "pos": 4,
+          "domain": "jennair.com",
+          "name": "Jenn-Air",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 5,
+          "domain": "amana.com",
+          "name": "Amana",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 6,
+          "domain": "cafeappliances.com",
+          "name": "Cafe",
+          "score": 108,
+          "tier": 0
+        },
+        {
+          "pos": 7,
+          "domain": "newair.com",
+          "name": "NewAir",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 8,
+          "domain": "pikanty.com",
+          "name": "Pikanty",
+          "score": 85,
+          "tier": 1
+        },
+        {
+          "pos": 9,
+          "domain": "threebythree.com",
+          "name": "Three by Three",
+          "score": 77,
+          "tier": 1
+        },
+        {
+          "pos": 10,
+          "domain": "engelcoolers.com",
+          "name": "Engel Coolers",
+          "score": 72,
+          "tier": 1
+        },
+        {
+          "pos": 11,
+          "domain": "blazegrills.com",
+          "name": "Blaze Grills",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 12,
+          "domain": "churchdwight.com",
+          "name": "Church & Dwight",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 13,
+          "domain": "chemistrysurfboards.com",
+          "name": "Chemistry Surfboards",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 14,
+          "domain": "bowlus.com",
+          "name": "Bowlus",
+          "score": 55,
+          "tier": 2
+        },
+        {
+          "pos": 15,
+          "domain": "magnetsource.com",
+          "name": "Master Magnetics",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 16,
+          "domain": "danby.com",
+          "name": "Danby",
+          "score": 55,
+          "tier": 2
+        },
+        {
+          "pos": 17,
+          "domain": "4imprint.com",
+          "name": "4imprint",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 18,
+          "domain": "eztotz.com",
+          "name": "EzTotz",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 19,
+          "domain": "nutrichefkitchen.com",
+          "name": "NutriChef",
+          "score": 41,
+          "tier": 2
+        }
+      ],
+      "totalCount": 99,
+      "cosmos_ms": 380,
+      "total_ms": 454
+    },
+    "lipgloss": {
+      "q": "lipgloss",
+      "class": "C",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "lagirlusa.com",
+          "name": "L.A. Girl",
+          "score": 69,
+          "tier": 1
+        },
+        {
+          "pos": 1,
+          "domain": "wetnwildbeauty.com",
+          "name": "Wet n Wild",
+          "score": 78,
+          "tier": 1
+        },
+        {
+          "pos": 2,
+          "domain": "cheekbonebeauty.com",
+          "name": "Cheekbone Beauty",
+          "score": 70,
+          "tier": 1
+        },
+        {
+          "pos": 3,
+          "domain": "glossier.com",
+          "name": "Glossier",
+          "score": 78,
+          "tier": 1
+        },
+        {
+          "pos": 4,
+          "domain": "essencemakeup.com",
+          "name": "Essence Cosmetics",
+          "score": 78,
+          "tier": 1
+        },
+        {
+          "pos": 5,
+          "domain": "fwee.us",
+          "name": "Fwee",
+          "score": 84,
+          "tier": 1
+        },
+        {
+          "pos": 6,
+          "domain": "nclabeauty.com",
+          "name": "NCLA Beauty",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 7,
+          "domain": "pixibeauty.com",
+          "name": "Pixi",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 8,
+          "domain": "blkgrn.com",
+          "name": "BLK + GRN",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 9,
+          "domain": "gracemariebeauty.com",
+          "name": "GraceMarie Beauty",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 10,
+          "domain": "thebalm.com",
+          "name": "theBalm",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 11,
+          "domain": "doseofcolors.com",
+          "name": "Dose of Colors",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 12,
+          "domain": "eccobella.com",
+          "name": "Ecco Bella",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 13,
+          "domain": "anastasiabeverlyhills.com",
+          "name": "Anastasia Beverly Hills",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 14,
+          "domain": "buckridgesoapcompany.com",
+          "name": "Buck Ridge Soap Company",
+          "score": 49,
+          "tier": 2
+        },
+        {
+          "pos": 15,
+          "domain": "victoriassecret.com",
+          "name": "Victoria's Secret",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 16,
+          "domain": "revlon.com",
+          "name": "Revlon",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 17,
+          "domain": "babobotanicals.com",
+          "name": "Babo Botanicals",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 18,
+          "domain": "elizabetharden.com",
+          "name": "Elizabeth Arden",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 19,
+          "domain": "palladiobeauty.com",
+          "name": "Palladio Beauty",
+          "score": 54,
+          "tier": 2
+        }
+      ],
+      "totalCount": 85,
+      "cosmos_ms": 330,
+      "total_ms": 400
+    },
+    "cliff bar": {
+      "q": "cliff bar",
+      "class": "B",
+      "top": [
+        {
+          "pos": 0,
+          "domain": "stayputatx.com",
+          "name": "The Stay Put",
+          "score": 39,
+          "tier": 2
+        },
+        {
+          "pos": 1,
+          "domain": "floydhome.com",
+          "name": "Floyd",
+          "score": 54,
+          "tier": 2
+        },
+        {
+          "pos": 2,
+          "domain": "ritfitsports.com",
+          "name": "RitFit",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 3,
+          "domain": "thriv.com",
+          "name": "ThriV Organic Food Bar",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 4,
+          "domain": "twineagles.dometic.com",
+          "name": "Twin Eagles",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 5,
+          "domain": "irongrip.com",
+          "name": "Iron Grip",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 6,
+          "domain": "suavecito.com",
+          "name": "Suavecito",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 7,
+          "domain": "babygold.com",
+          "name": "Baby Gold",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 8,
+          "domain": "baxterofcalifornia.com",
+          "name": "Baxter of California",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 9,
+          "domain": "sansmealbar.com",
+          "name": "SANS Meal Bars",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 10,
+          "domain": "moshlife.com",
+          "name": "MOSH",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 11,
+          "domain": "powercrunch.com",
+          "name": "Power Crunch",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 12,
+          "domain": "orgain.com",
+          "name": "Orgain",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 13,
+          "domain": "rawelementsusa.com",
+          "name": "Raw Elements",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "artnaturals.com",
+          "name": "ArtNaturals",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "ivankobarbell.com",
+          "name": "Ivanko Barbell",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 16,
+          "domain": "mytopicals.com",
+          "name": "Topicals",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "geometry.house",
+          "name": "Geometry",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 18,
+          "domain": "bellavado.com",
+          "name": "Bella Vado",
+          "score": 18,
+          "tier": 3
+        },
+        {
+          "pos": 19,
+          "domain": "harmonialiving.com",
+          "name": "Harmonia Living",
+          "score": 18,
+          "tier": 3
+        }
+      ],
+      "totalCount": 476,
+      "cosmos_ms": 1927,
+      "total_ms": 2103
+    }
+  }
+}
