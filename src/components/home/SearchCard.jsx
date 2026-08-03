@@ -107,6 +107,7 @@ export default function SearchCard({
   onGoToIndex,
   onAutoSearch,
   userCountryCode = "",
+  fallbackLocation = "",
 }) {
   const nav = useNavigate();
   const { search } = useLocation();
@@ -215,6 +216,21 @@ export default function SearchCard({
     setMfgInCountry(p.has('mfgCountry'));
     setNearestProx(p.get('nearest') === '1');
   }, [search]);
+
+  // Editable fallback-location nudge: when the URL carries no location and the
+  // results page fell back to a default center (IP unresolvable), show that
+  // location (e.g. "91773") as an editable value in the City/Postal field so
+  // the user is prompted to enter their own. Prefill only — setting the field
+  // doesn't fire a search (auto-search is keyed on the query), so no extra
+  // fetches. Never overwrites what the user has typed.
+  useEffect(() => {
+    if (!fallbackLocation) return;
+    const p = new URLSearchParams(search);
+    if (!p.get('city') && !p.get('state') && !p.get('country') && !city) {
+      setCity(fallbackLocation);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fallbackLocation, search]);
 
   const inputFocusedRef = useRef(false);
 

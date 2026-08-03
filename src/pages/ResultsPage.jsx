@@ -406,6 +406,9 @@ export default function ResultsPage() {
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
   const [userCountryCode, setUserCountryCode] = useState("");
+  // True when the current center is the San Dimas last-resort fallback (no user
+  // location + IP unresolved). Drives the editable "91773" prefill in SearchCard.
+  const [fallbackCenter, setFallbackCenter] = useState(false);
   // Mirror of userCountryCode that updates synchronously — the state lags a
   // render behind the geo resolution that precedes a fetch, but domestic-first
   // ranking (in doSearch, same tick) needs the freshly resolved code. Use
@@ -556,21 +559,13 @@ export default function ResultsPage() {
   // enter their own. Returns the hardcoded coords for the caller to search with;
   // writes ?city=91773 to the URL (skip flag = no refetch loop) so SearchCard
   // shows it. Guarded so it never re-applies once 91773 is already the location.
-  const applySanDimasFallback = (baseParams = searchParams) => {
-    setUserLoc({ lat: SAN_DIMAS.lat, lng: SAN_DIMAS.lng });
+  // Sets the San Dimas center internally (no URL write) and returns its coords.
+  // The caller also flips `fallbackCenter`, which prefills "91773" into the
+  // search bar via a prop — avoiding a mid-load URL change that would re-trigger
+  // SearchCard's debounces (the old approach caused extra fetches).
+  const applySanDimasFallback = () => {
     setUnit("mi");
     applyCountryCode(SAN_DIMAS.cc);
-    // Build from the caller's intended URL (in handleInlineSearch that's the
-    // freshly-committed `next`, NOT the stale searchParams) so we don't clobber
-    // the new query. Only rewrite when 91773 isn't already the location.
-    if ((baseParams.get("city") || "").trim() !== SAN_DIMAS.postal) {
-      const next = new URLSearchParams(baseParams);
-      next.set("city", SAN_DIMAS.postal);
-      next.delete("state");
-      next.delete("country");
-      skipUrlEffectRef.current = true;
-      setSearchParams(next, { replace: true });
-    }
     return { lat: SAN_DIMAS.lat, lng: SAN_DIMAS.lng };
   };
 
@@ -601,6 +596,7 @@ export default function ResultsPage() {
 
     (async () => {
       let loc = null;
+      let usedSanDimas = false;
       // Captures structured codes from geocoding so we can pass "TX" to the
       // API even though the URL still says state=texas.
       const resolvedFromGeo = { country: "", state: "", city: "" };
@@ -671,13 +667,17 @@ export default function ResultsPage() {
       // shows a wall of "Distance unavailable". Populates ?city=91773 for the user.
       if (!cancelled && !loc && !cityParam && !stateParam && !countryParam) {
         loc = applySanDimasFallback();
+        usedSanDimas = true;
       }
       // Always reset userLoc to whatever this search resolved to (or null).
       // Without this, a failed resolution in a follow-up search would inherit
       // the previous search's center — e.g. typing "tx" after an Edinburgh
       // search would silently rank companies by distance from Edinburgh,
       // putting Vermont (3060 mi from EDI) at the top of a Texas search.
-      if (!cancelled) setUserLoc(loc ? { lat: loc.lat, lng: loc.lng } : null);
+      if (!cancelled) {
+        setUserLoc(loc ? { lat: loc.lat, lng: loc.lng } : null);
+        setFallbackCenter(usedSanDimas); // prefill 91773 only when we fell back
+      }
 
       // (Column sort is no longer reset here — it persists via the `colsort`
       // URL param so a reorganization survives subsequent searches.)
@@ -854,11 +854,14 @@ export default function ResultsPage() {
 
     // (Column sort persists via the `colsort` URL param — not reset here.)
 
-    // No location and IP couldn't resolve → visible San Dimas (91773) fallback.
-    // Build from `next` (the URL just committed for this search) so we keep the
-    // new query and only add the fallback location.
+    // No location and IP couldn't resolve → visible San Dimas (91773) fallback
+    // (internal center + editable "91773" prefill, no URL write).
     if (!searchLocation && !city && !state && !country) {
-      searchLocation = applySanDimasFallback(next);
+      searchLocation = applySanDimasFallback();
+      setUserLoc({ lat: searchLocation.lat, lng: searchLocation.lng });
+      setFallbackCenter(true);
+    } else {
+      setFallbackCenter(false);
     }
 
     // Track in search history (skip if this was triggered by back/forward navigation)
@@ -1431,6 +1434,7 @@ export default function ResultsPage() {
           onGoForward={() => navigateHistory(historyIndex + 1)}
           onGoToIndex={navigateHistory}
           userCountryCode={userCountryCode}
+          fallbackLocation={fallbackCenter ? SAN_DIMAS.postal : ""}
         />
       </div>
 
