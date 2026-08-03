@@ -9,7 +9,7 @@ import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchCompanies, getSearchCount } from "@/lib/searchCompanies";
-import { getCountries, getCountryCentroid } from "@/lib/location";
+import { getCountries, getCountryCentroid, countryTokensFor, isLocationInCountry } from "@/lib/location";
 import { API_BASE } from "@/lib/api";
 import { getQQScore } from "@/lib/stars/qqRating";
 import { cn } from "@/lib/utils";
@@ -200,6 +200,33 @@ function isLooselyRelated(company) {
   );
 }
 
+// Shared comparator for the two proximity sorts (Manufacturing / Home-HQ), used
+// by BOTH the doSearch rerank and the `sorted` useMemo so they stay in lockstep.
+// Order: relevance tier first; then — when domestic-first is enabled — the
+// user's country ahead of foreign (`_hasDomesticManu`/`_hasDomesticHq`), with
+// the domestic bucket ranked by nearest DOMESTIC plant; then plain distance.
+// Returns 0 when equal so callers can apply their own tiebreak.
+function proximityDomesticCompare(a, b, isManu, domesticFirst) {
+  const tierA = relevanceTier(a._relevanceScore || 0, a._nameMatchScore || 0);
+  const tierB = relevanceTier(b._relevanceScore || 0, b._nameMatchScore || 0);
+  if (tierA !== tierB) return tierA - tierB;
+  if (domesticFirst) {
+    const domA = (isManu ? a._hasDomesticManu : a._hasDomesticHq) ? 0 : 1;
+    const domB = (isManu ? b._hasDomesticManu : b._hasDomesticHq) ? 0 : 1;
+    if (domA !== domB) return domA - domB;
+    const dA = domA === 0
+      ? (isManu ? a._nearestDomesticManuDist : a._nearestDomesticHqDist)
+      : (isManu ? a._nearestManuDist : a._hqDist);
+    const dB = domB === 0
+      ? (isManu ? b._nearestDomesticManuDist : b._nearestDomesticHqDist)
+      : (isManu ? b._nearestManuDist : b._hqDist);
+    return (dA ?? Infinity) - (dB ?? Infinity);
+  }
+  const dA = isManu ? a._nearestManuDist : a._hqDist;
+  const dB = isManu ? b._nearestManuDist : b._hqDist;
+  return (dA ?? Infinity) - (dB ?? Infinity);
+}
+
 // Countries that use miles (for distance unit inference)
 const milesCountries = new Set([
   "US","GB","LR","AG","BS","BB","BZ","VG","KY","DM","FK","GD","GU","MS","MP","KN",
@@ -249,6 +276,9 @@ export default function ResultsPage() {
   const amazonParam = searchParams.get("amazon") === "1";
   const hqCountryParam = searchParams.get("hqCountry") || "";
   const mfgCountryParam = searchParams.get("mfgCountry") || "";
+  // Proximity mode: default is domestic-first (your country ranks above foreign
+  // in the Manufacturing / Home-HQ sorts). `nearest=1` opts out to pure distance.
+  const strictProximity = searchParams.get("nearest") === "1";
   // Pasted-URL search: exact normalized_domain the backend looks up directly,
   // bypassing the brand-token pipeline. Empty for ordinary text searches.
   const domainParam = (searchParams.get("domain") ?? "").toString().trim().toLowerCase();
@@ -370,6 +400,15 @@ export default function ResultsPage() {
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
   const [userCountryCode, setUserCountryCode] = useState("");
+  // Mirror of userCountryCode that updates synchronously — the state lags a
+  // render behind the geo resolution that precedes a fetch, but domestic-first
+  // ranking (in doSearch, same tick) needs the freshly resolved code. Use
+  // applyCountryCode(cc) instead of setUserCountryCode so both stay in sync.
+  const userCountryCodeRef = useRef("");
+  const applyCountryCode = (cc) => {
+    userCountryCodeRef.current = cc || "";
+    setUserCountryCode(cc || "");
+  };
   // `sortBy` is now derived from the `colsort` URL param (see above) — no state.
 
   // Detect browser back/forward to avoid corrupting internal search history
@@ -574,7 +613,7 @@ export default function ResultsPage() {
             }
           }
 
-          if (resolvedCC) { setUnit(milesCountries.has(resolvedCC) ? "mi" : "km"); setUserCountryCode(resolvedCC); }
+          if (resolvedCC) { setUnit(milesCountries.has(resolvedCC) ? "mi" : "km"); applyCountryCode(resolvedCC); }
         }
         // No location filters at all → use device IP location (best guess for "near me")
         if (!loc && !cityParam && !stateParam && !countryParam) {
@@ -585,7 +624,7 @@ export default function ResultsPage() {
               !(Math.abs(ipLat - 34.0983) < 0.01 && Math.abs(ipLng - (-117.8076)) < 0.01)) {
             loc = { lat: ipLat, lng: ipLng };
             const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
-            if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
+            if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); applyCountryCode(cc); }
           }
         }
       } catch {
@@ -635,7 +674,7 @@ export default function ResultsPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam, domainParam, pageSize]);
+  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam, domainParam, pageSize, strictProximity]);
 
   // Called by the top search bar.
   // opts.urlOnly === true means "the 1s auto-search already populated
@@ -656,6 +695,8 @@ export default function ResultsPage() {
     const hqCountry = (params.hqCountry ?? "").toString();
     const mfgCountry = (params.mfgCountry ?? "").toString();
     const domain = (params.domain ?? "").toString().trim().toLowerCase();
+    // Strict-proximity ("nearest regardless of country") opt-out toggle.
+    const strict = params.nearest === "1" || params.nearest === true;
     // SearchCard no longer passes lat/lng (we don't expose raw coords in
     // URLs anymore, and re-resolving on this side guarantees the URL
     // mirrors only what the user typed). Resolution from city/country
@@ -678,6 +719,9 @@ export default function ResultsPage() {
     // Column-header sort is likewise sticky — carry the current organization
     // onto the new search so a reorganize-by-Manufacturing survives.
     if (colSortParam) next.set("colsort", colSortParam);
+    // Proximity mode is sticky too — carry the "nearest regardless of country"
+    // opt-out onto the new search.
+    if (strict) next.set("nearest", "1");
     // Reset to page 1 on new search
     next.delete("page");
     skipUrlEffectRef.current = true;
@@ -723,7 +767,7 @@ export default function ResultsPage() {
 
         if (searchLocation) {
           setUserLoc({ lat: searchLocation.lat, lng: searchLocation.lng });
-          if (resolvedCC) { setUnit(milesCountries.has(resolvedCC) ? "mi" : "km"); setUserCountryCode(resolvedCC); }
+          if (resolvedCC) { setUnit(milesCountries.has(resolvedCC) ? "mi" : "km"); applyCountryCode(resolvedCC); }
         } else {
           // Clear stale userLoc — the user typed a location that didn't
           // resolve, so we should NOT keep the previous search's center
@@ -742,7 +786,7 @@ export default function ResultsPage() {
             searchLocation = loc;
             setUserLoc({ lat: loc.lat, lng: loc.lng });
             const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
-            if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); setUserCountryCode(cc); }
+            if (cc) { setUnit(milesCountries.has(cc) ? "mi" : "km"); applyCountryCode(cc); }
           }
         } catch { /* will use fallback in doSearch */ }
       }
@@ -754,7 +798,7 @@ export default function ResultsPage() {
           searchLocation = centroid;
           setUserLoc({ lat: centroid.lat, lng: centroid.lng });
           setUnit(milesCountries.has(country) ? "mi" : "km");
-          setUserCountryCode(country);
+          applyCountryCode(country);
         }
       }
     }
@@ -769,19 +813,20 @@ export default function ResultsPage() {
 
     const isLocationOnlyInline = !q && !!(city || state || country);
     const inlineTake = isLocationOnlyInline ? pageSize * 2 : pageSize;
-    await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: inlineTake, skip: 0, location: searchLocation });
+    await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: inlineTake, skip: 0, location: searchLocation, strict });
   }
 
   // Lightweight auto-search: fetches results without updating URL (avoids input interruption)
-  function handleAutoSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain }) {
+  function handleAutoSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, nearest }) {
     if (!q && !country && !state && !city) return;
-    doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: pageSize, skip: 0 });
+    const strict = nearest === "1" || nearest === true;
+    doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: pageSize, skip: 0, strict });
   }
 
   // Track the current search generation so stale responses are ignored
   const searchGenRef = useRef(0);
 
-  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain = "", take = PAGE_SIZE, skip = 0, location, append = false }) {
+  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain = "", take = PAGE_SIZE, skip = 0, location, append = false, strict = strictProximity }) {
     setLoading(true);
 
     // The "search key" identifies a query + filter combination independently
@@ -854,6 +899,13 @@ export default function ResultsPage() {
 
       const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, domain, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
 
+      // Domestic-first context: the freshly-resolved user country (via ref, not
+      // the lagging state) + its address-match tokens, precomputed once so
+      // attachDistances can tag each location synchronously. Empty in strict
+      // mode or when the country is unknown → domestic-first stays inert.
+      const domCC = strict ? "" : (userCountryCodeRef.current || "");
+      const domTokens = domCC ? await countryTokensFor(domCC) : null;
+
       // Fire quick (Pass 1 only) and full search in parallel
       const quickPromise = q ? searchCompanies({ ...commonOpts, quick: true }).catch(() => null) : null;
       const fullPromise = searchCompanies(commonOpts);
@@ -862,7 +914,7 @@ export default function ResultsPage() {
       if (quickPromise) {
         const quickResult = await quickPromise;
         if (gen === searchGenRef.current && quickResult?.items?.length > 0) {
-          const quickWithDist = quickResult.items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
+          const quickWithDist = quickResult.items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit, domCC, domTokens)));
           setResults(quickWithDist);
           // Phase 4.28 — eager loadReviewsDeferred removed. Reviews now
           // fetch per-row when the row's IntersectionObserver fires
@@ -935,7 +987,7 @@ export default function ResultsPage() {
             : null
         );
       }
-      const distanced = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
+      const distanced = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit, domCC, domTokens)));
 
       // Proximity sorts (sort=manu by nearest manufacturing, sort=hq by
       // nearest HQ) are TIER-AWARE: companies are bucketed by relevance tier
@@ -946,14 +998,7 @@ export default function ResultsPage() {
       // Tier -1 (exact name match) subsumes the old exact-name anchor.
       // Stars / recent / relevance sorts keep API order.
       const withDistances = (sort === "manu" || sort === "hq")
-        ? distanced.slice().sort((a, b) => {
-            const tierA = relevanceTier(a._relevanceScore || 0, a._nameMatchScore || 0);
-            const tierB = relevanceTier(b._relevanceScore || 0, b._nameMatchScore || 0);
-            if (tierA !== tierB) return tierA - tierB;
-            const distA = sort === "manu" ? (a._nearestManuDist ?? Infinity) : (a._hqDist ?? Infinity);
-            const distB = sort === "manu" ? (b._nearestManuDist ?? Infinity) : (b._hqDist ?? Infinity);
-            return distA - distB;
-          })
+        ? distanced.slice().sort((a, b) => proximityDomesticCompare(a, b, sort === "manu", !!domCC))
         : distanced;
 
       // Append on infinite scroll, replace on a fresh search
@@ -1126,10 +1171,11 @@ export default function ResultsPage() {
       let primary;
       if (sortBy === "stars") {
         primary = (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity);
-      } else if (sortBy === "manu") {
-        primary = (a._nearestManuDist ?? Infinity) - (b._nearestManuDist ?? Infinity);
       } else {
-        primary = (a._hqDist ?? Infinity) - (b._hqDist ?? Infinity);
+        // manu / hq proximity — domestic-first aware (shared with the doSearch
+        // rerank via proximityDomesticCompare). Off in strict-proximity mode;
+        // also naturally inert when no company carries domestic flags.
+        primary = proximityDomesticCompare(a, b, sortBy === "manu", !strictProximity);
       }
       if (primary !== 0) return primary;
 
@@ -1139,7 +1185,7 @@ export default function ResultsPage() {
       return bRel - aRel;
     });
     return arr;
-  }, [results, sortBy]);
+  }, [results, sortBy, strictProximity]);
 
   const rightColsOrder = useMemo(() => {
     if (sortBy === "stars") return ["stars", "manu", "hq"];
@@ -1888,8 +1934,19 @@ function deduplicateHqList(list) {
   });
 }
 
-function attachDistances(c, userLoc, unit) {
-  const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [], _hqDists: [] };
+function attachDistances(c, userLoc, unit, userCC = "", tokens = null) {
+  const out = {
+    ...c,
+    _hqDist: null,
+    _nearestManuDist: null,
+    _manuDists: [],
+    _hqDists: [],
+    // Domestic-first flags (populated below when the user's country is known).
+    _hasDomesticManu: false,
+    _hasDomesticHq: false,
+    _nearestDomesticManuDist: null,
+    _nearestDomesticHqDist: null,
+  };
 
   const user = getLatLng(userLoc);
   if (!user) return out;
@@ -1985,6 +2042,21 @@ function attachDistances(c, userLoc, unit) {
 
     out._manuDists = dists;
     out._nearestManuDist = dists.length ? dists[0].dist : null;
+  }
+
+  // Domestic-first flags: which of the (already nearest-first sorted) locations
+  // sit in the user's country, and the nearest domestic distance. Each dist
+  // entry spreads its source location, so it carries country/country_code/
+  // formatted for isLocationInCountry. Inert when the user's country is unknown.
+  if (userCC && Array.isArray(tokens) && tokens.length) {
+    const nearestDomestic = (list) => {
+      const hit = Array.isArray(list) ? list.find((e) => isLocationInCountry(e, userCC, tokens)) : null;
+      return hit ? hit.dist : null;
+    };
+    out._nearestDomesticHqDist = nearestDomestic(out._hqDists);
+    out._hasDomesticHq = out._nearestDomesticHqDist != null;
+    out._nearestDomesticManuDist = nearestDomestic(out._manuDists);
+    out._hasDomesticManu = out._nearestDomesticManuDist != null;
   }
 
   return out;

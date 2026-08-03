@@ -255,6 +255,74 @@ export async function resolveCountryText(text) {
   return null;
 }
 
+// ---- Domestic-vs-foreign matching (for domestic-first proximity ranking) ----
+// Ambiguous generic tokens we deliberately EXCLUDE from text matching:
+//  - "america" would match "South America" / "Latin America"
+//  - "britain" is too loose; the specific "united kingdom"/"uk"/nations cover it
+// Bare 2-letter ISO codes are also excluded from TEXT tokens ("ca" collides with
+// the California state abbreviation) — a structured country_code still matches
+// exactly. So we key text matching off unambiguous country names + compact forms.
+const AMBIGUOUS_COUNTRY_TOKENS = new Set(["america", "britain"]);
+
+/**
+ * Build lowercased address-match tokens for a SINGLE country (the user's), used
+ * to decide whether a factory/HQ location is "domestic". Async because the
+ * canonical name comes from the countries list; callers precompute once.
+ * e.g. "US" → ["united states","usa","united states of america","the united states"].
+ */
+export async function countryTokensFor(iso2) {
+  const code = String(iso2 || "").trim().toUpperCase();
+  if (!code) return [];
+  const tokens = new Set();
+  const add = (t) => {
+    const s = String(t || "").toLowerCase().trim();
+    if (s.length >= 2 && !AMBIGUOUS_COUNTRY_TOKENS.has(s)) tokens.add(s);
+  };
+  try {
+    const countries = await getCountries();
+    const match = countries.find((c) => String(c.code).toUpperCase() === code);
+    if (match?.name) {
+      add(match.name);
+      add(normalizeCountryDisplay(match.name)); // "United States" → "USA", "United Kingdom" → "UK"
+    }
+  } catch {
+    /* fall back to aliases only */
+  }
+  for (const a of COUNTRY_ALIASES[code] || []) add(a);
+  return [...tokens];
+}
+
+/**
+ * Is this manufacturing/HQ location in the given country?
+ * `loc` may be a bare address string or a location object. Precedence:
+ *  1. structured ISO code (`country_code`) exact match,
+ *  2. word-boundary token match against the location's text (name/formatted/address).
+ * `tokens` must be precomputed via countryTokensFor(iso2).
+ */
+export function isLocationInCountry(loc, iso2, tokens) {
+  if (loc == null || !iso2) return false;
+  const cc = String(iso2).toUpperCase();
+  if (typeof loc !== "string") {
+    const sc = String(loc.country_code || loc.countryCode || "").toUpperCase();
+    if (sc && sc === cc) return true;
+  }
+  if (!Array.isArray(tokens) || !tokens.length) return false;
+  const text = (
+    typeof loc === "string"
+      ? loc
+      : [loc.country, loc.country_code, loc.formatted, loc.full_address, loc.address, loc.location, loc.region, loc.city]
+          .filter(Boolean)
+          .join(", ")
+  )
+    .toString()
+    .toLowerCase();
+  if (!text) return false;
+  return tokens.some((t) => {
+    const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+  });
+}
+
 // Back-compat names used by older components
 export const loadCountries    = getCountries;
 export const loadSubdivisions = getSubdivisions;

@@ -120,6 +120,9 @@ export default function SearchCard({
   const [amazonOnly, setAmazonOnly] = useState(false);
   const [hqInCountry, setHqInCountry] = useState(false);
   const [mfgInCountry, setMfgInCountry] = useState(false);
+  // Proximity ranking: default domestic-first; when checked, sort purely by
+  // nearest distance regardless of country (URL `nearest=1`).
+  const [nearestProx, setNearestProx] = useState(false);
   const [sortFilterOpen, setSortFilterOpen] = useState(false);
 
   const [countries, setCountries] = useState([]);
@@ -210,6 +213,7 @@ export default function SearchCard({
     setAmazonOnly(p.get('amazon') === '1');
     setHqInCountry(p.has('hqCountry'));
     setMfgInCountry(p.has('mfgCountry'));
+    setNearestProx(p.get('nearest') === '1');
   }, [search]);
 
   const inputFocusedRef = useRef(false);
@@ -302,7 +306,7 @@ export default function SearchCard({
 
     debounceSearchRef.current = setTimeout(() => {
       lastSearchedQRef.current = trimmed;
-      onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly, hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '', domain: extractNormalizedDomain(trimmed) });
+      onAutoSearch({ q: trimmed, sort: sortBy, country, state: stateCode, city, amazon: amazonOnly, hqCountry: hqInCountry ? userCountryCode : '', mfgCountry: mfgInCountry ? userCountryCode : '', domain: extractNormalizedDomain(trimmed), nearest: nearestProx ? '1' : '' });
     }, 1000);
 
     // Delayed URL commit: sync the URL 3 s after last keystroke so the
@@ -348,7 +352,7 @@ export default function SearchCard({
     const trimmed = q.trim();
     if (trimmed.length < 2 && !country && !stateCode && !city) return;
     handleSubmitRef.current();
-  }, [amazonOnly, hqInCountry, mfgInCountry]);
+  }, [amazonOnly, hqInCountry, mfgInCountry, nearestProx]);
 
   // Check if input might be a postal code and auto-fill country
   useEffect(() => {
@@ -592,6 +596,7 @@ export default function SearchCard({
         hqCountry: hqInCountry ? userCountryCode : '',
         mfgCountry: mfgInCountry ? userCountryCode : '',
         domain: pastedDomain || '',
+        nearest: nearestProx ? '1' : '',
       };
       if (onSubmitParams) onSubmitParams(params, { urlOnly });
       else nav(`/results?${toQs(params)}`);
@@ -620,6 +625,7 @@ export default function SearchCard({
     setAmazonOnly(false);
     setHqInCountry(false);
     setMfgInCountry(false);
+    setNearestProx(false);
     setSuggestions([]);
     setShowRecent(false);
     cityClearedByUserRef.current = false;
@@ -981,6 +987,21 @@ export default function SearchCard({
                 {amazonOnly && <Check className="h-3 w-3 text-white" />}
               </span>
               Amazon link
+            </button>
+            <div className="my-1 border-t border-border" />
+            <button
+              type="button"
+              className="flex items-center w-full px-3 py-2 text-sm rounded-sm hover:bg-accent transition-colors text-left"
+              onClick={() => { setNearestProx(!nearestProx); setSortFilterOpen(false); }}
+              title="By default, companies in your country rank first in the Manufacturing / Home-HQ sorts. Turn this on to sort purely by nearest distance."
+            >
+              <span className={cn(
+                "mr-2 flex items-center justify-center w-4 h-4 rounded-sm border shrink-0",
+                nearestProx ? "bg-[#3F97A2] border-[#3F97A2]" : "border-muted-foreground/40"
+              )}>
+                {nearestProx && <Check className="h-3 w-3 text-white" />}
+              </span>
+              Nearest regardless of country
             </button>
           </PopoverContent>
         </Popover>
