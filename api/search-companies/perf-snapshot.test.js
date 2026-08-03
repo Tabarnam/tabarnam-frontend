@@ -129,6 +129,52 @@ const EXPECTED = {
   widget: ["widget:94"],
 };
 
+// Static guard for the slim projection (#1): SLIM_SELECT_FIELDS MUST contain
+// every raw field the scoring / sort / filter / dedup / Pass-4 / meta paths read.
+// The golden snapshot above can't catch a projection drop (the test container
+// ignores SELECT), so this asserts the field set directly. If you add a field
+// that ranking reads, add it here AND to SLIM_SELECT_FIELDS.
+test("slim projection keeps every ranking-relevant field", () => {
+  const slim = _test.SLIM_SELECT_FIELDS;
+  const REQUIRED = [
+    "c.id", "c.company_id", "c.company_name", "c.display_name", "c.name",
+    "c.industries", "c.product_keywords", "c.keywords",
+    "c.amazon_url", "c.normalized_domain",
+    "c.manufacturing_locations", "c.manufacturing_geocodes",
+    "c.headquarters", "c.headquarters_locations", "c.headquarters_location",
+    "c.tagline",
+    "c.rating", "c.avg_rating", "c.star_rating", "c.star_score", "c.confidence_score",
+    "c.review_count", "c.review_count_approved", "c.profile_completeness",
+    "c._ts", "c.created_at", "c.updated_at",
+    "c.website_url",
+  ];
+  const missing = REQUIRED.filter((f) => !slim.split(/,\s*/).includes(f));
+  assert.deepEqual(missing, [], `slim projection is missing ranking fields: ${missing.join(", ")}`);
+});
+
+test("lazy-hydrate enriches page display fields from full docs, preserves scores", async () => {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+  // Query returns the SLIM shape (no logo_url); the point-read returns the FULL
+  // doc. The response row must carry the hydrated display field AND the score.
+  const slimDoc = { id: "acme", company_id: "acme", company_name: "Acme Coffee", normalized_domain: "acme.com", industries: ["Coffee"], keywords: ["coffee"], search_tokens: ["acme", "coffee"], search_text_norm: "acme coffee", _ts: 1700000000 };
+  const fullDoc = { ...slimDoc, logo_url: "https://cdn.example/acme.png", review_count: 42 };
+  const container = {
+    items: { query: () => ({ fetchAll: async () => ({ resources: [slimDoc] }) }) },
+    item: (id) => ({ read: async () => ({ resource: id === "acme" ? fullDoc : null }) }),
+  };
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://x/api/search-companies?raw=coffee&norm=coffee&compact=coffee&take=25"),
+    { log() {} },
+    { companiesContainer: container }
+  );
+  const body = JSON.parse(res.body);
+  const row = (body.items || []).find((it) => it.id === "acme");
+  assert.ok(row, "acme present in results");
+  assert.ok(typeof row._relevanceScore === "number" && row._relevanceScore > 0, "computed score preserved through hydration");
+  assert.equal(row.logo_url, "https://cdn.example/acme.png", "display field hydrated from the full doc");
+});
+
 test("golden ranking snapshot is stable across the perf refactors", async () => {
   resetTypoCorrectionCache();
   resetIndustryAffinityCache();

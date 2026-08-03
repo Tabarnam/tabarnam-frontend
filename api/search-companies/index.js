@@ -900,6 +900,85 @@ const SELECT_FIELDS = [
   "c.visibility",
 ].join(", ");
 
+// Slim projection for the ~500-candidate retrieval pool. Contains ONLY the raw
+// fields read by scoring / sort / filter / dedup / Pass-4 / domain-alt / meta —
+// so ranking is byte-identical to a full projection. The display-only "fat"
+// fields (logos, reviews arrays, notes, hq lat/lng, admin/star metadata,
+// search_text_norm, etc.) are dropped here and hydrated for ONLY the paged ≤25
+// rows via hydratePageDisplayFields(). This is the main lever: cosmos time is
+// ~90-95% of a search and tracks doc payload size, so shrinking each of the
+// (up to 5) TOP-500 passes to the slim set is where the win comes from.
+//
+// SLIM must stay a strict superset of every field the scoring/sort/filter/dedup
+// code reads. A static test (perf-snapshot.test.js) asserts the required set is
+// present so a future field addition can't silently drop out of ranking.
+// NOTE: search_text_norm is intentionally excluded — its only JS readers run on
+// the MAPPED object (which never carried it → already inert), and its Cosmos
+// WHERE-clause use (CONTAINS) does not require it in SELECT. If scoring is ever
+// moved to run pre-map, re-add it here.
+const SLIM_SELECT_FIELDS = [
+  // Identity / names — name scoring, dedup keys, response ids, domain match
+  "c.id", "c.company_id", "c.company_name", "c.display_name", "c.name",
+  // Category + keywords — keyword scoring, industry bonus, concept filter, Pass-4 seed
+  "c.industries", "c.product_keywords", "c.keywords",
+  // Links — amazon filter; website_url et al. feed the empty-name deriveNameFromHost fallback
+  "c.website_url", "c.url", "c.canonical_url", "c.website", "c.amazon_url",
+  "c.normalized_domain",
+  // Timestamps — created/updated sorts; _ts backfill + dedup tiebreak
+  "c.created_at", "c.updated_at", "c._ts",
+  // Locations — location/country filters, manu-sort hasManu + nearest-distance
+  "c.manufacturing_locations", "c.manufacturing_geocodes",
+  "c.headquarters", "c.headquarters_locations", "c.headquarters_location",
+  // Content — tagline feeds the concept filter
+  "c.tagline",
+  // Ratings/stars — quality (QQ) sort inputs
+  "c.rating", "c.avg_rating", "c.star_rating", "c.star_score", "c.confidence_score",
+  // Reviews — reviews sort + dedup best-record; review_count_approved feeds mapped reviews_count
+  "c.review_count", "c.review_count_approved",
+  // Dedup best-record tiebreak
+  "c.profile_completeness",
+].join(", ");
+
+// Hydrate the display-only (LIST B) fields onto ONLY the final page of results.
+// The candidate pool is retrieved with SLIM_SELECT_FIELDS (ranking fields only);
+// this re-reads the full document for each of the ≤`take` shown rows (cheap
+// single-partition point reads by id + partition key) and re-maps it, then
+// copies the pipeline's computed `_`-prefixed fields (scores, match type, flags)
+// back on. Ranking is untouched — only the display payload is enriched. On any
+// read miss/error it falls back to the slim-mapped row (ranking intact, some
+// display fields sparse) so a hydration hiccup can never drop a result.
+async function hydratePageDisplayFields(pagedItems, container, context) {
+  if (!container || !Array.isArray(pagedItems) || pagedItems.length === 0) {
+    return pagedItems;
+  }
+  try {
+    const fulls = await Promise.all(
+      pagedItems.map((p) => {
+        if (!p || !p.id || !p.normalized_domain) return Promise.resolve(null);
+        return container
+          .item(p.id, p.normalized_domain)
+          .read()
+          .then((r) => r?.resource || null)
+          .catch(() => null);
+      })
+    );
+    return pagedItems.map((slimPub, i) => {
+      const full = fulls[i];
+      if (!full) return slimPub; // graceful fallback — ranking intact
+      const fullPub = mapCompanyToPublic(full);
+      if (!fullPub) return slimPub;
+      // Preserve everything the scoring/sort pipeline computed on the slim row.
+      for (const k of Object.keys(slimPub)) {
+        if (k.charCodeAt(0) === 95 /* "_" */) fullPub[k] = slimPub[k];
+      }
+      return fullPub;
+    });
+  } catch (e) {
+    context?.log?.("[search-companies] page hydration failed, serving slim rows:", e?.message);
+    return pagedItems;
+  }
+}
+
 /**
  * Deduplicate companies by normalized_domain.
  * When multiple records share the same domain, keep the best one
@@ -1807,7 +1886,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
 
         const tokenSql = `
-            SELECT TOP @take ${SELECT_FIELDS}
+            SELECT TOP @take ${SLIM_SELECT_FIELDS}
             FROM c
             WHERE ${softDeleteFilter} ${tokenWhere}
             ${orderBy}
@@ -1863,7 +1942,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           });
 
           const broadenSql = `
-            SELECT TOP @broadenTake ${SELECT_FIELDS}
+            SELECT TOP @broadenTake ${SLIM_SELECT_FIELDS}
             FROM c
             WHERE (${broadenClauses.join(" OR ")}) AND ${softDeleteFilter}
             ORDER BY c._ts DESC
@@ -1910,7 +1989,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ];
 
             const fuzzySql = `
-              SELECT TOP @fuzzyTake ${SELECT_FIELDS}
+              SELECT TOP @fuzzyTake ${SLIM_SELECT_FIELDS}
               FROM c
               WHERE (
                 (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND STARTSWITH(LOWER(c.company_name), @prefix)) OR
@@ -2059,7 +2138,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               return `EXISTS(SELECT VALUE x FROM x IN c.industries WHERE CONTAINS(LOWER(x), ${p}))`;
             });
             const indSql = `
-              SELECT TOP @indTake ${SELECT_FIELDS}
+              SELECT TOP @indTake ${SLIM_SELECT_FIELDS}
               FROM c
               WHERE (${indClauses.join(" OR ")}) AND ${softDeleteFilter}
               ORDER BY c._ts DESC
@@ -2420,8 +2499,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         );
       }
 
-      const paged = deduped.slice(skip, skip + take);
+      const pagedSlim = deduped.slice(skip, skip + take);
       const hasMore = deduped.length > skip + take;
+      // Enrich just this page with the display-only fields dropped from the slim
+      // candidate projection. Ranking/order already finalized above — unchanged.
+      const paged = await hydratePageDisplayFields(pagedSlim, container, context);
 
       // Fold the pagination totals into the full response. In non-quick mode the
       // pool scanned here is the SAME full pool a separate countOnly request
@@ -2759,6 +2841,7 @@ app.http("search-companies", {
 module.exports.handler = searchCompaniesHandler;
 module.exports._test = {
   SELECT_FIELDS,
+  SLIM_SELECT_FIELDS,
   normalizeStringArray,
   mapCompanyToPublic,
   searchCompaniesHandler,
