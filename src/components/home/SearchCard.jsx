@@ -116,7 +116,7 @@ export default function SearchCard({
   const [country, setCountry] = useState('');
   const [stateCode, setStateCode] = useState('');
   const [city, setCity] = useState('');
-  const [sortBy, setSortBy] = useState('stars'); // default
+  const [sortBy, setSortBy] = useState('manu'); // default: Nearest manufacturing
   const [amazonOnly, setAmazonOnly] = useState(false);
   const [hqInCountry, setHqInCountry] = useState(false);
   const [mfgInCountry, setMfgInCountry] = useState(false);
@@ -209,7 +209,7 @@ export default function SearchCard({
     setCountry(p.get('country') || '');
     setStateCode(p.get('state') || '');
     setCity(p.get('city') || '');
-    setSortBy(p.get('sort') || 'stars');
+    setSortBy(p.get('sort') || 'manu');
     setAmazonOnly(p.get('amazon') === '1');
     setHqInCountry(p.has('hqCountry'));
     setMfgInCountry(p.has('mfgCountry'));
@@ -621,7 +621,7 @@ export default function SearchCard({
     setStateCode('');
     setCountry('');
     setCountrySearch('');
-    setSortBy('stars');
+    setSortBy('manu');
     setAmazonOnly(false);
     setHqInCountry(false);
     setMfgInCountry(false);

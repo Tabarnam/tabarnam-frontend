@@ -233,6 +233,12 @@ const milesCountries = new Set([
   "LC","VC","WS","TC","VI","AI","GI","IM","JE","GG","SH","AS","PR"
 ]);
 
+// Visible last-resort search center: when the user gives no location AND we
+// can't resolve their IP, we center on San Dimas, CA 91773 and populate the
+// City/Postal field with "91773" so the user SEES it and is nudged to enter
+// their own location. Hardcoded coords → works even with Google/IP down.
+const SAN_DIMAS = { lat: 34.0983, lng: -117.8076, postal: "91773", cc: "US" };
+
 // Resolve a 2-letter ISO code (e.g. "GB") to its full name ("United Kingdom")
 // for better geocoding accuracy. Falls back to the code if lookup fails.
 let _countryNameCache = null;
@@ -252,7 +258,7 @@ export default function ResultsPage() {
   const navigate = useNavigate();
 
   const qParam = (searchParams.get("q") ?? "").toString();
-  const sortParam = (searchParams.get("sort") ?? "stars").toString();
+  const sortParam = (searchParams.get("sort") ?? "manu").toString();
   const countryParam = (searchParams.get("country") ?? "").toString();
   const stateParam = (searchParams.get("state") ?? "").toString();
   const cityParam = (searchParams.get("city") ?? "").toString();
@@ -545,6 +551,29 @@ export default function ResultsPage() {
   // Skip-flag: when handleInlineSearch fires doSearch directly, skip the URL-watching effect
   const skipUrlEffectRef = useRef(false);
 
+  // Last-resort fallback center: no user location AND IP unresolved → San Dimas,
+  // populated VISIBLY as "91773" in the search bar so the user is nudged to
+  // enter their own. Returns the hardcoded coords for the caller to search with;
+  // writes ?city=91773 to the URL (skip flag = no refetch loop) so SearchCard
+  // shows it. Guarded so it never re-applies once 91773 is already the location.
+  const applySanDimasFallback = (baseParams = searchParams) => {
+    setUserLoc({ lat: SAN_DIMAS.lat, lng: SAN_DIMAS.lng });
+    setUnit("mi");
+    applyCountryCode(SAN_DIMAS.cc);
+    // Build from the caller's intended URL (in handleInlineSearch that's the
+    // freshly-committed `next`, NOT the stale searchParams) so we don't clobber
+    // the new query. Only rewrite when 91773 isn't already the location.
+    if ((baseParams.get("city") || "").trim() !== SAN_DIMAS.postal) {
+      const next = new URLSearchParams(baseParams);
+      next.set("city", SAN_DIMAS.postal);
+      next.delete("state");
+      next.delete("country");
+      skipUrlEffectRef.current = true;
+      setSearchParams(next, { replace: true });
+    }
+    return { lat: SAN_DIMAS.lat, lng: SAN_DIMAS.lng };
+  };
+
   // Resolve a center location (from lat/lng or geocoding) and run the search
   useEffect(() => {
     if (listParam) return;
@@ -576,7 +605,14 @@ export default function ResultsPage() {
       // API even though the URL still says state=texas.
       const resolvedFromGeo = { country: "", state: "", city: "" };
       try {
-        if (latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam))) {
+        // Our fallback postal (91773) resolves to San Dimas WITHOUT geocoding —
+        // offline-safe and loop-free once the fallback has populated the field.
+        if (!loc && (cityParam || "").trim() === SAN_DIMAS.postal && !stateParam && !countryParam) {
+          loc = { lat: SAN_DIMAS.lat, lng: SAN_DIMAS.lng };
+          setUnit("mi");
+          applyCountryCode(SAN_DIMAS.cc);
+        }
+        if (!loc && latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam))) {
           const latN = Number(latParam), lngN = Number(lngParam);
           // Ignore the San Dimas sentinel even when carried in the URL — a
           // shared/bookmarked link from before the geocode fix would otherwise
@@ -629,6 +665,12 @@ export default function ResultsPage() {
         }
       } catch {
         // ignore geocode errors
+      }
+      // No location given and IP couldn't resolve (returned nothing OR threw) →
+      // visible San Dimas (91773) fallback, so the distance-sorted default never
+      // shows a wall of "Distance unavailable". Populates ?city=91773 for the user.
+      if (!cancelled && !loc && !cityParam && !stateParam && !countryParam) {
+        loc = applySanDimasFallback();
       }
       // Always reset userLoc to whatever this search resolved to (or null).
       // Without this, a failed resolution in a follow-up search would inherit
@@ -744,6 +786,13 @@ export default function ResultsPage() {
     // Resolve typed location if present
     let searchLocation = null;
     try {
+      // Fallback postal (91773) → San Dimas without geocoding (offline-safe).
+      if ((city || "").trim() === SAN_DIMAS.postal && !state && !country) {
+        searchLocation = { lat: SAN_DIMAS.lat, lng: SAN_DIMAS.lng };
+        setUserLoc({ lat: SAN_DIMAS.lat, lng: SAN_DIMAS.lng });
+        setUnit("mi");
+        applyCountryCode(SAN_DIMAS.cc);
+      }
       if (!searchLocation && (city || state || country)) {
         let resolvedCC = "";
 
@@ -804,6 +853,13 @@ export default function ResultsPage() {
     }
 
     // (Column sort persists via the `colsort` URL param — not reset here.)
+
+    // No location and IP couldn't resolve → visible San Dimas (91773) fallback.
+    // Build from `next` (the URL just committed for this search) so we keep the
+    // new query and only add the fallback location.
+    if (!searchLocation && !city && !state && !country) {
+      searchLocation = applySanDimasFallback(next);
+    }
 
     // Track in search history (skip if this was triggered by back/forward navigation)
     if (!navigatingHistoryRef.current) {
