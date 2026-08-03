@@ -1681,6 +1681,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   if (container) {
     try {
       let items = [];
+      // Perf instrument: split retrieval (Cosmos round-trips) from compute
+      // (map/dedup/score/sort). Surfaced as meta._timing to confirm where the
+      // per-search time goes and to measure optimizations before/after.
+      const _tStart = Date.now();
 
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
 
@@ -2079,6 +2083,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           }
         }
       }
+
+      const _tRetrieved = Date.now(); // end of all Cosmos retrieval passes
 
       const normalized = items.map((r) => {
         if (!r?.created_at && typeof r?._ts === "number") {
@@ -2590,6 +2596,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ...domainMeta,
             ...(domainAlternatives ? { alternatives: domainAlternatives } : {}),
             _typoDiag,
+            _timing: {
+              cosmos_ms: _tRetrieved - _tStart,
+              compute_ms: Date.now() - _tRetrieved,
+              total_ms: Date.now() - _tStart,
+            },
           },
         },
         200,
