@@ -399,7 +399,10 @@ export default function SearchCard({
 
   useEffect(() => {
     const c = city.trim();
-    if (c.length < 1) {
+    // Skip the typeahead for the auto-populated fallback value (e.g. "91773"):
+    // it's a complete postal code we already resolve locally, so a Google Places
+    // lookup + auto-opened dropdown would be wasted work the user didn't ask for.
+    if (c.length < 1 || (fallbackLocation && c === fallbackLocation)) {
       setCitySuggestions([]);
       setOpenCitySuggest(false);
       return;
@@ -418,7 +421,7 @@ export default function SearchCard({
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [city, country]);
+  }, [city, country, fallbackLocation]);
 
   useEffect(() => {
     const s = stateCode.trim();
