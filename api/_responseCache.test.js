@@ -101,12 +101,19 @@ test("buildCacheKey: keeps lat/lng differences past 2-decimal precision distinct
   assert.notEqual(a, b);
 });
 
-test("buildCacheKey: ignores cache-busting params (_, t, nocache)", () => {
-  const a = buildCacheKey("https://x/api/search-companies?q=candle&_=1234567890");
-  const b = buildCacheKey("https://x/api/search-companies?q=candle&t=999");
-  const c = buildCacheKey("https://x/api/search-companies?q=candle");
-  assert.equal(a, c);
-  assert.equal(b, c);
+test("buildCacheKey: ignores cache-busting params (_, _t, _cb, t, nocache)", () => {
+  const base = buildCacheKey("https://x/api/search-companies?q=candle");
+  // `_t` is the ACTUAL cache-buster the frontend sends (searchCompanies.ts);
+  // it must not affect the key or the response cache never hits.
+  assert.equal(buildCacheKey("https://x/api/search-companies?q=candle&_t=1712345678901"), base);
+  assert.equal(buildCacheKey("https://x/api/search-companies?q=candle&_=1234567890"), base);
+  assert.equal(buildCacheKey("https://x/api/search-companies?q=candle&t=999"), base);
+  assert.equal(buildCacheKey("https://x/api/search-companies?q=candle&_cb=42"), base);
+  // Two real requests differing ONLY in _t share a key (the whole point).
+  assert.equal(
+    buildCacheKey("https://x/api/search-companies?q=candle&sort=manu&_t=111"),
+    buildCacheKey("https://x/api/search-companies?q=candle&sort=manu&_t=222")
+  );
 });
 
 test("buildCacheKey: returns null when nocache=1 is present", () => {

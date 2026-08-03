@@ -172,6 +172,12 @@ export async function searchCompanies(opts: SearchOptions) {
       items,
       count: Number(data?.count) || items.length,
       hasMore: data?.hasMore === true,
+      // Whole-pool pagination totals folded into the full response (non-quick),
+      // so the caller can skip the separate countOnly round-trip. Undefined on
+      // quick responses / older backends → caller falls back to getSearchCount.
+      totalCount: typeof data?.totalCount === "number" ? data.totalCount : undefined,
+      totalPages: typeof data?.totalPages === "number" ? data.totalPages : undefined,
+      directCount: typeof data?.directCount === "number" ? data.directCount : (data?.directCount === null ? null : undefined),
       meta: data?.meta ?? { q: q_raw, sort },
     };
   } catch (e) {

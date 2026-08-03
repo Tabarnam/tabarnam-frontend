@@ -114,7 +114,12 @@ class TTLCache {
  * Returns null if the request is non-cacheable (POST/OPTIONS, has
  * `nocache=1`, has no params at all and would just return the default).
  */
-const STRIPPED_PARAMS = new Set(["_", "t", "nocache"]);
+// Cache-buster / bookkeeping params that must NOT affect the cache key.
+// NOTE: the frontend's cache-buster is literally "_t" (searchCompanies.ts sets
+// `_t=Date.now()` on every request); it must be listed as "_t", not as separate
+// "_" and "t" entries — otherwise every request gets a unique key and the cache
+// never hits. "_" covers jQuery-style `_=<ts>` busters; "_cb" is used in tests.
+const STRIPPED_PARAMS = new Set(["_", "_t", "_cb", "t", "nocache"]);
 const LOWERCASE_VALUE_PARAMS = new Set(["q", "raw", "norm", "compact", "sort", "country", "state", "city", "hqcountry", "mfgcountry"]);
 const COORD_BUCKETS = 2; // 2 decimals = ~1.1km
 

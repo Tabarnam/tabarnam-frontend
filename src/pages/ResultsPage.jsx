@@ -1092,40 +1092,39 @@ export default function ResultsPage() {
       // the same filter scope as the paginated request (see commonOpts at the
       // top of this function). hqCountry / mfgCountry are user-opt-in strict
       // filters and pass through.
-      const needCount = !append && q && lastCountedKeyRef.current !== searchKey;
-      if (!apiHasMore && skip === 0) {
-        setTotalPages(1);
+      if (!append && typeof searchResult.totalPages === "number") {
+        // The full response now folds in the whole-pool totals (it scanned the
+        // same 500-candidate pool the old countOnly request did), so use them
+        // directly — no extra round-trip / countOnly query per search.
+        setTotalPages(searchResult.totalPages);
+        setDirectCount(typeof searchResult.directCount === "number" ? searchResult.directCount : null);
+        setTotalMatchCount(Number(searchResult.totalCount) || 0);
         lastCountedKeyRef.current = searchKey;
-        // Whole result set is on this one page → count direct matches locally,
-        // no count round-trip needed. Mirrors the divider's isLooselyRelated.
-        setDirectCount(q ? withDistances.filter((c) => !isLooselyRelated(c)).length : null);
-        setTotalMatchCount(withDistances.length);
-      } else if (needCount) {
-        lastCountedKeyRef.current = searchKey;
-        getSearchCount({
-          q,
-          sort,
-          country: "",
-          state: "",
-          city: "",
-          amazon,
-          hqCountry,
-          mfgCountry,
-          take: pageSize,
-          lat: effectiveLocation?.lat,
-          lng: effectiveLocation?.lng,
-        })
-          .then((r) => {
-            // Stale check — if the user has navigated to a new query, ignore
-            // a count from the old one.
-            if (gen !== searchGenRef.current) return;
-            if (r && Number.isFinite(r.totalPages)) setTotalPages(r.totalPages);
-            if (r) {
-              setDirectCount(typeof r.directCount === "number" ? r.directCount : null);
-              setTotalMatchCount(Number(r.totalCount) || 0);
-            }
+      } else {
+        // Fallback for older backends (or quick-only responses) that don't fold
+        // totals in: the previous fast-path + separate countOnly behavior.
+        const needCount = !append && q && lastCountedKeyRef.current !== searchKey;
+        if (!apiHasMore && skip === 0) {
+          setTotalPages(1);
+          lastCountedKeyRef.current = searchKey;
+          setDirectCount(q ? withDistances.filter((c) => !isLooselyRelated(c)).length : null);
+          setTotalMatchCount(withDistances.length);
+        } else if (needCount) {
+          lastCountedKeyRef.current = searchKey;
+          getSearchCount({
+            q, sort, country: "", state: "", city: "", amazon, hqCountry, mfgCountry,
+            take: pageSize, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng,
           })
-          .catch(() => {});
+            .then((r) => {
+              if (gen !== searchGenRef.current) return;
+              if (r && Number.isFinite(r.totalPages)) setTotalPages(r.totalPages);
+              if (r) {
+                setDirectCount(typeof r.directCount === "number" ? r.directCount : null);
+                setTotalMatchCount(Number(r.totalCount) || 0);
+              }
+            })
+            .catch(() => {});
+        }
       }
 
       if (meta?.usingStubData) {

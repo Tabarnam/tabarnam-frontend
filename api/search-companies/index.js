@@ -2417,6 +2417,26 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const paged = deduped.slice(skip, skip + take);
       const hasMore = deduped.length > skip + take;
 
+      // Fold the pagination totals into the full response. In non-quick mode the
+      // pool scanned here is the SAME full pool a separate countOnly request
+      // would scan, so returning totalCount/totalPages/directCount inline lets
+      // the client skip that extra round-trip. Omitted in quick mode, whose pool
+      // is intentionally small and would under-count.
+      let pageInfo = {};
+      if (!quickMode) {
+        const LOOSE_TIER_CUTOFF = 2; // must match ResultsPage.jsx / countOnly branch
+        const directCount = q_norm
+          ? deduped.filter(
+              (c) => relevanceTier(c._relevanceScore || 0, c._nameMatchScore || 0) < LOOSE_TIER_CUTOFF
+            ).length
+          : null;
+        pageInfo = {
+          totalCount: deduped.length,
+          totalPages: Math.ceil(deduped.length / take) || 1,
+          directCount,
+        };
+      }
+
       // Domain-search meta. On a match we're silent (the pinned company IS the
       // answer); on a miss we flag matched:false so the frontend renders the
       // opt-in empty state. `alternatives` (like-brands + industries) is added
@@ -2549,6 +2569,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           items: paged,
           count: paged.length,
           hasMore,
+          ...pageInfo,
           meta: {
             q: q_raw,
             sort,

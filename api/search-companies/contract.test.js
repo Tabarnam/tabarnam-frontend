@@ -2623,3 +2623,41 @@ test("no domain param: normal brand pipeline runs, no domain meta", async () => 
   assert.ok(!body.meta.domain_search, "no domain_search without a domain");
   assert.ok(!body.meta.alternatives, "no alternatives without a domain");
 });
+
+test("full (non-quick) response folds in totalCount/totalPages/directCount", async () => {
+  const docs = [
+    { id: "c1", company_id: "c1", company_name: "Coffee Roasters", normalized_domain: "c1.com", keywords: ["coffee"], industries: ["Coffee"], _ts: 1700000000 },
+    { id: "c2", company_id: "c2", company_name: "Bean Barn", normalized_domain: "c2.com", keywords: ["coffee"], industries: ["Coffee"], _ts: 1700000001 },
+  ];
+  const companiesContainer = makeContainer(async (spec) =>
+    String(spec?.query || "").includes("c.keywords") ? docs : []
+  );
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=coffee&norm=coffee&compact=coffee&take=25"),
+    { log() {} },
+    { companiesContainer }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.totalCount, 2, "totalCount folded into the full response");
+  assert.equal(body.totalPages, 1);
+  assert.equal(body.directCount, 2, "directCount folded in (both are strong matches)");
+  assert.ok(body.totalCount <= 500, "capped at the retrieval pool");
+});
+
+test("quick response does NOT fold totals (its pool is intentionally small)", async () => {
+  const companiesContainer = makeContainer(async (spec) =>
+    String(spec?.query || "").includes("c.keywords")
+      ? [{ id: "q1", company_id: "q1", company_name: "Quick Co", normalized_domain: "q1.com", keywords: ["coffee"], industries: ["Coffee"], _ts: 1700000000 }]
+      : []
+  );
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=coffee&norm=coffee&compact=coffee&take=25&quick=1"),
+    { log() {} },
+    { companiesContainer }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.totalCount, undefined, "quick response omits totalCount");
+  assert.equal(body.totalPages, undefined);
+});
