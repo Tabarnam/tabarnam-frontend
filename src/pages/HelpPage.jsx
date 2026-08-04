@@ -108,9 +108,8 @@ export default function HelpPage() {
               Tabarnam will return companies oriented to that place.
             </p>
             <p>
-              If you leave the location empty, Tabarnam orients results around your detected location. When it
-              can't detect one, it falls back to a default location — shown in the field so you can see it and
-              replace it with your own.
+              If you leave the location empty, Tabarnam orients results around your detected location. When a
+              location isn't found we use San Dimas, CA, USA.
             </p>
           </section>
 
