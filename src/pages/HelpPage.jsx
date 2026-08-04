@@ -135,7 +135,7 @@ export default function HelpPage() {
               <strong className="text-foreground">Sort by clicking a column header.</strong> Click the <em>HQ</em> or
               <em> Manufacturing</em> header on the results table to re-sort existing results by proximity to your specified location.
               If no location is set, results are sorted by proximity to your detected location — or, when we can't detect one,
-              to the default location shown in the field. Click the <em>QQ</em> header to sort by score.
+              to San Dimas, CA, USA. Click the <em>QQ</em> header to sort by score.
             </p>
           </section>
 
