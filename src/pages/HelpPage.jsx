@@ -103,9 +103,14 @@ export default function HelpPage() {
               <li><strong className="text-foreground">State or province</strong> — autocompletes against the selected country.</li>
               <li><strong className="text-foreground">Country</strong> — accepts the country name or code.</li>
             </ul>
-            <p>
+            <p className="mb-3">
               You can search by location alone. Leave the search bar empty, enter a city or country, and
               Tabarnam will return companies oriented to that place.
+            </p>
+            <p>
+              If you leave the location empty, Tabarnam orients results around your detected location. When it
+              can't detect one, it falls back to a default location — shown in the field so you can see it and
+              replace it with your own.
             </p>
           </section>
 
@@ -115,17 +120,23 @@ export default function HelpPage() {
               Open the dropdown to the left of the location row to sort and filter:
             </p>
             <ul className="list-disc pl-6 space-y-1.5 mb-3">
-              <li><strong className="text-foreground">Nearest manufacturing</strong> — closest manufacturing site to your location.</li>
-              <li><strong className="text-foreground">Nearest headquarters</strong> — closest HQ to your location.</li>
+              <li><strong className="text-foreground">Nearest manufacturing</strong> — the default. Companies that manufacture in your country rank first, then by distance to the closest manufacturing site.</li>
+              <li><strong className="text-foreground">Nearest headquarters</strong> — companies headquartered in your country first, then by distance to the closest HQ.</li>
+              <li><strong className="text-foreground">Nearest regardless of country</strong> — turns off the in-country preference above, so the two proximity sorts rank purely by distance.</li>
               <li><strong className="text-foreground">Highest rated</strong> — sorted by QQ score.</li>
               <li><strong className="text-foreground">In country manufacturing</strong> — only companies that manufacture in country.</li>
               <li><strong className="text-foreground">In country headquarters</strong> — only companies headquartered in country.</li>
               <li><strong className="text-foreground">Amazon link</strong> — only companies with some products available on Amazon.</li>
             </ul>
+            <p className="mb-3">
+              Whichever sort you choose, the results most relevant to your search always come first — sorting orders
+              companies within that relevance rather than reshuffling everything by distance or score alone.
+            </p>
             <p>
               <strong className="text-foreground">Sort by clicking a column header.</strong> Click the <em>HQ</em> or
               <em> Manufacturing</em> header on the results table to re-sort existing results by proximity to your specified location.
-              If no location is set, results are sorted by proximity to your browser's location. Click the <em>QQ</em> header to sort by score.
+              If no location is set, results are sorted by proximity to your detected location — or, when we can't detect one,
+              to the default location shown in the field. Click the <em>QQ</em> header to sort by score.
             </p>
           </section>
 
