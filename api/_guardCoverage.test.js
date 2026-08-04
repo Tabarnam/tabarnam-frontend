@@ -73,6 +73,8 @@ const PUBLIC_ROUTES = new Set([
   "company-logo",
   "company-homepage",
   "contact-send",
+  // Public HTML metadata endpoint used by Messages and social link crawlers.
+  "share-company",
   // Google API proxies — called from the public site (client-side geocoding /
   // location lookup), so they are necessarily anonymous.
   "google/geocode",

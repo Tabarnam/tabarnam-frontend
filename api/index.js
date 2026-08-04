@@ -176,6 +176,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: share-company");
+  require("./share-company/index.js");
+} catch (e) {
+  console.error("[api] Failed to load share-company:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: submit-review");
   require("./submit-review/index.js");
 } catch (e) {

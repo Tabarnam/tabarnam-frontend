@@ -49,7 +49,7 @@ export default function ShareButton({ company, title: titleProp, text: textProp,
   } else {
     const tagline = (company?.tagline || "").trim();
     const hqLocation = (company?.headquarters_location || "").trim();
-    shareUrl = `${window.location.origin}/results?q=${encodeURIComponent(companyName)}`;
+    shareUrl = `${window.location.origin}/share?company=${encodeURIComponent(companyName)}`;
     shareTitle = `Check out ${companyName} on Tabarnam`;
     shareText = [tagline, hqLocation ? `HQ in ${hqLocation}.` : ""]
       .filter(Boolean)
@@ -67,9 +67,7 @@ export default function ShareButton({ company, title: titleProp, text: textProp,
     if (navigator.share) {
       try {
         await navigator.share({
-          title: shareTitle,
           text: shareFullText,
-          url: shareUrl,
         });
       } catch (error) {
         if (error.name !== "AbortError") {
