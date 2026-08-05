@@ -277,8 +277,11 @@ export default function ResultsPage() {
   // default (absent) view is unchanged and the choice is shareable + sticky
   // across searches — distinct from the search-bar `sort` dropdown. Empty →
   // no column sort (relevance / raw order, no header highlighted).
-  const colSortParam = (searchParams.get("colsort") ?? "").toString();
-  const sortBy = ["manu", "hq", "stars"].includes(colSortParam) ? colSortParam : null;
+  // Unified sort: the search-bar dropdown AND the column headers both drive the
+  // single `sort` param (see clickSort). `sortBy` mirrors it so the highlighted
+  // column + cell styling reflect the active sort. The legacy client-only
+  // `colsort` param is retired — a leftover `colsort` in an old URL is ignored.
+  const sortBy = ["manu", "hq", "stars"].includes(sortParam) ? sortParam : "manu";
   const amazonParam = searchParams.get("amazon") === "1";
   const hqCountryParam = searchParams.get("hqCountry") || "";
   const mfgCountryParam = searchParams.get("mfgCountry") || "";
@@ -418,7 +421,7 @@ export default function ResultsPage() {
     userCountryCodeRef.current = cc || "";
     setUserCountryCode(cc || "");
   };
-  // `sortBy` is now derived from the `colsort` URL param (see above) — no state.
+  // `sortBy` is derived from the `sort` URL param (see above) — no local state.
 
   // Detect browser back/forward to avoid corrupting internal search history
   useEffect(() => {
@@ -758,9 +761,8 @@ export default function ResultsPage() {
     // Per-page is a sticky preference — carry the current non-default size onto
     // the new search so the user's choice survives running another query.
     if (pageSize !== PAGE_SIZE) next.set("size", String(pageSize));
-    // Column-header sort is likewise sticky — carry the current organization
-    // onto the new search so a reorganize-by-Manufacturing survives.
-    if (colSortParam) next.set("colsort", colSortParam);
+    // (Sort is carried via the `sort` param itself — it's already in `next` when
+    // present — so no separate column-sort persistence is needed.)
     // Proximity mode is sticky too — carry the "nearest regardless of country"
     // opt-out onto the new search.
     if (strict) next.set("nearest", "1");
@@ -1260,15 +1262,17 @@ export default function ResultsPage() {
     }`;
   const cellClassFor = (key) => `p-2 ${sortBy === key ? "bg-amber-50 dark:bg-amber-900/20 text-foreground" : ""}`;
 
-  // Reorganize by a column header. Writes the choice to the `colsort` URL
-  // param so it persists (shareable, sticks across subsequent searches), and
-  // sets the skip flag so this URL change re-sorts the already-loaded page
-  // client-side instantly — no refetch (same snappy behavior as before).
+  // Sort by a column header. This IS the sort (same as the search-bar dropdown):
+  // it writes the single `sort` param and lets the URL effect refetch so the
+  // WHOLE result set is re-sorted across all pages — not just the loaded page.
+  // Resets to page 1 and strips any legacy `colsort`. Repeat clicks are
+  // cache-fast (response cache is on).
   const clickSort = (key) => {
     const val = key === "manu" ? "manu" : key === "hq" ? "hq" : "stars";
     const next = new URLSearchParams(searchParams);
-    next.set("colsort", val);
-    skipUrlEffectRef.current = true;
+    next.set("sort", val);
+    next.delete("colsort");
+    next.delete("page");
     setSearchParams(next);
   };
 
@@ -1370,7 +1374,9 @@ export default function ResultsPage() {
   function removeFilter(key) {
     const next = new URLSearchParams(searchParams);
     if (key === "sort") {
-      next.set("sort", "stars");
+      // Clearing the sort chip returns to the default sort (Nearest manufacturing).
+      next.set("sort", "manu");
+      next.delete("colsort");
     } else {
       next.delete(key);
     }
@@ -1382,7 +1388,10 @@ export default function ResultsPage() {
     if (countryParam) chips.push({ key: "country", label: countryParam });
     if (stateParam) chips.push({ key: "state", label: stateParam });
     if (cityParam) chips.push({ key: "city", label: cityParam });
-    if (sortParam && sortParam !== "stars") chips.push({ key: "sort", label: `Sort: ${SORT_LABELS[sortParam] || sortParam}` });
+    // Show the sort chip only when the sort DEVIATES from the default (manu) —
+    // the highlighted Manufacturing column already signals the default, so a
+    // non-actionable "Sort: Nearest Manufacturing" pin would just be clutter.
+    if (sortParam && sortParam !== "manu") chips.push({ key: "sort", label: `Sort: ${SORT_LABELS[sortParam] || sortParam}` });
     return chips;
   }, [countryParam, stateParam, cityParam, sortParam]);
 
