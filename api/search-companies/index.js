@@ -1780,6 +1780,13 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
 
+      // Query stopwords: dropped from the QUERY so strict-AND retrieval never
+      // requires a filler word. Shared by Pass 1 and the head-noun broadening.
+      const SEARCH_STOPWORDS = new Set([
+        "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "by",
+        "with", "at", "from", "as", "is", "are", "be",
+      ]);
+
       // ── Domain-only exact retrieval (pasted-URL search) ──
       // When `domainParam` is set, the search is a narrow "find the company at
       // THIS domain" lookup. Query by exact normalized_domain (the partition
@@ -1827,10 +1834,6 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // Skipped entirely for a domain search (domainParam) — that path already
       // populated `items` with the exact on-domain company above.
       if (!domainParam) {
-        const SEARCH_STOPWORDS = new Set([
-          "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "by",
-          "with", "at", "from", "as", "is", "are", "be",
-        ]);
         const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
         const tokenParams = [{ name: "@take", value: limit }];
         let tokenWhere = "";
@@ -1914,6 +1917,57 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const hasStrongNameMatch =
         items.length > 0 &&
         items.some((c) => computeNameMatchScore(c, q_raw, q_norm, q_compact) >= 60);
+
+      // ── Head-noun broadening (qualifier + noun recall) ──
+      // Pass 1 AND's the query words WITHIN a phrase, so "custom emblem" only
+      // retrieves companies tagged with BOTH tokens — emblem makers that never
+      // tagged "custom" are never even fetched (so no scoring can save them).
+      // For a multi-word CATEGORY search (no strong brand match), also pull
+      // companies matching just the HEAD NOUN (last content word — "emblem",
+      // "honey", "knife") so those makers reach the pool. They rank BELOW full
+      // matches (keyword coupling bonus) and the head-noun scoring keeps them
+      // above MIN_RELEVANCE. Gated on !hasStrongNameMatch so a BRAND search like
+      // "blue bottle coffee" or "death wish coffee" is NOT diluted with every
+      // coffee company — there the brand dominates and the strict AND is right.
+      if (!domainParam && !quickMode && !hasStrongNameMatch && q_norm) {
+        const contentWords = q_norm
+          .split(/\s+/)
+          .filter((w) => w.length >= 2 && !SEARCH_STOPWORDS.has(w));
+        if (contentWords.length >= 2) {
+          const headNoun = contentWords[contentWords.length - 1];
+          const variants = new Set([headNoun]);
+          const st = simpleStem(headNoun);
+          if (st && st.length >= 2) variants.add(st);
+          const hnParams = [{ name: "@hnTake", value: limit }];
+          const hnOrs = [];
+          let hi = 0;
+          for (const v of variants) {
+            const pn = `@hn${hi++}`;
+            hnParams.push({ name: pn, value: v });
+            hnOrs.push(`ARRAY_CONTAINS(c.search_tokens, ${pn})`);
+          }
+          const hnSql = `
+            SELECT TOP @hnTake ${SLIM_SELECT_FIELDS}
+            FROM c
+            WHERE ${softDeleteFilter} AND (${hnOrs.join(" OR ")})
+            ORDER BY c._ts DESC
+          `;
+          try {
+            const hnRes = await container.items
+              .query({ query: hnSql, parameters: hnParams }, { enableCrossPartitionQuery: true })
+              .fetchAll();
+            const existingIds = new Set(items.map((i) => i.id));
+            for (const r of hnRes.resources || []) {
+              if (r && r.id && !existingIds.has(r.id)) {
+                items.push(r);
+                existingIds.add(r.id);
+              }
+            }
+          } catch (e) {
+            context.log("[search-companies] head-noun broadening error:", e?.message);
+          }
+        }
+      }
 
       // ── Broadening fallback (restored Pass 3) ──
       // The Phase 4.36 search_tokens rewrite removed Pass 3 on the rationale
