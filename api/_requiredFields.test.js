@@ -102,6 +102,52 @@ test("Phase 4.17: bare 'free' / 'why' / 'because' are still rejected (exact-matc
   );
 });
 
+test("substring-collision fix: real products containing a nav/SVG term are preserved", () => {
+  // These were all wrongly rejected by the SUBSTRING disallow match:
+  //   "cookies" nuked every cookie product (Famous Amos, reported), "cart" nuked
+  //   cartridges, "contact" nuked contact lenses, "fill" nuked fillers/refills,
+  //   "press" nuked french/garlic presses, "path" nuked homeopathy, "stroke"
+  //   nuked brushstrokes. Moving them to exact-match frees the products.
+  const stats = sanitizeKeywords({
+    product_keywords:
+      "Chocolate Chip Cookies, Oatmeal Chocolate Chip Cookies, Ink Cartridges, Contact Lenses, Dermal Filler, Water Filter Refills, French Press, Homeopathy Kits, Brushstroke Brushes",
+    keywords: [],
+  });
+  assert.deepEqual(
+    stats.sanitized,
+    [
+      "Chocolate Chip Cookies",
+      "Oatmeal Chocolate Chip Cookies",
+      "Ink Cartridges",
+      "Contact Lenses",
+      "Dermal Filler",
+      "Water Filter Refills",
+      "French Press",
+      "Homeopathy Kits",
+      "Brushstroke Brushes",
+    ],
+    "multi-word products containing cookie/cart/contact/fill/press/path/stroke must survive"
+  );
+  assert.equal(stats.product_relevant_count, 9);
+});
+
+test("substring-collision fix: the bare nav/SVG tokens are still rejected (exact-match)", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: "cookies, cookie, cart, contact, fill, press, path, stroke, Chocolate Chip Cookies",
+    keywords: [],
+  });
+  assert.deepEqual(
+    stats.sanitized,
+    ["Chocolate Chip Cookies"],
+    "bare nav/SVG tokens are junk; only the real product survives"
+  );
+});
+
+test("substring-collision fix: 'Cookie Policy' nav label still rejected (via 'policy')", () => {
+  const stats = sanitizeKeywords({ product_keywords: "Cookie Policy, Privacy Policy", keywords: [] });
+  assert.deepEqual(stats.sanitized, [], "policy nav labels stay rejected via the 'policy' substring term");
+});
+
 // ── isRealValue: data-wins-over-flag for HQ ──────────────────────────────────
 
 test("isRealValue hq returns true for real location string even with hq_unknown=true", () => {

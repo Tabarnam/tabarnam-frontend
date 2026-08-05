@@ -216,8 +216,6 @@ const KEYWORD_DISALLOW_TERMS = [
   "privacy",
   "terms",
   "policy",
-  "cookie",
-  "cookies",
 
   // Store UX / navigation
   "shop",
@@ -248,7 +246,6 @@ const KEYWORD_DISALLOW_TERMS = [
   "returns",
   "refund",
   "faq",
-  "contact",
   "about",
   "careers",
 
@@ -258,7 +255,6 @@ const KEYWORD_DISALLOW_TERMS = [
   "signup",
   "sign up",
   "account",
-  "cart",
   "checkout",
   "search",
   "menu",
@@ -274,14 +270,10 @@ const KEYWORD_DISALLOW_TERMS = [
 
   // Not products
   "blog",
-  "press",
   "wholesale",
 
   // HTML/CSS/JS junk
   "svg",
-  "path",
-  "stroke",
-  "fill",
   "viewbox",
   "css",
   "tailwind",
@@ -299,6 +291,14 @@ const KEYWORD_EXACT_DISALLOW = new Set([
   "bundle", "bundles", "gift", "gifts", "new", "collection", "collections",
   // Generic glue words / content scaffolding (Phase 4.17 — moved from substring list)
   "free", "matters", "product", "products", "why", "because", "what", "leave",
+  // Words that are ALSO substrings of real product names — the substring match
+  // above nuked "Chocolate Chip Cookies" via "cookies", ink "Cartridges" via
+  // "cart", "Contact" lenses via "contact", dermal "Filler"/"Refill" via "fill",
+  // "French Press"/"Pressure" via "press", "Homeopathy" via "path", and
+  // "Brushstroke" via "stroke". Exact-match still rejects the bare nav/SVG token
+  // ("Cookies", "Cart", "Contact", "fill", "press", "path", "stroke") while
+  // freeing every multi-word product that merely contains one.
+  "cookie", "cookies", "cart", "contact", "fill", "press", "path", "stroke",
 ]);
 
 function splitKeywordString(value) {
