@@ -570,7 +570,20 @@ function computeKeywordMatchScore(company, q_norm, q_compact) {
       // All query words covered by keywords → strong relevance signal
       couplingAdj = 25;
     } else if (coveredWords.size <= 1) {
-      // Only 1 (or 0) of N query words covered → weak match, penalize
+      // Partial coverage: only 1 (or 0) of N query words matched a keyword.
+      // Normally a weak signal → heavy ×0.6 penalty. EXCEPTION: when the one
+      // covered word is the query's HEAD NOUN (the last word — "emblem" in
+      // "custom emblem", "honey" in "organic honey"), the company makes the
+      // thing itself and only misses a qualifier. That's a legitimate result the
+      // user still wants — ranked below full matches, but NOT filtered out.
+      // `coveredWords` only counts word-boundary hits, so a head-noun match is
+      // genuine; value it as such (a single-word exact match is undervalued by
+      // the whole-phrase `best` above) and apply just a gentle penalty so it
+      // clears the MIN_RELEVANCE floor. A qualifier-only match keeps the ×0.6.
+      const headNoun = queryWords[queryWords.length - 1];
+      if (coveredWords.has(headNoun)) {
+        return Math.round(Math.max(best, 60) * 0.85);
+      }
       return Math.round(best * 0.6);
     }
   }

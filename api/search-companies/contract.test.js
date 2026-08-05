@@ -2661,3 +2661,18 @@ test("quick response does NOT fold totals (its pool is intentionally small)", as
   assert.equal(body.totalCount, undefined, "quick response omits totalCount");
   assert.equal(body.totalPages, undefined);
 });
+
+test("head-noun match survives a qualifier+noun query without the qualifier", () => {
+  const R = _test.computeRelevanceScore;
+  // Non-empty affinity industries → non-members take the -15 penalty (prod-like),
+  // which is what used to tip a bare "emblem" match under MIN_RELEVANCE.
+  const AFF = ["signs"];
+  const emblemMaker = { company_name: "Main Event Emblems", keywords: ["emblem", "emblems", "badges"], product_keywords: "", industries: ["Emblems"] };
+  const customOnly = { company_name: "Custom Furniture Co", keywords: ["custom", "tables"], product_keywords: "", industries: ["Furniture"] };
+  const both = { company_name: "Custom Emblem Pros", keywords: ["custom emblem", "emblem"], product_keywords: "", industries: ["Emblems"] };
+  const score = (c) => R(c, "custom emblem", "custom emblem", "customemblem", AFF, [])._relevanceScore;
+  const em = score(emblemMaker), co = score(customOnly), bo = score(both);
+  assert.ok(em >= 5, `emblem maker must clear MIN_RELEVANCE for "custom emblem" (got ${em})`);
+  assert.ok(bo > em, `full both-word match (${bo}) ranks above head-noun-only (${em})`);
+  assert.ok(em > co, `head-noun "emblem" match (${em}) ranks above qualifier-only "custom" (${co})`);
+});

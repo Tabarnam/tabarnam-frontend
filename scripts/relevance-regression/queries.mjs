@@ -55,4 +55,14 @@ export const QUERIES = [
 
   // Typo-prone (fuzzy is the intended path — must survive any gate)
   { q: "cliff bar", class: "B", note: "typo→clif bar" },
+
+  // Qualifier + head-noun (adjective + noun): the noun-maker must survive even
+  // when it doesn't tag the qualifier. Watch these for ENTRANTS (the intended
+  // gain from the head-noun penalty softening), and the noun-only baseline for
+  // the reference set.
+  { q: "custom emblem", class: "N", note: "head-noun=emblem; must keep emblem makers" },
+  { q: "emblem", class: "N", note: "head-noun reference" },
+  { q: "organic honey", class: "N", note: "head-noun=honey" },
+  { q: "stainless knife", class: "N", note: "head-noun=knife" },
+  { q: "leather wallet", class: "N", note: "head-noun=wallet" },
 ];

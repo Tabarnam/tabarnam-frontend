@@ -123,7 +123,9 @@ const EXPECTED = {
   yeti: ["yeti:20", "patagonia:20", "hydroflask:20", "acmesub_a:20", "northface:20"],
   refrigerator: ["subzero:60", "gehaus:60", "whirlpool:60"],
   "blue bottle": ["bluebottle:83", "hydroflask:20", "stumptown:20", "deathwish:20", "counterculture:20", "acmesub_b:20", "lavazza:20"],
-  "death wish coffee": ["bluebottle:39", "stumptown:20", "deathwish:20", "counterculture:20", "acmesub_b:20", "lavazza:20"],
+  // bluebottle 39→61: its head-noun ("coffee") keyword match is now valued as a
+  // genuine word-boundary match (head-noun penalty softening); order unchanged.
+  "death wish coffee": ["bluebottle:61", "stumptown:20", "deathwish:20", "counterculture:20", "acmesub_b:20", "lavazza:20"],
   "outdoor gear": ["patagonia:20", "yeti:20", "acmesub_a:20", "northface:20"],
   "water bottle": ["hydroflask:20"],
   widget: ["widget:94"],
