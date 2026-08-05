@@ -148,6 +148,37 @@ test("substring-collision fix: 'Cookie Policy' nav label still rejected (via 'po
   assert.deepEqual(stats.sanitized, [], "policy nav labels stay rejected via the 'policy' substring term");
 });
 
+test("junk audit: xAI JSON-payload fragments are rejected", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: [
+      '"temperature":0.699999988079071',
+      '"top_p":0.949999988079071',
+      '"filters":{"excluded_domains":["amazon.com"',
+      '"google.com"',
+      "Chocolate Chip Cookies",
+    ].join(", "),
+    keywords: [],
+  });
+  assert.deepEqual(stats.sanitized, ["Chocolate Chip Cookies"], "JSON leakage must be killed; real product kept");
+});
+
+test("junk audit: real products with digits/symbols/inch-marks are NOT rejected", () => {
+  // These were heuristic false-positives — they must survive.
+  const inputs = [
+    '55" TV', '10" Skillet', '7.62x39 ammo', '.223 ammo', "CR2025", "CR2016",
+    "2023 Syrah", "3-In-1", "MacuGuard® Ocular Support with Saffron",
+    "Super Ubiquinol CoQ10 with PQQ", "Dopa-Mind™", "Coconut Water With Pulp",
+    "Fabric by the Yard", "Home Decor", "Homeware",
+  ];
+  const stats = sanitizeKeywords({ product_keywords: inputs.join(", "), keywords: [] });
+  assert.deepEqual(stats.sanitized, inputs, "legit products must all survive sanitization");
+});
+
+test("junk audit: bare 'home' rejected, 'Home Decor' preserved", () => {
+  const stats = sanitizeKeywords({ product_keywords: "home, Home Decor, View All, Learn More", keywords: [] });
+  assert.deepEqual(stats.sanitized, ["Home Decor"], "bare nav labels killed; 'Home Decor' kept");
+});
+
 test("substring-collision fix: multi-word nav junk ('Contact Us' / 'Press Releases') still filtered", () => {
   const stats = sanitizeKeywords({
     product_keywords: "Contact Us, Press Releases, Press Release, Ink Cartridges",

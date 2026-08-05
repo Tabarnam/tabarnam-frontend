@@ -264,6 +264,11 @@ const KEYWORD_DISALLOW_TERMS = [
   "search",
   "menu",
   "sitemap",
+  // Multi-word nav junk seen surviving in early-import data (safe as substrings).
+  "view all",
+  "learn more",
+  "skip to content",
+  "gift guide",
 
   // Social / external profiles
   "instagram",
@@ -304,6 +309,9 @@ const KEYWORD_EXACT_DISALLOW = new Set([
   // ("Cookies", "Cart", "Contact", "fill", "press", "path", "stroke") while
   // freeing every multi-word product that merely contains one.
   "cookie", "cookies", "cart", "contact", "fill", "press", "path", "stroke",
+  // Bare "Home" nav label — exact-match only so "Home Decor"/"Homeware"/"Home
+  // Goods" (real categories) survive.
+  "home",
 ]);
 
 function splitKeywordString(value) {
@@ -348,6 +356,15 @@ function isKeywordJunk(keyword) {
 
   // URLs / fragments
   if (key.includes("http://") || key.includes("https://")) return true;
+
+  // Structured-data / API-payload leakage: xAI request/response JSON fragments
+  // occasionally get split into "keywords" — e.g. "temperature":0.7, "top_p":0.95,
+  // "filters":{"excluded_domains":["amazon.com"], bare "google.com". Real product
+  // names never contain JSON brackets, a "key": pair, or a LEADING quote. (Inch
+  // marks like 55" TV are safe: that quote is mid-string after a digit.)
+  if (/[{}[\]]/.test(raw)) return true;
+  if (/"\s*:|:\s*"/.test(raw)) return true;
+  if (/^\s*"/.test(raw)) return true;
 
   // Legal/nav terms (substring match)
   if (KEYWORD_DISALLOW_TERMS.some((t) => key.includes(normalizeKey(t)))) return true;
