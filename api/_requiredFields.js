@@ -217,8 +217,8 @@ const KEYWORD_DISALLOW_TERMS = [
   "terms",
   "policy",
 
-  // Store UX / navigation
-  "shop",
+  // Store UX / navigation. NOTE: bare "shop" is handled by a word-boundary
+  // check in isKeywordJunk (not here) so it doesn't nuke "workshop"/"bookshop".
   "shop all",
   "all products",
   "new arrivals",
@@ -288,7 +288,6 @@ const KEYWORD_DISALLOW_TERMS = [
   "css",
   "tailwind",
   "javascript",
-  "react",
 ];
 
 // Phase 4.17 — Generic glue words that are junk ALONE but valid as part of a
@@ -312,6 +311,9 @@ const KEYWORD_EXACT_DISALLOW = new Set([
   // Bare "Home" nav label — exact-match only so "Home Decor"/"Homeware"/"Home
   // Goods" (real categories) survive.
   "home",
+  // "react" (JS framework) exact-match only — it's a substring of real products
+  // "Reaction"/"Reactor"/"Reactive".
+  "react",
 ]);
 
 function splitKeywordString(value) {
@@ -345,9 +347,11 @@ function isKeywordJunk(keyword) {
 
   if (PLACEHOLDER_STRINGS.has(key)) return true;
 
-  // Code-ish / class names / CSS tokens
-  if (/^(w|h|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr)-\d+/i.test(key)) return true;
-  if (/stroke-\d+/i.test(key)) return true;
+  // Code-ish / class names / CSS tokens. Only when the WHOLE keyword is the
+  // token (no spaces) — otherwise real product model names get nuked (e.g.
+  // "PX-8 Phono Preamplifier" was killed because it starts with "px-8").
+  if (!/\s/.test(key) && /^(w|h|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr)-\d+$/i.test(key)) return true;
+  if (!/\s/.test(key) && /^stroke-\d+$/i.test(key)) return true;
   if (/^text-[a-z0-9-]+$/i.test(key)) return true;
 
   // Common UI control tokens
@@ -372,15 +376,26 @@ function isKeywordJunk(keyword) {
   // Exact-match-only nav terms (junk alone, valid in product names)
   if (KEYWORD_EXACT_DISALLOW.has(key)) return true;
 
+  // "shop" as a standalone nav word ("Shop", "Shop by Print", "Shop Fleece")
+  // — but NOT as a substring of "workshop"/"bookshop" (real categories).
+  if (/(^|\s)shop(\s|$)/.test(key)) return true;
+
   // Heuristic: ALL CAPS labels ("SHOP ALL", "BEST SELLERS") are rarely real product names.
   // Keep anything with digits (SKUs), known product acronyms, or longer descriptive phrases.
   const hasDigits = /\d/.test(raw);
   const isAllCaps = raw.length > 0 && raw === raw.toUpperCase() && /[A-Z]/.test(raw);
-  if (isAllCaps && !hasDigits) {
+  // A ™/® mark, or a "+" combo separator, means a real branded product
+  // ("DM NVX®", "DM NAX™", "DIM + CDG", "CoQ10 + PQQ").
+  const hasTrademark = /[®™]/.test(raw);
+  const isCombo = raw.includes("+");
+  if (isAllCaps && !hasDigits && !hasTrademark && !isCombo) {
     const words = raw.split(/\s+/).filter(Boolean);
     // Bypass rejection when any word is a known product/tech acronym
     const hasProductAcronym = words.some((w) => PRODUCT_CAPS_ALLOWLIST.has(w));
-    if (!hasProductAcronym && words.length > 0 && words.length <= 4 && raw.length <= 30) return true;
+    // Only reject MULTI-word all-caps ("SHOP ALL", "SUPPORT CONTACTS"). Single
+    // all-caps tokens are usually acronym PRODUCTS — NMN, NAC, GABA, TMG, MCT,
+    // CLA, DHA, EPA, CBD, DMPS — and must survive.
+    if (!hasProductAcronym && words.length >= 2 && words.length <= 4 && raw.length <= 30) return true;
   }
 
   // Too short or just symbols

@@ -174,6 +174,45 @@ test("junk audit: real products with digits/symbols/inch-marks are NOT rejected"
   assert.deepEqual(stats.sanitized, inputs, "legit products must all survive sanitization");
 });
 
+test("false-positive fix: single all-caps acronym products survive; multi-word all-caps nav killed", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: "NMN, NAC, GABA, TMG, DMPS, SHOP ALL, SUPPORT CONTACTS, FIND IN STORE",
+    keywords: [],
+  });
+  assert.deepEqual(stats.sanitized, ["NMN", "NAC", "GABA", "TMG", "DMPS"], "acronym products kept; all-caps nav killed");
+});
+
+test("false-positive fix: trademarked all-caps product model names survive", () => {
+  const stats = sanitizeKeywords({ product_keywords: "DM NVX® AV-OVER-IP, DM NAX™", keywords: [] });
+  assert.deepEqual(stats.sanitized, ["DM NVX® AV-OVER-IP", "DM NAX™"], "™/® marks a real branded product");
+});
+
+test("false-positive fix: product model like 'PX-8 Phono Preamplifier' survives; bare 'px-4' class killed", () => {
+  const stats = sanitizeKeywords({ product_keywords: "PX-8 Phono Preamplifier, px-4, mt-2", keywords: [] });
+  assert.deepEqual(stats.sanitized, ["PX-8 Phono Preamplifier"], "multi-token model kept; bare class tokens killed");
+});
+
+test("false-positive fix: 'React' as substring of Reaction/Reactor survives; bare 'react' killed", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: "E-Sport Reaction Powder, Nuclear Reactor Kit, Reactive Dye, react",
+    keywords: [],
+  });
+  assert.deepEqual(stats.sanitized, ["E-Sport Reaction Powder", "Nuclear Reactor Kit", "Reactive Dye"], "react substring products kept");
+});
+
+test("false-positive fix: all-caps combo product 'DIM + CDG' survives", () => {
+  const stats = sanitizeKeywords({ product_keywords: "DIM + CDG, SHOP ALL", keywords: [] });
+  assert.deepEqual(stats.sanitized, ["DIM + CDG"], "'+' combo is a product; all-caps nav still killed");
+});
+
+test("false-positive fix: 'workshop chargers' survives; bare/standalone 'Shop' nav killed", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: "workshop chargers, bookshop supplies, Shop, Shop by Print, Shop All",
+    keywords: [],
+  });
+  assert.deepEqual(stats.sanitized, ["workshop chargers", "bookshop supplies"], "shop-as-word killed; workshop/bookshop kept");
+});
+
 test("junk audit: bare 'home' rejected, 'Home Decor' preserved", () => {
   const stats = sanitizeKeywords({ product_keywords: "home, Home Decor, View All, Learn More", keywords: [] });
   assert.deepEqual(stats.sanitized, ["Home Decor"], "bare nav labels killed; 'Home Decor' kept");
