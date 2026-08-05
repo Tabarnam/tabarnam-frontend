@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-05T18:53:53Z",
+  "capturedAt": "2026-08-05T23:53:03Z",
   "base": "https://www.tabarnam.com",
   "topN": 20,
   "queries": {
@@ -79,57 +79,57 @@
         },
         {
           "pos": 10,
-          "domain": "lebonshoppe.com",
-          "name": "Le Bon Shoppe",
-          "score": 20,
-          "tier": 3
-        },
-        {
-          "pos": 11,
           "domain": "oceanista.com",
           "name": "Oceanista",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 12,
+          "pos": 11,
           "domain": "kamperett.com",
           "name": "KAMPERETT",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 13,
+          "pos": 12,
           "domain": "oldtownhats.com",
           "name": "Old Town Hats",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 14,
+          "pos": 13,
           "domain": "shop.linzheritageangus.com",
           "name": "The Linz Shop",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 15,
+          "pos": 14,
           "domain": "volcom.com",
           "name": "Volcom",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 16,
+          "pos": 15,
           "domain": "motherhood.com",
           "name": "Motherhood Maternity",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 17,
+          "pos": 16,
           "domain": "sebago.com",
           "name": "Sebago",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 17,
+          "domain": "lays.com",
+          "name": "Lay's (Frito-Lay)",
           "score": 20,
           "tier": 3
         },
@@ -149,8 +149,8 @@
         }
       ],
       "totalCount": 58,
-      "cosmos_ms": 415,
-      "total_ms": 677
+      "cosmos_ms": 706,
+      "total_ms": 1592
     },
     "yeti": {
       "q": "yeti",
@@ -298,8 +298,8 @@
         }
       ],
       "totalCount": 72,
-      "cosmos_ms": 426,
-      "total_ms": 919
+      "cosmos_ms": 705,
+      "total_ms": 1529
     },
     "hydro flask": {
       "q": "hydro flask",
@@ -447,8 +447,8 @@
         }
       ],
       "totalCount": 60,
-      "cosmos_ms": 409,
-      "total_ms": 677
+      "cosmos_ms": 579,
+      "total_ms": 1512
     },
     "blue bottle coffee": {
       "q": "blue bottle coffee",
@@ -458,7 +458,7 @@
           "pos": 0,
           "domain": "bluebottlecoffee.com",
           "name": "Blue Bottle Coffee",
-          "score": 129,
+          "score": 135,
           "tier": 0
         },
         {
@@ -596,8 +596,8 @@
         }
       ],
       "totalCount": 67,
-      "cosmos_ms": 329,
-      "total_ms": 603
+      "cosmos_ms": 554,
+      "total_ms": 1237
     },
     "sub-zero": {
       "q": "sub-zero",
@@ -745,8 +745,8 @@
         }
       ],
       "totalCount": 42,
-      "cosmos_ms": 318,
-      "total_ms": 396
+      "cosmos_ms": 361,
+      "total_ms": 518
     },
     "allbirds": {
       "q": "allbirds",
@@ -845,57 +845,57 @@
         },
         {
           "pos": 13,
+          "domain": "acadiankitchens.com",
+          "name": "Ragin' Cajun",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 14,
+          "domain": "carolinaground.com",
+          "name": "Carolina Ground",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 15,
+          "domain": "framecoffeeroasters.com",
+          "name": "Frame Coffee Roasters",
+          "score": 20,
+          "tier": 3
+        },
+        {
+          "pos": 16,
           "domain": "londonfog.com",
           "name": "London Fog",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 14,
+          "pos": 17,
           "domain": "leinstudio.com",
           "name": "LEIN",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 15,
+          "pos": 18,
           "domain": "lelarose.com",
           "name": "Lela Rose",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 16,
+          "pos": 19,
           "domain": "harleenkaur.us",
           "name": "Harleen Kaur",
-          "score": 20,
-          "tier": 3
-        },
-        {
-          "pos": 17,
-          "domain": "ninashoes.com",
-          "name": "Nina Shoes",
-          "score": 20,
-          "tier": 3
-        },
-        {
-          "pos": 18,
-          "domain": "dynamicdiscs.com",
-          "name": "Dynamic Discs",
-          "score": 20,
-          "tier": 3
-        },
-        {
-          "pos": 19,
-          "domain": "alexandrebirman.com",
-          "name": "Alexandre Birman",
           "score": 20,
           "tier": 3
         }
       ],
       "totalCount": 51,
-      "cosmos_ms": 323,
-      "total_ms": 401
+      "cosmos_ms": 329,
+      "total_ms": 473
     },
     "clif bar": {
       "q": "clif bar",
@@ -1043,8 +1043,8 @@
         }
       ],
       "totalCount": 41,
-      "cosmos_ms": 223,
-      "total_ms": 291
+      "cosmos_ms": 238,
+      "total_ms": 407
     },
     "the north face": {
       "q": "the north face",
@@ -1192,8 +1192,8 @@
         }
       ],
       "totalCount": 54,
-      "cosmos_ms": 297,
-      "total_ms": 365
+      "cosmos_ms": 319,
+      "total_ms": 432
     },
     "alo yoga": {
       "q": "alo yoga",
@@ -1210,139 +1210,139 @@
           "pos": 1,
           "domain": "tokalonclothing.com",
           "name": "Tokalon Clothing",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 2,
           "domain": "studiokyogawear.com",
           "name": "STUDIO K",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 3,
           "domain": "sokoishop.com",
           "name": "SOKOI",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 4,
           "domain": "runyon.co",
           "name": "Runyon Canyon Apparel",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 5,
           "domain": "recycleclothing.com",
           "name": "Recycle Clothing",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 6,
           "domain": "montiel.com",
           "name": "Montiel Activewear",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 7,
           "domain": "mikabodywear.com",
           "name": "Mika Body Wear",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 8,
           "domain": "hardtailforever.com",
           "name": "Hard Tail Forever",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 9,
           "domain": "beyondyoga.com",
           "name": "Beyond Yoga",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 10,
           "domain": "groceriesapparel.com",
           "name": "Groceries Apparel",
-          "score": 39,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 11,
           "domain": "argylehaus.com",
           "name": "ARGYLE Haus of Apparel",
-          "score": 39,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 12,
           "domain": "pansy.co",
           "name": "Pansy",
-          "score": 39,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 13,
           "domain": "allamericanclothing.com",
           "name": "All American Clothing Co.",
-          "score": 39,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 14,
           "domain": "yogademocracy.com",
           "name": "Yoga Democracy",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 15,
           "domain": "huggermugger.com",
           "name": "Hugger Mugger",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 16,
           "domain": "innerwaves.org",
           "name": "Inner Waves",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 17,
           "domain": "glyderapparel.com",
           "name": "Glyder",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 18,
           "domain": "barefootyoga.com",
           "name": "Barefoot Yoga Co.",
-          "score": 48,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 19,
           "domain": "alphaleteathletics.com",
           "name": "Alphalete",
-          "score": 39,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         }
       ],
       "totalCount": 200,
-      "cosmos_ms": 1151,
-      "total_ms": 1287
+      "cosmos_ms": 1802,
+      "total_ms": 1912
     },
     "my pillow": {
       "q": "my pillow",
@@ -1352,7 +1352,7 @@
           "pos": 0,
           "domain": "mypillow.com",
           "name": "MyPillow",
-          "score": 133,
+          "score": 138,
           "tier": 0
         },
         {
@@ -1371,127 +1371,127 @@
         },
         {
           "pos": 3,
+          "domain": "mygreenmattress.com",
+          "name": "My Green Mattress",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 4,
+          "domain": "myorganicsleep.com",
+          "name": "My Organic Sleep",
+          "score": 31,
+          "tier": 2
+        },
+        {
+          "pos": 5,
           "domain": "mainstreamintl.com",
           "name": "Mainstream International",
           "score": 54,
           "tier": 2
         },
         {
-          "pos": 4,
+          "pos": 6,
           "domain": "infantino.com",
           "name": "Infantino",
           "score": 54,
           "tier": 2
         },
         {
-          "pos": 5,
+          "pos": 7,
           "domain": "shop.americantourister.com",
           "name": "American Tourister",
           "score": 54,
           "tier": 2
         },
         {
-          "pos": 6,
+          "pos": 8,
           "domain": "avocadogreenmattress.com",
           "name": "Avocado",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 7,
+          "pos": 9,
           "domain": "shepherdsdream.com",
           "name": "Shepherd's Dream",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 8,
+          "pos": 10,
           "domain": "parachutehome.com",
           "name": "Parachute",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 9,
+          "pos": 11,
           "domain": "shoppe.amberinteriordesign.com",
           "name": "Shoppe Amber Interiors",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 10,
+          "pos": 12,
           "domain": "natcohome.com",
           "name": "Natco Home",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 11,
+          "pos": 13,
           "domain": "the-citizenry.com",
           "name": "The Citizenry",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 12,
+          "pos": 14,
           "domain": "mcgeeandco.com",
           "name": "McGee & Co.",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 13,
+          "pos": 15,
           "domain": "aslanmattress.com",
           "name": "Aslan Mattress",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 14,
+          "pos": 16,
           "domain": "fieldfans.com",
           "name": "Field Fans",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 15,
+          "pos": 17,
           "domain": "anngish.com",
           "name": "Ann Gish",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 16,
+          "pos": 18,
           "domain": "mykitsch.com",
           "name": "Kitsch",
           "score": 20,
           "tier": 3
         },
         {
-          "pos": 17,
+          "pos": 19,
           "domain": "jonathanadler.com",
           "name": "Jonathan Adler",
-          "score": 20,
-          "tier": 3
-        },
-        {
-          "pos": 18,
-          "domain": "mattresssafe.com",
-          "name": "Mattress Safe",
-          "score": 20,
-          "tier": 3
-        },
-        {
-          "pos": 19,
-          "domain": "happsy.com",
-          "name": "Happsy",
           "score": 20,
           "tier": 3
         }
       ],
       "totalCount": 59,
-      "cosmos_ms": 231,
-      "total_ms": 310
+      "cosmos_ms": 316,
+      "total_ms": 474
     },
     "death wish coffee": {
       "q": "death wish coffee",
@@ -1639,8 +1639,8 @@
         }
       ],
       "totalCount": 51,
-      "cosmos_ms": 236,
-      "total_ms": 304
+      "cosmos_ms": 296,
+      "total_ms": 476
     },
     "grand teton organic grains": {
       "q": "grand teton organic grains",
@@ -1774,22 +1774,22 @@
         },
         {
           "pos": 18,
-          "domain": "periosciences.com",
-          "name": "PerioSciences",
+          "domain": "lays.com",
+          "name": "Lay's (Frito-Lay)",
           "score": 20,
           "tier": 3
         },
         {
           "pos": 19,
-          "domain": "lays.com",
-          "name": "Lay's (Frito-Lay)",
+          "domain": "periosciences.com",
+          "name": "PerioSciences",
           "score": 20,
           "tier": 3
         }
       ],
       "totalCount": 51,
-      "cosmos_ms": 280,
-      "total_ms": 383
+      "cosmos_ms": 301,
+      "total_ms": 409
     },
     "coffee": {
       "q": "coffee",
@@ -1937,8 +1937,8 @@
         }
       ],
       "totalCount": 498,
-      "cosmos_ms": 1545,
-      "total_ms": 1780
+      "cosmos_ms": 1592,
+      "total_ms": 1684
     },
     "water": {
       "q": "water",
@@ -2086,8 +2086,8 @@
         }
       ],
       "totalCount": 532,
-      "cosmos_ms": 1728,
-      "total_ms": 1818
+      "cosmos_ms": 1846,
+      "total_ms": 1928
     },
     "shoes": {
       "q": "shoes",
@@ -2235,8 +2235,8 @@
         }
       ],
       "totalCount": 500,
-      "cosmos_ms": 1333,
-      "total_ms": 1536
+      "cosmos_ms": 1355,
+      "total_ms": 1597
     },
     "socks": {
       "q": "socks",
@@ -2384,8 +2384,8 @@
         }
       ],
       "totalCount": 398,
-      "cosmos_ms": 1309,
-      "total_ms": 1533
+      "cosmos_ms": 1474,
+      "total_ms": 1625
     },
     "granola": {
       "q": "granola",
@@ -2533,8 +2533,8 @@
         }
       ],
       "totalCount": 143,
-      "cosmos_ms": 461,
-      "total_ms": 547
+      "cosmos_ms": 520,
+      "total_ms": 614
     },
     "tea": {
       "q": "tea",
@@ -2682,8 +2682,8 @@
         }
       ],
       "totalCount": 500,
-      "cosmos_ms": 1637,
-      "total_ms": 1732
+      "cosmos_ms": 1777,
+      "total_ms": 2009
     },
     "soap": {
       "q": "soap",
@@ -2831,8 +2831,8 @@
         }
       ],
       "totalCount": 499,
-      "cosmos_ms": 1406,
-      "total_ms": 1505
+      "cosmos_ms": 1496,
+      "total_ms": 1596
     },
     "candles": {
       "q": "candles",
@@ -2980,8 +2980,8 @@
         }
       ],
       "totalCount": 349,
-      "cosmos_ms": 1286,
-      "total_ms": 1478
+      "cosmos_ms": 1326,
+      "total_ms": 1452
     },
     "honey": {
       "q": "honey",
@@ -3129,8 +3129,8 @@
         }
       ],
       "totalCount": 516,
-      "cosmos_ms": 1692,
-      "total_ms": 1777
+      "cosmos_ms": 1712,
+      "total_ms": 1796
     },
     "chocolate": {
       "q": "chocolate",
@@ -3278,8 +3278,8 @@
         }
       ],
       "totalCount": 500,
-      "cosmos_ms": 1388,
-      "total_ms": 1527
+      "cosmos_ms": 1430,
+      "total_ms": 1514
     },
     "backpack": {
       "q": "backpack",
@@ -3427,8 +3427,8 @@
         }
       ],
       "totalCount": 470,
-      "cosmos_ms": 1389,
-      "total_ms": 1625
+      "cosmos_ms": 1498,
+      "total_ms": 1618
     },
     "mattress": {
       "q": "mattress",
@@ -3576,8 +3576,8 @@
         }
       ],
       "totalCount": 199,
-      "cosmos_ms": 713,
-      "total_ms": 789
+      "cosmos_ms": 708,
+      "total_ms": 796
     },
     "sunglasses": {
       "q": "sunglasses",
@@ -3725,8 +3725,8 @@
         }
       ],
       "totalCount": 345,
-      "cosmos_ms": 1255,
-      "total_ms": 1420
+      "cosmos_ms": 1421,
+      "total_ms": 1559
     },
     "jeans": {
       "q": "jeans",
@@ -3874,8 +3874,8 @@
         }
       ],
       "totalCount": 260,
-      "cosmos_ms": 743,
-      "total_ms": 834
+      "cosmos_ms": 791,
+      "total_ms": 892
     },
     "sneakers": {
       "q": "sneakers",
@@ -4023,8 +4023,8 @@
         }
       ],
       "totalCount": 331,
-      "cosmos_ms": 1104,
-      "total_ms": 1233
+      "cosmos_ms": 1164,
+      "total_ms": 1300
     },
     "pillow": {
       "q": "pillow",
@@ -4172,8 +4172,8 @@
         }
       ],
       "totalCount": 453,
-      "cosmos_ms": 1441,
-      "total_ms": 1544
+      "cosmos_ms": 1522,
+      "total_ms": 1652
     },
     "knife": {
       "q": "knife",
@@ -4321,8 +4321,8 @@
         }
       ],
       "totalCount": 367,
-      "cosmos_ms": 1098,
-      "total_ms": 1193
+      "cosmos_ms": 1121,
+      "total_ms": 1213
     },
     "watch": {
       "q": "watch",
@@ -4470,8 +4470,8 @@
         }
       ],
       "totalCount": 249,
-      "cosmos_ms": 893,
-      "total_ms": 978
+      "cosmos_ms": 976,
+      "total_ms": 1061
     },
     "toothpaste": {
       "q": "toothpaste",
@@ -4619,8 +4619,8 @@
         }
       ],
       "totalCount": 97,
-      "cosmos_ms": 299,
-      "total_ms": 384
+      "cosmos_ms": 317,
+      "total_ms": 402
     },
     "shampoo": {
       "q": "shampoo",
@@ -4768,8 +4768,8 @@
         }
       ],
       "totalCount": 479,
-      "cosmos_ms": 1399,
-      "total_ms": 1557
+      "cosmos_ms": 1460,
+      "total_ms": 1584
     },
     "olive oil": {
       "q": "olive oil",
@@ -4917,8 +4917,8 @@
         }
       ],
       "totalCount": 228,
-      "cosmos_ms": 845,
-      "total_ms": 930
+      "cosmos_ms": 895,
+      "total_ms": 1022
     },
     "hot sauce": {
       "q": "hot sauce",
@@ -5066,8 +5066,8 @@
         }
       ],
       "totalCount": 250,
-      "cosmos_ms": 896,
-      "total_ms": 987
+      "cosmos_ms": 902,
+      "total_ms": 1022
     },
     "fridge": {
       "q": "fridge",
@@ -5215,8 +5215,8 @@
         }
       ],
       "totalCount": 99,
-      "cosmos_ms": 361,
-      "total_ms": 438
+      "cosmos_ms": 368,
+      "total_ms": 442
     },
     "lipgloss": {
       "q": "lipgloss",
@@ -5364,8 +5364,8 @@
         }
       ],
       "totalCount": 85,
-      "cosmos_ms": 313,
-      "total_ms": 387
+      "cosmos_ms": 320,
+      "total_ms": 389
     },
     "cliff bar": {
       "q": "cliff bar",
@@ -5382,139 +5382,139 @@
           "pos": 1,
           "domain": "stayputatx.com",
           "name": "The Stay Put",
-          "score": 39,
-          "tier": 2
+          "score": 61,
+          "tier": 1
         },
         {
           "pos": 2,
-          "domain": "floydhome.com",
-          "name": "Floyd",
-          "score": 54,
+          "domain": "ritfitsports.com",
+          "name": "RitFit",
+          "score": 31,
           "tier": 2
         },
         {
           "pos": 3,
-          "domain": "ritfitsports.com",
-          "name": "RitFit",
-          "score": 18,
-          "tier": 3
+          "domain": "thriv.com",
+          "name": "ThriV Organic Food Bar",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 4,
-          "domain": "thriv.com",
-          "name": "ThriV Organic Food Bar",
-          "score": 18,
-          "tier": 3
+          "domain": "twineagles.dometic.com",
+          "name": "Twin Eagles",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 5,
-          "domain": "twineagles.dometic.com",
-          "name": "Twin Eagles",
-          "score": 18,
-          "tier": 3
+          "domain": "irongrip.com",
+          "name": "Iron Grip",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 6,
-          "domain": "irongrip.com",
-          "name": "Iron Grip",
-          "score": 18,
-          "tier": 3
+          "domain": "suavecito.com",
+          "name": "Suavecito",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 7,
-          "domain": "suavecito.com",
-          "name": "Suavecito",
-          "score": 18,
-          "tier": 3
+          "domain": "babygold.com",
+          "name": "Baby Gold",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 8,
-          "domain": "babygold.com",
-          "name": "Baby Gold",
-          "score": 18,
-          "tier": 3
+          "domain": "baxterofcalifornia.com",
+          "name": "Baxter of California",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 9,
-          "domain": "baxterofcalifornia.com",
-          "name": "Baxter of California",
-          "score": 18,
-          "tier": 3
+          "domain": "sansmealbar.com",
+          "name": "SANS Meal Bars",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 10,
-          "domain": "sansmealbar.com",
-          "name": "SANS Meal Bars",
-          "score": 18,
-          "tier": 3
+          "domain": "moshlife.com",
+          "name": "MOSH",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 11,
-          "domain": "moshlife.com",
-          "name": "MOSH",
-          "score": 18,
-          "tier": 3
+          "domain": "powercrunch.com",
+          "name": "Power Crunch",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 12,
-          "domain": "powercrunch.com",
-          "name": "Power Crunch",
-          "score": 18,
-          "tier": 3
+          "domain": "orgain.com",
+          "name": "Orgain",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 13,
-          "domain": "orgain.com",
-          "name": "Orgain",
-          "score": 18,
-          "tier": 3
+          "domain": "rawelementsusa.com",
+          "name": "Raw Elements",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 14,
-          "domain": "rawelementsusa.com",
-          "name": "Raw Elements",
-          "score": 18,
-          "tier": 3
+          "domain": "artnaturals.com",
+          "name": "ArtNaturals",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 15,
-          "domain": "artnaturals.com",
-          "name": "ArtNaturals",
-          "score": 18,
-          "tier": 3
+          "domain": "ivankobarbell.com",
+          "name": "Ivanko Barbell",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 16,
-          "domain": "ivankobarbell.com",
-          "name": "Ivanko Barbell",
-          "score": 18,
-          "tier": 3
+          "domain": "mytopicals.com",
+          "name": "Topicals",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 17,
-          "domain": "mytopicals.com",
-          "name": "Topicals",
-          "score": 18,
-          "tier": 3
+          "domain": "geometry.house",
+          "name": "Geometry",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 18,
-          "domain": "geometry.house",
-          "name": "Geometry",
-          "score": 18,
-          "tier": 3
+          "domain": "bellavado.com",
+          "name": "Bella Vado",
+          "score": 31,
+          "tier": 2
         },
         {
           "pos": 19,
-          "domain": "bellavado.com",
-          "name": "Bella Vado",
-          "score": 18,
-          "tier": 3
+          "domain": "harmonialiving.com",
+          "name": "Harmonia Living",
+          "score": 31,
+          "tier": 2
         }
       ],
       "totalCount": 489,
-      "cosmos_ms": 1938,
-      "total_ms": 2067
+      "cosmos_ms": 2129,
+      "total_ms": 2294
     },
     "custom emblem": {
       "q": "custom emblem",
@@ -5662,8 +5662,8 @@
         }
       ],
       "totalCount": 24,
-      "cosmos_ms": 201,
-      "total_ms": 315
+      "cosmos_ms": 165,
+      "total_ms": 236
     },
     "emblem": {
       "q": "emblem",
@@ -5777,7 +5777,7 @@
         {
           "pos": 15,
           "domain": "byskino.com",
-          "name": "BySkino",
+          "name": "Skino",
           "score": 85,
           "tier": 1
         },
@@ -5811,8 +5811,8 @@
         }
       ],
       "totalCount": 47,
-      "cosmos_ms": 289,
-      "total_ms": 358
+      "cosmos_ms": 296,
+      "total_ms": 357
     },
     "organic honey": {
       "q": "organic honey",
@@ -5959,9 +5959,9 @@
           "tier": 1
         }
       ],
-      "totalCount": 192,
-      "cosmos_ms": 616,
-      "total_ms": 697
+      "totalCount": 193,
+      "cosmos_ms": 636,
+      "total_ms": 750
     },
     "stainless knife": {
       "q": "stainless knife",
@@ -6109,8 +6109,8 @@
         }
       ],
       "totalCount": 62,
-      "cosmos_ms": 246,
-      "total_ms": 324
+      "cosmos_ms": 299,
+      "total_ms": 383
     },
     "leather wallet": {
       "q": "leather wallet",
@@ -6258,8 +6258,8 @@
         }
       ],
       "totalCount": 208,
-      "cosmos_ms": 669,
-      "total_ms": 860
+      "cosmos_ms": 718,
+      "total_ms": 850
     }
   }
 }
