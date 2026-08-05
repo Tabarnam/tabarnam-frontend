@@ -148,6 +148,18 @@ test("substring-collision fix: 'Cookie Policy' nav label still rejected (via 'po
   assert.deepEqual(stats.sanitized, [], "policy nav labels stay rejected via the 'policy' substring term");
 });
 
+test("substring-collision fix: multi-word nav junk ('Contact Us' / 'Press Releases') still filtered", () => {
+  const stats = sanitizeKeywords({
+    product_keywords: "Contact Us, Press Releases, Press Release, Ink Cartridges",
+    keywords: [],
+  });
+  assert.deepEqual(
+    stats.sanitized,
+    ["Ink Cartridges"],
+    "the moved single words leak these phrases through unless the multi-word terms catch them"
+  );
+});
+
 // ── isRealValue: data-wins-over-flag for HQ ──────────────────────────────────
 
 test("isRealValue hq returns true for real location string even with hq_unknown=true", () => {

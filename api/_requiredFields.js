@@ -248,6 +248,11 @@ const KEYWORD_DISALLOW_TERMS = [
   "faq",
   "about",
   "careers",
+  // Multi-word nav phrases — safe as substrings (never inside a product name).
+  // Kept here after "contact"/"press" moved to exact-match, so "Contact Us" and
+  // "Press Release(s)" nav junk still gets filtered without nuking real products.
+  "contact us",
+  "press release",
 
   // Account / commerce
   "login",
