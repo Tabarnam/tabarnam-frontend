@@ -127,3 +127,42 @@ test("computeIssueTags: a stale POSITIVE _kwRelevantCount is not trusted when th
   );
   assert.ok(tags.includes("keywords"), `expected "keywords" tag, got: ${JSON.stringify(tags)}`);
 });
+
+test("computeIssueTags: 'Products Complete' + real products clears the fully-missing tag despite a wrong _kwRelevantCount=0", () => {
+  // Famous Amos (real): two valid products, admin checked "Products Complete",
+  // but the backend sanitizer wrongly counted _kwRelevantCount=0 with a MATCHING
+  // cache key — so the fully-missing "products" chip fired and the checkbox
+  // couldn't clear it. The acknowledgment (with ≥1 real product) must win.
+  const tags = computeIssueTags(
+    completeExceptLogo({
+      logo_url: "https://img/logo.png",
+      keywords: ["Chocolate Chip Cookies", "Oatmeal Chocolate Chip Cookies"],
+      product_keywords: ["Chocolate Chip Cookies", "Oatmeal Chocolate Chip Cookies"],
+      keywords_complete_acknowledged: true,
+      _kwRelevantCount: 0,
+      _kwCacheKey:
+        "Chocolate Chip Cookies, Oatmeal Chocolate Chip Cookies|||Chocolate Chip Cookies|Oatmeal Chocolate Chip Cookies",
+      enrichment_health: { missing_fields: ["product_keywords"] },
+    })
+  );
+  assert.ok(
+    !tags.includes("keywords") && !tags.includes("product_keywords") && !tags.includes("products_partial"),
+    `expected NO products tag, got: ${JSON.stringify(tags)}`
+  );
+});
+
+test("computeIssueTags: 'Products Complete' with ZERO real products still flags missing (never clears an empty list)", () => {
+  const tags = computeIssueTags(
+    completeExceptLogo({
+      logo_url: "https://img/logo.png",
+      keywords: [],
+      product_keywords: "",
+      keywords_complete_acknowledged: true,
+      enrichment_health: { missing_fields: ["product_keywords"] },
+    })
+  );
+  assert.ok(
+    tags.includes("keywords") || tags.includes("product_keywords"),
+    `expected a products tag, got: ${JSON.stringify(tags)}`
+  );
+});

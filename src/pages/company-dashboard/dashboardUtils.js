@@ -558,9 +558,18 @@ export function getContractMissingFields(company) {
     Boolean(asString(company?.product_keywords).trim()) ||
     Boolean(asString(company?.keywords).trim())
   );
-  const hasKeywords = (_kwCacheValid && kwRelevantCount != null)
-    ? kwRelevantCount >= 1
-    : heuristicHasKeywords;
+  // "Products Complete" acknowledgment + at least one real product means the
+  // admin confirmed a short-but-complete list — trust it over a _kwRelevantCount
+  // the backend sanitizer got wrong (it can count real products like "Chocolate
+  // Chip Cookies" as 0, which fires the fully-missing "products" chip the
+  // checkbox otherwise can't clear). Guarded by heuristicHasKeywords so it never
+  // clears when there are genuinely no products.
+  const ackConfirmsProducts = Boolean(company?.keywords_complete_acknowledged) && heuristicHasKeywords;
+  const hasKeywords = ackConfirmsProducts || (
+    (_kwCacheValid && kwRelevantCount != null)
+      ? kwRelevantCount >= 1
+      : heuristicHasKeywords
+  );
   if (hasKeywords) {
     for (let i = fields.length - 1; i >= 0; i--) {
       if (fields[i] === "keywords" || fields[i] === "product_keywords") fields.splice(i, 1);
@@ -655,14 +664,14 @@ export function getContractMissingFields(company) {
   const kwRelevantCountForCheck = typeof company?._kwRelevantCount === "number"
     ? company._kwRelevantCount
     : null;
-  const hasKeywordsData = kwRelevantCountForCheck != null
+  const hasKeywordsData = ackConfirmsProducts || (kwRelevantCountForCheck != null
     ? kwRelevantCountForCheck >= 1
     : (
         (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
         (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
         Boolean(asString(company?.product_keywords).trim()) ||
         Boolean(asString(company?.keywords).trim())
-      );
+      ));
   if (!hasKeywordsData && !fields.includes("keywords") && !fields.includes("product_keywords")) {
     fields.push("keywords");
   }

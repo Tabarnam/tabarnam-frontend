@@ -156,14 +156,22 @@ function computeIssueTags(company) {
   })();
   const kwRelevantCount =
     typeof company?._kwRelevantCount === "number" ? company._kwRelevantCount : null;
-  const hasKeywords = (_kwCacheValid && kwRelevantCount != null)
-    ? kwRelevantCount >= 1
-    : (
-        (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
-        (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
-        Boolean(asString(company?.product_keywords).trim()) ||
-        Boolean(asString(company?.keywords).trim())
-      );
+  const heuristicHasKeywords = (
+    (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
+    (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
+    Boolean(asString(company?.product_keywords).trim()) ||
+    Boolean(asString(company?.keywords).trim())
+  );
+  // "Products Complete" acknowledgment + ≥1 real product trumps a wrong
+  // _kwRelevantCount (which can count real products like "Chocolate Chip
+  // Cookies" as 0, firing the fully-missing "products" tag the checkbox can't
+  // clear). Mirrors dashboardUtils.getContractMissingFields so the stored
+  // issues_count and the Incomplete badge match the Issues column. Guarded by
+  // heuristicHasKeywords so it never clears with zero products.
+  const ackConfirmsProducts = Boolean(company?.keywords_complete_acknowledged) && heuristicHasKeywords;
+  const hasKeywords = ackConfirmsProducts || (
+    (_kwCacheValid && kwRelevantCount != null) ? kwRelevantCount >= 1 : heuristicHasKeywords
+  );
   if (hasKeywords) {
     for (let i = fields.length - 1; i >= 0; i--) {
       if (fields[i] === "keywords" || fields[i] === "product_keywords") fields.splice(i, 1);
@@ -253,14 +261,14 @@ function computeIssueTags(company) {
   // Add keywords / products if missing.
   const kwRelevantCountForCheck =
     typeof company?._kwRelevantCount === "number" ? company._kwRelevantCount : null;
-  const hasKeywordsData = kwRelevantCountForCheck != null
+  const hasKeywordsData = ackConfirmsProducts || (kwRelevantCountForCheck != null
     ? kwRelevantCountForCheck >= 1
     : (
         (Array.isArray(company?.keywords) && company.keywords.some((v) => asString(v).trim())) ||
         (Array.isArray(company?.product_keywords) && company.product_keywords.some((v) => asString(v).trim())) ||
         Boolean(asString(company?.product_keywords).trim()) ||
         Boolean(asString(company?.keywords).trim())
-      );
+      ));
   if (!hasKeywordsData && !fields.includes("keywords") && !fields.includes("product_keywords")) {
     fields.push("keywords");
   }
