@@ -84,6 +84,28 @@ test("a real same-name dupe next to sub-brands: only the same-name pair collapse
   assert.equal(out.find((r) => r.id === "snackworks-dup"), undefined);
 });
 
+test("preserves input (server-sorted) order — sub-brands & importing rows never jump to the top", () => {
+  // Regression: dedup used to emit [...passthrough, ...grouped], yanking every
+  // null-key doc (sub-brands with a parent, importing rows with no domain) to
+  // the front regardless of the ORDER BY. The list must come back in the SAME
+  // order it went in. Here the caller sorted by created desc; the two newest
+  // rows are normal companies, and the sub-brands / importing row sit lower.
+  const input = [
+    { id: "new-normal-1", company_name: "Autel", normalized_domain: "autel.com" },       // newest, parent-less
+    { id: "new-normal-2", company_name: "ChargePoint", normalized_domain: "chargepoint.com" },
+    { id: "subbrand-1", company_name: "Grey Poupon", normalized_domain: "kraftheinz.com", parent_company_id: "kh" },
+    { id: "importing", company_name: "ANCO", normalized_domain: "unknown" },              // importing, no domain
+    { id: "subbrand-2", company_name: "Wheat Thins", normalized_domain: "snackworks.com", parent_company_id: "sw" },
+    { id: "old-normal", company_name: "Barilla", normalized_domain: "barilla.com" },      // oldest, parent-less
+  ];
+  const out = deduplicateByDomainAdmin(input);
+  assert.deepEqual(
+    out.map((r) => r.id),
+    ["new-normal-1", "new-normal-2", "subbrand-1", "importing", "subbrand-2", "old-normal"],
+    "output order must match input order exactly"
+  );
+});
+
 test("empty parent_company_id string is treated as no parent (same-name still collapses)", () => {
   const input = [
     { id: "a", company_name: "Acme", normalized_domain: "x.com", parent_company_id: "" },

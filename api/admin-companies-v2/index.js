@@ -67,23 +67,23 @@ function json(obj, status = 200) {
 function deduplicateByDomainAdmin(companies) {
   if (!Array.isArray(companies) || companies.length <= 1) return companies;
 
+  // First pass — group dup-eligible docs by key. Docs with a null key
+  // (declared sub-brands, marketplace/unknown domains, importing rows) are
+  // never grouped; they are emitted untouched in the second pass.
   const byKey = new Map();
-  const passthrough = [];
-
   for (const c of companies) {
     const key = dupGroupKey(c);
-    if (!key) {
-      passthrough.push(c);
-      continue;
-    }
+    if (!key) continue;
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key).push(c);
   }
 
-  const result = [...passthrough];
-  for (const [, group] of byKey) {
+  // Resolve each group's winner (and stamp the badge) up front so the second
+  // pass can emit it at the group's first position.
+  const winnerByKey = new Map();
+  for (const [key, group] of byKey) {
     if (group.length === 1) {
-      result.push(group[0]);
+      winnerByKey.set(key, group[0]);
       continue;
     }
     // Pick the best record: most reviews → highest profile_completeness → newest _ts
@@ -105,7 +105,26 @@ function deduplicateByDomainAdmin(companies) {
     const winner = group[0];
     winner._duplicates_count = group.length - 1;
     winner._duplicate_ids = group.slice(1).map((d) => d?.id || d?.company_id).filter(Boolean);
-    result.push(winner);
+    winnerByKey.set(key, winner);
+  }
+
+  // Second pass — emit in the ORIGINAL (server-sorted) order. This must not
+  // reorder rows: the caller has already applied the ORDER BY the admin picked
+  // (created/updated/name/…), so segregating passthrough vs grouped docs would
+  // yank every sub-brand and importing row to the top of the list regardless of
+  // sort. Passthrough docs emit in place; a grouped doc emits its winner at the
+  // position of the group's FIRST occurrence and drops the rest.
+  const emitted = new Set();
+  const result = [];
+  for (const c of companies) {
+    const key = dupGroupKey(c);
+    if (!key) {
+      result.push(c);
+      continue;
+    }
+    if (emitted.has(key)) continue;
+    emitted.add(key);
+    result.push(winnerByKey.get(key));
   }
 
   return result;
