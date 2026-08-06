@@ -34,6 +34,11 @@ test("expandProductSynonyms: phone holder ↔ mount/stand/cradle/grip/dock", () 
   assert.ok(fromMount.includes("phone holder") && fromMount.includes("phone stand"), "phone mount → holder/stand");
 });
 
+test("expandProductSynonyms: windshield wipers ↔ wiper blades", () => {
+  assert.ok(expandProductSynonyms("windshield wipers").includes("wiper blades"), "windshield wipers → wiper blades");
+  assert.ok(expandProductSynonyms("wiper blades").includes("windshield wipers"), "wiper blades → windshield wipers");
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });

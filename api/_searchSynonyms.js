@@ -170,6 +170,11 @@ const PRODUCT_SYNONYM_GROUPS = [
   // phone+mount tokens, so they're covered without listing them explicitly.
   ["phone holder", "phone mount", "phone stand", "phone cradle", "phone grip", "phone dock"],
   ["phone holders", "phone mounts", "phone stands", "phone cradles", "phone grips", "phone docks"],
+  // Automotive — "windshield wipers" and "wiper blades" name the same part but
+  // share no common head noun ("wipers" vs "blades"), so the token-AND can't
+  // bridge them. Group US + UK ("windscreen") + combined forms, plural + singular.
+  ["windshield wipers", "wiper blades", "windshield wiper blades", "windscreen wipers", "windscreen wiper blades"],
+  ["windshield wiper", "wiper blade", "windshield wiper blade", "windscreen wiper", "windscreen wiper blade"],
   // Misc
   ["rug", "carpet", "mat"],
   ["rugs", "carpets", "mats"],
