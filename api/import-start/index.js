@@ -2958,6 +2958,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 const preEnrichParentIdHint = String(
                   bodyObj?.parent_company_id || bodyObj?.parentCompanyId || ""
                 ).trim();
+                // Phase 4.38.H â€” stamp the parent hint onto the seed itself
+                // so saveCompaniesToCosmos persists parent_company_id on
+                // the newly-created doc. Without this, the seed-fallback
+                // path saves the sub-brand row with no parent link even
+                // when the request declared one â€” exactly the Wheat-Thins/
+                // Ritz-A miss observed 2026-08-06.
+                if (preEnrichParentIdHint && seed && typeof seed === "object" && !seed.parent_company_id) {
+                  seed.parent_company_id = preEnrichParentIdHint;
+                }
                 // Phase 4.38.C â€” force-new bypass at the pre-enrichment gate too.
                 // Phase 4.38.E â€” set_as_parent_of implies force_new here so the
                 // new record (which will become the parent) isn't blocked.

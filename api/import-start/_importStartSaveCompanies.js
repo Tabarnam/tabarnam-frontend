@@ -610,6 +610,75 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
   }
 }
 
+// Phase 4.38.H — in-request dedup for the input companies list.
+//
+// Bug (2026-08-06): a single import request produced TWO Cosmos writes for
+// the same sub-brand (Ritz), 3ms apart, with the same normalized_domain and
+// URL fields. Root mechanism: the enriched list handed to
+// saveCompaniesToCosmos contained two entries mapping to the same
+// (normalized_domain, company_name). Sources include xAI's primary response
+// returning the same company twice, and the company_url_hint injection path
+// (see index.js buildCompanyUrlSeedFromQuery + matchIdx logic) adding a seed
+// when xAI already returned the row under a different URL. Once both entries
+// are in the same Promise.all batch, findExistingCompany fires for both
+// before either commits — neither sees the other — both create with
+// distinct company_${Date.now()}_${random} ids.
+//
+// Fix: collapse the input list to one entry per (normalized_domain,
+// company_name_lower) BEFORE the Promise.all runs. When multiple entries
+// map to the same key, keep the FIRST entry seen but merge in a
+// parent_company_id from any later entry that has one (so a plain-xAI dup
+// doesn't drop a legitimate sub-brand hint carried by the seed injection,
+// and vice versa). Same-key entries missing both a normalized_domain AND
+// company_name flow through untouched — the dedup never fires on
+// (unknown, "").
+function dedupeCompaniesInRequest(list) {
+  if (!Array.isArray(list) || list.length <= 1) return { deduped: list || [], collapsed: [] };
+
+  const seen = new Map(); // key -> { entry, index }
+  const deduped = [];
+  const collapsed = []; // { keptIndex, droppedIndex, key, mergedParentHint }
+
+  for (let i = 0; i < list.length; i += 1) {
+    const c = list[i];
+    if (!c || typeof c !== "object") { deduped.push(c); continue; }
+
+    const domain = String(
+      toNormalizedDomain(c.website_url || c.canonical_url || c.url || c.normalized_domain || "") || ""
+    ).trim().toLowerCase();
+    const name = String(c.company_name || c.name || "").trim().toLowerCase();
+
+    // Only dedup when we have a real (domain, name) pair. An "unknown" domain
+    // or empty name would over-collapse rows that legitimately differ.
+    if (!domain || domain === "unknown" || !name) { deduped.push(c); continue; }
+
+    const key = `${domain}|${name}`;
+    const prior = seen.get(key);
+    if (!prior) {
+      seen.set(key, { entry: c, indexInDeduped: deduped.length });
+      deduped.push(c);
+      continue;
+    }
+
+    // Same-key duplicate — merge parent hint if the dropped entry has one
+    // and the kept entry doesn't.
+    const priorEntry = deduped[prior.indexInDeduped];
+    const priorHint = String(priorEntry.parent_company_id || priorEntry.parentCompanyId || "").trim();
+    const droppedHint = String(c.parent_company_id || c.parentCompanyId || "").trim();
+    if (!priorHint && droppedHint) {
+      deduped[prior.indexInDeduped] = { ...priorEntry, parent_company_id: droppedHint };
+    }
+    collapsed.push({
+      key,
+      dropped_index: i,
+      kept_index: prior.indexInDeduped,
+      merged_parent_hint: !priorHint && droppedHint ? droppedHint : null,
+    });
+  }
+
+  return { deduped, collapsed };
+}
+
 async function saveCompaniesToCosmos({
   companies,
   sessionId,
@@ -624,7 +693,13 @@ async function saveCompaniesToCosmos({
   ownerOverride,
 }) {
   try {
-    const list = Array.isArray(companies) ? companies : [];
+    const inputList = Array.isArray(companies) ? companies : [];
+    const { deduped: list, collapsed } = dedupeCompaniesInRequest(inputList);
+    if (collapsed.length > 0) {
+      console.log(
+        `[import-start] in_request_dedup session=${String(sessionId || "").trim()} input=${inputList.length} deduped=${list.length} collapsed=${JSON.stringify(collapsed)}`
+      );
+    }
     const sid = String(sessionId || "").trim();
 
     // Authenticated admin who initiated this import, lowercased for stable
@@ -1590,6 +1665,7 @@ async function saveCompaniesToCosmos({
 
 module.exports = {
   saveCompaniesToCosmos,
+  dedupeCompaniesInRequest,
   geocodeCompanyLocations,
   geocodeHQLocation,
   findExistingCompany,

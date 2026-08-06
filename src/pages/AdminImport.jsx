@@ -184,6 +184,43 @@ function clearQueueFromStorage(storage, key) {
   }
 }
 
+// Phase 4.38.H — collapse succession rows that resolve to the same target
+// (companyName + companyUrl, case-insensitive) so an accidental duplicate
+// paste doesn't cause two backend requests for the same company. Without
+// this, the rolling-pool dispatcher fires both slots at the same row and
+// their concurrent findExistingCompany checks each miss the other's yet-
+// uncommitted write — the exact same-tick race behind the Ritz-A/Ritz-B
+// double-write observed 2026-08-06.
+//
+// Merge policy for a collision: keep the first occurrence's spot in the
+// queue but adopt a parent_company_id / force_new / set_as_parent_of from
+// any later entry that has one (so a plain row doesn't lose a hint that
+// the duplicate carried, and vice versa).
+function dedupeSuccessionRows(rows) {
+  if (!Array.isArray(rows) || rows.length <= 1) return rows || [];
+  const seen = new Map(); // key -> index in `out`
+  const out = [];
+  for (const row of rows) {
+    const name = String(row?.companyName || "").trim().toLowerCase();
+    const url = String(row?.companyUrl || "").trim().toLowerCase();
+    if (!name && !url) { out.push(row); continue; }
+    const key = `${name}|${url}`;
+    const priorIdx = seen.get(key);
+    if (priorIdx === undefined) {
+      seen.set(key, out.length);
+      out.push(row);
+      continue;
+    }
+    const prior = out[priorIdx];
+    const merged = { ...prior };
+    if (!merged.parent_company_id && row?.parent_company_id) merged.parent_company_id = row.parent_company_id;
+    if (!merged.force_new && row?.force_new) merged.force_new = true;
+    if (!merged.set_as_parent_of && row?.set_as_parent_of) merged.set_as_parent_of = row.set_as_parent_of;
+    out[priorIdx] = merged;
+  }
+  return out;
+}
+
 function clearPastedQueueFromStorage() {
   clearQueueFromStorage(getStorage("session"), PASTED_QUEUE_STORAGE_KEY);
 }
@@ -437,6 +474,15 @@ export default function AdminImport() {
   const isSuccessionRunning = isPrimaryRunning || isShadowRunning;
   const isSuccessionRunningRef = useRef(false);
   isSuccessionRunningRef.current = isSuccessionRunning;
+  // Phase 4.38.H — the succession dispatcher sets the primary-slot refs
+  // (parent_company_id / force_new / set_as_parent_of) per-row before it
+  // fires the trigger effect. handleStartImportStaged must be able to
+  // detect that we're in a multi-row succession so it does NOT reset those
+  // refs based on preflightResults[0] — that check is only correct in the
+  // single-URL flow. Mirror the queue length via a ref so the callback can
+  // read a fresh value without adding successionQueue to its deps.
+  const successionQueueRef = useRef([]);
+  successionQueueRef.current = successionQueue;
   const successionTerminalGateRef = useRef(0);
   const successionCompleted = !isSuccessionRunning && successionResults.length > 0 && successionQueue.length > 0;
   const showSuccessionPanel = isSuccessionRunning || successionCompleted;
@@ -4751,24 +4797,37 @@ export default function AdminImport() {
     // via the same refs the primary-slot payload builder reads. Without
     // this, the escape-hatch buttons on the banner would set state but
     // beginImport() would still send a payload with no hint.
-    const singleIdx = 0;
-    const pfMatch = (preflightResults || []).find((r) => r.index === singleIdx);
-    if (setAsParentOfIds.has(singleIdx)) {
-      currentPrimaryParentIdRef.current = "";
-      currentPrimaryForceNewRef.current = false; // backend implies force_new from set_as_parent_of
-      currentPrimarySetAsParentOfRef.current = setAsParentOfIds.get(singleIdx);
-    } else if (forceNewOptIns.has(singleIdx)) {
-      currentPrimaryParentIdRef.current = "";
-      currentPrimaryForceNewRef.current = true;
-      currentPrimarySetAsParentOfRef.current = "";
-    } else if (subBrandOptIns.has(singleIdx) && pfMatch?.match?.id) {
-      currentPrimaryParentIdRef.current = String(pfMatch.match.id).trim();
-      currentPrimaryForceNewRef.current = false;
-      currentPrimarySetAsParentOfRef.current = "";
-    } else {
-      currentPrimaryParentIdRef.current = "";
-      currentPrimaryForceNewRef.current = false;
-      currentPrimarySetAsParentOfRef.current = "";
+    //
+    // Phase 4.38.H — SKIP this override when we're in a multi-row
+    // succession. The dispatcher (and initial handleStartSuccession /
+    // handleImportNow) already set the primary-slot refs for the CURRENT
+    // row from successionQueue[nextIdx]. Reading preflightResults[0] here
+    // is wrong for any row N > 0 — it points at the first row's match,
+    // and if that first row isn't a confirmed sub-brand the else clause
+    // wipes the parent hint the dispatcher just set. This was the miss
+    // that saved Wheat Thins and Ritz-A without parent_company_id on
+    // 2026-08-06. In multi-row succession, the ref is authoritative.
+    const inMultiRowSuccession = (successionQueueRef.current?.length || 0) > 1;
+    if (!inMultiRowSuccession) {
+      const singleIdx = 0;
+      const pfMatch = (preflightResults || []).find((r) => r.index === singleIdx);
+      if (setAsParentOfIds.has(singleIdx)) {
+        currentPrimaryParentIdRef.current = "";
+        currentPrimaryForceNewRef.current = false; // backend implies force_new from set_as_parent_of
+        currentPrimarySetAsParentOfRef.current = setAsParentOfIds.get(singleIdx);
+      } else if (forceNewOptIns.has(singleIdx)) {
+        currentPrimaryParentIdRef.current = "";
+        currentPrimaryForceNewRef.current = true;
+        currentPrimarySetAsParentOfRef.current = "";
+      } else if (subBrandOptIns.has(singleIdx) && pfMatch?.match?.id) {
+        currentPrimaryParentIdRef.current = String(pfMatch.match.id).trim();
+        currentPrimaryForceNewRef.current = false;
+        currentPrimarySetAsParentOfRef.current = "";
+      } else {
+        currentPrimaryParentIdRef.current = "";
+        currentPrimaryForceNewRef.current = false;
+        currentPrimarySetAsParentOfRef.current = "";
+      }
     }
 
     if (isUrl) {
@@ -4829,27 +4888,29 @@ export default function AdminImport() {
     // Phase 4.38 — enhance each row with its parent_company_id if the
     // admin confirmed it as a sub-brand. Reads from preflightResults +
     // subBrandOptIns Set. Rows without opt-in get an empty string.
-    const validRows = successionRows
-      .filter((row) => row.companyName.trim() || row.companyUrl.trim())
-      .map((row, filteredIdx) => {
-        // successionRows retains original indices before the filter, so
-        // walk the source array to find the matching preflight row.
-        const originalIdx = successionRows.indexOf(row);
-        if (originalIdx < 0) return { ...row };
-        // Phase 4.38.E — set_as_parent_of takes precedence over the others.
-        // Backend implies force_new for the dup check AND performs the
-        // post-write re-parent.
-        if (setAsParentOfIds.has(originalIdx)) {
-          return { ...row, set_as_parent_of: setAsParentOfIds.get(originalIdx) };
-        }
-        // Phase 4.38.C — force-new takes precedence over sub-brand.
-        // Admin explicitly chose "this is a separate company."
-        if (forceNewOptIns.has(originalIdx)) return { ...row, force_new: true };
-        if (!subBrandOptIns.has(originalIdx)) return { ...row };
-        const pf = (preflightResults || []).find((r) => r.index === originalIdx);
-        const parentId = pf?.match?.id ? String(pf.match.id).trim() : "";
-        return { ...row, parent_company_id: parentId };
-      });
+    const validRows = dedupeSuccessionRows(
+      successionRows
+        .filter((row) => row.companyName.trim() || row.companyUrl.trim())
+        .map((row, filteredIdx) => {
+          // successionRows retains original indices before the filter, so
+          // walk the source array to find the matching preflight row.
+          const originalIdx = successionRows.indexOf(row);
+          if (originalIdx < 0) return { ...row };
+          // Phase 4.38.E — set_as_parent_of takes precedence over the others.
+          // Backend implies force_new for the dup check AND performs the
+          // post-write re-parent.
+          if (setAsParentOfIds.has(originalIdx)) {
+            return { ...row, set_as_parent_of: setAsParentOfIds.get(originalIdx) };
+          }
+          // Phase 4.38.C — force-new takes precedence over sub-brand.
+          // Admin explicitly chose "this is a separate company."
+          if (forceNewOptIns.has(originalIdx)) return { ...row, force_new: true };
+          if (!subBrandOptIns.has(originalIdx)) return { ...row };
+          const pf = (preflightResults || []).find((r) => r.index === originalIdx);
+          const parentId = pf?.match?.id ? String(pf.match.id).trim() : "";
+          return { ...row, parent_company_id: parentId };
+        })
+    );
 
     if (validRows.length === 0) {
       toast.error("Enter at least one company name or URL.");
@@ -4896,15 +4957,17 @@ export default function AdminImport() {
     }
 
     // Phase 4.38 — mirror handleStartSuccession's sub-brand annotation.
-    const validRows = successionRows
-      .filter((row) => row.companyName.trim() || row.companyUrl.trim())
-      .map((row) => {
-        const originalIdx = successionRows.indexOf(row);
-        if (originalIdx < 0 || !subBrandOptIns.has(originalIdx)) return { ...row };
-        const pf = (preflightResults || []).find((r) => r.index === originalIdx);
-        const parentId = pf?.match?.id ? String(pf.match.id).trim() : "";
-        return { ...row, parent_company_id: parentId };
-      });
+    const validRows = dedupeSuccessionRows(
+      successionRows
+        .filter((row) => row.companyName.trim() || row.companyUrl.trim())
+        .map((row) => {
+          const originalIdx = successionRows.indexOf(row);
+          if (originalIdx < 0 || !subBrandOptIns.has(originalIdx)) return { ...row };
+          const pf = (preflightResults || []).find((r) => r.index === originalIdx);
+          const parentId = pf?.match?.id ? String(pf.match.id).trim() : "";
+          return { ...row, parent_company_id: parentId };
+        })
+    );
 
     if (validRows.length === 0) {
       toast.error("Enter at least one company name or URL.");
