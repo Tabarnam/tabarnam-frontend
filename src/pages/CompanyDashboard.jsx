@@ -2785,7 +2785,15 @@ export default function CompanyDashboard() {
           Boolean(draftForSave.logo_approved) && Boolean(draftForSave.homepage_approved),
         homepage_issue_cleared: Boolean(draftForSave.homepage_issue_cleared),
         amazon_url: asString(draftForSave.amazon_url).trim(),
-        amazon_url_approved: Boolean(draftForSave.amazon_url_approved),
+        // Preserve the TRI-STATE. `undefined` = approval never set (benign — the
+        // Issues column shows no "Amz" chip). Coercing it to `false` here made
+        // ANY unrelated edit flip a chip-free company to "pending", so the Amz
+        // chip appeared on save — which reads as "the approval got vacated".
+        // Only send an explicit boolean; leave undefined untouched so the server
+        // keeps the existing (chip-free) state. true/false are still sent as-is.
+        ...(typeof draftForSave.amazon_url_approved === "boolean"
+          ? { amazon_url_approved: draftForSave.amazon_url_approved }
+          : { amazon_url_approved: undefined }),
         amazon_store_url: asString(draftForSave.amazon_store_url).trim(),
         affiliate_link_urls,
         show_location_sources_to_users: Boolean(draftForSave.show_location_sources_to_users),
@@ -3931,7 +3939,8 @@ export default function CompanyDashboard() {
                 const dupIds = Array.isArray(row?._duplicate_ids) ? row._duplicate_ids.filter(Boolean) : [];
                 const domain = asString(row?.normalized_domain).trim();
                 const tooltipLines = [
-                  `${dupCount} duplicate record${dupCount === 1 ? "" : "s"} with normalized_domain="${domain}"`,
+                  `${dupCount} seed-fallback duplicate${dupCount === 1 ? "" : "s"} with normalized_domain="${domain}"`,
+                  "(both records have no parent_company_id — sub-brands are excluded)",
                   ...(dupIds.length > 0 ? ["", "Duplicate IDs:", ...dupIds] : []),
                   "",
                   "Click to merge duplicates into this record.",
