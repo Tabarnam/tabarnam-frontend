@@ -15,6 +15,7 @@ const { patchCompanyWithSearchText } = require("../_computeSearchText");
 const { normalizeAmazonUrlForStorage } = require("../_amazonAffiliate");
 const { recomputeAndPinVisibleCount } = require("../_pinVisibleReviewCount");
 const { expandBusinessAbbreviations } = require("../_searchSynonyms");
+const { dupGroupKey } = require("../_dupGrouping");
 // Phase 4.36 — indexed admin search uses the same search_tokens helper
 // public /results search uses; see _searchTokens.js for the rationale.
 const { buildTokenMatchSqlFromRaw } = require("../_searchTokens");
@@ -52,28 +53,35 @@ function json(obj, status = 200) {
 }
 
 /**
- * Deduplicate admin company list by normalized_domain.
- * Keeps the best record per domain and attaches _duplicates_count
- * so the admin UI can show a badge when duplicates exist.
+ * Deduplicate the admin company list and attach _duplicates_count so the UI can
+ * show a "dup" badge. A duplicate = two docs sharing the SAME normalized_domain
+ * AND the SAME company name (see api/_dupGrouping.js). Domain alone is not a
+ * duplicate: distinct sibling brands share a corporate domain (mccormick.com →
+ * Frank's RedHot / Lawry's / French's) and unrelated companies share marketplace
+ * domains (amazon.com / etsy.com), and in all those the names differ.
+ *
+ * dupGroupKey() returns null for docs that must never be grouped — declared
+ * sub-brands (parent_company_id), empty/"unknown" domains, marketplace domains,
+ * and nameless docs — which all pass through untouched (no badge).
  */
 function deduplicateByDomainAdmin(companies) {
   if (!Array.isArray(companies) || companies.length <= 1) return companies;
 
-  const byDomain = new Map();
-  const noDomain = [];
+  const byKey = new Map();
+  const passthrough = [];
 
   for (const c of companies) {
-    const domain = String(c?.normalized_domain || "").trim().toLowerCase();
-    if (!domain || domain === "unknown") {
-      noDomain.push(c);
+    const key = dupGroupKey(c);
+    if (!key) {
+      passthrough.push(c);
       continue;
     }
-    if (!byDomain.has(domain)) byDomain.set(domain, []);
-    byDomain.get(domain).push(c);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(c);
   }
 
-  const result = [...noDomain];
-  for (const [, group] of byDomain) {
+  const result = [...passthrough];
+  for (const [, group] of byKey) {
     if (group.length === 1) {
       result.push(group[0]);
       continue;
@@ -2461,5 +2469,9 @@ module.exports = {
     buildIndexedSearchWhereClause,
     buildDeepSearchWhereClause,
     buildSearchWhereClause,
+    // Phase 4.38 — exported so the sub-brand dedup carve-out is testable
+    // in isolation (a parent + N sub-brands with the same domain must not
+    // produce a "N dups" merge chip).
+    deduplicateByDomainAdmin,
   },
 };

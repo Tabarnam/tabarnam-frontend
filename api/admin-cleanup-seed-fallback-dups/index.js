@@ -16,6 +16,7 @@ const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
+const { dupGroupKey } = require("../_dupGrouping");
 
 function env(key, fallback = "") {
   const v = process.env[key];
@@ -284,6 +285,9 @@ async function cleanupHandler(req, context) {
     "NOT STARTSWITH(c.id, '_import_')",
     "IS_DEFINED(c.normalized_domain)",
     "c.normalized_domain != 'unknown'",
+    // Never pull declared sub-brands into a merge group (defense in depth; the
+    // dupGroupKey grouping below also skips them).
+    "(NOT IS_DEFINED(c.parent_company_id) OR c.parent_company_id = '')",
   ];
 
   const parameters = [];
@@ -303,7 +307,7 @@ async function cleanupHandler(req, context) {
   }
 
   const q = {
-    query: `SELECT TOP ${maxDocs} c.id, c.normalized_domain, c.created_at, c.updated_at, c.source, c.company_name, c.name, c.website_url, c.url, c.canonical_url FROM c WHERE ${where.join(
+    query: `SELECT TOP ${maxDocs} c.id, c.normalized_domain, c.parent_company_id, c.created_at, c.updated_at, c.source, c.company_name, c.name, c.website_url, c.url, c.canonical_url FROM c WHERE ${where.join(
       " AND "
     )} ORDER BY c._ts DESC`,
     parameters,
@@ -318,17 +322,25 @@ async function cleanupHandler(req, context) {
     return json({ ok: false, error: "Query failed", detail: e?.message || String(e) }, 500);
   }
 
-  const byDomain = new Map();
+  // Group on the SAME key the "dup" chip uses (api/_dupGrouping.js): same domain
+  // AND same name, excluding sub-brands / marketplace / nameless docs. This makes
+  // a merge collapse ONLY what the chip represents — it can never soft-delete a
+  // distinct sibling brand or a marketplace neighbor that merely shares a domain.
+  const byKey = new Map();
   for (const row of resources) {
-    const d = String(row?.normalized_domain || "").trim().toLowerCase();
-    if (!d || d === "unknown") continue;
-    if (!byDomain.has(d)) byDomain.set(d, []);
-    byDomain.get(d).push(row);
+    const key = dupGroupKey(row);
+    if (!key) continue;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(row);
   }
 
-  const dupDomains = Array.from(byDomain.entries())
+  const dupDomains = Array.from(byKey.entries())
     .filter(([, rows]) => rows.length > 1)
-    .map(([d, rows]) => ({ normalized_domain: d, count: rows.length, ids: rows.map((r) => r.id) }))
+    .map(([, rows]) => ({
+      normalized_domain: String(rows[0]?.normalized_domain || "").trim().toLowerCase(),
+      count: rows.length,
+      ids: rows.map((r) => r.id),
+    }))
     .slice(0, maxGroups);
 
   if (dupDomains.length === 0) {

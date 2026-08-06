@@ -3939,11 +3939,11 @@ export default function CompanyDashboard() {
                 const dupIds = Array.isArray(row?._duplicate_ids) ? row._duplicate_ids.filter(Boolean) : [];
                 const domain = asString(row?.normalized_domain).trim();
                 const tooltipLines = [
-                  `${dupCount} seed-fallback duplicate${dupCount === 1 ? "" : "s"} with normalized_domain="${domain}"`,
-                  "(both records have no parent_company_id — sub-brands are excluded)",
+                  `${dupCount} duplicate${dupCount === 1 ? "" : "s"}: same name AND domain "${domain}"`,
+                  "(distinct sibling brands and marketplace/sub-brand records are excluded)",
                   ...(dupIds.length > 0 ? ["", "Duplicate IDs:", ...dupIds] : []),
                   "",
-                  "Click to merge duplicates into this record.",
+                  "Click to merge these same-name duplicates into this record.",
                 ];
                 return (
                   <span
