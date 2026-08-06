@@ -39,6 +39,11 @@ test("expandProductSynonyms: windshield wipers ↔ wiper blades", () => {
   assert.ok(expandProductSynonyms("wiper blades").includes("windshield wipers"), "wiper blades → windshield wipers");
 });
 
+test("expandProductSynonyms: bath bomb ↔ fizzy/fizzer/ball", () => {
+  assert.ok(expandProductSynonyms("bath bomb").includes("bath fizzy"), "bath bomb → bath fizzy");
+  assert.ok(expandProductSynonyms("bath fizzy").includes("bath bomb"), "bath fizzy → bath bomb");
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });

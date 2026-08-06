@@ -116,6 +116,10 @@ const PRODUCT_SYNONYM_GROUPS = [
   ["toothpaste", "dental paste"],
   ["razor", "shaver"],
   ["razors", "shavers"],
+  // Bath bombs — "bath bomb" is the dominant term; "fizzy"/"fizzer"/"ball" name
+  // the same fizzing bath product but share no head noun with it. Group + plurals.
+  ["bath bomb", "bath fizzy", "bath fizzer", "bath ball"],
+  ["bath bombs", "bath fizzies", "bath fizzers", "bath balls"],
   // Food/drink
   ["candy", "sweets", "confection"],
   ["soda", "pop", "soft drink"],
