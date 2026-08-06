@@ -27,6 +27,13 @@ test("expandProductSynonyms: barbecue ↔ bbq (and barbeque) cross-expand", () =
   assert.deepEqual(expandProductSynonyms("barbeque"), ["barbecue", "bbq"]);
 });
 
+test("expandProductSynonyms: phone holder ↔ mount/stand/cradle/grip/dock", () => {
+  const fromHolder = expandProductSynonyms("phone holder");
+  assert.ok(fromHolder.includes("phone mount") && fromHolder.includes("phone stand") && fromHolder.includes("phone cradle"), "phone holder → mount/stand/cradle");
+  const fromMount = expandProductSynonyms("phone mount");
+  assert.ok(fromMount.includes("phone holder") && fromMount.includes("phone stand"), "phone mount → holder/stand");
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });

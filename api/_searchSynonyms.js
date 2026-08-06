@@ -163,6 +163,13 @@ const PRODUCT_SYNONYM_GROUPS = [
   ["charger", "adapter", "power supply"],
   ["cable", "cord", "wire"],
   ["cables", "cords", "wires"],
+  // Phone accessories — holder / mount / stand / cradle / grip / dock all name a
+  // device that holds a phone. Different HEAD NOUNS, so the strict token-AND
+  // ("phone" AND "holder") can't bridge them — group so a search for any reaches
+  // makers tagged with only one term. "cell phone mount" etc. already carry the
+  // phone+mount tokens, so they're covered without listing them explicitly.
+  ["phone holder", "phone mount", "phone stand", "phone cradle", "phone grip", "phone dock"],
+  ["phone holders", "phone mounts", "phone stands", "phone cradles", "phone grips", "phone docks"],
   // Misc
   ["rug", "carpet", "mat"],
   ["rugs", "carpets", "mats"],
