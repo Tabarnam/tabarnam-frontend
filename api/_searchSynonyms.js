@@ -124,6 +124,11 @@ const PRODUCT_SYNONYM_GROUPS = [
   ["jerky", "dried meat"],
   ["jam", "jelly", "preserves"],
   ["granola", "muesli", "cereal"],
+  // Barbecue ↔ BBQ — "bbq" is the everyday shorthand (and "barbeque" a common
+  // alt spelling); pair them (and plurals) so either query reaches brands
+  // tagged with only one form.
+  ["barbecue", "barbeque", "bbq"],
+  ["barbecues", "barbeques", "bbqs"],
   // Wine ↔ winery — interchangeable so a "wine" search surfaces wineries
   // and a "winery" search surfaces wine sellers. Plural forms paired too;
   // stemming bridges wine↔wines and winery↔wineries on top of these.

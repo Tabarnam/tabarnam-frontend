@@ -21,6 +21,12 @@ test("expandProductSynonyms: plural wines ↔ wineries", () => {
   assert.deepEqual(expandProductSynonyms("wineries"), ["wines"]);
 });
 
+test("expandProductSynonyms: barbecue ↔ bbq (and barbeque) cross-expand", () => {
+  assert.deepEqual(expandProductSynonyms("bbq"), ["barbecue", "barbeque"]);
+  assert.deepEqual(expandProductSynonyms("barbecue"), ["barbeque", "bbq"]);
+  assert.deepEqual(expandProductSynonyms("barbeque"), ["barbecue", "bbq"]);
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });
