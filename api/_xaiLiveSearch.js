@@ -619,6 +619,13 @@ async function xaiLiveSearchStreaming({
   // Legacy `disablePostCapAbort` parameter still honored: true → tolerance=∞.
   postCapToolCallTolerance = 0,
   disablePostCapAbort = false,  // legacy, translates to tolerance=∞
+  // Second-look pass — server-side agentic-loop cap. Per Grok's API review
+  // (2026-08): `max_turns` is the documented /v1/responses parameter that
+  // limits reasoning→tool→result cycles; when hit, the model stops tool use
+  // and emits a final response from what it has — unlike our client-side
+  // stream abort, which can kill a call mid-research with zero text.
+  // Omitted (undefined) → no wire change for existing callers.
+  maxTurns,
   // Phase 4.7 — `reasoning.effort` parameter for grok-4.3+. Pushes the
   // model to spend more internal reasoning tokens before tool decisions,
   // which Grok-4 explicitly identified as the highest-impact lever
@@ -759,6 +766,10 @@ async function xaiLiveSearchStreaming({
       // reasoning tokens before tool decisions → deeper / more persistent
       // tool use. Default "high" via `reasoningEffort` resolver above.
       ...(_resolvedReasoningEffort ? { reasoning: { effort: _resolvedReasoningEffort } } : {}),
+      // Server-side turn cap (see maxTurns param comment above).
+      ...(Number.isFinite(Number(maxTurns)) && Number(maxTurns) > 0
+        ? { max_turns: Math.trunc(Number(maxTurns)) }
+        : {}),
     };
 
     // Phase 2.1 — log payload summary so we can verify what's being sent on

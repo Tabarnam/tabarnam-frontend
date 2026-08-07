@@ -164,8 +164,104 @@ async function enqueueResumeRun({
   }
 }
 
+// ── Second-look lane ─────────────────────────────────────────────────────────
+// Separate queue so second-look calls drain independently of the canonical
+// import lane (host.json batchSize=1 is per queue trigger — two queues give
+// us exactly one in-flight message per lane, i.e. canonical + second-look
+// overlap without either lane self-parallelizing).
+
+function resolveSecondLookQueueName() {
+  const raw = asString(process.env.SECOND_LOOK_QUEUE_NAME).trim() || "second-look";
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "")
+    .slice(0, 63);
+}
+
+let cachedSecondLookClient = null;
+let cachedSecondLookKey = null;
+
+async function getSecondLookQueueClient() {
+  const cfg = resolveQueueConfig();
+  const queueName = resolveSecondLookQueueName();
+  if (!cfg.connectionString) return { ok: false, error: "missing_queue_connection" };
+  if (!QueueClient) return { ok: false, error: "storage_queue_sdk_unavailable" };
+
+  const key = `${cfg.connectionString}::${queueName}`;
+  if (cachedSecondLookClient && cachedSecondLookKey === key) {
+    return { ok: true, client: cachedSecondLookClient, queueName };
+  }
+
+  const client = new QueueClient(cfg.connectionString, queueName);
+  try {
+    await client.createIfNotExists();
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e || "queue_create_failed"), queueName };
+  }
+
+  cachedSecondLookClient = client;
+  cachedSecondLookKey = key;
+  return { ok: true, client, queueName };
+}
+
+/**
+ * Queue message schema:
+ * { company_id, normalized_domain, session_id?, fields:[], merge_fields:[],
+ *   reason:"second_look", enqueue_at, requested_by }
+ */
+async function enqueueSecondLook({
+  company_id,
+  normalized_domain,
+  session_id,
+  fields,
+  merge_fields,
+  requested_by,
+  run_after_ms,
+} = {}) {
+  const companyId = asString(company_id).trim();
+  const domain = asString(normalized_domain).trim();
+  if (!companyId || !domain) return { ok: false, error: "missing_company_identity" };
+
+  const qc = await getSecondLookQueueClient();
+  if (!qc.ok) return { ok: false, error: qc.error || "queue_unavailable" };
+
+  const payload = {
+    company_id: companyId,
+    normalized_domain: domain,
+    ...(asString(session_id).trim() ? { session_id: asString(session_id).trim() } : {}),
+    fields: Array.isArray(fields) ? fields.filter(Boolean).slice(0, 10) : [],
+    merge_fields: Array.isArray(merge_fields) ? merge_fields.filter(Boolean).slice(0, 10) : [],
+    reason: "second_look",
+    requested_by: asString(requested_by).trim() || "resume_worker",
+    enqueue_at: nowIso(),
+  };
+
+  try {
+    const result = await qc.client.sendMessage(JSON.stringify(payload), {
+      visibilityTimeout: normalizeDelaySeconds(run_after_ms),
+    });
+    return {
+      ok: true,
+      message_id: result.messageId,
+      queue: { provider: "azure_storage_queue", name: qc.queueName },
+      payload,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e?.message || String(e || "queue_send_failed"),
+      queue: { provider: "azure_storage_queue", name: qc.queueName },
+      payload,
+    };
+  }
+}
+
 module.exports = {
   enqueueResumeRun,
+  enqueueSecondLook,
   resolveQueueConfig,
+  resolveSecondLookQueueName,
   logQueueConfigOnce,
 };
