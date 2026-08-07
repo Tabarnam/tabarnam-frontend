@@ -164,51 +164,26 @@ async function enqueueResumeRun({
   }
 }
 
-// ── Second-look lane ─────────────────────────────────────────────────────────
-// Separate queue so second-look calls drain independently of the canonical
-// import lane (host.json batchSize=1 is per queue trigger — two queues give
-// us exactly one in-flight message per lane, i.e. canonical + second-look
-// overlap without either lane self-parallelizing).
-
-function resolveSecondLookQueueName() {
-  const raw = asString(process.env.SECOND_LOOK_QUEUE_NAME).trim() || "second-look";
-  return raw
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/^-+/, "")
-    .replace(/-+$/, "")
-    .slice(0, 63);
-}
-
-let cachedSecondLookClient = null;
-let cachedSecondLookKey = null;
-
-async function getSecondLookQueueClient() {
-  const cfg = resolveQueueConfig();
-  const queueName = resolveSecondLookQueueName();
-  if (!cfg.connectionString) return { ok: false, error: "missing_queue_connection" };
-  if (!QueueClient) return { ok: false, error: "storage_queue_sdk_unavailable" };
-
-  const key = `${cfg.connectionString}::${queueName}`;
-  if (cachedSecondLookClient && cachedSecondLookKey === key) {
-    return { ok: true, client: cachedSecondLookClient, queueName };
-  }
-
-  const client = new QueueClient(cfg.connectionString, queueName);
-  try {
-    await client.createIfNotExists();
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e || "queue_create_failed"), queueName };
-  }
-
-  cachedSecondLookClient = client;
-  cachedSecondLookKey = key;
-  return { ok: true, client, queueName };
-}
+// ── Second-look messages ─────────────────────────────────────────────────────
+// Second-look messages ride the MAIN import-resume-worker queue with
+// reason:"second_look" and are routed by the existing queue trigger — the
+// same pattern admin_refresh and backfill_score use.
+//
+// History (2026-08-06 first prod batch): a dedicated "second-look" queue +
+// its own queue-trigger function poisoned every message before a single
+// invocation. Flex Consumption scales queue functions per-function-group;
+// during the ~8s cold start of the new group's instance, the messages'
+// MaxDequeueCount(8) was fully burned by dequeue/abandon cycles and the
+// freshly-started instance could only move them to second-look-poison.
+// The import-resume-worker trigger's group is warm/known on this app, so
+// reason-routing through it is the robust path. Parallelism is unaffected:
+// canonical enrichment runs in-process (import-start/import-one), not on
+// this queue, and the second-look worker still serializes itself via its
+// own Cosmos lock.
 
 /**
- * Queue message schema:
- * { company_id, normalized_domain, session_id?, fields:[], merge_fields:[],
+ * Queue message schema (import-resume-worker queue):
+ * { session_id, company_id, normalized_domain, fields:[], merge_fields:[],
  *   reason:"second_look", enqueue_at, requested_by }
  */
 async function enqueueSecondLook({
@@ -224,13 +199,14 @@ async function enqueueSecondLook({
   const domain = asString(normalized_domain).trim();
   if (!companyId || !domain) return { ok: false, error: "missing_company_identity" };
 
-  const qc = await getSecondLookQueueClient();
+  const qc = await getQueueClient();
   if (!qc.ok) return { ok: false, error: qc.error || "queue_unavailable" };
 
   const payload = {
+    // session_id first — the trigger's entry logging reads it.
+    session_id: asString(session_id).trim() || `second-look-${companyId}`,
     company_id: companyId,
     normalized_domain: domain,
-    ...(asString(session_id).trim() ? { session_id: asString(session_id).trim() } : {}),
     fields: Array.isArray(fields) ? fields.filter(Boolean).slice(0, 10) : [],
     merge_fields: Array.isArray(merge_fields) ? merge_fields.filter(Boolean).slice(0, 10) : [],
     reason: "second_look",
@@ -245,14 +221,14 @@ async function enqueueSecondLook({
     return {
       ok: true,
       message_id: result.messageId,
-      queue: { provider: "azure_storage_queue", name: qc.queueName },
+      queue: { provider: qc.config.provider, name: qc.config.queueName },
       payload,
     };
   } catch (e) {
     return {
       ok: false,
       error: e?.message || String(e || "queue_send_failed"),
-      queue: { provider: "azure_storage_queue", name: qc.queueName },
+      queue: { provider: qc.config.provider, name: qc.config.queueName },
       payload,
     };
   }
@@ -262,6 +238,5 @@ module.exports = {
   enqueueResumeRun,
   enqueueSecondLook,
   resolveQueueConfig,
-  resolveSecondLookQueueName,
   logQueueConfigOnce,
 };
