@@ -245,6 +245,23 @@ try {
   console.error("[api] Failed to load xadmin-api-cleanup-import-control:", e?.message || e);
 }
 
+// Timer triggers self-gate on WEBSITE_SITE_NAME (dedicated worker only), but the
+// v4 model only registers functions whose modules are loaded — they MUST be
+// required here or they never run.
+try {
+  console.log("[api] Registering: cleanup-import-control-timer");
+  require("./cleanup-import-control-timer/index.js");
+} catch (e) {
+  console.error("[api] Failed to load cleanup-import-control-timer:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: rebuild-industry-index-timer");
+  require("./rebuild-industry-index-timer/index.js");
+} catch (e) {
+  console.error("[api] Failed to load rebuild-industry-index-timer:", e?.message || e);
+}
+
 try {
   console.log("[api] Registering: search-companies");
   require("./search-companies/index.js");

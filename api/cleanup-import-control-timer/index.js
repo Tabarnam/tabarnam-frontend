@@ -43,6 +43,7 @@ if (IS_DEDICATED_WORKER) {
 
       let totalProcessed = 0;
       let totalDeleted = 0;
+      let drained = false;
       try {
         // Drain within one invocation's budget. Each call deletes a throttle-
         // safe batch and returns done=true once nothing older than the grace
@@ -58,6 +59,7 @@ if (IS_DEDICATED_WORKER) {
           });
           totalProcessed += res.processed || 0;
           totalDeleted += res.deleted || 0;
+          drained = Boolean(res.done);
           // Continue only while draining is making progress; stop on done, a
           // stalled batch (0 deletes), or the invocation budget.
           if (res.done || (res.deleted || 0) === 0 || Date.now() - started >= TIME_BUDGET_MS) break;
@@ -65,7 +67,7 @@ if (IS_DEDICATED_WORKER) {
         log(
           `[cleanup-import-control-timer] done in ${Date.now() - started}ms: ` +
             `processed=${totalProcessed} deleted=${totalDeleted} ` +
-            `${continuation ? "(continuation carried to next tick)" : "(fully drained)"}`,
+            `${drained ? "(fully drained)" : "(leftover carried to next tick)"}`,
         );
       } catch (e) {
         (context?.error || console.error)(
