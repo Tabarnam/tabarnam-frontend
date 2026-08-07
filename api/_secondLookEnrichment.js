@@ -39,7 +39,6 @@
 "use strict";
 
 const { xaiLiveSearch, xaiLiveSearchStreaming, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
-const { buildSearchParameters } = require("./_buildSearchParameters");
 const {
   shapeEnrichedFromParsed,
   shapeEnvelopeForApply,
@@ -451,17 +450,6 @@ function unionLocationArrays(existing, incoming) {
 
 // ── The call ─────────────────────────────────────────────────────────────────
 
-function extractWebsiteHost(websiteUrl) {
-  const raw = asString(websiteUrl).trim();
-  if (!raw) return "";
-  try {
-    const u = new URL(raw.includes("://") ? raw : `https://${raw}`);
-    return String(u.hostname || "").replace(/^www\./i, "");
-  } catch {
-    return "";
-  }
-}
-
 /**
  * Run the second-look call for one company. Single attempt — no retries.
  * Returns the same result contract as runCanonicalImportCall:
@@ -481,7 +469,6 @@ async function runSecondLookCall({ company, fields, budgetMs, signal, modelOverr
 
   const companyName = asString(company?.company_name).trim();
   const websiteUrl = asString(company?.website_url).trim() || asString(company?.url).trim();
-  const websiteHost = extractWebsiteHost(websiteUrl);
 
   const failure = (errorCode, diagnostics = {}) => ({
     ok: false,
@@ -518,7 +505,14 @@ async function runSecondLookCall({ company, fields, budgetMs, signal, modelOverr
     || DEFAULT_XAI_MODEL;
 
   const prompt = buildSecondLookPrompt({ companyName, websiteUrl, fields: requested });
-  const sp = buildSearchParameters({ companyWebsiteHost: websiteHost });
+  // Grok.com-fidelity search: NO excluded_websites. The canonical import's
+  // amazon.com/amzn.to exclusions (via buildSearchParameters) blocked review
+  // sources the operator's manual grok run finds routinely (empirical, first
+  // prod batch 2026-08-06: 2 of 3 Clear Eyes reviews were Amazon/Walmart).
+  const search_parameters = {
+    mode: "on",
+    sources: [{ type: "web" }, { type: "news" }, { type: "x" }],
+  };
 
   console.log(`[secondLook] call_start`, {
     company_id: company?.id || null,
@@ -544,7 +538,7 @@ async function runSecondLookCall({ company, fields, budgetMs, signal, modelOverr
       prompt,
       timeoutMs,
       model,
-      search_parameters: sp.search_parameters,
+      search_parameters,
       enableImageUnderstanding: false,
       maxToolCalls,
       maxTurns,
@@ -564,7 +558,7 @@ async function runSecondLookCall({ company, fields, budgetMs, signal, modelOverr
         maxTokens: 4000,
         timeoutMs,
         model,
-        search_parameters: sp.search_parameters,
+        search_parameters,
         useTools: true,
         xaiUrl: getXAIEndpoint(),
         xaiKey: getXAIKey(),

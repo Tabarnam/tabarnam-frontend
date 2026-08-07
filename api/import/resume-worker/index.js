@@ -138,6 +138,45 @@ if (IS_DEDICATED_WORKER) {
         };
       }
 
+      // Route second_look messages to the second-look worker (see
+      // _secondLookWorker.js). Rides this queue with reason routing —
+      // a dedicated queue/function got cold-start-poisoned under Flex
+      // per-function scaling (2026-08-06), this trigger's group is warm.
+      if (messageReason === "second_look") {
+        console.log("[import-resume-worker-queue] routing_to_second_look", {
+          invocation_id: invocationId,
+          session_id: sessionId || null,
+          company_id: queueBody?.company_id || null,
+        });
+
+        let slResult = null;
+        let slError = null;
+        try {
+          const { processSecondLook } = require("../../_secondLookWorker");
+          slResult = await processSecondLook(queueBody, context);
+        } catch (e) {
+          slError = String(e?.message || e);
+        }
+
+        console.log("[import-resume-worker-queue] second_look_finished", {
+          handler_finished_at: new Date().toISOString(),
+          invocation_id: invocationId,
+          session_id: sessionId || null,
+          company_id: queueBody?.company_id || null,
+          elapsed_ms: Date.now() - Date.parse(handlerEnteredAt),
+          result: slError ? "error" : (slResult?.ok ? "ok" : "failed"),
+          requeued: slResult?.requeued || null,
+          skipped: slResult?.skipped || null,
+          fields_recovered: slResult?.fields_recovered || null,
+          error: slError || slResult?.error || null,
+        });
+
+        return {
+          status: slResult?.ok ? 200 : 500,
+          body: JSON.stringify(slResult || { ok: false, error: slError }),
+        };
+      }
+
       // Route admin_refresh messages to the dedicated admin refresh worker
       if (messageReason === "admin_refresh") {
         console.log("[import-resume-worker-queue] routing_to_admin_refresh", {
