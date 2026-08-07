@@ -14,14 +14,8 @@ try {
 
 const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel, DEFAULT_XAI_MODEL } = require("./_shared");
 const { getBuildInfo } = require("./_buildInfo");
-const {
-  fetchTagline,
-  fetchHeadquartersLocation,
-  fetchManufacturingLocations,
-  fetchIndustries,
-  fetchProductKeywords,
-  fetchLogo,
-} = require("./_grokEnrichment");
+const { fetchLogo } = require("./_grokEnrichment");
+const { runSecondLookCall } = require("./_secondLookEnrichment");
 const { geocodeLocationArray } = require("./_geocode");
 
 const BUILD_INFO = getBuildInfo();
@@ -156,65 +150,76 @@ async function processAdminRefresh(queueMessage, context) {
   };
 
   try {
-    // 1. Tagline
-    console.log(JSON.stringify({ handler_id: HANDLER_ID, event: "enriching_tagline", job_id: jobId }));
-    const taglineResult = await fetchTagline({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey });
-    if (taglineResult.tagline) {
-      proposed.tagline = taglineResult.tagline;
+    // 1-5. Text fields — ONE second-look call (the operator's grok.com
+    // prompt: plain-text labeled output, no JSON-schema pressure, deep
+    // browse budget). Replaces the old five sequential _grokEnrichment
+    // calls whose 2-5-tool-call ceiling made refresh strictly weaker than
+    // the import that had already failed — the refresh could never recover
+    // what the import missed, so the admin went to grok.com manually.
+    // Refresh intent = overwrite: every returned field is proposed, whether
+    // or not the company already has a value (admin reviews before apply).
+    console.log(JSON.stringify({ handler_id: HANDLER_ID, event: "enriching_second_look", job_id: jobId }));
+    const websiteUrl = asString(job.website_url || job.canonical_url || `https://${normalizedDomain}`).trim();
+    const slResult = await runSecondLookCall({
+      company: {
+        id: Array.isArray(companyIds) && companyIds.length ? companyIds[0] : jobId,
+        company_name: companyName,
+        website_url: websiteUrl,
+      },
+      fields: ["tagline", "headquarters_location", "manufacturing_locations", "industries", "product_keywords"],
+      budgetMs,
+      mode: "refresh",
+    });
+    const slFlat = slResult?.flat || {};
+    const slErrors = slResult?.errors || {};
+
+    if (slFlat.tagline) {
+      proposed.tagline = slFlat.tagline;
       enrichment_status.tagline = "ok";
     } else {
-      enrichment_status.tagline = taglineResult.tagline_status || "empty";
+      enrichment_status.tagline = slErrors.tagline || "empty";
     }
 
-    // 2. HQ Location
-    console.log(JSON.stringify({ handler_id: HANDLER_ID, event: "enriching_hq", job_id: jobId }));
-    const hqResult = await fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey });
-    if (hqResult.headquarters_location) {
-      proposed.headquarters_location = hqResult.headquarters_location;
+    if (slFlat.headquarters_location) {
+      proposed.headquarters_location = slFlat.headquarters_location;
       proposed.headquarters_locations = [{
-        location: hqResult.headquarters_location,
-        formatted: hqResult.headquarters_location,
+        location: slFlat.headquarters_location,
+        formatted: slFlat.headquarters_location,
         is_hq: true,
         source: "xai_refresh",
       }];
       enrichment_status.headquarters = "ok";
     } else {
-      enrichment_status.headquarters = hqResult.hq_status || "empty";
+      enrichment_status.headquarters = slErrors.headquarters_location || "empty";
     }
 
-    // 3. Manufacturing Locations
-    console.log(JSON.stringify({ handler_id: HANDLER_ID, event: "enriching_manufacturing", job_id: jobId }));
-    const mfgResult = await fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey });
-    if (Array.isArray(mfgResult.manufacturing_locations) && mfgResult.manufacturing_locations.length > 0) {
-      proposed.manufacturing_locations = mfgResult.manufacturing_locations.map(loc => ({
+    if (Array.isArray(slFlat.manufacturing_locations) && slFlat.manufacturing_locations.length > 0) {
+      proposed.manufacturing_locations = slFlat.manufacturing_locations.map(loc => ({
         location: typeof loc === "string" ? loc : loc.location || loc,
         formatted: typeof loc === "string" ? loc : loc.location || loc,
         source: "xai_refresh",
       }));
       enrichment_status.manufacturing = "ok";
     } else {
-      enrichment_status.manufacturing = mfgResult.mfg_status || "empty";
+      enrichment_status.manufacturing = slErrors.manufacturing_locations || "empty";
     }
 
-    // 4. Industries
-    console.log(JSON.stringify({ handler_id: HANDLER_ID, event: "enriching_industries", job_id: jobId }));
-    const industriesResult = await fetchIndustries({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey });
-    if (Array.isArray(industriesResult.industries) && industriesResult.industries.length > 0) {
-      proposed.industries = industriesResult.industries;
+    if (Array.isArray(slFlat.industries) && slFlat.industries.length > 0) {
+      proposed.industries = slFlat.industries;
       enrichment_status.industries = "ok";
     } else {
-      enrichment_status.industries = industriesResult.industries_status || "empty";
+      enrichment_status.industries = slErrors.industries || "empty";
     }
 
-    // 5. Keywords
-    console.log(JSON.stringify({ handler_id: HANDLER_ID, event: "enriching_keywords", job_id: jobId }));
-    const keywordsResult = await fetchProductKeywords({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey });
-    const keywords = keywordsResult.product_keywords || keywordsResult.keywords;
-    if (Array.isArray(keywords) && keywords.length > 0) {
-      proposed.keywords = keywords;
+    const slKeywords = asString(slFlat.product_keywords)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (slKeywords.length > 0) {
+      proposed.keywords = slKeywords;
       enrichment_status.keywords = "ok";
     } else {
-      enrichment_status.keywords = keywordsResult.keywords_status || "empty";
+      enrichment_status.keywords = slErrors.product_keywords || "empty";
     }
 
     // 6. Logo

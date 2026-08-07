@@ -374,6 +374,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: second-look-worker (queue trigger, dedicated worker only)");
+  require("./second-look-worker/index.js");
+} catch (e) {
+  console.error("[api] Failed to load second-look-worker:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: google/geocode");
   require("./google/geocode/index.js");
 } catch (e) {

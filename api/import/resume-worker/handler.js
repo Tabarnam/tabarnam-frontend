@@ -40,9 +40,10 @@ const {
   normalizeCountryInLocation,
 } = require("../../_grokEnrichment");
 
-const { enqueueResumeRun } = require("../../_enrichmentQueue");
+const { enqueueResumeRun, enqueueSecondLook } = require("../../_enrichmentQueue");
 const { runDirectEnrichment, applyEnrichmentToCompany } = require("../../_directEnrichment");
 const { runCanonicalImportCall } = require("../../_canonicalImport");
+const { secondLookEnabled, decideSecondLook } = require("../../_secondLookEnrichment");
 
 const { importCompanyLogo } = require("../../_logoImport");
 const { PROMPT_GUIDANCE_VERSION } = require("../../_xaiPromptGuidance");
@@ -3607,6 +3608,58 @@ async function resumeWorkerHandler(req, context) {
         }
 
         progressRoot.enrichment_progress[companyId]["logo"] = logoFp;
+      }
+
+      // ── Second-look pass enqueue ──
+      // If the canonical call left any of the six text fields empty, hand
+      // the company to the second-look lane: a single differently-phrased
+      // grok-prompt search (see _secondLookEnrichment.js) that runs on its
+      // own queue + own xAI lock, OVERLAPPING the next company's canonical
+      // call instead of blocking this worker. This is NOT a retry cycle —
+      // one attempt ever, doc-flag guarded.
+      try {
+        if (secondLookEnabled() && !doc.second_look_done) {
+          const enqueuedAtMs = Date.parse(String(doc.second_look_enqueued_at || "")) || 0;
+          const recentlyEnqueued = enqueuedAtMs > 0 && Date.now() - enqueuedAtMs < 30 * 60_000;
+          if (!recentlyEnqueued) {
+            const slDecision = decideSecondLook(doc);
+            if (slDecision.trigger.length > 0) {
+              const slEnqueue = await enqueueSecondLook({
+                company_id: companyId,
+                normalized_domain: normalizedDomain,
+                session_id: sessionId,
+                fields: slDecision.requested,
+                merge_fields: slDecision.merge_fields,
+                requested_by: "resume_worker",
+                // Small delay so our flag upsert below lands before the
+                // worker reads the doc.
+                run_after_ms: 5_000,
+              }).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+              console.log(`[resume-worker] second_look_enqueue`, {
+                session_id: sessionId,
+                company_id: companyId,
+                ok: Boolean(slEnqueue?.ok),
+                trigger: slDecision.trigger,
+                requested: slDecision.requested,
+                merge_fields: slDecision.merge_fields,
+                error: slEnqueue?.ok ? null : slEnqueue?.error || "enqueue_failed",
+              });
+              if (slEnqueue?.ok) {
+                doc.second_look_pending = true;
+                doc.second_look_enqueued_at = nowIso();
+                doc.updated_at = nowIso();
+                await upsertDoc(container, doc).catch(() => null);
+              }
+            }
+          }
+        }
+      } catch (slErr) {
+        // Second-look scheduling must never break the import pipeline.
+        console.warn(`[resume-worker] second_look_enqueue_threw`, {
+          session_id: sessionId,
+          company_id: companyId,
+          error: String(slErr?.message || slErr),
+        });
       }
 
       docsById.set(companyId, doc);
