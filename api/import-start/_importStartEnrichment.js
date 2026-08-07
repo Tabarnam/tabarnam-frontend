@@ -926,10 +926,18 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       company_ids: ids,
       reason: reason || "enrichment_queued",
       requested_by: "import_start",
-      run_after_ms: 1000, // 1-second delay (reduced from 5s — import-start has already saved the seed)
+      // 4-minute delay — this message is a SAFETY NET, not the primary
+      // driver (enrichment is normally driven by the poll/in-process path).
+      // Before the 2026-08-07 messageEncoding fix these messages silently
+      // poisoned, so their 1s delay was harmless; with the queue actually
+      // working, a near-immediate message spawns a second worker that
+      // supersedes the live one mid-canonical-call and discards its
+      // results (CooperVision, first batch post-fix). A complete session's
+      // queued worker no-ops cheaply; a dead one gets rescued in ~4 min.
+      run_after_ms: 240_000,
     });
     queued = true;
-    console.log(`[import-start] session=${sessionId} resume-worker enqueued (1s delay, ${ids.length} companies)`);
+    console.log(`[import-start] session=${sessionId} resume-worker enqueued (240s safety delay, ${ids.length} companies)`);
   } catch (qErr) {
     console.warn(`[import-start] session=${sessionId} resume-worker enqueue failed: ${qErr?.message || qErr}`);
   }
