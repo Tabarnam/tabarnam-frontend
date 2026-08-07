@@ -44,6 +44,21 @@ test("expandProductSynonyms: bath bomb ↔ fizzy/fizzer/ball", () => {
   assert.ok(expandProductSynonyms("bath fizzy").includes("bath bomb"), "bath fizzy → bath bomb");
 });
 
+test("expandProductSynonyms: essential oils ↔ aromatherapy/aroma/diffuser oils", () => {
+  assert.ok(expandProductSynonyms("essential oils").includes("aromatherapy oils"), "essential oils → aromatherapy oils");
+  assert.ok(expandProductSynonyms("aromatherapy oil").includes("essential oil"), "aromatherapy oil → essential oil");
+});
+
+test("expandProductSynonyms: eye drops ↔ ophthalmic drops / artificial tears", () => {
+  assert.ok(expandProductSynonyms("eye drops").includes("artificial tears"), "eye drops → artificial tears");
+  assert.ok(expandProductSynonyms("artificial tears").includes("eye drops"), "artificial tears → eye drops");
+});
+
+test("expandProductSynonyms: contact lens solution ↔ contact solution", () => {
+  assert.ok(expandProductSynonyms("contact lens solution").includes("contact solution"), "contact lens solution → contact solution");
+  assert.ok(expandProductSynonyms("contact solution").includes("contact lens solution"), "contact solution → contact lens solution");
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });

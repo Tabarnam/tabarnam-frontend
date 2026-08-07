@@ -120,6 +120,18 @@ const PRODUCT_SYNONYM_GROUPS = [
   // the same fizzing bath product but share no head noun with it. Group + plurals.
   ["bath bomb", "bath fizzy", "bath fizzer", "bath ball"],
   ["bath bombs", "bath fizzies", "bath fizzers", "bath balls"],
+  // Wellness / eye care
+  // Essential oil ↔ aromatherapy/aroma/diffuser oil — same natural oil, different
+  // qualifier, so "essential" AND "oil" won't reach an "aromatherapy oil" tag.
+  ["essential oil", "aromatherapy oil", "aroma oil", "diffuser oil"],
+  ["essential oils", "aromatherapy oils", "aroma oils", "diffuser oils"],
+  // Eye drops ↔ ophthalmic drops / artificial tears / eye lubricant (+ solid
+  // "eyedrops"): same product, genuinely different head nouns (drops/tears/lubricant).
+  ["eye drops", "eyedrops", "ophthalmic drops", "artificial tears", "eye lubricant"],
+  // Contact lens solution ↔ contact/lens solution / cleaner — the strict AND
+  // ("contact" AND "lens" AND "solution") misses brands tagged "contact solution".
+  ["contact lens solution", "contact solution", "lens solution", "contact lens cleaner"],
+  ["contact lens solutions", "contact solutions", "lens solutions", "contact lens cleaners"],
   // Food/drink
   ["candy", "sweets", "confection"],
   ["soda", "pop", "soft drink"],
