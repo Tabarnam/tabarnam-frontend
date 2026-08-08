@@ -1,0 +1,51 @@
+# Weekly maintenance cron — replaces the Flex timer trigger, which the
+# platform never invokes on this app (verified 2026-08-07: freshly registered
+# and correctly indexed/synced timers are still never fired — see
+# api/cleanup-import-control-timer/index.js). Runs the same cleanup via the
+# HTTP endpoint, which is proven to work.
+name: Weekly maintenance
+
+on:
+  schedule:
+    - cron: "0 9 * * 0" # Sundays 09:00 UTC (~1-2am US Pacific)
+  workflow_dispatch: {}
+
+jobs:
+  cleanup-import-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Purge stale import-control docs
+        env:
+          JOB_SECRET: ${{ secrets.X_INTERNAL_JOB_SECRET }}
+        run: |
+          set -euo pipefail
+          total_deleted=0
+          for i in $(seq 1 30); do
+            resp=$(curl -sS -X POST "https://tabarnam.com/api/xadmin-api-cleanup-import-control" \
+              -H "x-internal-job-secret: ${JOB_SECRET}" \
+              -H "Content-Type: application/json" \
+              -d '{"older_than_hours":24,"dry_run":false,"page_size":200,"time_budget_ms":45000}')
+            ok=$(jq -r '.ok // false' <<<"$resp")
+            deleted=$(jq -r '.deleted // 0' <<<"$resp")
+            done_flag=$(jq -r '.done // false' <<<"$resp")
+            throttled=$(jq -r '.throttled // 0' <<<"$resp")
+            failures=$(jq -r '.failures // 0' <<<"$resp")
+            hard_error=$(jq -r '.hard_error // empty' <<<"$resp")
+            total_deleted=$((total_deleted + deleted))
+            echo "call $i: +$deleted (total $total_deleted) done=$done_flag throttled=$throttled failures=$failures"
+            if [ "$ok" != "true" ] || [ -n "$hard_error" ]; then
+              echo "::error::cleanup call failed: $resp"
+              exit 1
+            fi
+            if [ "$done_flag" = "true" ]; then
+              echo "Cleanup drained: $total_deleted deleted over $i calls"
+              exit 0
+            fi
+            # No progress and not throttled means something is wrong — stop.
+            if [ "$deleted" = "0" ] && [ "$throttled" = "0" ]; then
+              echo "::error::no progress without throttling; aborting"
+              exit 1
+            fi
+          done
+          echo "::warning::budget of 30 calls exhausted before done=true ($total_deleted deleted); will finish next week"
