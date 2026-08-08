@@ -439,6 +439,9 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
       enriched_mfg_inner_array_len: Array.isArray(enriched.manufacturing_locations?.manufacturing_locations)
         ? enriched.manufacturing_locations.manufacturing_locations.length
         : null,
+      enriched_mfg_inner_values: Array.isArray(enriched.manufacturing_locations?.manufacturing_locations)
+        ? enriched.manufacturing_locations.manufacturing_locations.slice(0, 10)
+        : null,
     });
   } catch {}
   if (enriched.manufacturing_locations) {
@@ -465,6 +468,9 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
           new_mfg_unknown_reason: updated.mfg_unknown_reason,
           new_mfg_status: updated.manufacturing_locations_status,
           mfg_count: Array.isArray(updated.manufacturing_locations) ? updated.manufacturing_locations.length : 0,
+          mfg_values: Array.isArray(updated.manufacturing_locations)
+            ? updated.manufacturing_locations.slice(0, 10)
+            : null,
         });
       } catch {}
 
