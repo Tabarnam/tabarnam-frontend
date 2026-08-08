@@ -3857,6 +3857,23 @@ export default function CompanyDashboard() {
             );
           }
 
+          // The import session can finish while a second-look (gap-fill for
+          // fields the first pass missed) is still queued or running. Until it
+          // lands, the completeness score is not final — a final-sounding
+          // "Complete · N%" here misleads the admin into re-checking fields
+          // the pipeline is about to fill.
+          if (row?.second_look_pending && !row?.second_look_done) {
+            return (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-300"
+                title="A second-look pass is still retrieving missing fields for this company"
+              >
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Enriching…
+              </span>
+            );
+          }
+
           const score = getProfileCompleteness(row);
           const label = getProfileCompletenessLabel(score);
           const gaps = getProfileGaps(row);

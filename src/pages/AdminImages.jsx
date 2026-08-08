@@ -765,6 +765,18 @@ export default function AdminImages() {
         sortable: true,
         width: "130px",
         cell: (row) => {
+          // Mirror of CompanyDashboard's Profile cell: while a second-look is
+          // still retrieving missed fields, the score is not final.
+          if (row?.second_look_pending && !row?.second_look_done) {
+            return (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-300"
+                title="A second-look pass is still retrieving missing fields for this company"
+              >
+                Enriching…
+              </span>
+            );
+          }
           const score = getProfileCompleteness(row);
           const label = getProfileCompletenessLabel(score);
           const tone =
