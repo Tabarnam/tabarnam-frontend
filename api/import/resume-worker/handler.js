@@ -2913,7 +2913,19 @@ async function resumeWorkerHandler(req, context) {
       currentEnrichmentCompanyName = doc?.company_name || companyId;
 
       // ── Run unified enrichment for all missing fields at once ──
-      if (missingFields.length > 0 && budgetRemainingMs() > 30_000) {
+      // Logo-only retries skip the unified text call: logo recovery belongs to
+      // the dedicated logo path below (HTML scrape + fallbacks); a text
+      // web-search call cannot fill logo and burns a full search per retry
+      // (observed: Technogym logo-only pass re-searched everything, 2026-08-08).
+      const logoOnlyMissing = missingFields.length === 1 && missingFields[0] === "logo";
+      if (logoOnlyMissing) {
+        console.log(`[resume-worker] unified_enrichment_skipped_logo_only`, {
+          session_id: sessionId,
+          company_id: companyId,
+        });
+      }
+
+      if (missingFields.length > 0 && !logoOnlyMissing && budgetRemainingMs() > 30_000) {
         const unifiedBudgetMs = Math.min(perDocBudgetMs, budgetRemainingMs() - 5_000); // Reserve 5s for post-enrichment cleanup
 
         console.log(`[resume-worker] unified_enrichment_start`, {

@@ -308,6 +308,22 @@ async function processSecondLook(queueMessage, context) {
     diagnostics: result.diagnostics || null,
   };
 
+  // The second look is the designated last-resort pass (single attempt by
+  // design). A field it conclusively failed gets a terminal missing-reason so
+  // the import-status resume orchestration stops re-searching it in the same
+  // session — otherwise canonical retries burn identical web searches on a
+  // field two passes already failed (observed: Stryde mfg, 2026-08-08).
+  // Admin refresh flows force re-enrichment regardless of missing-reasons,
+  // so this does not block deliberate re-fetches later.
+  const { isTerminalMissingReason } = require("./_requiredFields");
+  for (const f of doc.second_look.fields_still_missing) {
+    doc.import_missing_reason ||= {};
+    const existing = String(doc.import_missing_reason[f] || "").trim();
+    if (!isTerminalMissingReason(existing)) {
+      doc.import_missing_reason[f] = "second_look_exhausted";
+    }
+  }
+
   doc.import_missing_fields = computeMissingFields(doc);
   const completeness = computeProfileCompleteness(doc);
   doc.profile_completeness = completeness.profile_completeness;

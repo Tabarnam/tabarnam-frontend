@@ -837,6 +837,7 @@ function isTerminalMissingReason(reason) {
     "no_synthesis",             // Grok searched but produced no reviews text — definitively empty
     "empty",                    // Grok explicitly found no reviews — definitively empty
     "upstream_timeout_terminal", // 2+ Grok timeouts with 0 reviews — not worth retrying
+    "second_look_exhausted",     // second look (last-resort pass) conclusively failed the field
   ]).has(normalizeKey(reason));
 }
 
