@@ -30,7 +30,7 @@ if (IS_DEDICATED_WORKER) {
   app.timer("cleanup-import-control-timer", {
     // Weekly Sun 09:00 UTC by default; env override exists so the schedule can
     // be temporarily tightened to smoke-test the scheduler path in prod.
-    schedule: process.env.IMPORT_CONTROL_CLEANUP_SCHEDULE || "0 0 9 * * 0",
+    schedule: process.env.IMPORT_CONTROL_CLEANUP_SCHEDULE || "0 */5 * * * *", // TEMP smoke-test: revert to "0 0 9 * * 0" after first observed fire
     handler: async (_myTimer, context) => {
       const log = typeof context?.log === "function" ? context.log.bind(context) : console.log;
       const olderThanHours = Number(process.env.IMPORT_CONTROL_CLEANUP_HOURS) || 24;
