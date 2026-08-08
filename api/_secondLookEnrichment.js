@@ -623,6 +623,10 @@ async function runSecondLookCall({ company, fields, budgetMs, signal, modelOverr
     elapsed_ms: elapsedMs,
     text_chars: rawText.length,
     tool_calls: baseDiag.tool_calls_counted,
+    // Raw model text (truncated) whenever any requested field failed, so log
+    // captures show WHAT the model answered for the failed label instead of
+    // only that it failed.
+    raw_text_sample: fields_failed.length > 0 ? rawText.slice(0, 800) : undefined,
   });
 
   return {
