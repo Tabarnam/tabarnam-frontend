@@ -1727,6 +1727,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
   let typo_suggestion = null; // a "Did you mean …?" candidate — NEVER auto-applied
   let _typoDiag = { attempted: false };
+  // Reused by the brand-name recovery gate (below) as a corpus-frequency signal:
+  // its `terms` map holds only tokens appearing in ≥ MIN_COMPANIES_PER_TOKEN
+  // companies, so a token ABSENT from it is a distinctive (coined) brand word.
+  let typoDictionary = null;
   if (q_norm && container) {
     _typoDiag.attempted = true;
     try {
@@ -1744,6 +1748,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         // Cache is populated — actually call getDictionary which returns
         // the cached object synchronously without re-fetching.
         const dictionary = await getTypoCorrectionDictionary(container);
+        typoDictionary = dictionary;
         const rewritten = correctTypoQuery(q_norm, dictionary);
         _typoDiag.rewritten = rewritten;
         if (rewritten && rewritten !== q_norm) {
@@ -2276,14 +2281,64 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // Falls back to [] when the index isn't built yet; scoring then skips the
       // affinity bonus/penalty without breaking search.
       let affinityIndustries = [];
+      let affinityIndex = null;
       if (q_norm) {
         try {
-          const idx = await loadIndustryAffinityIndex(container);
-          affinityIndustries = getAffinityIndustriesFromIndex(idx, q_norm.split(/\s+/));
+          affinityIndex = await loadIndustryAffinityIndex(container);
+          affinityIndustries = getAffinityIndustriesFromIndex(affinityIndex, q_norm.split(/\s+/));
         } catch (err) {
           context.log?.("[search-companies] loadIndustryAffinityIndex failed:", err?.message);
         }
       }
+
+      // Brand-name recovery (Gate A): a "brand + product qualifier" query
+      // ("natrulo tallow soap", "viking blade chef knife") LEADS with the brand
+      // name, then appends a product. computeNameMatchScore discards a single
+      // shared token (it needs ≥2), so the named brand scores 0 on name and gets
+      // buried under product specialists. Fix: when the QUERY LEADS WITH a
+      // company's leading name token(s), pin that company.
+      //
+      // Order is the signal — the brand is the query PREFIX, then a qualifier.
+      // We pin C when the query LEADS WITH C's leading (significant) name
+      // token(s) AND the query carries a product qualifier beyond that brand
+      // prefix (so pure-brand queries like "sub-zero" / "the north face" are
+      // left to natural ranking — the gate only rescues a BURIED brand):
+      //   (a) 2-token brand prefix ("viking blade", "true primal") + ≥1 more
+      //       word — a two-word coincidence is unlikely, so no rarity test; or
+      //   (b) 1-token brand prefix ("natrulo") that is DISTINCTIVE corpus-wide.
+      // Distinctiveness (b) uses the typo-correction dictionary's `terms` map as
+      // a real corpus-frequency signal (it keeps only tokens in ≥ 2 companies):
+      // a leading word ABSENT from it is coined ("natrulo" → 1 company), while
+      // common qualifier words ("organic", "honey", "apple", "hot") are present
+      // and never pin. This is what pool-relative rarity could not tell apart.
+      // Kill-switch: default ON; set BRAND_NAME_GATE_ENABLED=false/off/0 to
+      // disable the pin without a redeploy (also used to A/B the gate's effect).
+      const _brandGateEnabled = (() => {
+        const raw = String(process.env.BRAND_NAME_GATE_ENABLED ?? "").toLowerCase().trim();
+        return raw !== "false" && raw !== "off" && raw !== "0";
+      })();
+      const BRAND_STOP = new Set(["the", "and", "for", "with", "from", "your", "our", "all", "new", "a", "an", "of", "co"]);
+      // Pin above any natural name score so the NAMED brand leads even when a
+      // different company legitimately name-matches the query words higher
+      // (e.g. "true primal maple granola" must beat "True North Granola").
+      const BRAND_PIN_SCORE = 1000;
+      const _commonTerms = typoDictionary && typoDictionary.terms ? typoDictionary.terms : null;
+      const _splitToks = (str) =>
+        foldDiacritics(String(str || "").toLowerCase()).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+      const _stripLeadStop = (toks) => { let i = 0; while (i < toks.length && BRAND_STOP.has(toks[i])) i++; return toks.slice(i); };
+      const _nameLeadCache = new Map();
+      const nameLeadTokens = (c) => {
+        let t = _nameLeadCache.get(c);
+        if (!t) { t = _stripLeadStop(_splitToks(c.company_name || c.display_name || c.name)); _nameLeadCache.set(c, t); }
+        return t;
+      };
+      const _qLead = q_norm && _brandGateEnabled ? _stripLeadStop(_splitToks(q_norm)) : [];
+      // Distinctive (corpus-wide) iff we have the dictionary AND the word isn't in
+      // it. The dictionary tokenizes at ≥4 chars (_typoCorrection MIN_TOKEN_LEN),
+      // so shorter words ("hot", "sub") can NEVER appear in it and must not be
+      // read as distinctive — require length ≥ 4. Without the dictionary (cold
+      // worker) we can't judge → treat as NOT distinctive so we never guess-pin.
+      const _isDistinctiveWord = (w) => !!_commonTerms && w.length >= 4 && !(w in _commonTerms);
 
       // Attach relevance scores so the frontend can prioritise strong matches
       if (q_norm) {
@@ -2375,6 +2430,27 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               delete company._substringOnly;
             } else {
               company._matchType = scores._synonymOnly ? "synonym" : "word_boundary";
+            }
+          }
+
+          // Gate A pin (see leading-prefix rule above): the query leads with this
+          // company's leading name token, and either a 2-token brand prefix
+          // matches or the single leading word is pool-distinctive → the user
+          // named this brand; pin it to the top tier so a product qualifier can't
+          // bury it. Mirrors the exact domain-match pin. domainExact /
+          // industryRelated rows `continue` above and never reach here.
+          if (_qLead.length >= 2 && (company._nameMatchScore || 0) < BRAND_PIN_SCORE) {
+            const nt = nameLeadTokens(company);
+            if (nt.length && nt[0] === _qLead[0]) {
+              // 2-token brand ("viking blade") + ≥1 qualifier word → qLead ≥ 3.
+              const twoTokenBrand = _qLead.length >= 3 && nt.length >= 2 && nt[1] === _qLead[1];
+              // 1-token distinctive brand ("natrulo") + ≥1 qualifier → qLead ≥ 2.
+              const oneTokenBrand = _isDistinctiveWord(_qLead[0]);
+              if (twoTokenBrand || oneTokenBrand) {
+                company._nameMatchScore = BRAND_PIN_SCORE;
+                company._relevanceScore = Math.max(company._relevanceScore || 0, BRAND_PIN_SCORE);
+                company._matchType = "brand_name";
+              }
             }
           }
         }

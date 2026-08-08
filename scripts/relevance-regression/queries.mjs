@@ -56,6 +56,19 @@ export const QUERIES = [
   // Typo-prone (fuzzy is the intended path — must survive any gate)
   { q: "cliff bar", class: "B", note: "typo→clif bar" },
 
+  // BP — brand + product qualifier. The NAMED brand must rise to the top (a
+  // change vs baseline is the DESIRED outcome here, not a regression).
+  { q: "natrulo tallow soap", class: "BP", note: "Natrulo must lead (currently buried)" },
+  { q: "viking blade chef knife", class: "BP", note: "Viking Blade must lead" },
+  { q: "true primal maple granola", class: "BP", note: "True Primal must lead" },
+
+  // TRAP — a common product word that is ALSO a brand-ish word. The fix must NOT
+  // pin a company here (these must stay UNCHANGED vs baseline).
+  { q: "apple pie", class: "TRAP", note: "must not pin an 'Apple' company" },
+  { q: "orange marmalade", class: "TRAP", note: "common word 'orange'" },
+  { q: "olive tapenade", class: "TRAP", note: "common word 'olive'" },
+  { q: "honey soap", class: "TRAP", note: "both words common" },
+
   // Qualifier + head-noun (adjective + noun): the noun-maker must survive even
   // when it doesn't tag the qualifier. Watch these for ENTRANTS (the intended
   // gain from the head-noun penalty softening), and the noun-only baseline for

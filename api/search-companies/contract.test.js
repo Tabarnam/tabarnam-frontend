@@ -2676,3 +2676,178 @@ test("head-noun match survives a qualifier+noun query without the qualifier", ()
   assert.ok(bo > em, `full both-word match (${bo}) ranks above head-noun-only (${em})`);
   assert.ok(em > co, `head-noun "emblem" match (${em}) ranks above qualifier-only "custom" (${co})`);
 });
+
+// ── brand-name recovery gate ("natrulo tallow soap" hole) ────────────────────
+// A "brand + product qualifier" query leads with the brand, then a product. The
+// gate pins the named brand to the top when the query leads with the company's
+// leading name token AND that token is distinctive corpus-wide (ABSENT from the
+// typo-correction `terms` map = appears in < MIN_COMPANIES_PER_TOKEN companies).
+// A common leading word ("soap", present in `terms`) must NOT pin.
+
+// Corpus of three soap makers, all tagged tallow+soap. "natrulo" is coined
+// (never seeded into `terms`); "soap"/"tallow" are common (seeded). The lenient
+// responder returns all three for any retrieval so they compete on score.
+const _SOAP_CORPUS = [
+  { id: "n1", company_id: "n1", company_name: "Natrulo Truly Natural", normalized_domain: "natrulo.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
+  { id: "c1", company_id: "c1", company_name: "Cali Handmade Soaps", normalized_domain: "calisoaps.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
+  { id: "s1", company_id: "s1", company_name: "Summer Solace Tallow", normalized_domain: "summersolace.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
+];
+// `terms` keys = the corpus-frequency dictionary. Common product words present;
+// the coined brand "natrulo" deliberately absent.
+const _SOAP_INDEX_DOC = {
+  id: "_index_industry_affinity",
+  normalized_domain: "_index",
+  type: "industry_affinity_index",
+  terms: { soap: { soap: 1 }, soaps: { soap: 1 }, tallow: { soap: 1 }, natural: { soap: 1 }, handmade: { soap: 1 }, solace: { soap: 1 }, summer: { soap: 1 } },
+};
+
+test("brand-name gate: distinctive brand + product qualifier pins the named brand #1", async () => {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+  const companiesContainer = makeContainer(async () => _SOAP_CORPUS, { indexDoc: _SOAP_INDEX_DOC });
+  await warmTypoDictionary(companiesContainer);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=natrulo%20tallow%20soap&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const items = JSON.parse(res.body).items;
+  assert.equal(items[0].normalized_domain, "natrulo.com", "the named brand must lead");
+  assert.equal(items[0]._matchType, "brand_name", "and be pinned by the brand-name gate");
+});
+
+test("brand-name gate: a COMMON leading word does not pin (no false positive)", async () => {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+  // Add a company that LEADS with the common word "soap".
+  const corpus = [
+    ..._SOAP_CORPUS,
+    { id: "sk1", company_id: "sk1", company_name: "Soap Kitchen", normalized_domain: "soapkitchen.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
+  ];
+  const companiesContainer = makeContainer(async () => corpus, { indexDoc: _SOAP_INDEX_DOC });
+  await warmTypoDictionary(companiesContainer);
+
+  // "soap tallow": both words common; no distinctive lead, no ≥2-token brand
+  // prefix → the gate must fire on nothing.
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=soap%20tallow&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const items = JSON.parse(res.body).items;
+  assert.ok(
+    items.every((i) => i._matchType !== "brand_name"),
+    `no company should be brand-name pinned for a common-word query; got ${items.filter((i) => i._matchType === "brand_name").map((i) => i.normalized_domain).join(", ")}`
+  );
+});
+
+// ── brand-name gate NON-INTERFERENCE with other session fixes ────────────────
+// The gate is purely additive: it only ever sets _matchType/_score on a row it
+// pins, and touches nothing else. So "does the gate change query X?" reduces to
+// "does it pin anyone for X?" — provable by running the REAL handler with the
+// gate flag ON vs OFF and asserting byte-identical output. These lock in that
+// the gate leaves the earlier session fixes (synonym expansion, head-noun
+// softening, pasted-URL domain search, typo protection) untouched.
+
+async function _itemsWithGate(url, container, enabled) {
+  const prev = process.env.BRAND_NAME_GATE_ENABLED;
+  process.env.BRAND_NAME_GATE_ENABLED = enabled ? "true" : "false";
+  try {
+    const res = await _test.searchCompaniesHandler(makeReq(url), { log() {} }, { companiesContainer: container, useFTS: false });
+    assert.equal(res.status, 200);
+    return JSON.parse(res.body).items;
+  } finally {
+    if (prev === undefined) delete process.env.BRAND_NAME_GATE_ENABLED;
+    else process.env.BRAND_NAME_GATE_ENABLED = prev;
+  }
+}
+// Common category words seeded as corpus-frequent; NO coined brand token here.
+const _NEUTRAL_TERMS_DOC = {
+  id: "_index_industry_affinity", normalized_domain: "_index", type: "industry_affinity_index",
+  terms: Object.fromEntries(["phone", "holder", "mount", "stand", "custom", "emblem", "emblems",
+    "pillow", "pillows", "soap", "tallow", "natural"].map((t) => [t, { x: 1 }])),
+};
+
+async function _assertGateInert(url, corpus, indexDoc = _NEUTRAL_TERMS_DOC) {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+  const container = makeContainer(async () => corpus, { indexDoc });
+  await warmTypoDictionary(container);
+  const off = await _itemsWithGate(url, container, false);
+  const on = await _itemsWithGate(url, container, true);
+  assert.equal(JSON.stringify(on), JSON.stringify(off),
+    `gate must not alter results for ${url}; a difference means it interfered`);
+  assert.ok(on.every((i) => i._matchType !== "brand_name"), "no brand-name pin expected here");
+  return on;
+}
+
+test("gate non-interference: synonym category query ('phone holder') unchanged", async () => {
+  // A phone-mount pool, including a company that LEADS with the common word
+  // "phone" — the gate must still decline (2-token needs a qualifier; "phone"
+  // is corpus-common so no 1-token pin).
+  const corpus = [
+    { id: "a", company_id: "a", company_name: "PopSockets", normalized_domain: "popsockets.com", keywords: ["phone holder", "phone grip"], industries: ["Accessories"], _ts: 1700000000 },
+    { id: "b", company_id: "b", company_name: "Phone Mount Co", normalized_domain: "phonemount.com", keywords: ["phone mount", "phone stand"], industries: ["Accessories"], _ts: 1700000000 },
+  ];
+  await _assertGateInert("https://example.test/api/search-companies?q=phone%20holder&take=10", corpus);
+});
+
+test("gate non-interference: head-noun query ('custom emblem') unchanged", async () => {
+  const corpus = [
+    { id: "a", company_id: "a", company_name: "Main Event Emblems", normalized_domain: "mainevent.com", keywords: ["emblem", "emblems"], industries: ["Emblems"], _ts: 1700000000 },
+    { id: "b", company_id: "b", company_name: "Custom Emblem Pros", normalized_domain: "customemblem.com", keywords: ["custom emblem", "emblem"], industries: ["Emblems"], _ts: 1700000000 },
+  ];
+  // "custom emblem" is 2 tokens with no trailing qualifier → 2-token path needs
+  // ≥3, and "custom" is corpus-common → no 1-token. Gate stays inert even though
+  // "Custom Emblem Pros" leads with [custom, emblem].
+  await _assertGateInert("https://example.test/api/search-companies?q=custom%20emblem&take=10", corpus);
+});
+
+test("gate non-interference: single-word (typo-prone) brand query unchanged", async () => {
+  // A single-word query can't have a "brand + qualifier" shape (qLead length 1),
+  // so the gate never fires — typo protection / exact-name paths are untouched.
+  const corpus = [
+    { id: "a", company_id: "a", company_name: "Pillowz", normalized_domain: "pillowz.com", keywords: ["pillow", "bedding"], industries: ["Bedding"], _ts: 1700000000 },
+  ];
+  await _assertGateInert("https://example.test/api/search-companies?q=pillowz&take=10", corpus);
+});
+
+test("gate non-interference: pasted-URL domain search keeps its website pin", async () => {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+  const corpus = [
+    { id: "n1", company_id: "n1", company_name: "Natrulo Truly Natural", normalized_domain: "natrulo.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
+  ];
+  const container = makeContainer(async () => corpus, { indexDoc: _NEUTRAL_TERMS_DOC });
+  await warmTypoDictionary(container);
+  // ?domain= short-circuits to domain-only retrieval; that row is pinned
+  // _matchType "website" and `continue`s before the brand-name gate.
+  const url = "https://example.test/api/search-companies?domain=natrulo.com&q=natrulo.com&take=10";
+  const off = await _itemsWithGate(url, container, false);
+  const on = await _itemsWithGate(url, container, true);
+  assert.equal(JSON.stringify(on), JSON.stringify(off), "gate must not touch a domain search");
+  assert.equal(on[0]._matchType, "website", "domain pin preserved");
+});
+
+test("gate + dedup/family: pinned brand keeps its same-domain sibling clustered", async () => {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+  // Parent + a DISTINCT sub-brand on the SAME domain (kept by name-aware dedup),
+  // plus soap competitors. "natrulo" is coined (absent from terms).
+  const corpus = [
+    { id: "n1", company_id: "n1", company_name: "Natrulo Truly Natural", normalized_domain: "natrulo.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
+    { id: "n2", company_id: "n2", company_name: "Natrulo Kids", normalized_domain: "natrulo.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
+    { id: "c1", company_id: "c1", company_name: "Cali Handmade Soaps", normalized_domain: "calisoaps.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
+  ];
+  const container = makeContainer(async () => corpus, { indexDoc: _NEUTRAL_TERMS_DOC });
+  await warmTypoDictionary(container);
+  const items = await _itemsWithGate("https://example.test/api/search-companies?q=natrulo%20tallow%20soap&take=10", container, true);
+  assert.equal(items[0].normalized_domain, "natrulo.com", "pinned brand leads");
+  assert.equal(items[0]._matchType, "brand_name");
+  // The same-domain sub-brand must cluster immediately after the parent, not be
+  // scattered below the competitor.
+  assert.equal(items[1].normalized_domain, "natrulo.com", "same-domain sibling stays clustered under the pinned parent");
+});

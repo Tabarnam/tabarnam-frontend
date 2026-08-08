@@ -228,6 +228,12 @@ async function getDictionary(container) {
       const buckets = buildBuckets(terms);
       _dictCache = {
         buckets,
+        // The kept term map itself (token → count/affinity). Retained so callers
+        // can test corpus frequency: a token PRESENT here appears in ≥
+        // MIN_COMPANIES_PER_TOKEN companies (common); ABSENT means rare/coined.
+        // search-companies' brand-name recovery gate uses this as its
+        // distinctiveness signal.
+        terms,
         nameTokens: nameTokens || new Set(),
         termCount,
         nameTokenCount: nameTokens ? nameTokens.size : 0,
