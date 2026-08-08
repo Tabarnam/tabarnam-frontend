@@ -77,15 +77,13 @@ const timerHandler = async (_myTimer, context) => {
 };
 
 if (IS_DEDICATED_WORKER) {
+  // NOTE 2026-08-07: timers never execute on this Flex app even when freshly
+  // registered, correctly indexed (verified 5-min schedule), and synced to the
+  // scale controller — platform-level defect. Registration kept in case the
+  // platform heals, but do NOT rely on it: the weekly cleanup needs an external
+  // scheduler hitting xadmin-api-cleanup-import-control until this is resolved.
   app.timer("cleanup-import-control-timer", {
     schedule: "0 0 9 * * 0",
-    handler: timerHandler,
-  });
-
-  // TEMP smoke-test registration — same handler under a fresh name so the
-  // platform indexes a 5-min schedule. REMOVE after the first observed fire.
-  app.timer("cleanup-import-control-smoketest", {
-    schedule: "0 */5 * * * *",
     handler: timerHandler,
   });
 }
