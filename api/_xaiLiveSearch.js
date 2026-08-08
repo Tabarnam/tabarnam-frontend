@@ -1029,10 +1029,21 @@ async function xaiLiveSearchStreaming({
           // response.completed contains the full output array
           if (eventType === "response.completed" || (parsed.type === "response.completed")) {
             completedResponse = parsed.response || parsed;
+            const usage = completedResponse?.usage || null;
             console.log(`[xaiLiveSearchStreaming] response.completed received`, {
               elapsed_ms: Date.now() - startedAt,
               tool_calls: toolCalls,
               accumulated_text_chars: accumulatedText.length,
+              // Billing-relevant usage from the API, so per-call cost is
+              // measurable from logs instead of estimated.
+              usage: usage
+                ? {
+                    input_tokens: usage.input_tokens ?? null,
+                    cached_input_tokens: usage.input_tokens_details?.cached_tokens ?? null,
+                    output_tokens: usage.output_tokens ?? null,
+                    num_sources_used: usage.num_sources_used ?? null,
+                  }
+                : null,
             });
             break reading;
           }
