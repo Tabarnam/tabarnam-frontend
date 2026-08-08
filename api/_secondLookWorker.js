@@ -308,15 +308,19 @@ async function processSecondLook(queueMessage, context) {
     diagnostics: result.diagnostics || null,
   };
 
-  // The second look is the designated last-resort pass (single attempt by
-  // design). A field it conclusively failed gets a terminal missing-reason so
-  // the import-status resume orchestration stops re-searching it in the same
-  // session — otherwise canonical retries burn identical web searches on a
-  // field two passes already failed (observed: Stryde mfg, 2026-08-08).
-  // Admin refresh flows force re-enrichment regardless of missing-reasons,
-  // so this does not block deliberate re-fetches later.
+  // A field the second look conclusively failed goes terminal ONLY when a
+  // canonical retry has ALSO already failed it (>=2 canonical attempts).
+  // The canonical retry with mfg-category-inference rescues fields the
+  // verbatim prompt shrugs at (Undersun/Perform Better mfg went 2-for-2 on
+  // 2026-08-07) — stamping on the first miss suppressed that rescue and cost
+  // PrettyLitter its mfg (2026-08-08). With one attempt on the books the
+  // field stays retryable; after two failed canonical passes plus a failed
+  // second look, further searches are churn (Stryde) and the stamp stops
+  // them. Admin refresh flows force re-enrichment regardless.
   const { isTerminalMissingReason } = require("./_requiredFields");
   for (const f of doc.second_look.fields_still_missing) {
+    const canonicalAttempts = Number(doc.import_attempts?.[f] || 0);
+    if (canonicalAttempts < 2) continue;
     doc.import_missing_reason ||= {};
     const existing = String(doc.import_missing_reason[f] || "").trim();
     if (!isTerminalMissingReason(existing)) {
