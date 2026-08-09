@@ -225,6 +225,65 @@ function clearPastedQueueFromStorage() {
   clearQueueFromStorage(getStorage("session"), PASTED_QUEUE_STORAGE_KEY);
 }
 
+// Pipeline-status banner — answers "is it safe to start a new import series?"
+// before the operator clicks Start. Queued work (second looks on the resume
+// queue) survives a new import, but a previous session's poll-driven retry
+// tail stops once its page stops polling — so the banner asks for idle.
+function PipelineStatusBanner() {
+  const [status, setStatus] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await apiFetchParsed("/import-pipeline-status", { method: "GET" });
+        if (!cancelled && r?.data?.ok) setStatus(r.data);
+      } catch {
+        /* banner is advisory — stay quiet on fetch errors */
+      }
+    };
+    poll();
+    const t = setInterval(poll, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
+
+  if (!status) return null;
+
+  const { verdict, queue_depth, second_look_pending_count, second_look_pending_names } = status;
+  const tone =
+    verdict === "idle"
+      ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+      : verdict === "importing"
+        ? "border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-600 dark:bg-sky-950/40 dark:text-sky-200"
+        : "border-violet-300 bg-violet-50 text-violet-900 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-200";
+  const dot =
+    verdict === "idle" ? "bg-emerald-500" : verdict === "importing" ? "bg-sky-500 animate-pulse" : "bg-violet-500 animate-pulse";
+
+  const label =
+    verdict === "idle"
+      ? "Pipeline idle — safe to start a new import."
+      : verdict === "importing"
+        ? "Import in progress — wait for it to finish before starting another series."
+        : `Still enriching from earlier imports (${second_look_pending_count} pending second look${second_look_pending_count === 1 ? "" : "s"}${queue_depth ? `, ${queue_depth} queued job${queue_depth === 1 ? "" : "s"}` : ""}) — queued work survives a new import, but waiting lets retries finish.`;
+
+  const names = verdict === "enriching" && Array.isArray(second_look_pending_names) && second_look_pending_names.length > 0
+    ? second_look_pending_names.join(", ")
+    : "";
+
+  return (
+    <div className={`flex items-start gap-2 rounded-lg border px-4 py-3 text-sm ${tone}`}>
+      <span className={`mt-1 h-2.5 w-2.5 flex-none rounded-full ${dot}`} />
+      <div>
+        <div>{label}</div>
+        {names ? <div className="mt-0.5 text-xs opacity-80">Enriching: {names}</div> : null}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminImport() {
   const [query, setQuery] = useState("");
   const [companyUrl, setCompanyUrl] = useState("");
@@ -5571,6 +5630,8 @@ export default function AdminImport() {
             <h1 className="text-3xl font-bold text-slate-900 dark:text-foreground">Company Import</h1>
             <p className="text-sm text-slate-600 dark:text-muted-foreground">Start an import session and poll progress until it completes.</p>
           </header>
+
+          <PipelineStatusBanner />
 
           <StatusAlerts
             activeRun={activeRun}

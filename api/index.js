@@ -253,6 +253,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: import-pipeline-status");
+  require("./import-pipeline-status/index.js");
+} catch (e) {
+  console.error("[api] Failed to load import-pipeline-status:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: mfg-backfill-worker");
   require("./mfg-backfill-worker/index.js");
 } catch (e) {
