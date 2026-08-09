@@ -88,7 +88,13 @@ export default function StatusAlerts({
                 }
 
                 if (stageBeacon) {
-                  return toEnglishImportStage(stageBeacon);
+                  const stageText = toEnglishImportStage(stageBeacon);
+                  // This card only renders while the run is still live — a
+                  // bare "Complete" headline here (stage done, session still
+                  // finalizing) contradicts the red traffic light above it.
+                  return /^complete/i.test(String(stageText).trim())
+                    ? "Wrapping up — finalizing session…"
+                    : stageText;
                 }
 
                 if (savedCount > 0) {

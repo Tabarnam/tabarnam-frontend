@@ -229,7 +229,7 @@ function clearPastedQueueFromStorage() {
 // before the operator clicks Start. Queued work (second looks on the resume
 // queue) survives a new import, but a previous session's poll-driven retry
 // tail stops once its page stops polling — so the banner asks for idle.
-function PipelineStatusBanner({ localImporting = false }) {
+function PipelineStatusBanner({ localImporting = false, localCompany = "" }) {
   const [status, setStatus] = useState(null);
 
   useEffect(() => {
@@ -274,8 +274,8 @@ function PipelineStatusBanner({ localImporting = false }) {
     verdict === "idle"
       ? "All clear — safe to start a new import."
       : verdict === "importing"
-        ? "Importing — don't start a new series yet. Details below."
-        : `Finishing enrichment from the last import (${second_look_pending_count} compan${second_look_pending_count === 1 ? "y" : "ies"} still filling fields${queue_depth ? `, ${queue_depth} queued job${queue_depth === 1 ? "" : "s"}` : ""}) — best to wait for green.`;
+        ? `Importing${localCompany ? ` ${localCompany}` : ""} — don't start a new series yet.`
+        : "Finishing enrichment from the last import — best to wait for green.";
 
   // The actual queued work, peeked from the resume queue — rendered as a
   // shrinking list so the operator can see what's left and gauge time
@@ -5665,6 +5665,11 @@ export default function AdminImport() {
               activeStatus === "running" ||
               activeStatus === "stopping" ||
               (successionIndex >= 0 && successionIndex < successionQueue.length)
+            }
+            localCompany={
+              activeRun?.saved_companies?.[0]?.company_name ||
+              activeRun?.items?.[0]?.company_name ||
+              ""
             }
           />
 
