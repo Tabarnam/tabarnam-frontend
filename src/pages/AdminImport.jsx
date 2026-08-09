@@ -108,6 +108,21 @@ async function apiFetchWithFallback(paths, init) {
   return { res: lastRes, usedPath: join(API_BASE || "", lastPath) };
 }
 
+// Bare registrable host for display: "level.co" from "https://level.co/".
+// Used to show the URL a name-similarity match actually points at, so the
+// admin can tell "Level (level.co)" from "Next Level Apparel
+// (nextlevelapparel.com)" without opening the existing record.
+function displayDomain(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return new URL(withScheme).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return raw.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase();
+  }
+}
+
 // Phase 4.30 — persist pasted-queue rows across the SWA silent-auth-refresh
 // redirect.
 //
@@ -6207,6 +6222,27 @@ export default function AdminImport() {
                                     {pfResult.match.normalized_domain}
                                   </span>
                                 ) : null}
+                                {/* Name match: the two records can still be
+                                    different companies sharing a name (Cove
+                                    home security vs Cove USA). Show both
+                                    domains so the admin can judge before
+                                    choosing force-new. */}
+                                {dupBasis.basis === "name" ? (() => {
+                                  const existingDomain = displayDomain(pfResult.match?.normalized_domain);
+                                  const yourDomain = displayDomain(row.companyUrl);
+                                  if (!existingDomain || !yourDomain || existingDomain === yourDomain) return null;
+                                  return (
+                                    <span
+                                      className="text-[11px] leading-tight text-red-700 dark:text-red-400/90"
+                                      title={`Existing record: ${existingDomain} — this row: ${yourDomain}`}
+                                    >
+                                      <span className="opacity-60">existing</span> {existingDomain}
+                                      <br />
+                                      <span className="opacity-60">this row</span> {yourDomain}
+                                      <span className="ml-1 font-medium">≠</span>
+                                    </span>
+                                  );
+                                })() : null}
                                 <a
                                   href={`/admin?company_id=${encodeURIComponent(pfResult.match?.id || "")}`}
                                   target="_blank"
@@ -6261,6 +6297,29 @@ export default function AdminImport() {
                                     ? `URL (${pfResult.match?.normalized_domain || "similar domain"})`
                                     : pfResult.match?.match_type || "match"}
                               </span>
+                              {/* A name-based match says nothing about the
+                                  websites — show both domains so the admin can
+                                  tell a real duplicate from a coincidence
+                                  (Level/level.co vs Next Level Apparel/
+                                  nextlevelapparel.com). Only rendered when the
+                                  two differ; identical domains would have
+                                  matched exactly instead. */}
+                              {(() => {
+                                const existingDomain = displayDomain(pfResult.match?.normalized_domain);
+                                const yourDomain = displayDomain(row.companyUrl);
+                                if (!existingDomain || !yourDomain || existingDomain === yourDomain) return null;
+                                return (
+                                  <span
+                                    className="text-xs leading-tight text-amber-700 dark:text-amber-400/90"
+                                    title={`Existing record: ${existingDomain} — this row: ${yourDomain}`}
+                                  >
+                                    <span className="opacity-60">existing</span> {existingDomain}
+                                    <br />
+                                    <span className="opacity-60">this row</span> {yourDomain}
+                                    <span className="ml-1 font-medium">≠</span>
+                                  </span>
+                                );
+                              })()}
                               <button
                                 type="button"
                                 className="text-xs text-red-600 dark:text-red-400 hover:underline text-left"
