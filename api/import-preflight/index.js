@@ -106,8 +106,25 @@ async function findFuzzyNameMatch(container, companyName) {
 
 // ── Domain substring match (Tier 3) ─────────────────────────────────────────
 
+// The registrable label of a domain — "plex" for watch.plex.tv, not "watch".
+// Naive split(".")[0] took the SUBDOMAIN, so watch.plex.tv produced core
+// "watch" and CONTAINS matched inside "mouthwatchers.com" (observed
+// 2026-08-09: Plex flagged as a possible match for Mouth Watchers).
+const GENERIC_SLDS = new Set(["co", "com", "net", "org", "gov", "ac", "edu"]);
+function coreLabelOf(domain) {
+  const labels = String(domain || "").toLowerCase().split(".").filter(Boolean);
+  if (labels.length < 2) return labels[0] || "";
+  let core = labels[labels.length - 2];
+  if (GENERIC_SLDS.has(core) && labels.length >= 3) core = labels[labels.length - 3];
+  return core;
+}
+
+function domainTokens(domain) {
+  return String(domain || "").toLowerCase().split(/[.\-]/).filter(Boolean);
+}
+
 async function findDomainSubstringMatch(container, normalizedDomain) {
-  const coreName = normalizedDomain.split(".")[0];
+  const coreName = coreLabelOf(normalizedDomain);
   if (!coreName || coreName.length < 3) return null;
 
   const notDeletedClause = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
@@ -132,7 +149,13 @@ async function findDomainSubstringMatch(container, normalizedDomain) {
 
   if (!Array.isArray(resources) || resources.length === 0) return null;
 
-  const best = resources[0];
+  // CONTAINS matches inside words ("watch" ⊂ "mouthwatchers"). Only accept
+  // candidates whose domain carries the core as a WHOLE label/token —
+  // shop.plex.tv, plex-store.com yes; mouthwatchers.com no.
+  const wholeTokenMatches = resources.filter((r) => domainTokens(r.normalized_domain).includes(coreName));
+  if (wholeTokenMatches.length === 0) return null;
+
+  const best = wholeTokenMatches[0];
   return {
     id: best.id,
     company_name: best.company_name || "",

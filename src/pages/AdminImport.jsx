@@ -6467,150 +6467,6 @@ export default function AdminImport() {
               </label>
             ) : null}
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Query types</div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {[
-                  { key: "product_keyword", label: "Product" },
-                  { key: "company_name", label: "Company name" },
-                  { key: "company_url", label: "Company URL/domain" },
-                  { key: "industry", label: "Industry" },
-                  { key: "hq_country", label: "HQ country" },
-                  { key: "manufacturing_country", label: "Manufacturing country" },
-                ].map((opt) => (
-                  <label
-                    key={opt.key}
-                    className="flex items-center gap-2 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-sm text-slate-800 dark:text-foreground"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={queryTypes.includes(opt.key)}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setQueryTypes((prev) => {
-                          const list = Array.isArray(prev) ? prev : [];
-                          if (checked) return Array.from(new Set([...list, opt.key]));
-                          const next = list.filter((v) => v !== opt.key);
-                          return next.length > 0 ? next : [isUrlLikeQuery ? "company_url" : "product_keyword"];
-                        });
-                      }}
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-              {isNamePlusUrlMode ? (
-                <div className="text-xs text-emerald-700">Name + URL provided — query types auto-selected for best results.</div>
-              ) : urlTypeValidationError ? (
-                <div className="text-xs text-red-700">{urlTypeValidationError}</div>
-              ) : (
-                <div className="text-xs text-slate-600 dark:text-muted-foreground">If you provide a location, results that match it are ranked higher.</div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Fields to enrich</div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {ENRICH_FIELDS_OPTIONS.map((opt) => {
-                  const costColor =
-                    opt.cost === "highest" ? "text-red-500" :
-                    opt.cost === "high" ? "text-orange-500" :
-                    opt.cost === "medium" ? "text-yellow-500" :
-                    "text-emerald-500";
-                  const costDots =
-                    opt.cost === "highest" ? 4 :
-                    opt.cost === "high" ? 3 :
-                    opt.cost === "medium" ? 2 : 1;
-                  return (
-                    <label
-                      key={opt.key}
-                      className="flex items-center gap-2 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-sm text-slate-800 dark:text-foreground"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={enrichFields.includes(opt.key)}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setEnrichFields((prev) => {
-                            const list = Array.isArray(prev) ? prev : [];
-                            if (checked) return Array.from(new Set([...list, opt.key]));
-                            const next = list.filter((v) => v !== opt.key);
-                            return next.length > 0 ? next : [opt.key]; // prevent empty
-                          });
-                        }}
-                      />
-                      <span className="flex-1">{opt.label}</span>
-                      <span className={`${costColor} text-xs leading-none`} title={`xAI cost: ${opt.cost}`}>
-                        {"●".repeat(costDots)}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-              <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-muted-foreground">
-                <button
-                  type="button"
-                  className="underline hover:text-slate-700 dark:hover:text-foreground"
-                  onClick={() => {
-                    const allSelected = ALL_ENRICH_FIELD_KEYS.every((k) => enrichFields.includes(k));
-                    setEnrichFields(allSelected ? [] : [...ALL_ENRICH_FIELD_KEYS]);
-                  }}
-                >
-                  {ALL_ENRICH_FIELD_KEYS.every((k) => enrichFields.includes(k)) ? "Deselect all" : "Select all"}
-                </button>
-                <span className="ml-auto flex items-center gap-1.5">
-                  <span className="text-emerald-500">●</span>low
-                  <span className="text-yellow-500">●●</span>med
-                  <span className="text-orange-500">●●●</span>high
-                  <span className="text-red-500">●●●●</span>highest
-                </span>
-              </div>
-            </div>
-
-            <details className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
-              <summary className="cursor-pointer select-none text-sm font-medium text-slate-800 dark:text-foreground">Advanced import config</summary>
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-3 text-xs text-slate-600 dark:text-muted-foreground space-y-1">
-                  <div>
-                    <span className="font-semibold">Safety rule:</span> the initial “Start import” call always sends max_stage=expand, skip_stages=(none),
-                    dry_run=false.
-                  </div>
-                  <div>
-                    If the first call returns 202 (async primary), the UI will poll /api/import/status until it receives a non-empty seed company list,
-                    then resume with skip_stages=primary <span className="font-semibold">and</span> companies=[...].
-                  </div>
-                </div>
-              </div>
-            </details>
-
-            <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-xs text-slate-700 dark:text-muted-foreground space-y-1">
-              <div>
-                <span className="font-semibold">Pipeline:</span> {effectiveImportConfig.pipeline}
-              </div>
-              <div>
-                <span className="font-semibold">Overrides:</span> {effectiveImportConfig.overridesLabel}
-              </div>
-              <div>
-                <span className="font-semibold">Effective request:</span> max_stage={effectiveImportConfig.maxStage}; skip_stages=
-                {effectiveImportConfig.skipStages.length > 0 ? effectiveImportConfig.skipStages.join(",") : "(none)"}; dry_run=
-                {effectiveImportConfig.dryRun ? "true" : "false"}
-              </div>
-              <div>
-                <span className="font-semibold">Resume debug:</span> resume_allowed:{" "}
-                {activeRun && ((Array.isArray(activeRun.items) && activeRun.items.length > 0) || (Array.isArray(activeRun.saved_companies) && activeRun.saved_companies.length > 0))
-                  ? "true"
-                  : "false"} (seeded_companies_count=
-                {activeRun
-                  ? Array.isArray(activeRun.items) && activeRun.items.length > 0
-                    ? activeRun.items.length
-                    : Array.isArray(activeRun.saved_companies)
-                      ? activeRun.saved_companies.length
-                      : 0
-                  : 0}
-                )
-              </div>
-            </div>
-
             {skipEnrichmentWarning ? (
               <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 mt-0.5" />
@@ -7083,6 +6939,151 @@ export default function AdminImport() {
             <React.Suspense fallback={null}>
               <RecentActivityPanel ref={recentActivityRef} />
             </React.Suspense>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Query types</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {[
+                  { key: "product_keyword", label: "Product" },
+                  { key: "company_name", label: "Company name" },
+                  { key: "company_url", label: "Company URL/domain" },
+                  { key: "industry", label: "Industry" },
+                  { key: "hq_country", label: "HQ country" },
+                  { key: "manufacturing_country", label: "Manufacturing country" },
+                ].map((opt) => (
+                  <label
+                    key={opt.key}
+                    className="flex items-center gap-2 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-sm text-slate-800 dark:text-foreground"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={queryTypes.includes(opt.key)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setQueryTypes((prev) => {
+                          const list = Array.isArray(prev) ? prev : [];
+                          if (checked) return Array.from(new Set([...list, opt.key]));
+                          const next = list.filter((v) => v !== opt.key);
+                          return next.length > 0 ? next : [isUrlLikeQuery ? "company_url" : "product_keyword"];
+                        });
+                      }}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              {isNamePlusUrlMode ? (
+                <div className="text-xs text-emerald-700">Name + URL provided — query types auto-selected for best results.</div>
+              ) : urlTypeValidationError ? (
+                <div className="text-xs text-red-700">{urlTypeValidationError}</div>
+              ) : (
+                <div className="text-xs text-slate-600 dark:text-muted-foreground">If you provide a location, results that match it are ranked higher.</div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-700 dark:text-muted-foreground">Fields to enrich</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {ENRICH_FIELDS_OPTIONS.map((opt) => {
+                  const costColor =
+                    opt.cost === "highest" ? "text-red-500" :
+                    opt.cost === "high" ? "text-orange-500" :
+                    opt.cost === "medium" ? "text-yellow-500" :
+                    "text-emerald-500";
+                  const costDots =
+                    opt.cost === "highest" ? 4 :
+                    opt.cost === "high" ? 3 :
+                    opt.cost === "medium" ? 2 : 1;
+                  return (
+                    <label
+                      key={opt.key}
+                      className="flex items-center gap-2 rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-sm text-slate-800 dark:text-foreground"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={enrichFields.includes(opt.key)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEnrichFields((prev) => {
+                            const list = Array.isArray(prev) ? prev : [];
+                            if (checked) return Array.from(new Set([...list, opt.key]));
+                            const next = list.filter((v) => v !== opt.key);
+                            return next.length > 0 ? next : [opt.key]; // prevent empty
+                          });
+                        }}
+                      />
+                      <span className="flex-1">{opt.label}</span>
+                      <span className={`${costColor} text-xs leading-none`} title={`xAI cost: ${opt.cost}`}>
+                        {"●".repeat(costDots)}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-muted-foreground">
+                <button
+                  type="button"
+                  className="underline hover:text-slate-700 dark:hover:text-foreground"
+                  onClick={() => {
+                    const allSelected = ALL_ENRICH_FIELD_KEYS.every((k) => enrichFields.includes(k));
+                    setEnrichFields(allSelected ? [] : [...ALL_ENRICH_FIELD_KEYS]);
+                  }}
+                >
+                  {ALL_ENRICH_FIELD_KEYS.every((k) => enrichFields.includes(k)) ? "Deselect all" : "Select all"}
+                </button>
+                <span className="ml-auto flex items-center gap-1.5">
+                  <span className="text-emerald-500">●</span>low
+                  <span className="text-yellow-500">●●</span>med
+                  <span className="text-orange-500">●●●</span>high
+                  <span className="text-red-500">●●●●</span>highest
+                </span>
+              </div>
+            </div>
+
+            <details className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
+              <summary className="cursor-pointer select-none text-sm font-medium text-slate-800 dark:text-foreground">Advanced import config</summary>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-3 text-xs text-slate-600 dark:text-muted-foreground space-y-1">
+                  <div>
+                    <span className="font-semibold">Safety rule:</span> the initial “Start import” call always sends max_stage=expand, skip_stages=(none),
+                    dry_run=false.
+                  </div>
+                  <div>
+                    If the first call returns 202 (async primary), the UI will poll /api/import/status until it receives a non-empty seed company list,
+                    then resume with skip_stages=primary <span className="font-semibold">and</span> companies=[...].
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <div className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-3 py-2 text-xs text-slate-700 dark:text-muted-foreground space-y-1">
+              <div>
+                <span className="font-semibold">Pipeline:</span> {effectiveImportConfig.pipeline}
+              </div>
+              <div>
+                <span className="font-semibold">Overrides:</span> {effectiveImportConfig.overridesLabel}
+              </div>
+              <div>
+                <span className="font-semibold">Effective request:</span> max_stage={effectiveImportConfig.maxStage}; skip_stages=
+                {effectiveImportConfig.skipStages.length > 0 ? effectiveImportConfig.skipStages.join(",") : "(none)"}; dry_run=
+                {effectiveImportConfig.dryRun ? "true" : "false"}
+              </div>
+              <div>
+                <span className="font-semibold">Resume debug:</span> resume_allowed:{" "}
+                {activeRun && ((Array.isArray(activeRun.items) && activeRun.items.length > 0) || (Array.isArray(activeRun.saved_companies) && activeRun.saved_companies.length > 0))
+                  ? "true"
+                  : "false"} (seeded_companies_count=
+                {activeRun
+                  ? Array.isArray(activeRun.items) && activeRun.items.length > 0
+                    ? activeRun.items.length
+                    : Array.isArray(activeRun.saved_companies)
+                      ? activeRun.saved_companies.length
+                      : 0
+                  : 0}
+                )
+              </div>
+            </div>
+
 
             {activeAsyncPrimaryMessage ? (
               <div className="rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 px-3 py-2 text-sm text-blue-900 dark:text-blue-200">
