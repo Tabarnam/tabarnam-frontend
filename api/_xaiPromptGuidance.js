@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "9.12.0-mfg-customs-records-probe";
+const PROMPT_GUIDANCE_VERSION = "9.12.1-mfg-hq-echo-guard";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -490,6 +490,8 @@ Examples of CORRECT values:
 - "Hai Duong, Vietnam"
 
 If a manufacturing fact requires explanation, OMIT it entirely. Emit only the clean location string or []. Each entry must be a single geocodable point on a map.
+
+HQ-echo guard (Phase 4.38, strict): do NOT emit the company's headquarters city/metro as a manufacturing location unless a source EXPLICITLY states products are physically manufactured or assembled there ("made in [HQ city]", "manufactured at our [city] facility", "built in [city]"). "Based in", "designed in", "developed in", "engineered in", or the mere presence of the HQ address do NOT count as manufacturing evidence. Consumer hardware/electronics brands headquartered in tech hubs (e.g. the Bay Area) almost never manufacture at HQ — when the only manufacturing candidate is the HQ city without an explicit production statement, treat manufacturing as undisclosed and run the customs/import-records probe instead.
 
 Country-only is REQUIRED when you have verifiable evidence of the country (via parent company, import records, Wikipedia, press, or multiple sources) but no specific city. Examples: emit "China" if owned by a Chinese parent; emit "South Korea" if multiple sources point to Korea; emit "Germany" if the brand is a subsidiary of a German parent. Empty array [] is reserved ONLY for cases with ZERO verifiable evidence of any country or location after all required searches. Lean toward emitting a verifiable country rather than empty when evidence exists.
 

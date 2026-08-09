@@ -48,7 +48,7 @@ const {
 const { isRealValue } = require("./_requiredFields");
 const { getXAIEndpoint, getXAIKey, DEFAULT_XAI_MODEL } = require("./_shared");
 
-const SECOND_LOOK_VERSION = "1.0.0-grok-prompt-verbatim";
+const SECOND_LOOK_VERSION = "1.1.0-hq-echo-guard-and-customs-probe";
 
 // The six text fields the second look can research (same universe as the
 // canonical call). Logo/amazon/homepage are structurally excluded.
@@ -182,6 +182,14 @@ const FIELD_BLOCKS = {
     "without missing any. Use initials for states or provinces. Use USA, not US. No " +
     "explanatory info — just the locations. If part of a location is unspecified, include only " +
     "what is known. Do not write \"unspecified.\" Separate each location with semicolons. " +
+    "CRITICAL: do NOT list the company's headquarters city as a manufacturing location unless " +
+    "a source explicitly states products are physically manufactured or assembled there " +
+    "(\"made in\", \"manufactured at our [city] facility\"). \"Based in\", \"designed in\", " +
+    "\"developed in\", or \"engineered in\" do NOT count — consumer hardware brands " +
+    "headquartered in tech hubs almost never manufacture there. If no location is explicitly " +
+    "disclosed, search \"[Brand]\" (\"made in China\" OR \"made in USA\" OR \"manufactured in\") " +
+    "— U.S. customs/import records (Panjiva, ImportYeti, Volza) showing a dominant shipment " +
+    "origin country are valid evidence: list that country. " +
     "Format: Manufacturing: City, ST, Country; City2, ST2, Country2",
   industries:
     "Industries: Exhaustive list of all industries, separated by commas. Format: Industries: " +

@@ -531,8 +531,8 @@ test("Phase 4.38: PROMPT_GUIDANCE_VERSION is 9.12.0-mfg-customs-records-probe", 
   //      exist undisclosed.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.12\.0-mfg-customs-records-probe/,
-    "PROMPT_GUIDANCE_VERSION must be 9.12.0-mfg-customs-records-probe for Phase 4.38"
+    /^9\.12\.1-mfg-hq-echo-guard/,
+    "PROMPT_GUIDANCE_VERSION must be 9.12.1-mfg-hq-echo-guard for Phase 4.38"
   );
 });
 
