@@ -121,6 +121,57 @@ export function getProfileGaps(company: any): ProfileGap[] {
   return gaps;
 }
 
+// Missing-field reasons that mean "the pipeline has concluded" — a field in
+// this state is a permanent gap (surfaced via issue chips), not in-flight work.
+const TERMINAL_MISSING_REASONS = new Set([
+  "not_disclosed",
+  "exhausted",
+  "low_quality_terminal",
+  "not_found_terminal",
+  "no_synthesis",
+  "empty",
+  "upstream_timeout_terminal",
+  "second_look_exhausted",
+  "cycle_cap_exhausted",
+]);
+
+// Fields whose absence never means "still importing": amazon_url is
+// admin-entered by design.
+const NON_PIPELINE_FIELDS = new Set(["amazon_url"]);
+
+const FINISHING_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * True while a recently imported company still has non-terminal missing
+ * import-contract fields (e.g. logo retries in flight) — the Profile chip
+ * shows "Finishing…" instead of a final-sounding "Complete". Scoped to a
+ * 24h window after creation so the legacy catalog (old rows with permanent
+ * gaps) is never re-flagged.
+ */
+export function isImportFinishing(company: any): boolean {
+  if (!company || typeof company !== "object") return false;
+
+  const createdAt = Date.parse(asString(company.created_at));
+  if (!Number.isFinite(createdAt) || Date.now() - createdAt > FINISHING_WINDOW_MS) return false;
+
+  const missing: string[] = Array.isArray(company?.enrichment_health?.missing_fields)
+    ? company.enrichment_health.missing_fields
+    : Array.isArray(company?.import_missing_fields)
+      ? company.import_missing_fields
+      : [];
+  if (!missing.length) return false;
+
+  const reasons =
+    company.import_missing_reason && typeof company.import_missing_reason === "object" ? company.import_missing_reason : {};
+
+  return missing.some((f) => {
+    const field = asString(f).trim();
+    if (!field || NON_PIPELINE_FIELDS.has(field)) return false;
+    const reason = asString(reasons[field]).trim().toLowerCase();
+    return !TERMINAL_MISSING_REASONS.has(reason);
+  });
+}
+
 export function getProfileCompletenessLabel(score: number): string {
   const s = Math.max(0, Math.min(100, Math.round(score)));
   if (s >= 85) return "Complete";

@@ -37,6 +37,7 @@ import {
 import {
   getProfileCompleteness,
   getProfileCompletenessLabel,
+  isImportFinishing,
 } from "@/lib/profileCompleteness";
 import { toast } from "@/lib/toast";
 
@@ -774,6 +775,17 @@ export default function AdminImages() {
                 title="A second-look pass is still retrieving missing fields for this company"
               >
                 Enriching…
+              </span>
+            );
+          }
+          if (isImportFinishing(row)) {
+            const s = getProfileCompleteness(row);
+            return (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-300"
+                title="Import finished the text fields; image/logo work is still running"
+              >
+                Finishing… · {s}%
               </span>
             );
           }

@@ -23,7 +23,7 @@ import {
 
 import { calculateInitialRating, normalizeRating } from "@/lib/stars/calculateRating";
 import { getQQScore } from "@/lib/stars/qqRating";
-import { getProfileCompleteness, getProfileCompletenessLabel, getProfileGaps } from "@/lib/profileCompleteness";
+import { getProfileCompleteness, getProfileCompletenessLabel, getProfileGaps, isImportFinishing } from "@/lib/profileCompleteness";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import AdminHeader from "@/components/AdminHeader";
@@ -3870,6 +3870,23 @@ export default function CompanyDashboard() {
               >
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Enriching…
+              </span>
+            );
+          }
+
+          // A fresh import with non-terminal missing contract fields (e.g.
+          // logo retries in flight) is not done — "Complete · 95%" next to an
+          // Import page saying "still need: logo" reads as two systems
+          // disagreeing. One definition of done, everywhere.
+          if (isImportFinishing(row)) {
+            const s = getProfileCompleteness(row);
+            return (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-300"
+                title="Import finished the text fields; image/logo work is still running"
+              >
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Finishing… · {s}%
               </span>
             );
           }
