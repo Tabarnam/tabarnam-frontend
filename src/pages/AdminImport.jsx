@@ -229,7 +229,7 @@ function clearPastedQueueFromStorage() {
 // before the operator clicks Start. Queued work (second looks on the resume
 // queue) survives a new import, but a previous session's poll-driven retry
 // tail stops once its page stops polling — so the banner asks for idle.
-function PipelineStatusBanner() {
+function PipelineStatusBanner({ localImporting = false }) {
   const [status, setStatus] = useState(null);
 
   useEffect(() => {
@@ -250,9 +250,15 @@ function PipelineStatusBanner() {
     };
   }, []);
 
-  if (!status) return null;
+  if (!status && !localImporting) return null;
 
-  const { verdict, queue_depth, second_look_pending_count, second_look_pending_names } = status;
+  // The page's own import state overrides the server verdict so the light
+  // turns red the instant Start is clicked, without waiting for a poll
+  // round-trip. Server signals stay authoritative for imports started
+  // elsewhere (another tab, another admin).
+  const serverVerdict = status?.verdict || "idle";
+  const verdict = localImporting ? "importing" : serverVerdict;
+  const { queue_depth, second_look_pending_count, second_look_pending_names } = status || {};
   // Traffic light: red = stop (import running), amber = caution (tail still
   // enriching), green = go.
   const tone =
@@ -5633,7 +5639,13 @@ export default function AdminImport() {
             <p className="text-sm text-slate-600 dark:text-muted-foreground">Start an import session and poll progress until it completes.</p>
           </header>
 
-          <PipelineStatusBanner />
+          <PipelineStatusBanner
+            localImporting={
+              activeStatus === "running" ||
+              activeStatus === "stopping" ||
+              (successionIndex >= 0 && successionIndex < successionQueue.length)
+            }
+          />
 
           <StatusAlerts
             activeRun={activeRun}
