@@ -127,8 +127,12 @@ async function handler(req, context) {
     companies.items
       .query({
         // Single-partition query against the control partition — cheap.
+        // Sessions whose status already reads terminal don't count as
+        // "importing" even when freshly touched: the +10-min safety-net
+        // closer writes the doc at conclusion, and that bookkeeping write
+        // must not re-redden the light.
         query:
-          "SELECT c.id, c._ts, c.stage_beacon FROM c WHERE c.normalized_domain = 'import' AND STARTSWITH(c.id, '_import_session_') AND c._ts >= @cut",
+          "SELECT c.id, c._ts, c.stage_beacon, c.status FROM c WHERE c.normalized_domain = 'import' AND STARTSWITH(c.id, '_import_session_') AND c._ts >= @cut AND (NOT IS_DEFINED(c.status) OR (c.status != 'complete' AND c.status != 'terminal' AND c.status != 'stopped' AND c.status != 'timeout'))",
         parameters: [{ name: "@cut", value: nowSec - 15 * 60 }],
       })
       .fetchAll()

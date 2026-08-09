@@ -78,6 +78,12 @@ export default function StatusAlerts({
 
                 if (resumeNeeded && missingFields.length > 0) {
                   const fieldList = missingFields.join(", ");
+                  // Reviews are the slowest stage by far (multi-search + URL
+                  // verification + curation) — say so explicitly instead of
+                  // hiding it in a field list.
+                  if (lastFieldAttempted === "reviews" || (missingFields.length === 1 && missingFields[0] === "reviews")) {
+                    return `Finding & verifying third-party reviews${lastFieldResult ? ` (${lastFieldResult})` : ""} — the slowest stage, typically 1–3 minutes`;
+                  }
                   if (lastFieldAttempted) {
                     return `Enriching: ${lastFieldAttempted}${lastFieldResult ? ` (${lastFieldResult})` : ""} — still need: ${fieldList}`;
                   }
