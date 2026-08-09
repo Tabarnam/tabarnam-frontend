@@ -272,10 +272,10 @@ function PipelineStatusBanner({ localImporting = false }) {
 
   const label =
     verdict === "idle"
-      ? "Pipeline idle — safe to start a new import."
+      ? "All clear — safe to start a new import."
       : verdict === "importing"
-        ? "Import in progress — wait for it to finish before starting another series."
-        : `Still enriching from earlier imports (${second_look_pending_count} pending second look${second_look_pending_count === 1 ? "" : "s"}${queue_depth ? `, ${queue_depth} queued job${queue_depth === 1 ? "" : "s"}` : ""}) — queued work survives a new import, but waiting lets retries finish.`;
+        ? "Importing — don't start a new series yet. Details below."
+        : `Finishing enrichment from the last import (${second_look_pending_count} compan${second_look_pending_count === 1 ? "y" : "ies"} still filling fields${queue_depth ? `, ${queue_depth} queued job${queue_depth === 1 ? "" : "s"}` : ""}) — best to wait for green.`;
 
   const names = verdict === "enriching" && Array.isArray(second_look_pending_names) && second_look_pending_names.length > 0
     ? second_look_pending_names.join(", ")
@@ -5655,6 +5655,7 @@ export default function AdminImport() {
             lastPlayed={lastPlayed}
             notificationMuted={notificationMuted}
             onToggleNotificationMuted={toggleNotificationMuted}
+            seriesActive={successionIndex >= 0 && successionIndex < successionQueue.length}
           />
 
           <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-4">

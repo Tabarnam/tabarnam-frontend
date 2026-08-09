@@ -17,7 +17,23 @@ export default function StatusAlerts({
   // flips it (and persists to localStorage via the hook).
   notificationMuted = false,
   onToggleNotificationMuted,
+  // A succession series is still walking its queue — the per-company
+  // "complete" card should read as a step, not a finale.
+  seriesActive = false,
 }) {
+  // Exactly ONE of the live (blue) / completed (green) cards may render.
+  // Historically both showed at once for a saved company whose enrichment was
+  // still pending ("Enriching…" AND "Import complete") which — stacked under
+  // the pipeline traffic light — told a new admin three conflicting stories.
+  const liveVisible = Boolean(
+    activeRun &&
+      activeStatus !== "idle" &&
+      (activeStatus === "running" ||
+        activeStatus === "stopping" ||
+        activeRun.resume_needed ||
+        (!activeRun.completed && !activeRun.stopped && !activeRun.timedOut)),
+  );
+
   return (
     <>
       {/* Error status */}
@@ -38,7 +54,7 @@ export default function StatusAlerts({
       ) : null}
 
       {/* Live status indicator - keep visible during enrichment even after company is created */}
-      {activeRun && activeStatus !== "idle" && (activeStatus === "running" || activeStatus === "stopping" || activeRun.resume_needed || (!activeRun.completed && !activeRun.stopped && !activeRun.timedOut)) ? (
+      {liveVisible ? (
         <div className="rounded-lg border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 p-4 flex items-center gap-4">
           <div className="relative flex h-3 w-3">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
@@ -127,8 +143,8 @@ export default function StatusAlerts({
         </div>
       ) : null}
 
-      {/* Completed status */}
-      {activeRun?.completed && !activeRun.start_error ? (() => {
+      {/* Completed status — only once the live card has nothing left to say */}
+      {activeRun?.completed && !activeRun.start_error && !liveVisible ? (() => {
         const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
         const isDuplicate =
           stageBeacon === "duplicate_detected" ||
@@ -182,7 +198,9 @@ export default function StatusAlerts({
         // progress stages that simply haven't reached the save step yet.
         let bannerMessage;
         if (hasSave) {
-          bannerMessage = `Import complete — ${savedCount} company saved`;
+          bannerMessage = seriesActive
+            ? `${companyName || "Company"} saved — continuing the series…`
+            : `Import complete — ${savedCount} company saved`;
         } else if (isProgressStage) {
           bannerMessage = `Import started — enrichment pending${stageBeacon ? ` (${toEnglishImportStage(stageBeacon)})` : ""}`;
         } else {
