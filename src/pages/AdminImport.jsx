@@ -243,7 +243,7 @@ function PipelineStatusBanner() {
       }
     };
     poll();
-    const t = setInterval(poll, 15000);
+    const t = setInterval(poll, 8000);
     return () => {
       cancelled = true;
       clearInterval(t);

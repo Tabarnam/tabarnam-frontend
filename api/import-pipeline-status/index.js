@@ -80,7 +80,10 @@ async function handler(req, context) {
   const sessions = sessionsRes.resources || [];
   const freshestSessionAgeSec = sessions.length ? nowSec - Math.max(...sessions.map((s) => s._ts || 0)) : null;
 
-  const importing = freshestSessionAgeSec != null && freshestSessionAgeSec < 180;
+  // During an active run the UI + workers write session beacons every few
+  // seconds, so a short cool-down is enough; 180s made "importing" linger
+  // ~3 min after the batch visibly finished in the Companies view.
+  const importing = freshestSessionAgeSec != null && freshestSessionAgeSec < 75;
   const enriching = (queueDepth || 0) > 0 || pendingNames.length > 0;
   const verdict = importing ? "importing" : enriching ? "enriching" : "idle";
 
