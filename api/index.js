@@ -245,6 +245,20 @@ try {
   console.error("[api] Failed to load xadmin-api-cleanup-import-control:", e?.message || e);
 }
 
+try {
+  console.log("[api] Registering: xadmin-api-backfill-mfg");
+  require("./xadmin-api-backfill-mfg/index.js");
+} catch (e) {
+  console.error("[api] Failed to load xadmin-api-backfill-mfg:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: mfg-backfill-worker");
+  require("./mfg-backfill-worker/index.js");
+} catch (e) {
+  console.error("[api] Failed to load mfg-backfill-worker:", e?.message || e);
+}
+
 // Timer triggers self-gate on WEBSITE_SITE_NAME (dedicated worker only), but the
 // v4 model only registers functions whose modules are loaded — they MUST be
 // required here or they never run.
