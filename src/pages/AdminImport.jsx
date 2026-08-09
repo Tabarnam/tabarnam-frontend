@@ -253,14 +253,16 @@ function PipelineStatusBanner() {
   if (!status) return null;
 
   const { verdict, queue_depth, second_look_pending_count, second_look_pending_names } = status;
+  // Traffic light: red = stop (import running), amber = caution (tail still
+  // enriching), green = go.
   const tone =
     verdict === "idle"
-      ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+      ? "border-emerald-400 bg-emerald-50 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-200"
       : verdict === "importing"
-        ? "border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-600 dark:bg-sky-950/40 dark:text-sky-200"
-        : "border-violet-300 bg-violet-50 text-violet-900 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-200";
+        ? "border-red-400 bg-red-50 text-red-900 dark:border-red-600 dark:bg-red-950/50 dark:text-red-200"
+        : "border-amber-400 bg-amber-50 text-amber-900 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-200";
   const dot =
-    verdict === "idle" ? "bg-emerald-500" : verdict === "importing" ? "bg-sky-500 animate-pulse" : "bg-violet-500 animate-pulse";
+    verdict === "idle" ? "bg-emerald-500" : verdict === "importing" ? "bg-red-500 animate-pulse" : "bg-amber-500 animate-pulse";
 
   const label =
     verdict === "idle"
