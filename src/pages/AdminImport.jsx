@@ -229,7 +229,7 @@ function clearPastedQueueFromStorage() {
 // before the operator clicks Start. Queued work (second looks on the resume
 // queue) survives a new import, but a previous session's poll-driven retry
 // tail stops once its page stops polling — so the banner asks for idle.
-function PipelineStatusBanner({ localImporting = false, localCompany = "" }) {
+function PipelineStatusBanner({ localImporting = false, localCompany = "", onStatus }) {
   const [status, setStatus] = useState(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -238,7 +238,10 @@ function PipelineStatusBanner({ localImporting = false, localCompany = "" }) {
     const poll = async () => {
       try {
         const r = await apiFetchParsed("/import-pipeline-status", { method: "GET" });
-        if (!cancelled && r?.data?.ok) setStatus(r.data);
+        if (!cancelled && r?.data?.ok) {
+          setStatus(r.data);
+          onStatus?.(r.data);
+        }
       } catch {
         /* banner is advisory — stay quiet on fetch errors */
       }
@@ -249,6 +252,8 @@ function PipelineStatusBanner({ localImporting = false, localCompany = "" }) {
       cancelled = true;
       clearInterval(t);
     };
+    // onStatus is a stable setState from the parent — intentionally not a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!status && !localImporting) return null;
@@ -4964,6 +4969,14 @@ export default function AdminImport() {
     [handleStartImportStaged]
   );
 
+  // "Start when clear" — arm a staged queue to launch itself the moment the
+  // pipeline light turns green (server verdict idle + nothing running
+  // locally). Lets the operator paste series B while series A drains instead
+  // of babysitting the light.
+  const [pipelineStatusData, setPipelineStatusData] = useState(null);
+  const [autoStartArmed, setAutoStartArmed] = useState(false);
+  const autoStartFiredRef = useRef(false);
+
   // Succession import: start handler
   const handleStartSuccession = useCallback(() => {
     if (startImportDisabled) return;
@@ -5051,6 +5064,31 @@ export default function AdminImport() {
       }, 2000);
     }
   }, [successionCount, successionRows, startImportDisabled, handleStartImportStaged, preflightResults, subBrandOptIns, forceNewOptIns, setAsParentOfIds, beginImportShadow, SUCCESSION_CONCURRENCY]);
+
+  // "Start when clear" trigger: fires handleStartSuccession exactly once when
+  // the pipeline reads idle and nothing is running on this page. Disarms
+  // itself on fire (or when the operator unchecks it).
+  useEffect(() => {
+    if (!autoStartArmed) {
+      autoStartFiredRef.current = false;
+      return;
+    }
+    const localBusy =
+      activeStatus === "running" ||
+      activeStatus === "stopping" ||
+      (successionIndex >= 0 && successionIndex < successionQueue.length);
+    if (
+      pipelineStatusData?.verdict === "idle" &&
+      !localBusy &&
+      !startImportDisabled &&
+      !autoStartFiredRef.current
+    ) {
+      autoStartFiredRef.current = true;
+      setAutoStartArmed(false);
+      toast.success("Pipeline clear — starting the queued import series.");
+      handleStartSuccession();
+    }
+  }, [autoStartArmed, pipelineStatusData, activeStatus, successionIndex, successionQueue.length, startImportDisabled, handleStartSuccession]);
 
   // Import Now: proceeds with import after duplicate dialog confirmation
   const handleImportNow = useCallback(() => {
@@ -5688,7 +5726,24 @@ export default function AdminImport() {
               activeRun?.items?.[0]?.company_name ||
               ""
             }
+            onStatus={setPipelineStatusData}
           />
+
+          {pipelineStatusData?.verdict !== "idle" ||
+          activeStatus === "running" ||
+          activeStatus === "stopping" ||
+          (successionIndex >= 0 && successionIndex < successionQueue.length) ? (
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground -mt-3">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-emerald-600"
+                checked={autoStartArmed}
+                onChange={(e) => setAutoStartArmed(e.target.checked)}
+              />
+              Start the staged queue automatically when the light turns green
+              {autoStartArmed ? <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">armed</span> : null}
+            </label>
+          ) : null}
 
           <StatusAlerts
             activeRun={activeRun}

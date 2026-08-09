@@ -5761,14 +5761,19 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     requested_by: "import_start",
                     enqueue_at: new Date().toISOString(),
                     cycle_count: 0,
-                    // 5-min safety delay (was 1s). Before the 2026-08-07
-                    // messageEncoding fix these messages silently poisoned, so
-                    // the short delay was harmless; with the queue working, a
-                    // near-immediate message spawns a second worker that
-                    // supersedes the live poll-driven one mid-canonical-call
-                    // and discards its results (CooperVision, first batch
-                    // post-fix). Complete sessions no-op cheaply.
-                    run_after_ms: 300_000,
+                    // 3-min safety delay (was 1s, then 300s). Before the
+                    // 2026-08-07 messageEncoding fix these messages silently
+                    // poisoned, so the short delay was harmless; with the
+                    // queue working, a near-immediate message spawns a second
+                    // worker that supersedes the live poll-driven one
+                    // mid-canonical-call and discards its results
+                    // (CooperVision, first batch post-fix). Live canonical
+                    // calls run 50-130s, so 180s clears them with margin
+                    // while concluding sessions ~2 min sooner than 300s did —
+                    // this message's no-op pass is what stamps a finished
+                    // session's final status (observed: uniform +10:00 TRTs,
+                    // 2026-08-09). Complete sessions no-op cheaply.
+                    run_after_ms: 180_000,
                   }).catch(() => null);
                   console.log(`[import-start] session=${sessionId} resume enqueued (300s safety delay, ${mandatoryCompanyIds.length} companies)`);
                 } catch {}
@@ -5805,9 +5810,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     requested_by: "import_start",
                     enqueue_at: new Date().toISOString(),
                     cycle_count: 0, // same cycle_count â†’ idempotent with primary
-                    // 10-min delay (was 90s) — second-tier safety net behind
-                    // the 300s primary message above.
-                    run_after_ms: 600_000,
+                    // 8-min delay (was 90s, then 600s) — second-tier safety
+                    // net behind the 180s primary message above.
+                    run_after_ms: 480_000,
                   }).catch(() => null);
                   console.log(`[import-start] session=${sessionId} resume safety-net enqueued (600s safety delay, ${mandatoryCompanyIds.length} companies)`);
                 } catch {}
