@@ -231,6 +231,7 @@ function clearPastedQueueFromStorage() {
 // tail stops once its page stops polling — so the banner asks for idle.
 function PipelineStatusBanner({ localImporting = false, localCompany = "" }) {
   const [status, setStatus] = useState(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,9 +281,16 @@ function PipelineStatusBanner({ localImporting = false, localCompany = "" }) {
   // The actual queued work, peeked from the resume queue — rendered as a
   // shrinking list so the operator can see what's left and gauge time
   // remaining (items disappear as the workers complete them).
-  const queued = Array.isArray(status?.queued_items) ? status.queued_items : [];
-  const shown = queued.slice(0, 10);
-  const moreCount = Math.max((queue_depth || 0) - shown.length, 0);
+  const queued = (Array.isArray(status?.queued_items) ? status.queued_items : []).map((q) => ({
+    ...q,
+    // Session-level queue messages carry no company — label them for what
+    // they are instead of rendering a blank name.
+    label: q.name || q.domain || (q.reason === "second_look" ? "second-look job" : "import session job"),
+  }));
+  const COLLAPSED_COUNT = 3;
+  const shown = expanded ? queued : queued.slice(0, COLLAPSED_COUNT);
+  const hiddenInView = queued.length - shown.length;
+  const beyondPeek = Math.max((queue_depth || 0) - queued.length, 0);
   const fallbackNames =
     queued.length === 0 && verdict === "enriching" && Array.isArray(second_look_pending_names) && second_look_pending_names.length > 0
       ? second_look_pending_names.join(", ")
@@ -291,22 +299,31 @@ function PipelineStatusBanner({ localImporting = false, localCompany = "" }) {
   return (
     <div className={`flex items-start gap-2 rounded-lg border px-4 py-3 text-sm ${tone}`}>
       <span className={`mt-1 h-2.5 w-2.5 flex-none rounded-full ${dot}`} />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div>{label}</div>
         {shown.length > 0 ? (
           <ul className="mt-1 space-y-0.5 text-xs opacity-80">
             {shown.map((q, i) => (
-              <li key={`${q.name || q.domain || "q"}-${i}`} className="truncate">
-                {q.name || q.domain}
+              <li key={`${q.label}-${i}`} className="truncate">
+                {q.label}
                 {" — "}
                 {q.reason === "second_look" ? "second look" : "enrichment"}
                 {Array.isArray(q.fields) && q.fields.length ? `: ${q.fields.join(", ")}` : ""}
               </li>
             ))}
-            {moreCount > 0 ? <li>…and {moreCount} more</li> : null}
+            {beyondPeek > 0 && expanded ? <li>…and {beyondPeek} more queued beyond view</li> : null}
           </ul>
         ) : fallbackNames ? (
           <div className="mt-0.5 text-xs opacity-80">Enriching: {fallbackNames}</div>
+        ) : null}
+        {hiddenInView > 0 || (expanded && queued.length > COLLAPSED_COUNT) ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="mt-1 text-xs font-medium underline underline-offset-2 opacity-90 hover:opacity-100"
+          >
+            {expanded ? "Show less" : `Show all ${queued.length + beyondPeek} queued`}
+          </button>
         ) : null}
       </div>
     </div>
