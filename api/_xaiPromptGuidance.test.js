@@ -515,7 +515,7 @@ test("Phase 4.16 — _xaiLiveSearch translates response_format → text.format o
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.31: PROMPT_GUIDANCE_VERSION is 9.11.0-mfg-category-inference-and-beauty-parents", () => {
+test("Phase 4.38: PROMPT_GUIDANCE_VERSION is 9.12.0-mfg-customs-records-probe", () => {
   // Phase 4.31 — Manufacturing rule augmented with three additions:
   //   1. Category-level inference allowance for industries where overseas
   //      production is the industry norm (hair extensions, hair tools, etc.)
@@ -531,8 +531,8 @@ test("Phase 4.31: PROMPT_GUIDANCE_VERSION is 9.11.0-mfg-category-inference-and-b
   //      exist undisclosed.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.11\.0-mfg-category-inference-and-beauty-parents/,
-    "PROMPT_GUIDANCE_VERSION must be 9.11.0-mfg-category-inference-and-beauty-parents for Phase 4.31"
+    /^9\.12\.0-mfg-customs-records-probe/,
+    "PROMPT_GUIDANCE_VERSION must be 9.12.0-mfg-customs-records-probe for Phase 4.38"
   );
 });
 

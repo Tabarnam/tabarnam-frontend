@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "9.11.0-mfg-category-inference-and-beauty-parents";
+const PROMPT_GUIDANCE_VERSION = "9.12.0-mfg-customs-records-probe";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -497,6 +497,8 @@ Output as a JSON array of strings, e.g. ["Görlitz, Germany", "Vietnam", "Hai Du
 
 Investigate the full supply chain. "Made in USA" on packaging or a single product page is often marketing for final assembly or import labeling — the actual manufacturing origin may be different. When multiple sources conflict or only partial disclosure exists, emit the most accurate primary manufacturing locations based on the weight of evidence across searches. Prefer verified importer/distributor records, parent-company supplier lists, or trade-press supply-chain reporting over single-product "Made in" labels when they conflict. When evidence shows multiple primary manufacturing or sourcing countries (e.g. premium lines in one country, accessories/imports in another), emit ALL of them. Do not emit [] if any verifiable locations were found, even if the picture is incomplete.
 
+Customs/import-records probe (Phase 4.38, REQUIRED before emitting [] and whenever the brand's own site hedges with "overseas" / "globally sourced" / "international partner" without naming a country): run one web_search shaped as an OR-probe with explicit country names — "[Brand]" ("made in China" OR "made in USA" OR "manufactured in") — and/or "[Brand] import records shipments". These surface U.S. customs/trade databases (Panjiva, ImportYeti, Volza, 52wmb) whose buyer reports list shipment origin countries. A dominant origin country in such records (e.g. "China 1,379 shipments, 99.7%") IS verifiable evidence: emit that country as a clean country-only entry. A brand statement like "produced overseas" plus customs records pointing at one country resolves to that country — do NOT emit [] in that case.
+
 Rebrand / OEM / distributor lineage searches (Phase 4.14, required for any brand that appears small, specialty, or distributor-heavy): in addition to normal queries, ALWAYS perform these searches: "[Brand] parent company", "[Brand] owned by", "[Brand] subsidiary of", "[Brand] private label". Check Wikipedia for corporate lineage — Wikipedia entries frequently disclose manufacturing locations even when the brand's own site does not. Parent-company press releases and 10-K filings often disclose manufacturing locations at the corporate level. Small/specialty/distributor-style brands are usually owned by larger entities whose locations ARE public.
 
 Parent / lineage fallback emission (Phase 4.14, required when lineage is confirmed): if during research you discover that [Brand] is a re-brand, subsidiary, private label, distribution arm, or OEM version of a parent company, emit the parent's known manufacturing or operations location as a valid entry. Examples: Rokinon (Samyang's US arm) → emit "South Korea"; OConnor (ARRI subsidiary) → emit "Germany"; B+W (Schneider Kreuznach subsidiary) → emit "Bad Kreuznach, Germany"; X-Rite (Pantone/Danaher) → emit "Grand Rapids, MI, USA"; Datacolor (independent Swiss company) → emit "Lucerne, Switzerland"; Cokin (French heritage brand) → emit "France". This is REQUIRED when lineage is verified — do not emit [] just because the child brand doesn't separately publish its manufacturing. The parent's location is the brand's location.
@@ -675,6 +677,7 @@ Manufacturing: List the company's known manufacturing locations. Many consumer b
   1. Official website's About / Press / Sustainability / Supply Chain pages.
   2. If brand is part of a larger portfolio (e.g., Sanuk → Deckers Brands; Sperry → Wolverine Worldwide), search the parent company's sustainability report, supplier list, or 10-K filing.
   3. Targeted web_search queries: "[Brand] manufacturing locations", "[Brand] supplier list", "[Brand] factory", "[Brand] made in [country]".
+  4. Before emitting [] — or when the brand's own site hedges with "overseas"/"globally sourced" without naming a country — run an OR-probe with explicit country names: "[Brand]" ("made in China" OR "made in USA" OR "manufactured in"). This surfaces customs/import databases (Panjiva, ImportYeti, Volza); a dominant shipment-origin country in those records is verifiable evidence — emit that country.
 Format each as City, State or Region, Country. Use initials for states or provinces. Use USA, not US. Country-level granularity IS ACCEPTABLE — "Vietnam" alone is valid if specific cities are not disclosed. Output as a JSON array of strings, e.g. ["Görlitz, Germany", "Vietnam"]. For retailer-curators (multi-supplier resellers), list the supplier countries. Only emit [] for pure marketplace platforms (Amazon, eBay).
 
 Also include location_source_urls with hq_source_urls and mfg_source_urls arrays containing the direct source URLs used for verification.`;
