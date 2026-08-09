@@ -40,16 +40,75 @@ const cors = () => ({
 });
 const json = (obj, status = 200) => ({ status, headers: cors(), body: JSON.stringify(obj) });
 
-async function getQueueDepth() {
+function parseQueueMessage(text) {
+  const tryParse = (s) => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+  let body = tryParse(text);
+  if (!body) {
+    try {
+      body = tryParse(Buffer.from(text, "base64").toString("utf8"));
+    } catch {
+      body = null;
+    }
+  }
+  return body && typeof body === "object" ? body : null;
+}
+
+async function getQueueSnapshot() {
   try {
-    if (!QueueClient) return null;
+    if (!QueueClient) return { depth: null, items: [] };
     const cfg = resolveQueueConfig();
-    if (!cfg.connectionString) return null;
+    if (!cfg.connectionString) return { depth: null, items: [] };
     const client = new QueueClient(cfg.connectionString, cfg.queueName);
     const props = await client.getProperties();
-    return Number(props.approximateMessagesCount ?? 0);
+    const depth = Number(props.approximateMessagesCount ?? 0);
+
+    let items = [];
+    if (depth > 0) {
+      // Peek is non-destructive (does not dequeue or bump visibility) — this
+      // is what lets the banner show WHAT is queued, not just how many.
+      const peeked = await client.peekMessages({ numberOfMessages: 32 }).catch(() => null);
+      items = (peeked?.peekedMessageItems || [])
+        .map((m) => parseQueueMessage(m.messageText))
+        .filter(Boolean)
+        .map((b) => ({
+          domain: String(b.normalized_domain || "").trim(),
+          company_id: String(b.company_id || "").trim(),
+          reason: String(b.reason || "resume").trim(),
+          fields: Array.isArray(b.fields) ? b.fields.filter(Boolean).slice(0, 8) : [],
+        }));
+    }
+    return { depth, items };
   } catch {
-    return null;
+    return { depth: null, items: [] };
+  }
+}
+
+async function resolveQueueItemNames(companies, items) {
+  const ids = [...new Set(items.map((i) => i.company_id).filter(Boolean))].slice(0, 32);
+  if (!ids.length) return;
+  try {
+    const { resources } = await companies.items
+      .query({
+        query: `SELECT c.id, c.company_name FROM c WHERE ARRAY_CONTAINS(@ids, c.id)`,
+        parameters: [{ name: "@ids", value: ids }],
+      })
+      .fetchAll();
+    const nameById = new Map(resources.map((r) => [r.id, r.company_name]));
+    for (const item of items) {
+      item.name = nameById.get(item.company_id) || item.domain || item.company_id;
+      delete item.company_id;
+    }
+  } catch {
+    for (const item of items) {
+      item.name = item.domain || item.company_id;
+      delete item.company_id;
+    }
   }
 }
 
@@ -59,8 +118,8 @@ async function handler(req, context) {
   const companies = getCosmosClient().database(DB_ID).container(process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies");
   const nowSec = Math.floor(Date.now() / 1000);
 
-  const [queueDepth, pendingRes, sessionsRes] = await Promise.all([
-    getQueueDepth(),
+  const [queueSnapshot, pendingRes, sessionsRes] = await Promise.all([
+    getQueueSnapshot(),
     companies.items
       .query("SELECT c.company_name FROM c WHERE c.second_look_pending = true AND NOT STARTSWITH(c.id, '_import_')")
       .fetchAll()
@@ -75,6 +134,9 @@ async function handler(req, context) {
       .fetchAll()
       .catch(() => ({ resources: [] })),
   ]);
+
+  const queueDepth = queueSnapshot.depth;
+  await resolveQueueItemNames(companies, queueSnapshot.items);
 
   const pendingNames = (pendingRes.resources || []).map((r) => r.company_name).filter(Boolean);
   const sessions = sessionsRes.resources || [];
@@ -91,6 +153,11 @@ async function handler(req, context) {
     ok: true,
     verdict,
     queue_depth: queueDepth,
+    // The actual queued work (peeked, non-destructive, up to 32 messages):
+    // [{name, domain, reason, fields}] — the banner renders this as a
+    // shrinking list so the operator can see what's left.
+    queued_items: queueSnapshot.items,
+    queued_items_truncated: (queueDepth || 0) > queueSnapshot.items.length,
     second_look_pending_count: pendingNames.length,
     second_look_pending_names: pendingNames.slice(0, 10),
     recent_sessions_15m: sessions.length,

@@ -277,16 +277,37 @@ function PipelineStatusBanner({ localImporting = false }) {
         ? "Importing — don't start a new series yet. Details below."
         : `Finishing enrichment from the last import (${second_look_pending_count} compan${second_look_pending_count === 1 ? "y" : "ies"} still filling fields${queue_depth ? `, ${queue_depth} queued job${queue_depth === 1 ? "" : "s"}` : ""}) — best to wait for green.`;
 
-  const names = verdict === "enriching" && Array.isArray(second_look_pending_names) && second_look_pending_names.length > 0
-    ? second_look_pending_names.join(", ")
-    : "";
+  // The actual queued work, peeked from the resume queue — rendered as a
+  // shrinking list so the operator can see what's left and gauge time
+  // remaining (items disappear as the workers complete them).
+  const queued = Array.isArray(status?.queued_items) ? status.queued_items : [];
+  const shown = queued.slice(0, 10);
+  const moreCount = Math.max((queue_depth || 0) - shown.length, 0);
+  const fallbackNames =
+    queued.length === 0 && verdict === "enriching" && Array.isArray(second_look_pending_names) && second_look_pending_names.length > 0
+      ? second_look_pending_names.join(", ")
+      : "";
 
   return (
     <div className={`flex items-start gap-2 rounded-lg border px-4 py-3 text-sm ${tone}`}>
       <span className={`mt-1 h-2.5 w-2.5 flex-none rounded-full ${dot}`} />
-      <div>
+      <div className="min-w-0">
         <div>{label}</div>
-        {names ? <div className="mt-0.5 text-xs opacity-80">Enriching: {names}</div> : null}
+        {shown.length > 0 ? (
+          <ul className="mt-1 space-y-0.5 text-xs opacity-80">
+            {shown.map((q, i) => (
+              <li key={`${q.name || q.domain || "q"}-${i}`} className="truncate">
+                {q.name || q.domain}
+                {" — "}
+                {q.reason === "second_look" ? "second look" : "enrichment"}
+                {Array.isArray(q.fields) && q.fields.length ? `: ${q.fields.join(", ")}` : ""}
+              </li>
+            ))}
+            {moreCount > 0 ? <li>…and {moreCount} more</li> : null}
+          </ul>
+        ) : fallbackNames ? (
+          <div className="mt-0.5 text-xs opacity-80">Enriching: {fallbackNames}</div>
+        ) : null}
       </div>
     </div>
   );
