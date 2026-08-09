@@ -4992,6 +4992,50 @@ export default function AdminImport() {
   const [autoStartArmed, setAutoStartArmed] = useState(false);
   const autoStartFiredRef = useRef(false);
 
+  // The page's own "running" state can outlive reality — a backgrounded tab,
+  // exhausted polling, or a dropped /import/status response leaves
+  // activeStatus at "running" forever. Observed 2026-08-09: the light stayed
+  // red 40+ minutes after every session had concluded (backend logs showed
+  // zero activity), and because the auto-start gate also reads this flag,
+  // an armed "start when clear" could never fire.
+  //
+  // Recovery rule: once the server has independently reported idle on
+  // several consecutive checks AND the local run has lasted longer than a
+  // real session takes to register, the local flag is provably stale —
+  // trust the server. The grace period keeps the instant-red override
+  // working at the start of a genuine import (before its session doc
+  // exists).
+  const localRunning =
+    activeStatus === "running" ||
+    activeStatus === "stopping" ||
+    (successionIndex >= 0 && successionIndex < successionQueue.length);
+  const localRunStartedAtRef = useRef(null);
+  const idleStreakRef = useRef(0);
+  const [localStateStale, setLocalStateStale] = useState(false);
+
+  useEffect(() => {
+    if (!localRunning) {
+      localRunStartedAtRef.current = null;
+      idleStreakRef.current = 0;
+      setLocalStateStale(false);
+      return;
+    }
+    if (localRunStartedAtRef.current == null) localRunStartedAtRef.current = Date.now();
+  }, [localRunning]);
+
+  useEffect(() => {
+    if (!pipelineStatusData) return;
+    if (pipelineStatusData.verdict === "idle") idleStreakRef.current += 1;
+    else idleStreakRef.current = 0;
+
+    const startedAt = localRunStartedAtRef.current;
+    const runMs = startedAt ? Date.now() - startedAt : 0;
+    const stale = localRunning && idleStreakRef.current >= 3 && runMs > 120_000;
+    setLocalStateStale((prev) => (prev === stale ? prev : stale));
+  }, [pipelineStatusData, localRunning]);
+
+  const localImportingEffective = localRunning && !localStateStale;
+
   // Succession import: start handler
   const handleStartSuccession = useCallback(() => {
     if (startImportDisabled) return;
@@ -5088,13 +5132,9 @@ export default function AdminImport() {
       autoStartFiredRef.current = false;
       return;
     }
-    const localBusy =
-      activeStatus === "running" ||
-      activeStatus === "stopping" ||
-      (successionIndex >= 0 && successionIndex < successionQueue.length);
     if (
       pipelineStatusData?.verdict === "idle" &&
-      !localBusy &&
+      !localImportingEffective &&
       !startImportDisabled &&
       !autoStartFiredRef.current
     ) {
@@ -5103,7 +5143,7 @@ export default function AdminImport() {
       toast.success("Pipeline clear — starting the queued import series.");
       handleStartSuccession();
     }
-  }, [autoStartArmed, pipelineStatusData, activeStatus, successionIndex, successionQueue.length, startImportDisabled, handleStartSuccession]);
+  }, [autoStartArmed, pipelineStatusData, localImportingEffective, startImportDisabled, handleStartSuccession]);
 
   // Import Now: proceeds with import after duplicate dialog confirmation
   const handleImportNow = useCallback(() => {
@@ -5731,11 +5771,7 @@ export default function AdminImport() {
           </header>
 
           <PipelineStatusBanner
-            localImporting={
-              activeStatus === "running" ||
-              activeStatus === "stopping" ||
-              (successionIndex >= 0 && successionIndex < successionQueue.length)
-            }
+            localImporting={localImportingEffective}
             localCompany={
               activeRun?.saved_companies?.[0]?.company_name ||
               activeRun?.items?.[0]?.company_name ||
@@ -5744,10 +5780,7 @@ export default function AdminImport() {
             onStatus={setPipelineStatusData}
           />
 
-          {pipelineStatusData?.verdict !== "idle" ||
-          activeStatus === "running" ||
-          activeStatus === "stopping" ||
-          (successionIndex >= 0 && successionIndex < successionQueue.length) ? (
+          {pipelineStatusData?.verdict !== "idle" || localImportingEffective ? (
             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-muted-foreground -mt-3">
               <input
                 type="checkbox"
