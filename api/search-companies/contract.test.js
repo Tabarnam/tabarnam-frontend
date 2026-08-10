@@ -16,6 +16,33 @@ function makeReq(url) {
   };
 }
 
+// Build a persisted typo-dictionary doc, the source the dictionary now loads
+// from (a point read instead of a full container scan). Seeding this is how a
+// test declares "these tokens are corpus-common" — which drives both typo
+// correction and the brand-name gate's distinctiveness check.
+// `nameTokens` is the brand-protection set: tokens here are never "corrected".
+function makeTypoDictDoc(terms, nameTokens = []) {
+  const {
+    packTermMap,
+    packTokenSet,
+    DICT_DOC_ID,
+    DICT_PARTITION_KEY,
+  } = require("../_typoCorrection");
+  const termMap = {};
+  for (const t of terms) termMap[t] = 5; // any count >= MIN_COMPANIES_PER_TOKEN
+  return {
+    id: DICT_DOC_ID,
+    normalized_domain: DICT_PARTITION_KEY,
+    type: "typo_dictionary_index",
+    version: 1,
+    generated_at: new Date().toISOString(),
+    term_count: terms.length,
+    name_token_count: nameTokens.length,
+    terms_packed: packTermMap(termMap),
+    name_tokens_packed: packTokenSet(new Set(nameTokens)),
+  };
+}
+
 function makeContainer(queryResponder, opts = {}) {
   // Optional `indexDoc` simulates a /item(id, pk).read() response, used by
   // the affinity-index loader and (transitively) the typo correction
@@ -1939,18 +1966,8 @@ test("typo correction: 'paintt' is rewritten to 'paint' end-to-end", async () =>
   resetTypoCorrectionCache();
   resetIndustryAffinityCache();
 
-  // Affinity-index doc shaped like the production one. `terms` keys are
-  // the dictionary the typo corrector uses.
-  const indexDoc = {
-    id: "_index_industry_affinity",
-    normalized_domain: "_index",
-    type: "industry_affinity_index",
-    terms: {
-      paint: { paints: 0.8 },
-      paints: { paints: 0.7 },
-      brushes: { paints: 0.4 },
-    },
-  };
+  // Persisted typo-dictionary doc — the corrector's source of truth.
+  const indexDoc = makeTypoDictDoc(["paint", "paints", "brushes"]);
 
   const paintCompany = {
     id: "company_paint_1",
@@ -2692,14 +2709,11 @@ const _SOAP_CORPUS = [
   { id: "c1", company_id: "c1", company_name: "Cali Handmade Soaps", normalized_domain: "calisoaps.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
   { id: "s1", company_id: "s1", company_name: "Summer Solace Tallow", normalized_domain: "summersolace.com", keywords: ["tallow", "soap"], industries: ["Soap"], _ts: 1700000000 },
 ];
-// `terms` keys = the corpus-frequency dictionary. Common product words present;
-// the coined brand "natrulo" deliberately absent.
-const _SOAP_INDEX_DOC = {
-  id: "_index_industry_affinity",
-  normalized_domain: "_index",
-  type: "industry_affinity_index",
-  terms: { soap: { soap: 1 }, soaps: { soap: 1 }, tallow: { soap: 1 }, natural: { soap: 1 }, handmade: { soap: 1 }, solace: { soap: 1 }, summer: { soap: 1 } },
-};
+// Corpus-frequency dictionary: common product words present; the coined brand
+// "natrulo" deliberately absent (that absence is what marks it distinctive).
+const _SOAP_INDEX_DOC = makeTypoDictDoc([
+  "soap", "soaps", "tallow", "natural", "handmade", "solace", "summer",
+]);
 
 test("brand-name gate: distinctive brand + product qualifier pins the named brand #1", async () => {
   resetTypoCorrectionCache();
@@ -2765,11 +2779,10 @@ async function _itemsWithGate(url, container, enabled) {
   }
 }
 // Common category words seeded as corpus-frequent; NO coined brand token here.
-const _NEUTRAL_TERMS_DOC = {
-  id: "_index_industry_affinity", normalized_domain: "_index", type: "industry_affinity_index",
-  terms: Object.fromEntries(["phone", "holder", "mount", "stand", "custom", "emblem", "emblems",
-    "pillow", "pillows", "soap", "tallow", "natural"].map((t) => [t, { x: 1 }])),
-};
+const _NEUTRAL_TERMS_DOC = makeTypoDictDoc([
+  "phone", "holder", "mount", "stand", "custom", "emblem", "emblems",
+  "pillow", "pillows", "soap", "tallow", "natural",
+]);
 
 async function _assertGateInert(url, corpus, indexDoc = _NEUTRAL_TERMS_DOC) {
   resetTypoCorrectionCache();

@@ -37,6 +37,32 @@ const INDEX_PARTITION_KEY = "_index";
 let _lastLoadError = null;
 let _backgroundLoadStarted = false;
 
+// ── Persisted dictionary doc ────────────────────────────────────────────────
+// Rebuilding from scratch means a full cross-partition scan of every company
+// doc (~12.7k docs, ~64 pages, seconds of wall time and tens of thousands of
+// RU on a SERVERLESS account). The underlying data only changes on import, so
+// doing that on every worker every CACHE_TTL_MS was almost pure waste.
+//
+// Instead we persist the built dictionary as a single doc and point-read it.
+// A point read is orders of magnitude cheaper than the scan, so the scan now
+// runs only when the doc is missing or older than DOC_MAX_AGE_MS, or when an
+// import explicitly forces a rebuild.
+//
+// NOTE: this doc intentionally carries `nameTokens` too. The legacy
+// affinity-index path never did, which silently disables brand-name
+// protection (a deliberately-spelled brand like "Pillowz" gets "corrected").
+const DICT_DOC_ID = "_index_typo_dictionary";
+const DICT_PARTITION_KEY = "_index";
+const DICT_DOC_VERSION = 1;
+// Safety net so the dictionary can't drift forever if an import hook is missed.
+// Timers do NOT execute on this Flex app (platform defect), so this age check —
+// evaluated on a request-driven refresh — is what actually bounds staleness.
+const DOC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+// Cosmos hard-caps a document at 2MB. Pack compactly and refuse to write
+// anything near the ceiling rather than failing the upsert (or bloating the
+// point read, whose RU scales with doc size).
+const DICT_DOC_MAX_BYTES = 1_500_000;
+
 // Minimum companies a token must appear in to make the dictionary.
 // Higher = more conservative (no rare/unique tokens) → safer against
 // "correcting" a real-but-rare brand name into the wrong common word.
@@ -145,8 +171,19 @@ async function buildDictionaryFromScan(container) {
 
   const iterator = container.items.query(sql, { maxItemCount: 200 });
 
-  for await (const { resources } of iterator.getAsyncIterator()) {
-    for (const company of resources || []) {
+  // Account the real cost of this scan. Nothing else in the codebase tracks
+  // requestCharge, so this is the only hard number we have for what a rebuild
+  // costs on a serverless account — it's what justifies the persisted doc.
+  let requestCharge = 0;
+  let pages = 0;
+  let companiesScanned = 0;
+
+  for await (const page of iterator.getAsyncIterator()) {
+    const resources = page?.resources || [];
+    requestCharge += Number(page?.requestCharge) || 0;
+    pages += 1;
+    companiesScanned += resources.length;
+    for (const company of resources) {
       // Protection set: name fields only, any frequency.
       tokenizeField(company.company_name, (t) => nameTokens.add(t));
       tokenizeField(company.display_name, (t) => nameTokens.add(t));
@@ -178,7 +215,122 @@ async function buildDictionaryFromScan(container) {
   for (const [token, count] of Object.entries(tokenCount)) {
     if (count >= MIN_COMPANIES_PER_TOKEN) kept[token] = count;
   }
-  return { terms: kept, nameTokens };
+  return { terms: kept, nameTokens, requestCharge, pages, companiesScanned };
+}
+
+// ── Pack / unpack for the persisted doc ─────────────────────────────────────
+// tokenizeField strips everything except [a-z], so a token can never contain
+// a space or a colon — that makes " " and ":" safe delimiters and lets us skip
+// JSON's per-entry quotes/braces. Roughly halves the stored bytes, which
+// matters twice: the 2MB doc ceiling, and point-read RU (it scales with size).
+
+function packTermMap(terms) {
+  const parts = [];
+  for (const token of Object.keys(terms)) {
+    const v = terms[token];
+    const n = typeof v === "number" ? v : 0;
+    // count of 1 is never stored (threshold is >= 2), so bare token == "no count"
+    parts.push(n > 1 ? `${token}:${n}` : token);
+  }
+  return parts.join(" ");
+}
+
+function unpackTermMap(packed) {
+  const out = Object.create(null);
+  if (typeof packed !== "string" || !packed) return out;
+  for (const part of packed.split(" ")) {
+    if (!part) continue;
+    const sep = part.indexOf(":");
+    if (sep <= 0) {
+      out[part] = 1;
+      continue;
+    }
+    const n = Number(part.slice(sep + 1));
+    out[part.slice(0, sep)] = Number.isFinite(n) ? n : 1;
+  }
+  return out;
+}
+
+function packTokenSet(set) {
+  return set && set.size ? [...set].join(" ") : "";
+}
+
+function unpackTokenSet(packed) {
+  if (typeof packed !== "string" || !packed) return new Set();
+  return new Set(packed.split(" ").filter(Boolean));
+}
+
+/**
+ * Point-read the persisted dictionary doc. Returns null when it's absent,
+ * unreadable, a version we don't understand, or older than DOC_MAX_AGE_MS —
+ * every one of which means "fall back to the scan".
+ */
+async function readDictDoc(container, { log } = {}) {
+  try {
+    const res = await container.item(DICT_DOC_ID, DICT_PARTITION_KEY).read();
+    const doc = res?.resource;
+    if (!doc || doc.version !== DICT_DOC_VERSION || typeof doc.terms_packed !== "string") {
+      return null;
+    }
+    const ageMs = Date.now() - Date.parse(doc.generated_at || 0);
+    if (!Number.isFinite(ageMs) || ageMs > DOC_MAX_AGE_MS) {
+      log?.(`[typo-dict] persisted doc too old (${Math.round(ageMs / 3600000)}h) — rescanning`);
+      return null;
+    }
+    const terms = unpackTermMap(doc.terms_packed);
+    if (!Object.keys(terms).length) return null;
+    log?.(
+      `[typo-dict] loaded from doc: terms=${doc.term_count} nameTokens=${doc.name_token_count} ` +
+        `ageMin=${Math.round(ageMs / 60000)} ru=${res?.requestCharge}`
+    );
+    return {
+      terms,
+      nameTokens: unpackTokenSet(doc.name_tokens_packed),
+      requestCharge: Number(res?.requestCharge) || 0,
+    };
+  } catch (err) {
+    // Missing doc (404) is the normal first-run case, not an error worth
+    // surfacing — either way the caller falls back to the scan.
+    return null;
+  }
+}
+
+/**
+ * Persist a freshly-built dictionary so other workers (and later refreshes)
+ * can point-read it instead of re-scanning the whole container.
+ * Best-effort: a failure here must never break the search that triggered it.
+ */
+async function writeDictDoc(container, terms, nameTokens, extra = {}, { log } = {}) {
+  try {
+    const doc = {
+      id: DICT_DOC_ID,
+      normalized_domain: DICT_PARTITION_KEY,
+      type: "typo_dictionary_index",
+      version: DICT_DOC_VERSION,
+      generated_at: new Date().toISOString(),
+      term_count: Object.keys(terms).length,
+      name_token_count: nameTokens ? nameTokens.size : 0,
+      terms_packed: packTermMap(terms),
+      name_tokens_packed: packTokenSet(nameTokens),
+      ...extra,
+    };
+    const bytes = Buffer.byteLength(JSON.stringify(doc), "utf8");
+    if (bytes > DICT_DOC_MAX_BYTES) {
+      // Refuse rather than fail the upsert against the 2MB ceiling. Searches
+      // keep working via the scan path; the log tells us to shrink the doc.
+      log?.(`[typo-dict] NOT persisting — doc ${bytes}B exceeds ${DICT_DOC_MAX_BYTES}B cap`);
+      return { persisted: false, bytes };
+    }
+    const res = await container.items.upsert(doc);
+    log?.(
+      `[typo-dict] persisted: terms=${doc.term_count} nameTokens=${doc.name_token_count} ` +
+        `bytes=${bytes} ru=${res?.requestCharge}`
+    );
+    return { persisted: true, bytes, requestCharge: Number(res?.requestCharge) || 0 };
+  } catch (err) {
+    log?.(`[typo-dict] persist failed (non-fatal): ${err?.message || err}`);
+    return { persisted: false, error: err?.message || String(err) };
+  }
 }
 
 async function getDictionary(container) {
@@ -209,37 +361,51 @@ async function getDictionary(container) {
  * `_inFlight` so concurrent callers (and a background refresh) share one scan.
  * Returns the new cache, or the previous one if the build fails/returns empty.
  */
-function _buildAndCache(container) {
+function _buildAndCache(container, { force = false, log } = {}) {
   _inFlight = (async () => {
     try {
-      // Prefer a pre-built affinity index if it happens to exist (much
-      // faster than the full scan), but DON'T require it — fall through
-      // to the scan path when it's missing or unreadable. NOTE: the
-      // affinity-index path has no name-token protection set, so a brand
-      // protected by the scan path wouldn't be protected here. In practice
-      // the affinity index doc doesn't exist in production (the scan path
-      // always runs), so this is acceptable; if that changes, the index
-      // builder should emit a nameTokens set too.
       let terms = null;
       let nameTokens = null;
       let source = "scan";
-      try {
-        const { resource } = await container
-          .item(INDEX_DOC_ID, INDEX_PARTITION_KEY)
-          .read();
-        if (resource && resource.terms && typeof resource.terms === "object") {
-          terms = resource.terms;
-          source = "affinity_index";
+
+      // 1) Persisted dictionary doc — one point read instead of ~64 scan pages.
+      // This is the common path; the scan below should be rare.
+      // (The legacy affinity-index doc is deliberately NOT consulted here: it
+      // carries no nameTokens, so using it would silently disable brand-name
+      // protection and let a real brand like "Pillowz" get "corrected".)
+      if (!force) {
+        const fromDoc = await readDictDoc(container, { log });
+        if (fromDoc) {
+          terms = fromDoc.terms;
+          nameTokens = fromDoc.nameTokens;
+          source = "doc";
         }
-      } catch {
-        // Not fatal — try the scan path.
       }
 
+      // 2) Full scan — only when the doc is missing, stale, or a rebuild was
+      // forced (import completion / admin). Persist the result so the next
+      // refresh, on any worker, takes the cheap path above.
       if (!terms) {
         const scanned = await buildDictionaryFromScan(container);
         terms = scanned.terms;
         nameTokens = scanned.nameTokens;
         source = "scan";
+        log?.(
+          `[typo-dict] scan: companies=${scanned.companiesScanned} pages=${scanned.pages} ` +
+            `ru=${Math.round(scanned.requestCharge)} terms=${Object.keys(terms).length}`
+        );
+        if (Object.keys(terms).length > 0) {
+          await writeDictDoc(
+            container,
+            terms,
+            nameTokens,
+            {
+              source_companies: scanned.companiesScanned,
+              build_request_charge: Math.round(scanned.requestCharge),
+            },
+            { log }
+          );
+        }
       }
 
       const termCount = Object.keys(terms).length;
@@ -292,6 +458,37 @@ function startBackgroundLoad(container) {
   // _lastLoadError by getDictionary, so silent failures here aren't
   // truly silent — they surface in the per-request diag.
   getDictionary(container).catch(() => {});
+}
+
+/**
+ * Force a full rescan and persist the result, bypassing both the module cache
+ * and the persisted doc. Call this when the corpus has actually CHANGED — i.e.
+ * an import finished — so newly imported brands are immediately protected from
+ * typo-correction and visible to the brand-name gate, instead of waiting for
+ * the doc to age out.
+ *
+ * Awaitable so an admin endpoint can report the outcome; callers on a hot path
+ * should not await it.
+ */
+async function rebuildAndPersistDictionary(container, { log } = {}) {
+  if (!container || typeof container.items !== "object") {
+    return { ok: false, error: "no container" };
+  }
+  const startedAt = Date.now();
+  // Never join an in-flight non-forced build — that could hand us back the
+  // very doc-sourced dictionary we're trying to replace.
+  _inFlight = null;
+  const dict = await _buildAndCache(container, { force: true, log });
+  if (!dict || !dict.termCount) {
+    return { ok: false, error: _lastLoadError || "build returned no terms", build_ms: Date.now() - startedAt };
+  }
+  return {
+    ok: true,
+    term_count: dict.termCount,
+    name_token_count: dict.nameTokenCount,
+    source: dict.source,
+    build_ms: Date.now() - startedAt,
+  };
 }
 
 function getLastLoadError() {
@@ -406,6 +603,13 @@ module.exports = {
   startBackgroundLoad,
   buildBuckets,
   buildDictionaryFromScan,
+  rebuildAndPersistDictionary,
+  readDictDoc,
+  writeDictDoc,
+  packTermMap,
+  unpackTermMap,
+  packTokenSet,
+  unpackTokenSet,
   correctToken,
   correctQuery,
   MIN_TOKEN_LEN,
@@ -413,5 +617,8 @@ module.exports = {
   MIN_COMPANIES_PER_TOKEN,
   INDEX_DOC_ID,
   INDEX_PARTITION_KEY,
+  DICT_DOC_ID,
+  DICT_PARTITION_KEY,
+  DICT_DOC_MAX_BYTES,
   _resetCache,
 };

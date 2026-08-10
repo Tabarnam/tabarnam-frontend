@@ -6,6 +6,7 @@ const {
   correctToken,
   correctQuery,
   getDictionary,
+  rebuildAndPersistDictionary,
   _resetCache,
 } = require("./_typoCorrection");
 
@@ -247,8 +248,129 @@ test("getDictionary: a STALE cache is served immediately and refreshed in the ba
     staleMs < SCAN_MS,
     `stale call must NOT wait for the rescan (took ${staleMs}ms, scan is ${SCAN_MS}ms)`
   );
-  assert.equal(counter.scans, 2, "but it DOES kick a background refresh");
 
-  // Let the background refresh settle so it doesn't leak into other tests.
+  // ...and the refresh DOES happen, just off the caller's critical path. Poll
+  // rather than assume a tick count: the refresh runs behind an async doc
+  // point-read, so how many microtasks it takes to reach the scan is an
+  // implementation detail this test must not encode.
+  const deadline = realNow() + SCAN_MS * 20;
+  while (counter.scans < 2 && realNow() < deadline) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  assert.equal(counter.scans, 2, "background refresh must still rebuild the dictionary");
+
+  // Let it settle so it doesn't leak into other tests.
   await new Promise((r) => setTimeout(r, SCAN_MS * 2));
+});
+
+// ── persisted dictionary doc ────────────────────────────────────────────────
+// The full scan is a cross-partition read of every company doc (tens of
+// thousands of RU on a serverless account). It must run only when the corpus
+// changed or the doc aged out — everything else is a single point read.
+
+function docBackedContainer({ doc = null, scanDelayMs = 20 } = {}) {
+  const state = { scans: 0, reads: 0, upserts: [], doc };
+  return {
+    state,
+    container: {
+      items: {
+        query: () => ({
+          getAsyncIterator: async function* () {
+            state.scans++;
+            await new Promise((r) => setTimeout(r, scanDelayMs));
+            yield {
+              requestCharge: 1234.5,
+              resources: [
+                { company_name: "Alpha Coffee Roasters", keywords: ["coffee", "beans"], industries: ["Coffee"] },
+                { company_name: "Bravo Coffee Roasters", keywords: ["coffee", "beans"], industries: ["Coffee"] },
+                // A deliberately-misspelled brand: appears in ONE company, so it
+                // is below the term threshold but MUST land in nameTokens.
+                { company_name: "Pillowz", keywords: ["pillow", "bedding"], industries: ["Bedding"] },
+              ],
+            };
+          },
+        }),
+        upsert: async (d) => {
+          state.upserts.push(d);
+          state.doc = d;
+          return { resource: d, requestCharge: 12.3 };
+        },
+      },
+      item: () => ({
+        read: async () => {
+          state.reads++;
+          return { resource: state.doc, requestCharge: 1.1 };
+        },
+      }),
+    },
+  };
+}
+
+test("dictionary: a cold build scans once, then PERSISTS a doc carrying terms AND nameTokens", async () => {
+  _resetCache();
+  const { container, state } = docBackedContainer();
+
+  const dict = await getDictionary(container);
+  assert.ok(dict.termCount > 0, "built a dictionary");
+  assert.equal(state.scans, 1, "one scan");
+  assert.equal(state.upserts.length, 1, "persisted exactly one doc");
+
+  const doc = state.upserts[0];
+  assert.equal(doc.id, "_index_typo_dictionary");
+  assert.equal(doc.normalized_domain, "_index");
+  assert.ok(doc.terms_packed.includes("coffee"), "packed terms include a common token");
+  assert.ok(
+    doc.name_tokens_packed.split(" ").includes("pillowz"),
+    "brand-protection nameTokens are persisted — omitting them would let 'Pillowz' be typo-corrected"
+  );
+  assert.ok(doc.build_request_charge > 0, "records what the scan cost");
+});
+
+test("dictionary: a warm doc is point-read instead of rescanning the container", async () => {
+  // Seed a container whose doc already exists (as if another worker built it).
+  const seed = docBackedContainer();
+  _resetCache();
+  await getDictionary(seed.container); // builds + persists
+  const persisted = seed.state.doc;
+
+  // Fresh worker: same doc present, but this one must NOT scan.
+  const { container, state } = docBackedContainer({ doc: persisted });
+  _resetCache();
+  const dict = await getDictionary(container);
+
+  assert.equal(state.scans, 0, "no full scan — this is the whole point of the doc");
+  assert.ok(state.reads >= 1, "it point-read the doc instead");
+  assert.equal(dict.source, "doc");
+  assert.ok(dict.termCount > 0, "terms survived the round trip");
+  assert.ok(dict.nameTokens.has("pillowz"), "so did brand protection");
+});
+
+test("dictionary: a doc older than the max age is ignored and rebuilt", async () => {
+  const seed = docBackedContainer();
+  _resetCache();
+  await getDictionary(seed.container);
+  const stale = { ...seed.state.doc, generated_at: new Date(Date.now() - 48 * 3600 * 1000).toISOString() };
+
+  const { container, state } = docBackedContainer({ doc: stale });
+  _resetCache();
+  const dict = await getDictionary(container);
+
+  assert.equal(state.scans, 1, "a too-old doc must not be trusted");
+  assert.equal(dict.source, "scan");
+});
+
+test("dictionary: rebuildAndPersistDictionary forces a rescan even when the doc is fresh", async () => {
+  const seed = docBackedContainer();
+  _resetCache();
+  await getDictionary(seed.container);
+
+  const { container, state } = docBackedContainer({ doc: seed.state.doc });
+  _resetCache();
+  await getDictionary(container);
+  assert.equal(state.scans, 0, "warm doc path");
+
+  const res = await rebuildAndPersistDictionary(container);
+  assert.equal(res.ok, true);
+  assert.equal(state.scans, 1, "forced rebuild bypasses the doc (import changed the corpus)");
+  assert.ok(state.upserts.length >= 1, "and rewrites the doc");
 });

@@ -4076,6 +4076,21 @@ async function resumeWorkerHandler(req, context) {
       } catch (e) {
         console.warn(`[resume-worker] backfill auto-trigger setup failed: ${e?.message || e}`);
       }
+
+      // The corpus just changed, so refresh the persisted typo dictionary.
+      // Without this the newly imported brand names stay missing from the
+      // name-token protection set (so they can be "corrected" into a common
+      // word) and from the term map the brand-name gate reads, until the doc
+      // ages out. Fire-and-forget: a search-quality refresh must never delay
+      // or fail an import that already succeeded.
+      try {
+        const { rebuildTypoDictionary } = require("../../admin-rebuild-typo-dictionary");
+        rebuildTypoDictionary({ source: "import_auto", logger: console }).catch((e) => {
+          console.warn(`[resume-worker] typo-dictionary rebuild failed: ${e?.message || e}`);
+        });
+      } catch (e) {
+        console.warn(`[resume-worker] typo-dictionary rebuild setup failed: ${e?.message || e}`);
+      }
     }
 
     const sessionPatch = {
@@ -5798,6 +5813,17 @@ async function resumeWorkerHandler(req, context) {
       }
     } catch (e) {
       console.warn(`[resume-worker post-enrichment] backfill auto-trigger setup failed: ${e?.message || e}`);
+    }
+
+    // Same as the main completion path: the corpus changed, so refresh the
+    // persisted typo dictionary. Fire-and-forget.
+    try {
+      const { rebuildTypoDictionary } = require("../../admin-rebuild-typo-dictionary");
+      rebuildTypoDictionary({ source: "import_auto_post_enrichment", logger: console }).catch((e) => {
+        console.warn(`[resume-worker post-enrichment] typo-dictionary rebuild failed: ${e?.message || e}`);
+      });
+    } catch (e) {
+      console.warn(`[resume-worker post-enrichment] typo-dictionary rebuild setup failed: ${e?.message || e}`);
     }
   }
 

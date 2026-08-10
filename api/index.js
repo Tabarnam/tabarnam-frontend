@@ -225,6 +225,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-rebuild-typo-dictionary");
+  require("./admin-rebuild-typo-dictionary/index.js");
+} catch (e) {
+  console.error("[api] Failed to load admin-rebuild-typo-dictionary:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-backfill-visible-counts");
   require("./xadmin-api-backfill-visible-counts/index.js");
 } catch (e) {
