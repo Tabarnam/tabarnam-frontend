@@ -141,35 +141,82 @@ const NON_PIPELINE_FIELDS = new Set(["amazon_url"]);
 
 const FINISHING_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/**
- * True while a recently imported company still has non-terminal missing
- * import-contract fields (e.g. logo retries in flight) — the Profile chip
- * shows "Finishing…" instead of a final-sounding "Complete". Scoped to a
- * 24h window after creation so the legacy catalog (old rows with permanent
- * gaps) is never re-flagged.
- */
-export function isImportFinishing(company: any): boolean {
-  if (!company || typeof company !== "object") return false;
+// The homepage screenshot and logo are fetched by background workers AFTER the
+// import contract is satisfied, and they are NOT part of import_missing_fields
+// — which is why a row could read "Complete · 95%" while its homepage was
+// still landing (Garrett Popcorn, 2026-08-09: created 02:23:09, homepage
+// written 02:24:51). Measured lag across a day of imports: 52s min, 101s
+// median, 200s max — so a 15-minute window covers the pipeline with wide
+// margin while never touching the legacy catalog.
+const IMAGE_FINISHING_WINDOW_MS = 15 * 60 * 1000;
 
+// States that mean the image pipeline is still going to act. Anything else
+// (failed / not_found_on_site / not_found_terminal / no_candidates /
+// budget_exhausted) is a concluded outcome and belongs in the issue chips.
+const LOGO_IN_FLIGHT_STATUSES = new Set(["", "pending", "queued", "deferred", "in_progress"]);
+
+function imageStillArriving(company: any, createdAt: number): string[] {
+  if (Date.now() - createdAt > IMAGE_FINISHING_WINDOW_MS) return [];
+  const pending: string[] = [];
+
+  // Homepage screenshot: absent status means the worker has not reported yet.
+  const hasHomepage = Boolean(asString(company?.homepage_image_url).trim());
+  const homepageCleared = Boolean(company?.homepage_issue_cleared);
+  const homepageStatus = asString(company?.homepage_fetch_status).trim().toLowerCase();
+  if (!hasHomepage && !homepageCleared && homepageStatus === "") pending.push("homepage");
+
+  // Logo: an explicit in-flight status, or no status recorded yet.
+  const hasLogo = Boolean(asString(company?.logo_url).trim());
+  if (!hasLogo) {
+    const logoStatus = asString(company?.logo_status).trim().toLowerCase();
+    const logoStage = asString(company?.logo_stage_status).trim().toLowerCase();
+    if (LOGO_IN_FLIGHT_STATUSES.has(logoStatus) || LOGO_IN_FLIGHT_STATUSES.has(logoStage)) pending.push("logo");
+  }
+
+  return pending;
+}
+
+/**
+ * Which fields are still being populated, for the "Finishing…" chip tooltip.
+ * Empty array when nothing is in flight.
+ */
+export function getFinishingFields(company: any): string[] {
+  if (!company || typeof company !== "object") return [];
   const createdAt = Date.parse(asString(company.created_at));
-  if (!Number.isFinite(createdAt) || Date.now() - createdAt > FINISHING_WINDOW_MS) return false;
+  if (!Number.isFinite(createdAt) || Date.now() - createdAt > FINISHING_WINDOW_MS) return [];
+
+  const pending = imageStillArriving(company, createdAt);
 
   const missing: string[] = Array.isArray(company?.enrichment_health?.missing_fields)
     ? company.enrichment_health.missing_fields
     : Array.isArray(company?.import_missing_fields)
       ? company.import_missing_fields
       : [];
-  if (!missing.length) return false;
-
   const reasons =
     company.import_missing_reason && typeof company.import_missing_reason === "object" ? company.import_missing_reason : {};
 
-  return missing.some((f) => {
+  for (const f of missing) {
     const field = asString(f).trim();
-    if (!field || NON_PIPELINE_FIELDS.has(field)) return false;
+    if (!field || NON_PIPELINE_FIELDS.has(field)) continue;
     const reason = asString(reasons[field]).trim().toLowerCase();
-    return !TERMINAL_MISSING_REASONS.has(reason);
-  });
+    if (!TERMINAL_MISSING_REASONS.has(reason) && !pending.includes(field)) pending.push(field);
+  }
+
+  return pending;
+}
+
+/**
+ * True while a recently imported company is still having fields populated —
+ * either non-terminal missing import-contract fields, or the async image
+ * pipeline (homepage screenshot / logo) still in flight. The Profile chip
+ * shows "Finishing…" instead of a final-sounding "Complete".
+ *
+ * Both checks are time-boxed from created_at so the legacy catalog (old rows
+ * with permanent gaps) is never re-flagged: 24h for contract fields, 15min
+ * for the image pipeline.
+ */
+export function isImportFinishing(company: any): boolean {
+  return getFinishingFields(company).length > 0;
 }
 
 export function getProfileCompletenessLabel(score: number): string {
