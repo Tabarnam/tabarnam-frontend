@@ -64,6 +64,13 @@ const {
 
 const { enqueueResumeRun, resolveQueueConfig } = require("../_enrichmentQueue");
 
+// Delayed resume messages that back-stop a lost/dropped primary enqueue.
+// Single source of truth so the delay and its log line can never disagree
+// (they did: the values moved to 180s/480s while the logs still said
+// 300s/600s, 2026-08-09).
+const RESUME_PRIMARY_DELAY_MS = 180_000;
+const RESUME_SAFETY_NET_DELAY_MS = 480_000;
+
 // IMPORTANT: pure handler module only (no app.http registrations). Loaded at cold start.
 const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
 
@@ -5773,9 +5780,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     // this message's no-op pass is what stamps a finished
                     // session's final status (observed: uniform +10:00 TRTs,
                     // 2026-08-09). Complete sessions no-op cheaply.
-                    run_after_ms: 180_000,
+                    run_after_ms: RESUME_PRIMARY_DELAY_MS,
                   }).catch(() => null);
-                  console.log(`[import-start] session=${sessionId} resume enqueued (300s safety delay, ${mandatoryCompanyIds.length} companies)`);
+                  console.log(`[import-start] session=${sessionId} resume enqueued (${Math.round(RESUME_PRIMARY_DELAY_MS / 1000)}s safety delay, ${mandatoryCompanyIds.length} companies)`);
                 } catch {}
 
                 // Phase 2.18.A1 â€” safety-net enqueue.
@@ -5811,10 +5818,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     enqueue_at: new Date().toISOString(),
                     cycle_count: 0, // same cycle_count â†’ idempotent with primary
                     // 8-min delay (was 90s, then 600s) — second-tier safety
-                    // net behind the 180s primary message above.
-                    run_after_ms: 480_000,
+                    // net behind the primary message above.
+                    run_after_ms: RESUME_SAFETY_NET_DELAY_MS,
                   }).catch(() => null);
-                  console.log(`[import-start] session=${sessionId} resume safety-net enqueued (600s safety delay, ${mandatoryCompanyIds.length} companies)`);
+                  console.log(`[import-start] session=${sessionId} resume safety-net enqueued (${Math.round(RESUME_SAFETY_NET_DELAY_MS / 1000)}s safety delay, ${mandatoryCompanyIds.length} companies)`);
                 } catch {}
 
                 // Fire-and-forget: run enrichment asynchronously.
