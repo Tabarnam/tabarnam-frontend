@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Volume2, VolumeX } from "lucide-react";
+import { AlertTriangle, Play, Volume2, VolumeX } from "lucide-react";
 import {
   asString,
   toEnglishImportStage,
@@ -140,7 +140,10 @@ export default function StatusAlerts({
             className={`shrink-0 rounded-md p-1.5 text-blue-600 dark:text-blue-300 transition-colors flex items-center gap-1.5 ${notificationMuted ? "opacity-40 cursor-not-allowed" : "hover:bg-blue-100 dark:hover:bg-blue-900/50"}`}
             title={notificationMuted ? "Sound is muted" : "Replay notification sound"}
           >
-            <Volume2 className="h-4 w-4 shrink-0" />
+            {/* Play triangle, not a speaker — the speaker next to it is the
+                mute toggle, and two identical speakers gave the admin no way
+                to tell replay from mute. */}
+            <Play className="h-4 w-4 shrink-0 fill-current" />
             {lastPlayed && <span className="text-xs line-clamp-3 max-w-[200px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
           </button>
           <button
@@ -250,7 +253,7 @@ export default function StatusAlerts({
               className={`shrink-0 rounded-md p-1.5 ${useGreen ? "text-emerald-600 dark:text-emerald-300" : "text-amber-600 dark:text-amber-300"} transition-colors flex items-center gap-1.5 ${notificationMuted ? "opacity-40 cursor-not-allowed" : (useGreen ? "hover:bg-emerald-100 dark:hover:bg-emerald-900/50" : "hover:bg-amber-100 dark:hover:bg-amber-900/50")}`}
               title={notificationMuted ? "Sound is muted" : "Replay notification sound"}
             >
-              <Volume2 className="h-4 w-4 shrink-0" />
+              <Play className="h-4 w-4 shrink-0 fill-current" />
               {lastPlayed && <span className="text-xs line-clamp-3 max-w-[200px]">{lastPlayed.replace(/\.\w+$/, "")}</span>}
             </button>
             <button
