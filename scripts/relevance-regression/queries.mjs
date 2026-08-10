@@ -69,6 +69,15 @@ export const QUERIES = [
   { q: "olive tapenade", class: "TRAP", note: "common word 'olive'" },
   { q: "honey soap", class: "TRAP", note: "both words common" },
 
+  // PROV — provenance synonyms (heritage/traditional/ancient/heirloom), scoped
+  // to food. The first three must cross-match; the last two must NOT expand,
+  // because those words are non-food in this catalog (kilts, rugs, soap).
+  { q: "heritage grains", class: "PROV", note: "must surface ancient/heirloom grain makers" },
+  { q: "heirloom wheat", class: "PROV", note: "must surface heritage/ancient wheat" },
+  { q: "traditional wheat flour", class: "PROV", note: "mid-phrase expansion" },
+  { q: "traditional kilt", class: "PROV-TRAP", note: "must NOT get provenance expansion" },
+  { q: "traditional soap", class: "PROV-TRAP", note: "soap→cleanser is fine; provenance swap is not" },
+
   // Qualifier + head-noun (adjective + noun): the noun-maker must survive even
   // when it doesn't tag the qualifier. Watch these for ENTRANTS (the intended
   // gain from the head-noun penalty softening), and the noun-only baseline for
