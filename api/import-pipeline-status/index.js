@@ -66,12 +66,20 @@ async function getQueueSnapshot() {
     if (!cfg.connectionString) return { depth: null, items: [] };
     const client = new QueueClient(cfg.connectionString, cfg.queueName);
     const props = await client.getProperties();
+
+    // approximateMessagesCount includes SCHEDULED (not-yet-visible) messages.
+    // Every import enqueues two delayed safety-net resume messages per
+    // company (180s + 480s), so a finished 10-company batch leaves ~20
+    // invisible messages sitting in the queue — which held the light amber
+    // for ~6 minutes after the last company was actually written
+    // (2026-08-09). Depth is kept for diagnostics only; the light must key
+    // off work that is actually runnable NOW.
     const depth = Number(props.approximateMessagesCount ?? 0);
 
     let items = [];
     if (depth > 0) {
-      // Peek is non-destructive (does not dequeue or bump visibility) — this
-      // is what lets the banner show WHAT is queued, not just how many.
+      // peekMessages returns only VISIBLE messages — i.e. real, runnable
+      // work — and is non-destructive (no dequeue, no visibility change).
       const peeked = await client.peekMessages({ numberOfMessages: 32 }).catch(() => null);
       items = (peeked?.peekedMessageItems || [])
         .map((m) => parseQueueMessage(m.messageText))
@@ -150,18 +158,28 @@ async function handler(req, context) {
   // seconds, so a short cool-down is enough; 180s made "importing" linger
   // ~3 min after the batch visibly finished in the Companies view.
   const importing = freshestSessionAgeSec != null && freshestSessionAgeSec < 75;
-  const enriching = (queueDepth || 0) > 0 || pendingNames.length > 0;
+
+  // Runnable-now work only. A message that a worker is actively processing is
+  // also invisible to peek, but that case sets second_look_pending on the
+  // company doc, so the two signals together cover real in-flight work
+  // without counting our own scheduled safety nets.
+  const runnableQueued = queueSnapshot.items.length;
+  const enriching = runnableQueued > 0 || pendingNames.length > 0;
   const verdict = importing ? "importing" : enriching ? "enriching" : "idle";
 
   return json({
     ok: true,
     verdict,
-    queue_depth: queueDepth,
+    // Runnable now (visible) — what the light keys off.
+    queue_runnable: runnableQueued,
+    // Total including our scheduled safety-net messages — diagnostics only.
+    queue_depth_including_scheduled: queueDepth,
+    queue_depth: runnableQueued,
     // The actual queued work (peeked, non-destructive, up to 32 messages):
     // [{name, domain, reason, fields}] — the banner renders this as a
     // shrinking list so the operator can see what's left.
     queued_items: queueSnapshot.items,
-    queued_items_truncated: (queueDepth || 0) > queueSnapshot.items.length,
+    queued_items_truncated: queueSnapshot.items.length >= 32,
     second_look_pending_count: pendingNames.length,
     second_look_pending_names: pendingNames.slice(0, 10),
     recent_sessions_15m: sessions.length,
