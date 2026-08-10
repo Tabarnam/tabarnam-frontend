@@ -112,9 +112,47 @@ export function fetchSoundManifest() {
   return fetchManifest();
 }
 
-/** Play an arbitrary clip on demand (settings-panel preview). */
-export function previewSound(file) {
-  return playFile(file);
+// Settings-panel preview playback. Kept separate from playFile() (used by the
+// import notification itself) because a preview must be interruptible: only
+// one clip previews at a time and the row's button toggles play/pause.
+let previewAudio = null;
+
+export function stopPreview() {
+  if (!previewAudio) return;
+  try {
+    previewAudio.pause();
+    previewAudio.currentTime = 0;
+  } catch {
+    /* already torn down */
+  }
+  previewAudio = null;
+}
+
+/**
+ * Start previewing a clip, replacing any preview already playing.
+ * `onEnded` fires when the clip finishes, errors, or is superseded, so the
+ * caller can reset its button back to "play".
+ */
+export function previewSound(file, { onEnded } = {}) {
+  stopPreview();
+
+  const url = `${SOUNDS_BASE}${encodeURIComponent(file)}`;
+  const audio = new Audio(url);
+  audio.volume = 0.7;
+  previewAudio = audio;
+
+  const finish = () => {
+    if (previewAudio === audio) previewAudio = null;
+    if (typeof onEnded === "function") onEnded();
+  };
+  audio.addEventListener("ended", finish);
+  audio.addEventListener("error", finish);
+  audio.play().catch((err) => {
+    console.warn("[notification-sound] preview blocked:", err?.message || err);
+    finish();
+  });
+
+  return audio;
 }
 
 function fetchManifest() {

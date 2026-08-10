@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { GripVertical, Play, RotateCcw, Search } from "lucide-react";
+import { GripVertical, Pause, Play, RotateCcw, Search } from "lucide-react";
 import {
   fetchSoundManifest,
   previewSound,
+  stopPreview,
   readSoundMode,
   writeSoundMode,
   readSoundOrder,
@@ -32,7 +33,24 @@ export default function NotificationSoundSettings() {
   const [filter, setFilter] = useState("");
   const [loadError, setLoadError] = useState("");
   const [dropIdx, setDropIdx] = useState(null);
+  const [previewing, setPreviewing] = useState(null);
   const dragIdxRef = useRef(null);
+
+  // Never leave a clip playing after the panel unmounts.
+  useEffect(() => () => stopPreview(), []);
+
+  const togglePreview = useCallback(
+    (file) => {
+      if (previewing === file) {
+        stopPreview();
+        setPreviewing(null);
+        return;
+      }
+      setPreviewing(file);
+      previewSound(file, { onEnded: () => setPreviewing((cur) => (cur === file ? null : cur)) });
+    },
+    [previewing],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -209,11 +227,16 @@ export default function NotificationSoundSettings() {
 
                 <button
                   type="button"
-                  onClick={() => previewSound(file)}
+                  onClick={() => togglePreview(file)}
                   className="shrink-0 rounded p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/40"
-                  title="Preview this clip"
+                  title={previewing === file ? "Stop this clip" : "Preview this clip"}
+                  aria-label={previewing === file ? "Stop preview" : "Preview clip"}
                 >
-                  <Play className="h-3.5 w-3.5 fill-current" />
+                  {previewing === file ? (
+                    <Pause className="h-3.5 w-3.5 fill-current" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                  )}
                 </button>
 
                 <div className="flex shrink-0 flex-col leading-none">
