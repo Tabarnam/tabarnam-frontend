@@ -63,6 +63,65 @@ test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });
 
+// ── context-scoped provenance synonyms ──────────────────────────────────────
+// heritage / traditional / ancient / heirloom are synonyms for FOOD only.
+// Measured on the catalog, "traditional" is mostly kilts, rugs, soap and
+// skincare, so these must not expand without food context in the query.
+
+test("provenance synonyms: expand when the query has food context", () => {
+  const out = expandProductSynonyms("heritage grains");
+  assert.ok(out.includes("ancient grains"), `heritage grains → ancient grains; got ${JSON.stringify(out)}`);
+  assert.ok(out.includes("heirloom grains"), "heritage grains → heirloom grains");
+  assert.ok(out.includes("traditional grains"), "heritage grains → traditional grains");
+});
+
+test("provenance synonyms: all four cross-expand", () => {
+  assert.ok(expandProductSynonyms("ancient wheat").includes("heirloom wheat"));
+  assert.ok(expandProductSynonyms("heirloom pasta").includes("heritage pasta"));
+  assert.ok(expandProductSynonyms("traditional bread").includes("ancient bread"));
+});
+
+test("provenance synonyms: work mid-phrase, preserving the other words", () => {
+  const out = expandProductSynonyms("heritage wheat flour");
+  assert.ok(out.includes("ancient wheat flour"), `got ${JSON.stringify(out)}`);
+  assert.ok(out.includes("heirloom wheat flour"));
+});
+
+test("provenance synonyms: livestock context counts as food", () => {
+  assert.ok(expandProductSynonyms("heritage breed pork").includes("heirloom breed pork"));
+});
+
+test("provenance synonyms: do NOT expand without food context", () => {
+  // The exact non-food clusters these words occupy in the catalog. Note the
+  // assertion: unrelated GLOBAL groups may still fire (soap→cleanser,
+  // rugs→carpets) — that's correct and must keep working. What must NOT happen
+  // is the provenance word itself being swapped for one of its siblings.
+  const PROVENANCE = ["heritage", "traditional", "ancient", "heirloom"];
+  for (const q of ["traditional soap", "traditional kilt", "heritage rugs", "traditional skincare"]) {
+    const original = q.split(/\s+/).find((w) => PROVENANCE.includes(w));
+    const siblings = PROVENANCE.filter((w) => w !== original);
+    for (const variant of expandProductSynonyms(q)) {
+      const swapped = siblings.filter((s) => variant.split(/\s+/).includes(s));
+      assert.deepEqual(
+        swapped,
+        [],
+        `"${q}" → "${variant}" swapped the provenance word outside food context`
+      );
+    }
+  }
+});
+
+test("provenance synonyms: a bare one-word query supplies no context, so no expansion", () => {
+  assert.deepEqual(expandProductSynonyms("heritage"), []);
+  assert.deepEqual(expandProductSynonyms("ancient"), []);
+});
+
+test("provenance synonyms: scoped words are absent from the GLOBAL synonym map", () => {
+  // Guard against someone later moving these into PRODUCT_SYNONYM_GROUPS,
+  // which would silently drop the food scoping.
+  assert.deepEqual(expandProductSynonyms("traditional kilt"), []);
+});
+
 // Regression guard: a pre-existing group still works, so the new entry
 // didn't disturb the map build.
 test("expandProductSynonyms: existing candle group still resolves", () => {

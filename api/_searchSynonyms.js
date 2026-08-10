@@ -203,6 +203,60 @@ const PRODUCT_SYNONYM_GROUPS = [
 ];
 
 // Build a fast lookup: word → [synonym1, synonym2, ...]
+// ── Context-scoped synonym groups ───────────────────────────────────────────
+// Some words are only synonyms inside a particular domain. "heritage",
+// "traditional", "ancient" and "heirloom" mean the same thing for a grain or a
+// livestock breed, but NOT for the rest of the catalog — measured on this
+// corpus, "traditional" is mostly kilts, rugs, soap and skincare (only ~44% of
+// its matches are food), so treating it as a global synonym would rewrite
+// queries that have nothing to do with provenance.
+//
+// Search has no industry information at query-expansion time (retrieval hasn't
+// run yet), so the scope has to come from the query itself: expand only when
+// another word in the query establishes the domain. "heritage grains" expands;
+// "traditional soap" does not. The trade-off is that a bare one-word query
+// ("heritage") supplies no context and is deliberately left alone.
+const FOOD_CONTEXT_WORDS = new Set([
+  // grains & milling — the densest cluster for these terms in this catalog
+  "grain", "grains", "wheat", "flour", "flours", "durum", "einkorn", "emmer",
+  "spelt", "farro", "kamut", "rye", "barley", "oat", "oats", "rice", "corn",
+  "maize", "masa", "hominy", "grits", "polenta", "millet", "sorghum", "quinoa",
+  "buckwheat", "semolina", "bran", "berries", "mill", "milled", "stoneground",
+  // baked & pasta
+  "bread", "breads", "sourdough", "bakery", "baked", "baking", "pasta",
+  "noodle", "noodles", "tortilla", "tortillas", "cracker", "crackers",
+  "pastry", "cereal", "granola", "porridge",
+  // livestock & protein
+  "breed", "breeds", "livestock", "cattle", "pork", "beef", "lamb", "mutton",
+  "poultry", "chicken", "turkey", "duck", "goose", "bison", "meat", "meats",
+  "charcuterie", "sausage", "jerky", "egg", "eggs",
+  // dairy
+  "dairy", "cheese", "milk", "butter", "yogurt", "ghee", "creamery",
+  // produce & farm
+  "farm", "farms", "farmstead", "orchard", "homestead", "seed", "seeds",
+  "heirlooms", "tomato", "tomatoes", "apple", "apples", "bean", "beans",
+  "pepper", "peppers", "chile", "chiles", "squash", "melon", "produce",
+  "vegetable", "vegetables", "fruit", "fruits", "nut", "nuts", "olive",
+  "olives",
+  // pantry, condiments, sweets
+  "food", "foods", "recipe", "recipes", "pantry", "grocery", "preserve",
+  "preserves", "jam", "jelly", "pickle", "pickles", "vinegar", "sauce",
+  "salsa", "spice", "spices", "herb", "herbs", "syrup", "honey", "molasses",
+  "chocolate", "cacao", "candy", "snack", "snacks", "oil", "salt", "sugar",
+  // beverages (food-adjacent; same provenance language)
+  "coffee", "tea", "beer", "brew", "brewery", "cider", "wine", "winery",
+  "vineyard", "mead", "spirits", "whiskey", "whisky", "bourbon", "rum",
+  "distillery", "kombucha", "juice",
+]);
+
+const SCOPED_SYNONYM_GROUPS = [
+  {
+    id: "provenance_food",
+    words: ["heritage", "traditional", "ancient", "heirloom"],
+    context: FOOD_CONTEXT_WORDS,
+  },
+];
+
 const PRODUCT_SYNONYM_MAP = {};
 for (const group of PRODUCT_SYNONYM_GROUPS) {
   for (const word of group) {
@@ -249,6 +303,22 @@ function expandProductSynonyms(phrase) {
       for (const syn of syns) {
         const variant = [...words];
         variant[i] = syn;
+        variants.add(variant.join(" "));
+      }
+    }
+  }
+
+  // Context-scoped groups: only expand when another word in the query
+  // establishes the domain (see SCOPED_SYNONYM_GROUPS). A one-word query
+  // carries no context and is intentionally left unexpanded.
+  for (const group of SCOPED_SYNONYM_GROUPS) {
+    if (!words.some((w) => group.context.has(w))) continue;
+    for (let i = 0; i < words.length; i++) {
+      if (!group.words.includes(words[i])) continue;
+      for (const other of group.words) {
+        if (other === words[i]) continue;
+        const variant = [...words];
+        variant[i] = other;
         variants.add(variant.join(" "));
       }
     }
@@ -611,4 +681,6 @@ module.exports = {
   expandQueryTermsForFTS,
   expandBusinessAbbreviations,
   expandProductSynonyms,
+  SCOPED_SYNONYM_GROUPS,
+  FOOD_CONTEXT_WORDS,
 };
