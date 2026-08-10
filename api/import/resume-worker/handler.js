@@ -4077,20 +4077,17 @@ async function resumeWorkerHandler(req, context) {
         console.warn(`[resume-worker] backfill auto-trigger setup failed: ${e?.message || e}`);
       }
 
-      // The corpus just changed, so refresh the persisted typo dictionary.
-      // Without this the newly imported brand names stay missing from the
-      // name-token protection set (so they can be "corrected" into a common
-      // word) and from the term map the brand-name gate reads, until the doc
-      // ages out. Fire-and-forget: a search-quality refresh must never delay
-      // or fail an import that already succeeded.
-      try {
-        const { rebuildTypoDictionary } = require("../../xadmin-api-rebuild-typo-dictionary");
-        rebuildTypoDictionary({ source: "import_auto", logger: console }).catch((e) => {
-          console.warn(`[resume-worker] typo-dictionary rebuild failed: ${e?.message || e}`);
-        });
-      } catch (e) {
-        console.warn(`[resume-worker] typo-dictionary rebuild setup failed: ${e?.message || e}`);
-      }
+      // NOTE: we deliberately do NOT rebuild the typo dictionary here.
+      // Rebuilding is a full scan of the whole companies container, and this
+      // completion point fires ~60x/day (peaks over 120) — bursts of sessions
+      // land in rapid succession, so a per-import rebuild meant ~2h/month of
+      // scanning that competed with xAI enrichment for the same warm worker,
+      // which is the very contention that moved backfill out of import-start.
+      // The dictionary instead ages out once every 24h (DOC_MAX_AGE_MS in
+      // _typoCorrection) and is rebuilt by the next search that notices. A day
+      // of new companies barely moves a 13k-company corpus, and the tokens a
+      // fresh import contributes are below the >=2-company threshold anyway.
+      // Need it sooner? POST /api/xadmin-api-rebuild-typo-dictionary.
     }
 
     const sessionPatch = {
@@ -5815,16 +5812,9 @@ async function resumeWorkerHandler(req, context) {
       console.warn(`[resume-worker post-enrichment] backfill auto-trigger setup failed: ${e?.message || e}`);
     }
 
-    // Same as the main completion path: the corpus changed, so refresh the
-    // persisted typo dictionary. Fire-and-forget.
-    try {
-      const { rebuildTypoDictionary } = require("../../xadmin-api-rebuild-typo-dictionary");
-      rebuildTypoDictionary({ source: "import_auto_post_enrichment", logger: console }).catch((e) => {
-        console.warn(`[resume-worker post-enrichment] typo-dictionary rebuild failed: ${e?.message || e}`);
-      });
-    } catch (e) {
-      console.warn(`[resume-worker post-enrichment] typo-dictionary rebuild setup failed: ${e?.message || e}`);
-    }
+    // As in the main completion path: no typo-dictionary rebuild here. It ages
+    // out once every 24h and is rebuilt by the next search that notices. See
+    // the longer note at the other completion site.
   }
 
   await bestEffortPatchSessionDoc({

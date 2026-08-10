@@ -54,9 +54,13 @@ let _backgroundLoadStarted = false;
 const DICT_DOC_ID = "_index_typo_dictionary";
 const DICT_PARTITION_KEY = "_index";
 const DICT_DOC_VERSION = 1;
-// Safety net so the dictionary can't drift forever if an import hook is missed.
-// Timers do NOT execute on this Flex app (platform defect), so this age check —
-// evaluated on a request-driven refresh — is what actually bounds staleness.
+// THE rebuild cadence: once a day. Imports deliberately do NOT trigger a
+// rebuild — completions fire ~60x/day in bursts, and a day of new companies
+// barely moves a 13k-company corpus (a fresh import's tokens are below the
+// >=2-company threshold anyway). Timers do NOT execute on this Flex app
+// (platform defect), so this age check — evaluated on the next request-driven
+// refresh after the doc turns 24h old — is what actually schedules the daily
+// rebuild. Force one sooner via POST /api/xadmin-api-rebuild-typo-dictionary.
 const DOC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // Cosmos hard-caps a document at 2MB. Pack compactly and refuse to write
 // anything near the ceiling rather than failing the upsert (or bloating the
