@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { expandProductSynonyms } = require("./_searchSynonyms");
+const { expandProductSynonyms, expandQueryTermsForFTS } = require("./_searchSynonyms");
 
 // wine ↔ winery interchangeability (2026). A "wine" search should surface
 // wineries and a "winery" search should surface wine sellers. The original
@@ -42,6 +42,27 @@ test("expandProductSynonyms: windshield wipers ↔ wiper blades", () => {
 test("expandProductSynonyms: bath bomb ↔ fizzy/fizzer/ball", () => {
   assert.ok(expandProductSynonyms("bath bomb").includes("bath fizzy"), "bath bomb → bath fizzy");
   assert.ok(expandProductSynonyms("bath fizzy").includes("bath bomb"), "bath fizzy → bath bomb");
+});
+
+test("expandProductSynonyms: ice maker ↔ ice machine", () => {
+  assert.ok(expandProductSynonyms("ice maker").includes("ice machine"), "ice maker → ice machine");
+  assert.ok(expandProductSynonyms("ice machine").includes("ice maker"), "ice machine → ice maker");
+  assert.ok(expandProductSynonyms("ice makers").includes("ice machines"), "ice makers → ice machines");
+  assert.ok(expandProductSynonyms("ice machines").includes("ice makers"), "ice machines → ice makers");
+});
+
+// Compound splits run BEFORE product synonym expansion, so a solid spelling
+// chains all the way to the far side of its synonym group rather than stopping
+// at the split form. Guard both the new chain and a pre-existing split.
+test("expandQueryTermsForFTS: icemaker chains through the split to ice machine", async () => {
+  const { phrases } = await expandQueryTermsForFTS("icemaker", "icemaker");
+  assert.ok(phrases.includes("ice maker"), "icemaker → ice maker (split)");
+  assert.ok(phrases.includes("ice machine"), "icemaker → ice machine (split then synonym)");
+});
+
+test("expandQueryTermsForFTS: existing lipgloss split still resolves after reorder", async () => {
+  const { phrases } = await expandQueryTermsForFTS("lipgloss", "lipgloss");
+  assert.ok(phrases.includes("lip gloss"), "lipgloss → lip gloss");
 });
 
 test("expandProductSynonyms: essential oils ↔ aromatherapy/aroma/diffuser oils", () => {
