@@ -194,10 +194,11 @@ export default function NotificationSoundSettings() {
                   draggable={!filtering}
                   onDragStart={filtering ? undefined : (e) => handleDragStart(e, idx)}
                   onDragEnd={filtering ? undefined : handleDragEnd}
-                  className={`shrink-0 text-slate-400 ${filtering ? "opacity-30" : "cursor-grab active:cursor-grabbing"}`}
+                  className={`shrink-0 px-1 text-slate-400 ${filtering ? "opacity-30" : "cursor-grab active:cursor-grabbing"}`}
                   title={filtering ? "Clear the filter to drag" : "Drag to reorder"}
                 >
-                  <GripVertical className="h-4 w-4" />
+                  {/* Smaller glyph; the px-1 keeps the drag target easy to hit. */}
+                  <GripVertical className="h-2.5 w-2.5" />
                 </span>
 
                 <span className="w-8 shrink-0 text-right text-xs tabular-nums text-slate-400">{idx + 1}</span>
