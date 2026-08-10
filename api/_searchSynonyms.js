@@ -106,6 +106,11 @@ const PRODUCT_SYNONYM_GROUPS = [
   // (and plurals) so either query reaches brands tagged with only one form.
   ["fridge", "refrigerator"],
   ["fridges", "refrigerators"],
+  // "ice maker" and "ice machine" are the same appliance under different head
+  // nouns (maker/machine), so neither query reaches a brand tagged only the
+  // other way. Group + plurals.
+  ["ice maker", "ice machine"],
+  ["ice makers", "ice machines"],
   // Personal care
   ["soap", "cleanser", "wash"],
   ["shampoo", "hair wash"],
@@ -644,15 +649,11 @@ async function expandQueryTermsForFTS(q_norm, q_compact) {
     }
   }
 
-  // Product synonym expansion (e.g., "nail clipper" → "nail cutter", "nail trimmer")
-  for (const phrase of [...phrases]) {
-    for (const variant of expandProductSynonyms(phrase)) {
-      phrases.add(variant);
-    }
-  }
-
   // Compound word splits — only use known dictionary matches (e.g., "bodywash" → "body wash")
-  // Arbitrary middle-splits (e.g., "granola" → "gra nola") generate noise
+  // Arbitrary middle-splits (e.g., "granola" → "gra nola") generate noise.
+  // MUST run BEFORE product synonym expansion so a split form then feeds the
+  // synonym groups (icemaker → "ice maker" → "ice machine"). While this ran
+  // last, a solid spelling reached its split form and stopped there.
   if (q_norm && !q_norm.includes(" ") && q_norm.length > 4) {
     const knownSplits = {
       bodywash: "body wash", bodywashe: "body wash", hairwash: "hair wash",
@@ -661,9 +662,18 @@ async function expandQueryTermsForFTS(q_norm, q_compact) {
       handwash: "hand wash", handcare: "hand care", lipscare: "lips care",
       lipcare: "lip care", lipgloss: "lip gloss", lipglosses: "lip gloss",
       lipbalm: "lip balm", lipliner: "lip liner",
+      icemaker: "ice maker", icemakers: "ice makers",
+      icemachine: "ice machine", icemachines: "ice machines",
     };
     if (knownSplits[q_norm]) {
       phrases.add(knownSplits[q_norm]);
+    }
+  }
+
+  // Product synonym expansion (e.g., "nail clipper" → "nail cutter", "nail trimmer")
+  for (const phrase of [...phrases]) {
+    for (const variant of expandProductSynonyms(phrase)) {
+      phrases.add(variant);
     }
   }
 
