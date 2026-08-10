@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { expandProductSynonyms, expandQueryTermsForFTS } = require("./_searchSynonyms");
+const { expandProductSynonyms, expandQueryTermsForFTS, splitCompoundQuery } = require("./_searchSynonyms");
 
 // wine ↔ winery interchangeability (2026). A "wine" search should surface
 // wineries and a "winery" search should surface wine sellers. The original
@@ -63,6 +63,19 @@ test("expandQueryTermsForFTS: icemaker chains through the split to ice machine",
 test("expandQueryTermsForFTS: existing lipgloss split still resolves after reorder", async () => {
   const { phrases } = await expandQueryTermsForFTS("lipgloss", "lipgloss");
   assert.ok(phrases.includes("lip gloss"), "lipgloss → lip gloss");
+});
+
+test("splitCompoundQuery: known compounds split, everything else is left alone", () => {
+  assert.equal(splitCompoundQuery("lipgloss"), "lip gloss");
+  assert.equal(splitCompoundQuery("icemaker"), "ice maker");
+  assert.equal(splitCompoundQuery("bodywash"), "body wash");
+  // Already spaced — nothing to do.
+  assert.equal(splitCompoundQuery("lip gloss"), null);
+  // Not in the curated map: never guess a middle-split ("gra nola").
+  assert.equal(splitCompoundQuery("granola"), null);
+  // Short tokens are too collision-prone to split.
+  assert.equal(splitCompoundQuery("soap"), null);
+  assert.equal(splitCompoundQuery(""), null);
 });
 
 test("expandProductSynonyms: essential oils ↔ aromatherapy/aroma/diffuser oils", () => {

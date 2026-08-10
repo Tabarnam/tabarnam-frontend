@@ -135,6 +135,47 @@ test("countOnly returns directCount = number of strong (tier<2) matches for a sc
   assert.ok(body.directCount <= body.totalCount, "directCount never exceeds totalCount");
 });
 
+// Compound-spelling parity. A brand tagged only "lip gloss" used to be flagged
+// synonym-only for the solid query "lipgloss" (nothing literally contains it),
+// take the x0.4 penalty, and drop below the direct tier — prod showed "lip
+// gloss" 53 direct vs "lipgloss" 6, off an IDENTICAL 85-doc retrieval pool.
+// Canonicalizing q_norm to the spaced form makes the two spellings score alike.
+async function directCountFor(qRaw, qNorm, qCompact) {
+  const docs = [
+    { id: "g1", company_id: "g1", company_name: "Glow Cosmetics", normalized_domain: "glow.com", keywords: ["lip gloss"], industries: ["Beauty"], _ts: 1700000000 },
+  ];
+  const companiesContainer = makeContainer(async () => docs);
+  const res = await _test.searchCompaniesHandler(
+    makeReq(`https://example.test/api/search-companies?raw=${encodeURIComponent(qRaw)}&norm=${encodeURIComponent(qNorm)}&compact=${encodeURIComponent(qCompact)}&countOnly=1&take=25`),
+    { log() {} },
+    { companiesContainer }
+  );
+  assert.equal(res.status, 200);
+  return JSON.parse(res.body).directCount;
+}
+
+test("compound spelling: solid query scores identically to the spaced query", async () => {
+  const spaced = await directCountFor("lip gloss", "lip gloss", "lipgloss");
+  const solid = await directCountFor("lipgloss", "lipgloss", "lipgloss");
+  assert.equal(spaced, 1, "spaced query counts the lip gloss brand as direct");
+  assert.equal(solid, spaced, "solid spelling must not be demoted to loosely-related");
+});
+
+test("compound spelling: q_norm canonicalization is reported in meta._splitDiag", async () => {
+  const docs = [
+    { id: "g1", company_id: "g1", company_name: "Glow Cosmetics", normalized_domain: "glow.com", keywords: ["lip gloss"], industries: ["Beauty"], _ts: 1700000000 },
+  ];
+  const companiesContainer = makeContainer(async () => docs);
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?raw=lipgloss&norm=lipgloss&compact=lipgloss&take=25"),
+    { log() {} },
+    { companiesContainer }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.deepEqual(body.meta._splitDiag, { from: "lipgloss", to: "lip gloss" });
+});
+
 test("countOnly returns directCount = null for a location-only search (no query text)", async () => {
   const doc = { id: "x1", company_id: "x1", company_name: "Anything", normalized_domain: "anything.com", industries: ["Snacks"], manufacturing_locations: ["Texas, US"], _ts: 1700000000 };
   const companiesContainer = makeContainer(async () => [doc]);

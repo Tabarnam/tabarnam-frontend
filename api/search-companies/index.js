@@ -9,7 +9,7 @@ const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
 const { parseQuery, foldDiacritics, normalizeQuery } = require("../_queryNormalizer");
-const { expandQueryTermsForFTS, expandProductSynonyms } = require("../_searchSynonyms");
+const { expandQueryTermsForFTS, expandProductSynonyms, splitCompoundQuery } = require("../_searchSynonyms");
 const { isFuzzyNameMatch, damerauLevenshtein } = require("../_fuzzyMatch");
 const { simpleStem, stemWords } = require("../_stemmer");
 const { toNormalizedDomain } = require("../import-start/_importStartCompanyUtils");
@@ -1616,6 +1616,30 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     q_stemmed = parsed.q_stemmed || (q_norm ? stemWords(q_norm) : "");
   }
 
+  // ── Compound-spelling normalization ────────────────────────────────────────
+  // "lipgloss" is not a different product from "lip gloss" — it is the same
+  // words typed solid. RETRIEVAL already coped (the split is added as an FTS
+  // phrase), but SCORING did not: with q_norm left as "lipgloss", no company
+  // literally contains it, so isSynonymOnlyMatch flagged every hit as
+  // synonym-only and applied the x0.4 penalty, sinking them below the direct
+  // tier. Measured on prod: "lip gloss" 53 direct / "lipgloss" 6 direct, from
+  // an IDENTICAL retrieval pool of 85. Same shape for icemaker (16 vs 1).
+  //
+  // So canonicalize q_norm to the spaced form. Deliberately NOT routed through
+  // the "did you mean" suggestion used for typos below: this changes no words,
+  // only whitespace, and comes from a curated map rather than corpus edit
+  // distance, so it carries none of the padron→patron hijack risk that rule
+  // exists to prevent. q_compact is left alone — it is byte-identical for both
+  // spellings ("lipgloss"), so a brand literally NAMED "LipGloss" still matches
+  // by name via the q_compact paths.
+  let _splitDiag = null;
+  const compoundSplit = splitCompoundQuery(q_norm);
+  if (compoundSplit) {
+    _splitDiag = { from: q_norm, to: compoundSplit };
+    q_norm = compoundSplit;
+    q_stemmed = stemWords(q_norm);
+  }
+
   // ── Domain search ──────────────────────────────────────────────────────────
   // When the user pastes a URL, the frontend sends the exact normalized_domain
   // (?domain=cove.com). A domain search is the narrowest possible intent, so
@@ -2775,6 +2799,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ...domainMeta,
             ...(domainAlternatives ? { alternatives: domainAlternatives } : {}),
             _typoDiag,
+            ...(_splitDiag ? { _splitDiag } : {}),
             _timing: {
               cosmos_ms: _tRetrieved - _tStart,
               compute_ms: Date.now() - _tRetrieved,
