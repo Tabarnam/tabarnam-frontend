@@ -5,6 +5,7 @@ const {
   buildBuckets,
   correctToken,
   correctQuery,
+  getDictionary,
   _resetCache,
 } = require("./_typoCorrection");
 
@@ -184,4 +185,70 @@ test("buildBuckets: indexes each token by both first-char + length AND length-on
   const buckets = buildBuckets({ paint: {} });
   assert.deepEqual(buckets.get("p|5"), ["paint"]);
   assert.deepEqual(buckets.get("*|5"), ["paint"]);
+});
+
+// ── stale-while-revalidate ──────────────────────────────────────────────────
+// Rebuilding scans the whole companies container (seconds in prod). A STALE
+// cache must be served immediately and refreshed in the BACKGROUND — never
+// awaited in a request path. Regression guard for the "first search after the
+// 15-min expiry takes a few seconds" stall.
+
+function slowScanContainer(delayMs, counter) {
+  return {
+    items: {
+      query: () => ({
+        getAsyncIterator: async function* () {
+          counter.scans++;
+          await new Promise((r) => setTimeout(r, delayMs));
+          // ≥ MIN_COMPANIES_PER_TOKEN (2) companies share these tokens, so the
+          // frequency threshold keeps them and the build returns a real dict.
+          yield {
+            resources: [
+              { company_name: "Alpha Coffee Roasters", keywords: ["coffee", "beans"], industries: ["Coffee"] },
+              { company_name: "Bravo Coffee Roasters", keywords: ["coffee", "beans"], industries: ["Coffee"] },
+            ],
+          };
+        },
+      }),
+    },
+    item: () => ({ read: async () => ({ resource: null }) }),
+  };
+}
+
+test("getDictionary: a STALE cache is served immediately and refreshed in the background", async () => {
+  _resetCache();
+  const counter = { scans: 0 };
+  const SCAN_MS = 150;
+  const container = slowScanContainer(SCAN_MS, counter);
+
+  // Cold build populates the cache (this one legitimately waits).
+  const cold0 = Date.now();
+  const built = await getDictionary(container);
+  const coldMs = Date.now() - cold0;
+  assert.ok(built && built.termCount > 0, "cold build populates the cache");
+  assert.ok(coldMs >= SCAN_MS, `cold build performs the scan (${coldMs}ms)`);
+  assert.equal(counter.scans, 1);
+
+  // Force staleness by advancing the clock past the 15-minute TTL.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 16 * 60 * 1000;
+  let staleMs;
+  let served;
+  try {
+    const t0 = realNow();
+    served = await getDictionary(container);
+    staleMs = realNow() - t0;
+  } finally {
+    Date.now = realNow;
+  }
+
+  assert.ok(served && served.termCount > 0, "stale call still returns a usable dictionary");
+  assert.ok(
+    staleMs < SCAN_MS,
+    `stale call must NOT wait for the rescan (took ${staleMs}ms, scan is ${SCAN_MS}ms)`
+  );
+  assert.equal(counter.scans, 2, "but it DOES kick a background refresh");
+
+  // Let the background refresh settle so it doesn't leak into other tests.
+  await new Promise((r) => setTimeout(r, SCAN_MS * 2));
 });

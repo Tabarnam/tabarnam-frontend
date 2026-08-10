@@ -186,8 +186,30 @@ async function getDictionary(container) {
   if (typeof container.items !== "object") return _dictCache;
   const now = Date.now();
   if (_dictCache && now - _dictCacheAt < CACHE_TTL_MS) return _dictCache;
+  // STALE-WHILE-REVALIDATE. Rebuilding scans the whole companies container
+  // (~64 cross-partition pages), which takes SECONDS. Never make a user's
+  // request wait for that: once we have any cache, serve it immediately and
+  // refresh in the background. Without this, the first search after each
+  // 15-minute expiry paid the full rescan — the "first search takes a few
+  // seconds" stall. A search that uses a dictionary a few seconds past its TTL
+  // is harmless (it only feeds "did you mean?"); a multi-second search is not.
+  if (_dictCache) {
+    if (!_inFlight) {
+      const refresh = _buildAndCache(container);
+      if (refresh && typeof refresh.catch === "function") refresh.catch(() => {});
+    }
+    return _dictCache;
+  }
   if (_inFlight) return _inFlight;
+  return _buildAndCache(container);
+}
 
+/**
+ * Build the dictionary and install it in the module cache. Deduped via
+ * `_inFlight` so concurrent callers (and a background refresh) share one scan.
+ * Returns the new cache, or the previous one if the build fails/returns empty.
+ */
+function _buildAndCache(container) {
   _inFlight = (async () => {
     try {
       // Prefer a pre-built affinity index if it happens to exist (much
