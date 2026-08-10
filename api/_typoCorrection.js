@@ -361,7 +361,10 @@ async function getDictionary(container) {
  * `_inFlight` so concurrent callers (and a background refresh) share one scan.
  * Returns the new cache, or the previous one if the build fails/returns empty.
  */
-function _buildAndCache(container, { force = false, log } = {}) {
+// `log` defaults to console so the doc/scan/RU instrumentation actually emits
+// on the search path too — getDictionary has no context object to pass, and an
+// undefined logger silently swallowed every measurement.
+function _buildAndCache(container, { force = false, log = (...a) => console.log(...a) } = {}) {
   _inFlight = (async () => {
     try {
       let terms = null;
