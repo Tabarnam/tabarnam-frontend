@@ -4,6 +4,64 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // Stored as a JSON boolean. Default unmuted on first visit.
 const MUTE_STORAGE_KEY = "tabarnam.import.notification_muted";
 
+// Playback order preference. Default stays "shuffle" so nothing changes for
+// anyone who never opens the settings panel.
+const ORDER_STORAGE_KEY = "tabarnam.import.sound_order";
+const MODE_STORAGE_KEY = "tabarnam.import.sound_mode";
+const CURSOR_STORAGE_KEY = "tabarnam.import.sound_cursor";
+
+function readJson(key, fallback) {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return fallback;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key, value) {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage unavailable — silently ignore */
+  }
+}
+
+export function readSoundMode() {
+  const m = readJson(MODE_STORAGE_KEY, "shuffle");
+  return m === "ordered" ? "ordered" : "shuffle";
+}
+
+export function writeSoundMode(mode) {
+  writeJson(MODE_STORAGE_KEY, mode === "ordered" ? "ordered" : "shuffle");
+}
+
+export function readSoundOrder() {
+  const v = readJson(ORDER_STORAGE_KEY, null);
+  return Array.isArray(v) ? v.filter((x) => typeof x === "string") : null;
+}
+
+export function writeSoundOrder(order) {
+  writeJson(ORDER_STORAGE_KEY, Array.isArray(order) ? order : []);
+}
+
+/**
+ * Merge a saved order with the live manifest so the preference survives clips
+ * being added or removed: saved entries that still exist keep their position,
+ * anything new is appended in manifest order.
+ */
+export function mergeOrderWithManifest(saved, manifest) {
+  const files = Array.isArray(manifest) ? manifest : [];
+  if (!Array.isArray(saved) || saved.length === 0) return [...files];
+  const present = new Set(files);
+  const kept = saved.filter((f) => present.has(f));
+  const keptSet = new Set(kept);
+  return [...kept, ...files.filter((f) => !keptSet.has(f))];
+}
+
 function readMutedFromStorage() {
   try {
     if (typeof window === "undefined" || !window.localStorage) return false;
@@ -40,8 +98,8 @@ function writeMutedToStorage(muted) {
  *   replay();
  */
 
-const MANIFEST_URL = "/sounds/notifications/manifest.json";
-const SOUNDS_BASE = "/sounds/notifications/";
+export const MANIFEST_URL = "/sounds/notifications/manifest.json";
+export const SOUNDS_BASE = "/sounds/notifications/";
 
 // Module-level cache so we only fetch the manifest once across all hook instances.
 let manifestPromise = null;
@@ -49,6 +107,15 @@ let manifestCache = null;
 
 // Module-level last-played file so replay works across all hook instances.
 let lastPlayedFile = null;
+
+export function fetchSoundManifest() {
+  return fetchManifest();
+}
+
+/** Play an arbitrary clip on demand (settings-panel preview). */
+export function previewSound(file) {
+  return playFile(file);
+}
 
 function fetchManifest() {
   if (manifestCache && manifestCache.length > 0) return Promise.resolve(manifestCache);
@@ -88,6 +155,24 @@ function fetchManifest() {
 function pickRandom(arr) {
   if (!arr || arr.length === 0) return null;
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/**
+ * Choose the next clip. In "ordered" mode this walks the admin's saved order
+ * one clip per import and wraps at the end, persisting the cursor so the
+ * sequence continues across page loads and browser sessions.
+ */
+function pickNext(files) {
+  if (!files || files.length === 0) return null;
+  if (readSoundMode() !== "ordered") return pickRandom(files);
+
+  const order = mergeOrderWithManifest(readSoundOrder(), files);
+  if (order.length === 0) return null;
+
+  const raw = Number(readJson(CURSOR_STORAGE_KEY, 0));
+  const idx = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) % order.length : 0;
+  writeJson(CURSOR_STORAGE_KEY, (idx + 1) % order.length);
+  return order[idx];
 }
 
 function playFile(file) {
@@ -141,7 +226,7 @@ export default function useNotificationSound() {
 
     try {
       const files = await fetchManifest();
-      const file = pickRandom(files);
+      const file = pickNext(files);
       if (!file) {
         console.warn("[notification-sound] no file selected (manifest empty or not loaded)");
         return;

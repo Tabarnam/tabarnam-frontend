@@ -86,6 +86,7 @@ import { markImportActive, markImportInactive } from "@/lib/activeImports";
 // Lazy-loaded into its own chunk to keep the main bundle under the
 // 850 KB CI gate (matches the `shepherd.js` lazy-load precedent).
 const RecentActivityPanel = React.lazy(() => import("@/components/RecentActivityPanel"));
+const NotificationSoundSettings = React.lazy(() => import("@/components/admin/NotificationSoundSettings"));
 
 async function apiFetchWithFallback(paths, init) {
   const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
@@ -7131,6 +7132,10 @@ export default function AdminImport() {
                 </span>
               </div>
             </div>
+
+            <React.Suspense fallback={null}>
+              <NotificationSoundSettings />
+            </React.Suspense>
 
             <details className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
               <summary className="cursor-pointer select-none text-sm font-medium text-slate-800 dark:text-foreground">Advanced import config</summary>
