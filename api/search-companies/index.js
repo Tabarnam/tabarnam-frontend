@@ -1741,6 +1741,14 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       _typoDiag.dictionaryLoaded = !!cacheInfo;
       _typoDiag.termCount = cacheInfo?.termCount || 0;
       if (cacheInfo?.source) _typoDiag.source = cacheInfo.source;
+      // Size + point-read cost of the persisted dictionary doc. Reported here
+      // because the refresh that loads it runs detached from any invocation,
+      // so its logs never reach App Insights. These drive the daily RU bill:
+      // point-read RU scales with doc size, and every worker re-reads it each
+      // CACHE_TTL_MS.
+      if (cacheInfo?.nameTokenCount != null) _typoDiag.nameTokenCount = cacheInfo.nameTokenCount;
+      if (cacheInfo?.packedBytes != null) _typoDiag.packedBytes = cacheInfo.packedBytes;
+      if (cacheInfo?.docRequestCharge != null) _typoDiag.docRequestCharge = cacheInfo.docRequestCharge;
       const loadErr = getTypoLoadError();
       if (loadErr) _typoDiag.loadError = loadErr;
 

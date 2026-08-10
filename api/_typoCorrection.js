@@ -291,6 +291,12 @@ async function readDictDoc(container, { log } = {}) {
       terms,
       nameTokens: unpackTokenSet(doc.name_tokens_packed),
       requestCharge: Number(res?.requestCharge) || 0,
+      // Measured from the strings we just read, so this reports honestly even
+      // for docs written before the field existed. Point-read RU scales with
+      // doc size, so these two numbers together are the whole daily cost story.
+      packedBytes:
+        Buffer.byteLength(doc.terms_packed || "", "utf8") +
+        Buffer.byteLength(doc.name_tokens_packed || "", "utf8"),
     };
   } catch (err) {
     // Missing doc (404) is the normal first-run case, not an error worth
@@ -374,6 +380,13 @@ function _buildAndCache(container, { force = false, log = (...a) => console.log(
       let terms = null;
       let nameTokens = null;
       let source = "scan";
+      // Surfaced through getCacheInfo → the search response's _typoDiag. These
+      // must travel on a REQUEST path to be observable: the refresh runs in a
+      // detached background promise, and the Functions worker drops console
+      // output that isn't tied to a live invocation, so logging alone is
+      // invisible in App Insights.
+      let docPackedBytes = null;
+      let docRequestCharge = null;
 
       // 1) Persisted dictionary doc — one point read instead of ~64 scan pages.
       // This is the common path; the scan below should be rare.
@@ -386,6 +399,8 @@ function _buildAndCache(container, { force = false, log = (...a) => console.log(
           terms = fromDoc.terms;
           nameTokens = fromDoc.nameTokens;
           source = "doc";
+          docPackedBytes = fromDoc.packedBytes;
+          docRequestCharge = fromDoc.requestCharge;
         }
       }
 
@@ -432,6 +447,8 @@ function _buildAndCache(container, { force = false, log = (...a) => console.log(
         nameTokens: nameTokens || new Set(),
         termCount,
         nameTokenCount: nameTokens ? nameTokens.size : 0,
+        packedBytes: docPackedBytes,
+        docRequestCharge,
         source,
         freshAt: Date.now(),
       };
@@ -504,7 +521,14 @@ function getLastLoadError() {
 
 function getCacheInfo() {
   return _dictCache
-    ? { termCount: _dictCache.termCount, source: _dictCache.source, ageMs: Date.now() - _dictCacheAt }
+    ? {
+        termCount: _dictCache.termCount,
+        nameTokenCount: _dictCache.nameTokenCount,
+        packedBytes: _dictCache.packedBytes,
+        docRequestCharge: _dictCache.docRequestCharge,
+        source: _dictCache.source,
+        ageMs: Date.now() - _dictCacheAt,
+      }
     : null;
 }
 
