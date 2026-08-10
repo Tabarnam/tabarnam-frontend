@@ -5805,6 +5805,13 @@ export default function AdminImport() {
             seriesActive={successionIndex >= 0 && successionIndex < successionQueue.length}
           />
 
+          {/* Collapsed by default — one line when closed, but reachable
+              without scrolling past the whole import form, so the playlist can
+              be set up before starting a run. */}
+          <React.Suspense fallback={null}>
+            <NotificationSoundSettings />
+          </React.Suspense>
+
           <section className="rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-5 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
               {successionCount <= 1 ? (
@@ -7132,10 +7139,6 @@ export default function AdminImport() {
                 </span>
               </div>
             </div>
-
-            <React.Suspense fallback={null}>
-              <NotificationSoundSettings />
-            </React.Suspense>
 
             <details className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
               <summary className="cursor-pointer select-none text-sm font-medium text-slate-800 dark:text-foreground">Advanced import config</summary>
