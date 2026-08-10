@@ -13,7 +13,7 @@
  * 2026-08-07) — so an operator or external scheduler needs a way to force a
  * rebuild without waiting for the doc's 24h age-out.
  *
- * POST /api/admin-rebuild-typo-dictionary
+ * POST /api/xadmin-api-rebuild-typo-dictionary
  */
 
 let app;
@@ -106,13 +106,13 @@ async function handleRebuild(req, context) {
     return json(result, result.ok ? 200 : 500);
   } catch (e) {
     const msg = e?.message || "Rebuild failed";
-    (context?.error || console.error)(`[admin-rebuild-typo-dictionary] ${msg}`);
+    (context?.error || console.error)(`[xadmin-api-rebuild-typo-dictionary] ${msg}`);
     return json({ ok: false, error: msg }, 500);
   }
 }
 
-app.http("admin-rebuild-typo-dictionary", {
-  route: "admin-rebuild-typo-dictionary",
+app.http("xadmin-api-rebuild-typo-dictionary", {
+  route: "xadmin-api-rebuild-typo-dictionary",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: require("../_adminAuth").withAdminGuard(async (req, context) => handleRebuild(req, context)),

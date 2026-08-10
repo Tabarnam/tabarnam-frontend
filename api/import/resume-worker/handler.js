@@ -4084,7 +4084,7 @@ async function resumeWorkerHandler(req, context) {
       // ages out. Fire-and-forget: a search-quality refresh must never delay
       // or fail an import that already succeeded.
       try {
-        const { rebuildTypoDictionary } = require("../../admin-rebuild-typo-dictionary");
+        const { rebuildTypoDictionary } = require("../../xadmin-api-rebuild-typo-dictionary");
         rebuildTypoDictionary({ source: "import_auto", logger: console }).catch((e) => {
           console.warn(`[resume-worker] typo-dictionary rebuild failed: ${e?.message || e}`);
         });
@@ -5818,7 +5818,7 @@ async function resumeWorkerHandler(req, context) {
     // Same as the main completion path: the corpus changed, so refresh the
     // persisted typo dictionary. Fire-and-forget.
     try {
-      const { rebuildTypoDictionary } = require("../../admin-rebuild-typo-dictionary");
+      const { rebuildTypoDictionary } = require("../../xadmin-api-rebuild-typo-dictionary");
       rebuildTypoDictionary({ source: "import_auto_post_enrichment", logger: console }).catch((e) => {
         console.warn(`[resume-worker post-enrichment] typo-dictionary rebuild failed: ${e?.message || e}`);
       });

@@ -225,10 +225,10 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-rebuild-typo-dictionary");
-  require("./admin-rebuild-typo-dictionary/index.js");
+  console.log("[api] Registering: xadmin-api-rebuild-typo-dictionary");
+  require("./xadmin-api-rebuild-typo-dictionary/index.js");
 } catch (e) {
-  console.error("[api] Failed to load admin-rebuild-typo-dictionary:", e?.message || e);
+  console.error("[api] Failed to load xadmin-api-rebuild-typo-dictionary:", e?.message || e);
 }
 
 try {
