@@ -193,12 +193,6 @@ export default function MadeInPage() {
             )}
           </p>
 
-          {toggleCounts && (toggleCounts.mfg > 0 || toggleCounts.hq > 0) && (
-            <div className="mt-4">
-              <ViewToggle mode={mode} onChange={setMode} counts={toggleCounts} />
-            </div>
-          )}
-
           <div className="flex flex-wrap gap-2 mt-4">
             <Link
               to="/map"
@@ -216,9 +210,20 @@ export default function MadeInPage() {
             </Link>
           </div>
 
+          {/* The list gets its own inclusive heading: the toggle can show
+              manufacturing, headquarters, or both, and "<place> locations"
+              stays true for all three — while the page title keeps the
+              "Made in ___" identity (and its search keyword). */}
+          {toggleCounts && (toggleCounts.mfg > 0 || toggleCounts.hq > 0) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-10 pb-2 border-b border-border">
+              <h2 className="text-lg font-semibold text-foreground">{display} locations</h2>
+              <ViewToggle mode={mode} onChange={setMode} counts={toggleCounts} />
+            </div>
+          )}
+
           {count > 0 && (
             <>
-              <ul className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 list-none p-0">
+              <ul className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 list-none p-0">
                 {companies.slice(0, visible).map((c) => (
                   <li key={c.id} className="border border-border rounded-lg bg-card p-3">
                     <Link
