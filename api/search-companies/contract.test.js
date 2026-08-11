@@ -2047,27 +2047,86 @@ test("typo correction: 'paintt' is rewritten to 'paint' end-to-end", async () =>
   const body = JSON.parse(res.body);
   assert.equal(body.ok, true);
 
-  // We NEVER silently rewrite: the query must have been issued for the ORIGINAL
-  // typo, and the corrected term must NOT have replaced it in the Cosmos query.
+  // POLICY FLIP (deliberate): we used to assert that "paint" must NEVER reach
+  // Cosmos. Now, when the literal query finds nothing worth showing, we re-run
+  // the search on the correction — so BOTH terms are issued: "paintt" on pass 1,
+  // "paint" on pass 2. The user's query is still searched first and the swap is
+  // reversible via ?nocorrect=1 (covered below).
   const sentValues = sentParams
     .map((p) => (typeof p.value === "string" ? p.value : ""))
     .join(" ");
-  assert.ok(sentValues.includes("paintt"), `original 'paintt' should be searched; got: ${sentValues}`);
+  assert.ok(sentValues.includes("paintt"), `original 'paintt' must still be searched first; got: ${sentValues}`);
   assert.ok(
-    !sentValues.split(/\s+/).includes("paint"),
-    `Cosmos queries must NOT be silently rewritten to 'paint'; got: ${sentValues}`
+    sentValues.split(/\s+/).includes("paint"),
+    `the corrected 'paint' must be searched on the second pass; got: ${sentValues}`
   );
 
-  // Original found nothing → surface a "Did you mean paint?" SUGGESTION (not an
-  // applied correction). No correctedQuery is ever emitted.
-  assert.equal(body.meta?.correctedQuery, undefined, "correctedQuery must not be emitted");
+  // The correction was APPLIED, so the user gets real results plus the
+  // "Showing results for …" affordance — not a dead end with a suggestion.
+  assert.equal(body.meta?.correctedQuery, undefined, "camelCase correctedQuery is still never emitted");
+  assert.deepEqual(
+    body.meta?.corrected_query,
+    { original: "paintt", corrected: "paint" },
+    `expected an applied correction; got: ${JSON.stringify(body.meta)}`
+  );
+  assert.equal(
+    body.meta?.did_you_mean,
+    undefined,
+    "did_you_mean and corrected_query are mutually exclusive"
+  );
+  assert.equal(body.meta?._typoDiag?.applied, true);
+  assert.equal(body.meta?._typoDiag?.trigger, "empty");
+  assert.equal(body.items.length, 1, "the corrected query finds Miller Paint");
+  assert.equal(body.items[0].normalized_domain, "millerpaint.com");
+});
+
+test("typo correction: ?nocorrect=1 forces the literal query and only suggests", async () => {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+
+  const indexDoc = makeTypoDictDoc(["paint", "paints", "brushes"]);
+  const paintCompany = {
+    id: "company_paint_1",
+    company_name: "Miller Paint Company",
+    normalized_domain: "millerpaint.com",
+    keywords: ["paint", "house paint"],
+    product_keywords: "paint",
+    industries: ["Paints"],
+    _ts: 1700000000,
+  };
+  const sentParams = [];
+  const companiesContainer = makeContainer(
+    async (spec) => {
+      sentParams.push(...(spec.parameters || []));
+      const hit = (spec.parameters || []).some(
+        (p) => typeof p.value === "string" && ["paint", "paints"].includes(p.value.toLowerCase())
+      );
+      return hit ? [paintCompany] : [];
+    },
+    { indexDoc }
+  );
+  await warmTypoDictionary(companiesContainer);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=paintt&take=10&nocorrect=1"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+
+  const sentValues = sentParams.map((p) => (typeof p.value === "string" ? p.value : "")).join(" ");
+  assert.ok(
+    !sentValues.split(/\s+/).includes("paint"),
+    `nocorrect=1 must not run the corrected pass; got: ${sentValues}`
+  );
+  assert.equal(body.meta?.corrected_query, undefined, "no correction applied");
   assert.deepEqual(
     body.meta?.did_you_mean,
     { original: "paintt", suggestion: "paint" },
-    `expected did_you_mean suggestion; got: ${JSON.stringify(body.meta)}`
+    "falls back to the non-destructive suggestion"
   );
-  assert.equal(body.meta?._typoDiag?.rewritten, "paint", "the candidate is still computed");
-  assert.equal(body.items.length, 0, "the original typo returns no results");
+  assert.equal(body.items.length, 0);
 });
 
 test("typo correction: an already-correct query gets no correctedQuery on meta", async () => {
@@ -2904,4 +2963,202 @@ test("gate + dedup/family: pinned brand keeps its same-domain sibling clustered"
   // The same-domain sub-brand must cluster immediately after the parent, not be
   // scattered below the competitor.
   assert.equal(items[1].normalized_domain, "natrulo.com", "same-domain sibling stays clustered under the pinned parent");
+});
+
+// ── auto-correct safety guards ──────────────────────────────────────────────
+// Auto-applying a correction is only safe because the trigger is grounded in
+// LIVE RETRIEVAL, not in dictionary freshness. These lock that property in.
+
+test("auto-correct: a REAL brand is never hijacked, even with a stale protection set", async () => {
+  // The padron→patron scenario the old "never rewrite" comment was written for.
+  // "patron" is a common dictionary term; "padron" is deliberately absent from
+  // nameTokens, simulating a protection set that has not caught up with a
+  // newly imported brand. The brand nonetheless EXISTS in Cosmos, so the
+  // literal query retrieves it and name-matches — the pool is not junk, and the
+  // corrected pass must never run.
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+
+  const indexDoc = makeTypoDictDoc(["patron", "tequila", "spirits"], /* nameTokens */ []);
+  const padronCo = {
+    id: "padron_1",
+    company_id: "padron_1",
+    company_name: "Padron Cigars",
+    normalized_domain: "padron.com",
+    keywords: ["cigars", "tobacco"],
+    industries: ["Cigars"],
+    _ts: 1700000000,
+  };
+  const sentParams = [];
+  const companiesContainer = makeContainer(
+    async (spec) => {
+      sentParams.push(...(spec.parameters || []));
+      const hit = (spec.parameters || []).some(
+        (p) => typeof p.value === "string" && p.value.toLowerCase().includes("padron")
+      );
+      return hit ? [padronCo] : [];
+    },
+    { indexDoc }
+  );
+  await warmTypoDictionary(companiesContainer);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=padron&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+
+  const sentValues = sentParams.map((p) => (typeof p.value === "string" ? p.value : "")).join(" ");
+  assert.ok(
+    !sentValues.split(/\s+/).includes("patron"),
+    `a real brand must never be rewritten to 'patron'; got: ${sentValues}`
+  );
+  assert.equal(body.meta?.corrected_query, undefined, "no correction applied");
+  assert.equal(body.items[0]?.normalized_domain, "padron.com", "the real brand is returned");
+});
+
+test("auto-correct: does not fire when broaden found a strong name match", async () => {
+  // Broaden exists to serve thin-pool brand queries. If it surfaces a real
+  // name match, the pool is good and the query must be left alone.
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+
+  const indexDoc = makeTypoDictDoc(["yoga", "apparel", "leggings"]);
+  const alo = {
+    id: "alo_1",
+    company_id: "alo_1",
+    company_name: "ALO",
+    normalized_domain: "aloyoga.com",
+    keywords: ["yoga", "apparel"],
+    industries: ["Apparel"],
+    _ts: 1700000000,
+  };
+  const companiesContainer = makeContainer(async () => [alo], { indexDoc });
+  await warmTypoDictionary(companiesContainer);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=alo%20yoga&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.meta?.corrected_query, undefined, "a strong name match must suppress correction");
+  assert.equal(body.items[0]?.normalized_domain, "aloyoga.com");
+});
+
+test("auto-correct: a corrected pass that is ALSO junk is not adopted", async () => {
+  // Never trade one bad result set for another — fall back to the user's query
+  // plus the non-destructive suggestion.
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+
+  const indexDoc = makeTypoDictDoc(["paint", "paints"]);
+  // Nothing matches anything: both passes come back empty.
+  const companiesContainer = makeContainer(async () => [], { indexDoc });
+  await warmTypoDictionary(companiesContainer);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=paintt&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.meta?.corrected_query, undefined, "an empty corrected pass is not an improvement");
+  assert.deepEqual(body.meta?.did_you_mean, { original: "paintt", suggestion: "paint" });
+});
+
+test("auto-correct: countOnly reports the CORRECTED pool", async () => {
+  // Otherwise "Page 1 of N" counts the junk pool while the page shows corrected
+  // rows.
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+
+  const indexDoc = makeTypoDictDoc(["paint", "paints"]);
+  const paintCompany = {
+    id: "p1", company_id: "p1", company_name: "Miller Paint Company",
+    normalized_domain: "millerpaint.com", keywords: ["paint"], industries: ["Paints"], _ts: 1700000000,
+  };
+  const companiesContainer = makeContainer(
+    async (spec) =>
+      (spec.parameters || []).some(
+        (p) => typeof p.value === "string" && ["paint", "paints"].includes(p.value.toLowerCase())
+      )
+        ? [paintCompany]
+        : [],
+    { indexDoc }
+  );
+  await warmTypoDictionary(companiesContainer);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=paintt&take=10&countOnly=1"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.totalCount, 1, "counts the corrected pool, not the empty literal one");
+  assert.deepEqual(body.meta?.corrected_query, { original: "paintt", corrected: "paint" });
+});
+
+test("auto-correct: the reported 'oilve oil' shape — broaden junk triggers the correction", async () => {
+  // THE reported bug. Strict token AND on (oilve, oil) finds nothing, so the
+  // broaden fallback ORs the words; bare "oil" then matches motor-oil companies
+  // that score into the loose tier. Nothing is a direct match, so the query is
+  // junk and the correction must be applied.
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+
+  const indexDoc = makeTypoDictDoc(["olive", "oil", "olives", "cooking"]);
+  const motorOil = {
+    id: "v1", company_id: "v1", company_name: "Valvoline",
+    normalized_domain: "valvoline.com", keywords: ["motor oil", "lubricants"],
+    industries: ["Automotive"], _ts: 1700000000,
+  };
+  const oliveOil = {
+    id: "t1", company_id: "t1", company_name: "Temecula Olive Oil Company",
+    normalized_domain: "temeculaoliveoil.com", keywords: ["olive oil", "olives"],
+    industries: ["Olive Oil"], _ts: 1700000000,
+  };
+
+  const companiesContainer = makeContainer(
+    async (spec) => {
+      const params = spec.parameters || [];
+      const vals = params.map((p) => String(p.value || "").trim().toLowerCase());
+      const isBroaden = params.some((p) => String(p.name).startsWith("@bw"));
+      // Broaden pass: bare "oil" drags in the motor-oil company.
+      if (isBroaden) return vals.includes("oil") ? [motorOil] : [];
+      // Token pass: only the CORRECTED pair matches the olive oil company.
+      if (vals.includes("olive")) return [oliveOil];
+      return []; // the literal "oilve" token pass finds nothing
+    },
+    { indexDoc }
+  );
+  await warmTypoDictionary(companiesContainer);
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=oilve%20oil&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+
+  assert.deepEqual(
+    body.meta?.corrected_query,
+    { original: "oilve oil", corrected: "olive oil" },
+    `expected the correction to be applied; typoDiag=${JSON.stringify(body.meta?._typoDiag)}`
+  );
+  assert.equal(body.meta?._typoDiag?.trigger, "broaden_junk");
+  assert.ok(
+    body.items.some((i) => i.normalized_domain === "temeculaoliveoil.com"),
+    "the olive oil company must be returned"
+  );
+  assert.ok(
+    !body.items.some((i) => i.normalized_domain === "valvoline.com"),
+    "the motor-oil junk must be gone"
+  );
 });

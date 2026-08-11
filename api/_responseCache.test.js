@@ -163,3 +163,14 @@ test("buildCacheKey: skip+take changes the key (page navigation isn't cached as 
   const page2 = buildCacheKey("https://x/api/search-companies?q=candle&skip=25&take=25");
   assert.notEqual(page1, page2);
 });
+
+// The "Search instead for …" escape hatch depends on `nocorrect` being
+// key-affecting: if it were ever added to STRIPPED_PARAMS, a request that asked
+// for the LITERAL query could be served a cached auto-corrected body.
+test("buildCacheKey: nocorrect is NOT stripped, so corrected and literal bodies never collide", () => {
+  const corrected = buildCacheKey("https://x.test/api/search-companies?q=oilve+oil", "GET");
+  const literal = buildCacheKey("https://x.test/api/search-companies?q=oilve+oil&nocorrect=1", "GET");
+  assert.ok(corrected && literal, "both should be cacheable");
+  assert.notEqual(literal, corrected, "nocorrect=1 must produce a different cache key");
+  assert.ok(literal.includes("nocorrect=1"), `key should carry nocorrect; got ${literal}`);
+});

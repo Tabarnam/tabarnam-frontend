@@ -818,6 +818,23 @@ function computeRelevanceScore(company, q_raw, q_norm, q_compact, affinityIndust
 // lands in tier 0 via keyword + industry-affinity bonuses and happens to have
 // a slightly higher star rating. `nameScore` comes from _nameMatchScore, which
 // `computeRelevanceScore` already attaches to each company record.
+// "Direct" = above the "Loosely related to …" divider the frontend draws.
+// Mirrored as LOOSE_TIER_CUTOFF in ResultsPage.jsx. Used for the pagination
+// directCount AND as the auto-correct trigger's definition of "found nothing
+// good", so the banner appears exactly when the whole page would sit below
+// that divider.
+const LOOSE_TIER_CUTOFF = 2;
+// A typo-correction retry doubles the Cosmos work for that request. Skip it if
+// the first pass already ate this much of the budget, so a slow query can never
+// be pushed into REQUEST_HARD_TIMEOUT_MS (15s) and 503 by the retry.
+const SECOND_PASS_BUDGET_MS = 6000;
+function directMatchCount(rows) {
+  if (!Array.isArray(rows)) return 0;
+  return rows.filter(
+    (c) => relevanceTier(c._relevanceScore || 0, c._nameMatchScore || 0) < LOOSE_TIER_CUTOFF
+  ).length;
+}
+
 function relevanceTier(score, nameScore = 0) {
   if (nameScore >= 100) return -1; // exact name match — always first
   if (score >= 90) return 0;       // very-relevant non-exact match
@@ -1678,6 +1695,12 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
   // Are we just counting total results (no items returned)?
   const countOnly = url.searchParams.get("countOnly") === "1";
+  // Escape hatch behind the "Search instead for …" link: forces the literal
+  // query so a user who really meant the odd spelling can get it back. Not in
+  // the response cache's STRIPPED_PARAMS, so it is key-affecting (asserted in
+  // _responseCache.test.js) and can never serve a corrected body.
+  const allowCorrection = url.searchParams.get("nocorrect") !== "1";
+  const _handlerStartedAt = Date.now();
 
   // Quick mode: return only Pass 1 (word-boundary) results, skip synonym expansion
   // and substring fallback for fastest possible response time
@@ -2615,7 +2638,67 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       }
 
       const pass1 = await runSearchPass(q_raw, q_norm, q_compact, q_stemmed);
-      let { deduped, usedBroadenFallback, _tStart, _tRetrieved } = pass1;
+
+      // ── Auto-applied typo correction ────────────────────────────────────
+      // If the query the user typed found nothing worth showing but the typo
+      // dictionary has a candidate, re-run the search on the correction and
+      // show it as "Showing results for X — Search instead for Y".
+      //
+      // "Nothing worth showing" means: no rows at all, OR the only rows came
+      // from the broaden fallback's OR-soup with nothing reaching the direct
+      // tier. That is exactly the "oilve oil" shape — strict token AND finds
+      // nothing, broaden matches bare "oil", and 476 motor-oil rows land at
+      // tier 2. The broaden fallback itself is untouched; it is read purely as
+      // a signal, because it legitimately serves thin-pool brand queries.
+      //
+      // This retrieval-grounded trigger is also what makes auto-applying safe
+      // at all. A real brand ("padron") retrieves on its own token and
+      // name-matches, so the pool is never junk and the second pass never
+      // runs — regardless of whether the dictionary's brand-protection set is
+      // stale. That staleness was the whole basis of the padron→patron
+      // objection to unconditional rewriting.
+      const shouldAutoCorrect = (p) => {
+        if (!typo_suggestion || !allowCorrection) return false;
+        if (domainParam || quickMode) return false; // exact intent / first paint
+        // A second pass doubles Cosmos work; never risk the 15s hard timeout.
+        if (Date.now() - _handlerStartedAt > SECOND_PASS_BUDGET_MS) return false;
+        if (p.deduped.length === 0) return "empty";
+        if (p.usedBroadenFallback && !p.hasStrongNameMatch && directMatchCount(p.deduped) === 0) {
+          return "broaden_junk";
+        }
+        return false;
+      };
+
+      let pass = pass1;
+      let appliedCorrection = null;
+      const _trigger = shouldAutoCorrect(pass1);
+      if (_trigger) {
+        const corrected = typo_suggestion;
+        const pass2 = await runSearchPass(
+          q_raw,
+          corrected,
+          corrected.replace(/\s+/g, ""),
+          stemWords(corrected)
+        );
+        // Only adopt the correction if it actually beats what we had — a
+        // correction that is ALSO junk should not replace the user's query.
+        const better =
+          pass1.deduped.length === 0
+            ? pass2.deduped.length > 0
+            : directMatchCount(pass2.deduped) > 0;
+        _typoDiag.trigger = _trigger;
+        _typoDiag.pass1Count = pass1.deduped.length;
+        _typoDiag.pass2Count = pass2.deduped.length;
+        if (better) {
+          pass = pass2;
+          appliedCorrection = { original: q_norm, corrected };
+          _typoDiag.applied = true;
+        }
+      }
+
+      let { deduped, usedBroadenFallback, _tStart, _tRetrieved } = pass;
+      // Timings span both passes so meta._timing stays honest about total work.
+      if (pass !== pass1) _tStart = pass1._tStart;
 
       // countOnly mode: return just the total count, no items (used for async pagination info)
       if (countOnly) {
@@ -2626,14 +2709,23 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         // < 2 (the LOOSE_TIER_CUTOFF mirrored in ResultsPage.jsx). Only meaningful
         // when a text query was scored; location-only counts skip scoring, so we
         // return null there rather than a misleading 0.
-        const LOOSE_TIER_CUTOFF = 2;
-        const directCount = q_norm
-          ? deduped.filter(
-              (c) => relevanceTier(c._relevanceScore || 0, c._nameMatchScore || 0) < LOOSE_TIER_CUTOFF
-            ).length
-          : null;
+        const directCount = q_norm ? directMatchCount(deduped) : null;
         return json(
-          { ok: true, success: true, totalCount, totalPages, directCount, meta: { q: q_raw, sort, take } },
+          {
+            ok: true,
+            success: true,
+            totalCount,
+            totalPages,
+            directCount,
+            // Must mirror the full response: without this the page shows
+            // corrected results while "Page 1 of N" counts the junk pool.
+            meta: {
+              q: q_raw,
+              sort,
+              take,
+              ...(appliedCorrection ? { corrected_query: appliedCorrection } : {}),
+            },
+          },
           200,
           req
         );
@@ -2652,12 +2744,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // is intentionally small and would under-count.
       let pageInfo = {};
       if (!quickMode) {
-        const LOOSE_TIER_CUTOFF = 2; // must match ResultsPage.jsx / countOnly branch
-        const directCount = q_norm
-          ? deduped.filter(
-              (c) => relevanceTier(c._relevanceScore || 0, c._nameMatchScore || 0) < LOOSE_TIER_CUTOFF
-            ).length
-          : null;
+        const directCount = q_norm ? directMatchCount(deduped) : null;
         pageInfo = {
           totalCount: deduped.length,
           totalPages: Math.ceil(deduped.length / take) || 1,
@@ -2809,10 +2896,15 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               : usedBroadenFallback
                 ? "tokens+broaden"
                 : "tokens",
-            // "Did you mean …?" — only when the original query returned NOTHING,
-            // so we never nag on a query that already found results. Purely a
-            // suggestion; the search was run on exactly what the user typed.
-            ...(typo_suggestion && deduped.length === 0
+            // The correction was APPLIED — these results are for `corrected`,
+            // not for what the user typed. The client shows "Showing results
+            // for X — Search instead for Y" and the escape hatch re-runs with
+            // ?nocorrect=1.
+            ...(appliedCorrection ? { corrected_query: appliedCorrection } : {}),
+            // "Did you mean …?" — the non-destructive fallback, for when we did
+            // NOT auto-apply: ?nocorrect=1 was set, or the corrected query was
+            // itself junk. Mutually exclusive with corrected_query.
+            ...(typo_suggestion && !appliedCorrection && deduped.length === 0
               ? { did_you_mean: { original: q_norm, suggestion: typo_suggestion } }
               : {}),
             ...domainMeta,
