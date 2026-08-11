@@ -69,6 +69,20 @@ export const QUERIES = [
   { q: "olive tapenade", class: "TRAP", note: "common word 'olive'" },
   { q: "honey soap", class: "TRAP", note: "both words common" },
 
+  // TYPO — auto-applied spelling correction. The literal query finds nothing
+  // worth showing, so the backend re-runs on the correction and returns
+  // meta.corrected_query. A change vs baseline here is the DESIRED outcome.
+  { q: "oilve oil", class: "TYPO", note: "must now return olive oil makers, not motor oil" },
+  { q: "paintt", class: "TYPO", note: "must now return paint makers" },
+  { q: "puzle", class: "TYPO", note: "must now return puzzle makers" },
+
+  // TYPO-TRAP — real brands that a naive corrector would rewrite. These must
+  // NEVER be auto-corrected: they retrieve and name-match, so the pool is not
+  // junk and the second pass must not run.
+  { q: "padron", class: "TYPO-TRAP", note: "real brand; must NOT become 'patron'" },
+  { q: "pillowz", class: "TYPO-TRAP", note: "deliberate brand spelling" },
+  { q: "froot", class: "TYPO-TRAP", note: "deliberate brand spelling" },
+
   // PROV — provenance synonyms (heritage/traditional/ancient/heirloom), scoped
   // to food. The first three must cross-match; the last two must NOT expand,
   // because those words are non-food in this catalog (kilts, rugs, soap).
