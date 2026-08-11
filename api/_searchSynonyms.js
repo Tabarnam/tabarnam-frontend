@@ -605,6 +605,35 @@ function buildCommonWordSplits(word) {
 }
 
 /**
+ * Compound-word splits — solid spellings of a phrase the corpus stores with a
+ * space ("lipgloss" → "lip gloss"). Curated only: arbitrary middle-splits
+ * ("granola" → "gra nola") generate noise.
+ *
+ * Shared by two callers with different jobs: expandQueryTermsForFTS() adds the
+ * spaced form as a RETRIEVAL phrase, and search-companies canonicalizes q_norm
+ * to it so SCORING treats the solid spelling as the literal query it is.
+ */
+const COMPOUND_SPLITS = {
+  bodywash: "body wash", bodywashe: "body wash", hairwash: "hair wash",
+  haircare: "hair care", skincare: "skin care", facewash: "face wash",
+  facecare: "face care", eyecare: "eye care", eyewash: "eye wash",
+  handwash: "hand wash", handcare: "hand care", lipscare: "lips care",
+  lipcare: "lip care", lipgloss: "lip gloss", lipglosses: "lip gloss",
+  lipbalm: "lip balm", lipliner: "lip liner",
+  icemaker: "ice maker", icemakers: "ice makers",
+  icemachine: "ice machine", icemachines: "ice machines",
+};
+
+/**
+ * Spaced form of a solid compound query, or null when it isn't one.
+ * Gate: single word, >4 chars — short tokens are too collision-prone to split.
+ */
+function splitCompoundQuery(q_norm) {
+  if (!q_norm || q_norm.includes(" ") || q_norm.length <= 4) return null;
+  return COMPOUND_SPLITS[q_norm] || null;
+}
+
+/**
  * Expand query terms for Cosmos DB Full-Text Search.
  *
  * Unlike expandQueryTerms(), this returns only normalized phrases (no compact,
@@ -649,26 +678,12 @@ async function expandQueryTermsForFTS(q_norm, q_compact) {
     }
   }
 
-  // Compound word splits — only use known dictionary matches (e.g., "bodywash" → "body wash")
-  // Arbitrary middle-splits (e.g., "granola" → "gra nola") generate noise.
-  // MUST run BEFORE product synonym expansion so a split form then feeds the
-  // synonym groups (icemaker → "ice maker" → "ice machine"). While this ran
-  // last, a solid spelling reached its split form and stopped there.
-  if (q_norm && !q_norm.includes(" ") && q_norm.length > 4) {
-    const knownSplits = {
-      bodywash: "body wash", bodywashe: "body wash", hairwash: "hair wash",
-      haircare: "hair care", skincare: "skin care", facewash: "face wash",
-      facecare: "face care", eyecare: "eye care", eyewash: "eye wash",
-      handwash: "hand wash", handcare: "hand care", lipscare: "lips care",
-      lipcare: "lip care", lipgloss: "lip gloss", lipglosses: "lip gloss",
-      lipbalm: "lip balm", lipliner: "lip liner",
-      icemaker: "ice maker", icemakers: "ice makers",
-      icemachine: "ice machine", icemachines: "ice machines",
-    };
-    if (knownSplits[q_norm]) {
-      phrases.add(knownSplits[q_norm]);
-    }
-  }
+  // Compound word splits (see COMPOUND_SPLITS). MUST run BEFORE product synonym
+  // expansion so a split form then feeds the synonym groups (icemaker →
+  // "ice maker" → "ice machine"). While this ran last, a solid spelling reached
+  // its split form and stopped there.
+  const compoundSplit = splitCompoundQuery(q_norm);
+  if (compoundSplit) phrases.add(compoundSplit);
 
   // Product synonym expansion (e.g., "nail clipper" → "nail cutter", "nail trimmer")
   for (const phrase of [...phrases]) {
@@ -691,6 +706,8 @@ module.exports = {
   expandQueryTermsForFTS,
   expandBusinessAbbreviations,
   expandProductSynonyms,
+  splitCompoundQuery,
+  COMPOUND_SPLITS,
   SCOPED_SYNONYM_GROUPS,
   FOOD_CONTEXT_WORDS,
 };
