@@ -25,11 +25,13 @@
 
 const { BlobServiceClient } = require("@azure/storage-blob");
 const { resolveLocationCountry } = require("./_countryResolve");
+const { resolveLocationRegion } = require("./_regionResolve");
 
 const BLOB_CONTAINER = "config";
 const BLOB_NAME = "map_pins.json";
 // v2: entries carry hqCC + mfgCCs country attribution (made-in pages).
-const PAYLOAD_VERSION = 2;
+// v3: adds hqRegion + mfgRegions (ISO 3166-2, e.g. "US-CA") for state pages.
+const PAYLOAD_VERSION = 3;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const BLOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const TAGLINE_MAX = 80;
@@ -90,10 +92,12 @@ function isLowPrecision(entry) {
 /**
  * Build one company's pins entry:
  *   [id, name, tagline, domain, hqLat|null, hqLng|null,
- *    [[mLat, mLng, lowPrec01], ...], hqCC|null, [mfgCC, ...]]
- * hqCC / mfgCCs are ISO 3166-1 alpha-2 attributions resolved from the
- * location entries (see _countryResolve.js) — they power the /made-in pages'
- * whole-catalog per-country counts and lists.
+ *    [[mLat, mLng, lowPrec01], ...], hqCC|null, [mfgCC, ...],
+ *    hqRegion|null, [mfgRegion, ...]]
+ * hqCC / mfgCCs are ISO 3166-1 alpha-2 attributions and hqRegion / mfgRegions
+ * are ISO 3166-2 subdivisions ("US-CA") resolved from the location entries
+ * (see _countryResolve.js / _regionResolve.js) — they power the /made-in
+ * pages' whole-catalog per-country and per-state counts and lists.
  * Returns null when the company is not publicly mappable (deleted, control
  * doc, or no finite coordinates at all) — callers treat null as "remove".
  */
@@ -116,13 +120,18 @@ function buildCompanyEntry(company) {
 
   const mfg = [];
   const mfgCCs = new Set();
+  const mfgRegions = new Set();
   const geocodes = Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [];
   const seen = new Set();
   for (const g of geocodes) {
     // Country attribution considers every entry (a text-only location still
     // means the company manufactures there); coordinates gate only the pin.
     const cc = resolveLocationCountry(g);
-    if (cc) mfgCCs.add(cc);
+    if (cc) {
+      mfgCCs.add(cc);
+      const region = resolveLocationRegion(g, cc);
+      if (region) mfgRegions.add(region);
+    }
     if (!statusOk(g)) continue;
     const lat = toFiniteNumber(g?.lat);
     const lng = toFiniteNumber(g?.lng);
@@ -133,8 +142,10 @@ function buildCompanyEntry(company) {
     mfg.push([round4(lat), round4(lng), isLowPrecision(g) ? 1 : 0]);
   }
 
-  // HQ country: structured headquarters entries first, then the flat string.
+  // HQ country + region: structured headquarters entries first, then the
+  // flat string.
   let hqCC = null;
+  let hqRegion = null;
   const hqEntries = [
     ...(Array.isArray(company.headquarters_locations) ? company.headquarters_locations : []),
     ...(Array.isArray(company.headquarters) ? company.headquarters : []),
@@ -142,7 +153,10 @@ function buildCompanyEntry(company) {
   ];
   for (const h of hqEntries) {
     hqCC = resolveLocationCountry(h);
-    if (hqCC) break;
+    if (hqCC) {
+      hqRegion = resolveLocationRegion(h, hqCC);
+      break;
+    }
   }
 
   if (!hasHq && mfg.length === 0) return null;
@@ -156,6 +170,8 @@ function buildCompanyEntry(company) {
     mfg,
     hqCC,
     [...mfgCCs],
+    hqRegion,
+    [...mfgRegions],
   ];
 }
 

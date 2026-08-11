@@ -18,6 +18,17 @@ const MADE_IN_LINKS = [
   ['south-korea', 'South Korea'],
 ];
 
+// A few high-volume US states so crawlers reach the state tier directly;
+// the full list lives on /made-in/usa.
+const MADE_IN_STATE_LINKS = [
+  ['california', 'California'],
+  ['texas', 'Texas'],
+  ['new-york', 'New York'],
+  ['florida', 'Florida'],
+  ['oregon', 'Oregon'],
+  ['colorado', 'Colorado'],
+];
+
 const Footer = () => {
   return (
     <footer className="bg-muted border-t border-border pt-4 pb-8">
@@ -70,6 +81,27 @@ const Footer = () => {
             className="text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
           >
             All countries
+          </Link>
+        </nav>
+        <nav
+          aria-label="Browse by US state"
+          className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mb-2 text-xs"
+        >
+          <span className="text-slate-600 dark:text-muted-foreground font-medium">Made in USA:</span>
+          {MADE_IN_STATE_LINKS.map(([slug, label]) => (
+            <Link
+              key={slug}
+              to={`/made-in/usa/${slug}`}
+              className="text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {label}
+            </Link>
+          ))}
+          <Link
+            to="/made-in/usa"
+            className="text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+          >
+            All states
           </Link>
         </nav>
         {/* slate-600 in light mode: muted-foreground (slate-500) is 4.35:1 on

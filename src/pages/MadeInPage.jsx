@@ -9,9 +9,12 @@ import useDocumentHead from "@/hooks/useDocumentHead";
 import {
   getCountryRegistry,
   getMadeInAggregation,
+  getRegionRegistry,
+  aggregateByRegion,
   companyHref,
   flagEmoji,
 } from "@/lib/madeIn";
+import { fetchPinsIndex } from "@/components/results/map/pinsIndexClient";
 
 const INITIAL_VISIBLE = 96;
 const SHOW_MORE_STEP = 240;
@@ -20,6 +23,7 @@ export default function MadeInPage() {
   const { slug } = useParams();
   const [registry, setRegistry] = useState(null);
   const [agg, setAgg] = useState(null);
+  const [pins, setPins] = useState(null);
   const [failed, setFailed] = useState(false);
   const [visible, setVisible] = useState(INITIAL_VISIBLE);
 
@@ -27,6 +31,7 @@ export default function MadeInPage() {
     let dead = false;
     getCountryRegistry().then((r) => !dead && setRegistry(r)).catch(() => !dead && setFailed(true));
     getMadeInAggregation().then((a) => !dead && setAgg(a)).catch(() => !dead && setFailed(true));
+    fetchPinsIndex().then((p) => !dead && setPins(p)).catch(() => {});
     return () => {
       dead = true;
     };
@@ -38,7 +43,21 @@ export default function MadeInPage() {
 
   const country = registry?.bySlug.get(String(slug || "").toLowerCase()) || null;
   const data = country && agg ? agg.byCC.get(country.cc) : null;
-  const companies = data?.companies || [];
+  // Memoized so the JSON-LD useMemo below doesn't see a new array identity on
+  // every render.
+  const companies = useMemo(() => data?.companies || [], [data]);
+
+  // State/territory breakdown — only for countries with published
+  // subdivision pages (US today).
+  const stateRows = useMemo(() => {
+    if (!pins || country?.cc !== "US") return [];
+    const regRegistry = getRegionRegistry("US");
+    const { byRegion } = aggregateByRegion(pins, "US");
+    return [...byRegion.entries()]
+      .filter(([code, b]) => b.companies.length > 0 && regRegistry.byCode.has(code))
+      .map(([code, b]) => ({ ...regRegistry.byCode.get(code), count: b.companies.length }))
+      .sort((a, z) => z.count - a.count || a.name.localeCompare(z.name));
+  }, [pins, country]);
 
   const siblings = useMemo(() => {
     if (!agg || !registry) return [];
@@ -180,6 +199,29 @@ export default function MadeInPage() {
                 </div>
               )}
             </>
+          )}
+
+          {stateRows.length > 0 && (
+            <section className="mt-10 border-t border-border pt-6">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                By state &amp; territory
+              </h2>
+              <ul className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 list-none p-0">
+                {stateRows.map((s) => (
+                  <li key={s.code}>
+                    <Link
+                      to={`/made-in/usa/${s.slug}`}
+                      className="flex items-baseline justify-between gap-2 border border-border rounded-lg bg-card px-3 py-2 hover:bg-muted transition-colors"
+                    >
+                      <span className="text-sm font-medium text-foreground truncate">{s.name}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {s.count.toLocaleString()}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           {siblings.length > 0 && (

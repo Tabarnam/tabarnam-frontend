@@ -117,7 +117,11 @@ const US_STATES = [
   "massachusetts","michigan","minnesota","mississippi","missouri","montana","nebraska","nevada","new hampshire","new jersey",
   "new mexico","new york","north carolina","north dakota","ohio","oklahoma","oregon","pennsylvania","rhode island","south carolina",
   "south dakota","tennessee","texas","utah","vermont","virginia","washington","west virginia","wisconsin","wyoming",
-  "district of columbia","washington dc", "puerto rico",
+  "district of columbia","washington dc",
+  // Inhabited US territories — "Made in USA" for labeling purposes, so they
+  // roll up to the country and appear as US-XX regions.
+  "puerto rico","guam","us virgin islands","u s virgin islands","virgin islands",
+  "american samoa","northern mariana islands",
 ];
 for (const s of US_STATES) SUBDIVISION_TO_ISO[s] = "US";
 const CA_PROVINCES = [
