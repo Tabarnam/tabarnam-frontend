@@ -291,6 +291,9 @@ export default function ResultsPage() {
   // Pasted-URL search: exact normalized_domain the backend looks up directly,
   // bypassing the brand-token pipeline. Empty for ordinary text searches.
   const domainParam = (searchParams.get("domain") ?? "").toString().trim().toLowerCase();
+  // Set by "Search instead for …": forces the literal query so the backend does
+  // not re-apply the spelling correction the user just rejected.
+  const noCorrectParam = searchParams.get("nocorrect") === "1";
   const debugScores = searchParams.get("debug") === "scores";
   const listParam = searchParams.get("list") || "";
 
@@ -302,13 +305,16 @@ export default function ResultsPage() {
   // exact visibility logic), so a card's teaser always equals what the user
   // sees on open — no stored aggregate that can drift. Keyed by company id.
   const [reviewCounts, setReviewCounts] = useState({});
-  // The term to highlight on result cards — always what the user actually
-  // typed (qParam). We never rewrite the query, so there's no "corrected"
-  // term to highlight; this stays for the highlight prop's shape.
+  // The term to highlight on result cards. Normally what the user typed, but
+  // when the backend auto-applied a spelling correction the results are for the
+  // CORRECTED term, so that's what should light up.
   const [correctedHighlight, setCorrectedHighlight] = useState("");
-  // "Did you mean …?" suggestion — surfaced by the backend ONLY when the
-  // original query returned zero results. Purely a suggestion the user can
-  // choose; the search always ran on exactly what they typed.
+  // An APPLIED correction: { original, corrected }. The backend re-ran the
+  // search on `corrected` because the literal query found nothing worth
+  // showing. Drives the "Showing results for … — Search instead for …" banner.
+  const [correctedQuery, setCorrectedQuery] = useState(null);
+  // "Did you mean …?" suggestion — the non-destructive fallback, used when we
+  // did NOT auto-apply (nocorrect=1, or the corrected query was junk too).
   const [didYouMean, setDidYouMean] = useState(null);
 
   // Pasted-URL (domain) search state. Populated only when the current search
@@ -706,6 +712,7 @@ export default function ResultsPage() {
           hqCountry: hqCountryParam,
           mfgCountry: mfgCountryParam,
           domain: domainParam,
+          noCorrect: noCorrectParam,
           take: initialTake,
           skip: (pageParam - 1) * pageSize,
           location: loc,
@@ -719,7 +726,7 @@ export default function ResultsPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam, domainParam, pageSize, strictProximity]);
+  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam, pageParam, amazonParam, hqCountryParam, mfgCountryParam, domainParam, noCorrectParam, pageSize, strictProximity]);
 
   // Called by the top search bar.
   // opts.urlOnly === true means "the 1s auto-search already populated
@@ -887,7 +894,7 @@ export default function ResultsPage() {
   // Track the current search generation so stale responses are ignored
   const searchGenRef = useRef(0);
 
-  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain = "", take = PAGE_SIZE, skip = 0, location, append = false, strict = strictProximity }) {
+  async function doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain = "", noCorrect = false, take = PAGE_SIZE, skip = 0, location, append = false, strict = strictProximity }) {
     setLoading(true);
 
     // The "search key" identifies a query + filter combination independently
@@ -958,7 +965,7 @@ export default function ResultsPage() {
       const stateFilter = "";
       const countryFilter = "";
 
-      const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, domain, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
+      const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, domain, noCorrect, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
 
       // Domestic-first context: the freshly-resolved user country (via ref, not
       // the lagging state) + its address-match tokens, precomputed once so
@@ -997,7 +1004,11 @@ export default function ResultsPage() {
       // so the opt-in "No company found for <domain>" state shows — silently
       // broadening to a brand search here would clobber it (and drop the domain
       // param, defeating the exact-match intent entirely).
-      if (searchResult.items?.length === 0 && !skip && q && !domain) {
+      // Also skipped once the backend has already auto-corrected: it is the
+      // better mechanism (it re-ran the real pipeline on a dictionary-backed
+      // correction), and adopting an alternative here would replace `meta` and
+      // silently drop the correction the banner needs.
+      if (searchResult.items?.length === 0 && !skip && q && !domain && !searchResult.meta?.corrected_query) {
         const alternatives = generateQueryAlternatives(q);
         for (const altQuery of alternatives) {
           if (altQuery !== q) {
@@ -1016,7 +1027,16 @@ export default function ResultsPage() {
               lng: effectiveLocation?.lng,
             });
             if (altResult.items?.length > 0) {
-              searchResult = altResult;
+              // Keep the ORIGINAL query's typo fields — altResult's meta is for
+              // the alternative query and carries neither.
+              searchResult = {
+                ...altResult,
+                meta: {
+                  ...altResult.meta,
+                  corrected_query: searchResult.meta?.corrected_query,
+                  did_you_mean: searchResult.meta?.did_you_mean,
+                },
+              };
               break;
             }
           }
@@ -1027,10 +1047,12 @@ export default function ResultsPage() {
       if (gen !== searchGenRef.current) return;
 
       const { items = [], hasMore: apiHasMore, meta } = searchResult;
-      // Highlight the term the user typed (we never rewrite the query).
-      setCorrectedHighlight("");
-      // "Did you mean …?" — present only when the backend found nothing for the
-      // original query and has a spelling candidate.
+      // An applied correction means these results are for the corrected term,
+      // so highlight that instead of what was typed.
+      const applied = meta?.corrected_query || null;
+      setCorrectedQuery(applied);
+      setCorrectedHighlight(applied?.corrected || "");
+      // "Did you mean …?" — the fallback when we did NOT auto-apply.
       setDidYouMean(meta?.did_you_mean || null);
       // Pasted-URL (domain) search: capture the opt-in alternatives + match
       // state so the UI can render the "Explore related" strip (on a match) or
@@ -1115,6 +1137,7 @@ export default function ResultsPage() {
           lastCountedKeyRef.current = searchKey;
           getSearchCount({
             q, sort, country: "", state: "", city: "", amazon, hqCountry, mfgCountry,
+            noCorrect,
             take: pageSize, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng,
           })
             .then((r) => {
@@ -1187,6 +1210,7 @@ export default function ResultsPage() {
         hqCountry: hqCountryParam,
         mfgCountry: mfgCountryParam,
         domain: domainParam,
+        noCorrect: noCorrectParam,
         take: pageSize,
         skip: results.length,
         location: userLoc,
@@ -1280,6 +1304,8 @@ export default function ResultsPage() {
     const next = new URLSearchParams(searchParams);
     next.set("q", keyword);
     next.delete("page");
+    // Fresh query — never inherit a "don't correct" opt-out from the last one.
+    next.delete("nocorrect");
     // A keyword/industry click is a fresh brand-search intent — never inherit a
     // pasted-URL domain lock from the current search.
     next.delete("domain");
@@ -1295,6 +1321,7 @@ export default function ResultsPage() {
     next.set("q", name);
     next.delete("domain");
     next.delete("page");
+    next.delete("nocorrect");
     setSearchParams(next);
   }
 
@@ -1619,6 +1646,32 @@ export default function ResultsPage() {
           between quick/full responses — shows the skeleton. This is what
           eliminates the brief "No results found" flash that used to appear
           between a search starting and its results painting. */}
+      {/* Applied spelling correction. The results below are for the CORRECTED
+          term because what was typed found nothing worth showing. Always offer
+          the way back — ?nocorrect=1 forces the literal query. */}
+      {correctedQuery && sorted.length > 0 && (
+        <div className="px-2 pb-2 text-sm">
+          <span className="text-foreground">
+            Showing results for{" "}
+            <span className="font-semibold">{correctedQuery.corrected}</span>
+          </span>
+          <span className="text-muted-foreground"> — </span>
+          <button
+            type="button"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.set("q", correctedQuery.original);
+              next.set("nocorrect", "1");
+              next.delete("page");
+              setSearchParams(next);
+            }}
+            className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+          >
+            Search instead for "{correctedQuery.original}"
+          </button>
+        </div>
+      )}
+
       <div className="mb-4">
         {sorted.length > 0 ? (
           <div className="space-y-0">
@@ -1732,6 +1785,7 @@ export default function ResultsPage() {
                         const next = new URLSearchParams(searchParams);
                         next.set("q", didYouMean.suggestion);
                         next.delete("page");
+                        next.delete("nocorrect");
                         setSearchParams(next);
                       }}
                       className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"

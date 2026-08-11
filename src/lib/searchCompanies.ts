@@ -32,6 +32,12 @@ export interface SearchOptions {
   quick?: boolean;
   /** Exact stored normalized_domain for a pasted-URL search (domain-only retrieval). */
   domain?: unknown;
+  /**
+   * Force the literal query — suppresses the backend's auto-applied typo
+   * correction. Set by the "Search instead for …" link so a user who really
+   * meant the odd spelling can get it back.
+   */
+  noCorrect?: boolean;
 }
 
 export interface Company {
@@ -106,6 +112,7 @@ export async function searchCompanies(opts: SearchOptions) {
   if (opts.hqCountry) params.set("hqCountry", opts.hqCountry);
   if (opts.mfgCountry) params.set("mfgCountry", opts.mfgCountry);
   if (opts.quick) params.set("quick", "1");
+  if (opts.noCorrect) params.set("nocorrect", "1");
   // Pasted-URL search: exact domain lookup, bypasses the brand-token pipeline.
   const domain = asStr(opts.domain).trim().toLowerCase();
   if (domain) params.set("domain", domain);
@@ -367,7 +374,7 @@ export async function getStateSuggestions(q: unknown, country?: string): Promise
  * Lightweight call that returns only totalCount/totalPages (no items).
  * Intended to be fired in the background after results are already displayed.
  */
-export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon" | "hqCountry" | "mfgCountry"> & { take?: number }): Promise<{ totalCount: number; totalPages: number; directCount: number | null } | null> {
+export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon" | "hqCountry" | "mfgCountry" | "noCorrect"> & { take?: number }): Promise<{ totalCount: number; totalPages: number; directCount: number | null } | null> {
   const q = asStr(opts.q).trim();
   const latNum = Number(asStr(opts.lat));
   const lngNum = Number(asStr(opts.lng));
@@ -396,6 +403,9 @@ export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "c
   if (opts.amazon) params.set("amazon", "1");
   if (opts.hqCountry) params.set("hqCountry", opts.hqCountry);
   if (opts.mfgCountry) params.set("mfgCountry", opts.mfgCountry);
+  // Must match the results request, or the totals would be counted from a
+  // corrected pool while the page shows literal results (or vice versa).
+  if (opts.noCorrect) params.set("nocorrect", "1");
 
   const latStr = asStr(opts.lat);
   const lngStr = asStr(opts.lng);
