@@ -2020,6 +2020,7 @@ export default function ResultsPage() {
               onPinFilterChange={handlePinFilterChange}
               boundsKey={boundsKey}
               linkParams={searchParams.toString()}
+              loading={loading}
             />
           </React.Suspense>
         </aside>
