@@ -9,7 +9,7 @@ import { decodePinsPayload } from "./markerData";
 // shape — a stale v1 body would leave the made-in pages silently empty (seen
 // in production 2026-08-11). Bump this whenever PAYLOAD_VERSION in
 // api/_pinsIndex.js changes.
-export const PINS_PAYLOAD_VERSION = 3;
+export const PINS_PAYLOAD_VERSION = 4;
 
 let _promise = null;
 

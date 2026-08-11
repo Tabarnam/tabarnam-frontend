@@ -31,7 +31,10 @@ const BLOB_CONTAINER = "config";
 const BLOB_NAME = "map_pins.json";
 // v2: entries carry hqCC + mfgCCs country attribution (made-in pages).
 // v3: adds hqRegion + mfgRegions (ISO 3166-2, e.g. "US-CA") for state pages.
-const PAYLOAD_VERSION = 3;
+// v4: each mfg pin carries its OWN cc + region, so a place-scoped map plots
+//     only the pins actually in that place (a company that manufactures in
+//     California and Italy must not drop an Italy pin on the California page).
+const PAYLOAD_VERSION = 4;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const BLOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const TAGLINE_MAX = 80;
@@ -92,8 +95,8 @@ function isLowPrecision(entry) {
 /**
  * Build one company's pins entry:
  *   [id, name, tagline, domain, hqLat|null, hqLng|null,
- *    [[mLat, mLng, lowPrec01], ...], hqCC|null, [mfgCC, ...],
- *    hqRegion|null, [mfgRegion, ...]]
+ *    [[mLat, mLng, lowPrec01, cc|null, region|null], ...], hqCC|null,
+ *    [mfgCC, ...], hqRegion|null, [mfgRegion, ...]]
  * hqCC / mfgCCs are ISO 3166-1 alpha-2 attributions and hqRegion / mfgRegions
  * are ISO 3166-2 subdivisions ("US-CA") resolved from the location entries
  * (see _countryResolve.js / _regionResolve.js) — they power the /made-in
@@ -127,9 +130,10 @@ function buildCompanyEntry(company) {
     // Country attribution considers every entry (a text-only location still
     // means the company manufactures there); coordinates gate only the pin.
     const cc = resolveLocationCountry(g);
+    let region = null;
     if (cc) {
       mfgCCs.add(cc);
-      const region = resolveLocationRegion(g, cc);
+      region = resolveLocationRegion(g, cc);
       if (region) mfgRegions.add(region);
     }
     if (!statusOk(g)) continue;
@@ -139,7 +143,9 @@ function buildCompanyEntry(company) {
     const key = `${round4(lat)},${round4(lng)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    mfg.push([round4(lat), round4(lng), isLowPrecision(g) ? 1 : 0]);
+    // Per-pin cc/region: a place-scoped map filters on these so it never
+    // shows a company's other-country pins.
+    mfg.push([round4(lat), round4(lng), isLowPrecision(g) ? 1 : 0, cc, region]);
   }
 
   // HQ country + region: structured headquarters entries first, then the

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMarkers, decodePinsPayload, buildIndexMarkers } from "./markerData";
+import { buildMarkers, decodePinsPayload, buildIndexMarkers, buildPlaceMarkers } from "./markerData";
 
 const company = (over = {}) => ({ company_id: "c1", display_name: "Acme", ...over });
 
@@ -216,5 +216,59 @@ describe("buildIndexMarkers", () => {
   it("tolerates junk input", () => {
     expect(buildIndexMarkers(null, ["c1"], new Set())).toEqual([]);
     expect(buildIndexMarkers(byId, null, new Set())).toEqual([]);
+  });
+});
+
+describe("buildPlaceMarkers", () => {
+  // Acme manufactures in California AND Italy, HQ in California.
+  // Bmax manufactures in Texas only, HQ in New York.
+  const pins = decodePinsPayload({
+    version: 4,
+    companies: [
+      ["a", "Acme", "soap", "acme.com", 33.6, -117.9, [
+        [34.05, -118.24, 0, "US", "US-CA"],
+        [41.9, 12.5, 0, "IT", null],
+      ], "US", ["US", "IT"], "US-CA", ["US-CA"]],
+      ["b", "Bmax", "", "b.com", 40.7, -74.0, [
+        [30.2, -97.7, 0, "US", "US-TX"],
+      ], "US", ["US"], "US-NY", ["US-TX"]],
+    ],
+  });
+
+  it("plots only the pins actually inside the region", () => {
+    const ca = buildPlaceMarkers(pins, { region: "US-CA", mode: "mfg" });
+    expect(ca).toHaveLength(1);
+    expect(ca[0]).toMatchObject({ companyId: "a", kind: "mfg", lat: 34.05 });
+    // Acme's Italy pin must NOT appear on a California page
+    expect(ca.some((m) => m.lng === 12.5)).toBe(false);
+  });
+
+  it("scopes by country too, keeping every in-country pin", () => {
+    const us = buildPlaceMarkers(pins, { cc: "US", mode: "mfg" });
+    expect(us.map((m) => m.companyId).sort()).toEqual(["a", "b"]);
+    const it = buildPlaceMarkers(pins, { cc: "IT", mode: "mfg" });
+    expect(it).toHaveLength(1);
+    expect(it[0].companyId).toBe("a");
+  });
+
+  it("matches HQ pins on the entry's own hq codes", () => {
+    const caHq = buildPlaceMarkers(pins, { region: "US-CA", mode: "hq" });
+    expect(caHq).toHaveLength(1);
+    expect(caHq[0]).toMatchObject({ companyId: "a", kind: "hq" });
+    // Bmax is HQ'd in New York, not Texas
+    expect(buildPlaceMarkers(pins, { region: "US-TX", mode: "hq" })).toHaveLength(0);
+    expect(buildPlaceMarkers(pins, { region: "US-NY", mode: "hq" })[0].companyId).toBe("b");
+  });
+
+  it("both mode returns hq and mfg pins together", () => {
+    const both = buildPlaceMarkers(pins, { region: "US-CA", mode: "both" });
+    expect(both.map((m) => m.kind).sort()).toEqual(["hq", "mfg"]);
+  });
+
+  it("carries the hover-card company fields and tolerates junk", () => {
+    const [m] = buildPlaceMarkers(pins, { region: "US-CA", mode: "mfg" });
+    expect(m.company).toMatchObject({ display_name: "Acme", tagline: "soap", normalized_domain: "acme.com" });
+    expect(m.index).toBe(true);
+    expect(buildPlaceMarkers(null, { cc: "US" })).toEqual([]);
   });
 });
