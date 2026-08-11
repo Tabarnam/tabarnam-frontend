@@ -4088,6 +4088,20 @@ async function resumeWorkerHandler(req, context) {
       // of new companies barely moves a 13k-company corpus, and the tokens a
       // fresh import contributes are below the >=2-company threshold anyway.
       // Need it sooner? POST /api/xadmin-api-rebuild-typo-dictionary.
+
+      // Map pins index DOES rebuild here — new companies should appear on the
+      // consumer map without waiting for the 24h age-out — but throttled to
+      // ≥6h between scans (≤4/day) so import bursts can't recreate the
+      // scan-contention problem above. Fire-and-forget: completion must never
+      // wait on it.
+      try {
+        const { rebuildMapPins } = require("../../xadmin-api-rebuild-map-pins");
+        rebuildMapPins({ source: "import_auto", logger: console, minAgeMs: 6 * 60 * 60 * 1000 }).catch((e) => {
+          console.warn(`[resume-worker] pins rebuild auto-trigger failed: ${e?.message || e}`);
+        });
+      } catch (e) {
+        console.warn(`[resume-worker] pins rebuild setup failed: ${e?.message || e}`);
+      }
     }
 
     const sessionPatch = {
@@ -5815,6 +5829,17 @@ async function resumeWorkerHandler(req, context) {
     // As in the main completion path: no typo-dictionary rebuild here. It ages
     // out once every 24h and is rebuilt by the next search that notices. See
     // the longer note at the other completion site.
+
+    // Map pins rebuild, throttled + fire-and-forget — mirror of the main
+    // completion site.
+    try {
+      const { rebuildMapPins } = require("../../xadmin-api-rebuild-map-pins");
+      rebuildMapPins({ source: "import_auto", logger: console, minAgeMs: 6 * 60 * 60 * 1000 }).catch((e) => {
+        console.warn(`[resume-worker post-enrichment] pins rebuild auto-trigger failed: ${e?.message || e}`);
+      });
+    } catch (e) {
+      console.warn(`[resume-worker post-enrichment] pins rebuild setup failed: ${e?.message || e}`);
+    }
   }
 
   await bestEffortPatchSessionDoc({

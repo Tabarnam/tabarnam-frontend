@@ -2117,6 +2117,14 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           // paths. Best-effort; one get-reviews call, never blocks the save.
           await recomputeAndPinVisibleCount(container, doc, {}, context);
 
+          // Keep the consumer map current: patch this company into the pins
+          // blob (product decision 2026-08-11 — saves must populate the map
+          // immediately, not wait for the throttled rebuild). Fire-and-forget.
+          try {
+            const { upsertPinsForCompanies } = require("../_pinsIndex");
+            upsertPinsForCompanies([doc], { logger: context }).catch(() => {});
+          } catch { /* non-fatal */ }
+
           try {
             const auditAction = String(meta.action || (existingDoc ? "update" : "create")).trim() || (existingDoc ? "update" : "create");
             const auditSource = String(meta.source || "admin-ui").trim() || "admin-ui";
@@ -2311,6 +2319,19 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             if (!deletedThisDoc) {
               failures.push({ itemId: doc.id, attemptedPartitionKeyCount: candidates.length });
             }
+          }
+
+          // Remove the deleted company from the consumer map's pins blob
+          // (soft- and hard-deletes both make buildCompanyEntry return null,
+          // which upsertPinsForCompanies treats as "remove"). Fire-and-forget.
+          if (softDeleted > 0 || hardDeleted > 0) {
+            try {
+              const { upsertPinsForCompanies } = require("../_pinsIndex");
+              upsertPinsForCompanies(
+                docs.map((d) => ({ ...d, is_deleted: true })),
+                { logger: context }
+              ).catch(() => {});
+            } catch { /* non-fatal */ }
           }
 
           if (failures.length > 0) {

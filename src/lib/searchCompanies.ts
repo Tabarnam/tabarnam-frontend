@@ -112,6 +112,7 @@ export async function searchCompanies(opts: SearchOptions) {
   if (opts.hqCountry) params.set("hqCountry", opts.hqCountry);
   if (opts.mfgCountry) params.set("mfgCountry", opts.mfgCountry);
   if (opts.quick) params.set("quick", "1");
+  else params.set("matchIds", "1"); // full matched id list for the map view (ids only, ≤500)
   if (opts.noCorrect) params.set("nocorrect", "1");
   // Pasted-URL search: exact domain lookup, bypasses the brand-token pipeline.
   const domain = asStr(opts.domain).trim().toLowerCase();
@@ -185,6 +186,10 @@ export async function searchCompanies(opts: SearchOptions) {
       totalCount: typeof data?.totalCount === "number" ? data.totalCount : undefined,
       totalPages: typeof data?.totalPages === "number" ? data.totalPages : undefined,
       directCount: typeof data?.directCount === "number" ? data.directCount : (data?.directCount === null ? null : undefined),
+      // Every matched company id (up to the backend's 500-candidate pool) —
+      // lets the map plot ALL matches, not just the loaded page. Undefined on
+      // quick responses / older backends.
+      matchIds: Array.isArray(data?.match_ids) ? data.match_ids.map(String) : undefined,
       meta: data?.meta ?? { q: q_raw, sort },
     };
   } catch (e) {

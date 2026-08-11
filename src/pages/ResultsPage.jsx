@@ -439,6 +439,10 @@ export default function ResultsPage() {
   const [userCountryCode, setUserCountryCode] = useState("");
   // Map↔list hover sync (split view only). Shared by row wrappers and pins.
   const [hoveredCompanyId, setHoveredCompanyId] = useState(null);
+  // Every matched company id from the full search response (≤500) — the map
+  // joins these against the /api/map-pins index to plot matches beyond the
+  // loaded page as lighter "index pins".
+  const [matchIds, setMatchIds] = useState(null);
   // True when the current center is the San Dimas last-resort fallback (no user
   // location + IP unresolved). Drives the editable "91773" prefill in SearchCard.
   const [fallbackCenter, setFallbackCenter] = useState(false);
@@ -1125,6 +1129,14 @@ export default function ResultsPage() {
       // Phase 4.28 — eager loadReviewsDeferred removed. Per-row
       // IntersectionObserver in ExpandableCompanyRow drives the fetch.
       setHasMore(apiHasMore === true);
+
+      // Full matched id list for the map's index pins. This block only runs
+      // for the FULL response (quick results commit separately above), so a
+      // missing list here means the backend didn't provide one — clear it.
+      // Appends (infinite scroll) keep the existing list.
+      if (!append) {
+        setMatchIds(Array.isArray(searchResult.matchIds) ? searchResult.matchIds : null);
+      }
 
       // Page-count resolution. Two paths:
       //
@@ -2021,6 +2033,7 @@ export default function ResultsPage() {
               boundsKey={boundsKey}
               linkParams={searchParams.toString()}
               loading={loading}
+              matchIds={matchIds}
             />
           </React.Suspense>
         </aside>

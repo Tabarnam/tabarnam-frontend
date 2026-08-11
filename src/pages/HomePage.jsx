@@ -2,6 +2,7 @@
 import React from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
+import { Map as MapIcon } from 'lucide-react';
 import SearchCard from '@/components/home/SearchCard';
 
 export default function HomePage() {
@@ -30,6 +31,15 @@ export default function HomePage() {
 
         {/* Two-row search bar */}
         <SearchCard autoFocus />
+
+        {/* Explore-map entry — search-free browsing of the whole catalog */}
+        <Link
+          to="/map"
+          className="mt-8 inline-flex items-center gap-2 text-sm px-4 py-2 rounded-md border border-tabarnam-blue-bold text-tabarnam-blue-dark dark:text-tabarnam-blue-bold hover:bg-muted transition-colors"
+        >
+          <MapIcon size={16} aria-hidden="true" />
+          Explore the company map
+        </Link>
       </main>
     </>
   );

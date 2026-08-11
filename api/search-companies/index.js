@@ -1695,6 +1695,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
   // Are we just counting total results (no items returned)?
   const countOnly = url.searchParams.get("countOnly") === "1";
+  // Map view opt-in: include the FULL matched id list (up to the retrieval
+  // pool cap) so the results map can plot every match — page rows render as
+  // full pins, the rest join against the /api/map-pins index client-side.
+  // Ids only (~35B each); key-affecting for the response cache like nocorrect.
+  const includeMatchIds = url.searchParams.get("matchIds") === "1";
   // Escape hatch behind the "Search instead for …" link: forces the literal
   // query so a user who really meant the odd spelling can get it back. Not in
   // the response cache's STRIPPED_PARAMS, so it is key-affecting (asserted in
@@ -2885,6 +2890,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           count: paged.length,
           hasMore,
           ...pageInfo,
+          // Full matched id list for the map (opt-in, skipped in quickMode
+          // whose pool is intentionally small — ids there would under-plot).
+          ...(includeMatchIds && !quickMode
+            ? { match_ids: deduped.map((c) => String(c.company_id || c.id || "")).filter(Boolean) }
+            : {}),
           meta: {
             q: q_raw,
             sort,
