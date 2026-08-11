@@ -826,6 +826,13 @@ function relevanceTier(score, nameScore = 0) {
   return 3;                        // weak match
 }
 
+// Excludes soft-deleted docs and the non-company control rows (refresh jobs,
+// import control docs) that share the container. Module scope because it is
+// used both inside the retrieval pass and by the domain-alternatives block
+// that sits outside it.
+const softDeleteFilter =
+  "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
+
 const SELECT_FIELDS = [
   // Identity / names
   "c.id",
@@ -1814,8 +1821,6 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // (map/dedup/score/sort). Surfaced as meta._timing to confirm where the
       // per-search time goes and to measure optimizations before/after.
       const _tStart = Date.now();
-
-      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, 'refresh_job_') AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')";
 
       // ── Domain-only exact retrieval (pasted-URL search) ──
       // When `domainParam` is set, the search is a narrow "find the company at
