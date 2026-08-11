@@ -2,12 +2,14 @@
 // territory. Same pins-index data path as the country pages (the search API
 // cannot answer this accurately — see src/lib/madeIn.js).
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { Map as MapIcon } from "lucide-react";
 import useDocumentHead from "@/hooks/useDocumentHead";
+import ViewToggle from "@/components/madein/ViewToggle";
 import {
   getRegionRegistry,
   getMadeInRegionAggregation,
+  companiesForMode,
   companyHref,
 } from "@/lib/madeIn";
 
@@ -16,9 +18,20 @@ const SHOW_MORE_STEP = 240;
 
 export default function MadeInStatePage() {
   const { state: stateSlug } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [agg, setAgg] = useState(null);
   const [failed, setFailed] = useState(false);
   const [visible, setVisible] = useState(INITIAL_VISIBLE);
+
+  const showParam = (searchParams.get("show") || "").toLowerCase();
+  const mode = showParam === "hq" || showParam === "both" ? showParam : "mfg";
+  const setMode = (next) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "mfg") params.delete("show");
+    else params.set("show", next);
+    setSearchParams(params, { replace: true });
+    setVisible(INITIAL_VISIBLE);
+  };
 
   useEffect(() => {
     let dead = false;
@@ -38,8 +51,21 @@ export default function MadeInStatePage() {
   const region = registry.bySlug.get(String(stateSlug || "").toLowerCase()) || null;
   const data = region && agg ? agg.byRegion.get(region.code) : null;
   // Memoized so the JSON-LD useMemo below sees a stable array identity.
-  const companies = useMemo(() => data?.companies || [], [data]);
+  const companies = useMemo(() => companiesForMode(data, mode), [data, mode]);
   const count = companies.length;
+  // Head tags always describe the canonical (manufacturing) view.
+  const mfgCount = data?.companies?.length || 0;
+  const toggleCounts = useMemo(
+    () =>
+      data
+        ? {
+            mfg: data.companies.length,
+            hq: data.hqCompanies.length,
+            both: companiesForMode(data, "both").length,
+          }
+        : null,
+    [data]
+  );
 
   const siblings = useMemo(() => {
     if (!agg) return [];
@@ -55,14 +81,18 @@ export default function MadeInStatePage() {
     ? `https://tabarnam.com/made-in/usa/${region.slug}`
     : "https://tabarnam.com/made-in/usa";
   const title = region
-    ? `Made in ${name} — ${count > 0 ? `${count.toLocaleString()} ` : ""}Companies That Manufacture in ${name} | Tabarnam`
+    ? `Made in ${name} — ${mfgCount > 0 ? `${mfgCount.toLocaleString()} ` : ""}Companies That Manufacture in ${name} | Tabarnam`
     : "Made in the USA | Tabarnam";
   const description = region
-    ? `${count > 0 ? `${count.toLocaleString()} companies` : "Companies"} that manufacture in ${name}, with headquarters and manufacturing locations verified by Tabarnam. Find products actually made in ${name}.`
+    ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${name}, with headquarters and manufacturing locations verified by Tabarnam. Find products actually made in ${name}.`
     : "";
 
+  // Structured data describes the canonical manufacturing view, not the
+  // currently-toggled one, so the three modes never disagree with the
+  // canonical URL they all point at.
   const jsonLd = useMemo(() => {
-    if (!region || count === 0) return null;
+    const mfgList = data?.companies || [];
+    if (!region || mfgList.length === 0) return null;
     return {
       "@context": "https://schema.org",
       "@type": "CollectionPage",
@@ -70,8 +100,8 @@ export default function MadeInStatePage() {
       url: canonical,
       mainEntity: {
         "@type": "ItemList",
-        numberOfItems: count,
-        itemListElement: companies.slice(0, 25).map((c, i) => ({
+        numberOfItems: mfgList.length,
+        itemListElement: mfgList.slice(0, 25).map((c, i) => ({
           "@type": "ListItem",
           position: i + 1,
           name: c.name,
@@ -79,7 +109,7 @@ export default function MadeInStatePage() {
         })),
       },
     };
-  }, [region, count, name, canonical, companies]);
+  }, [region, name, canonical, data]);
 
   useDocumentHead({ title, description, canonical, jsonLd, ready: !!region && !!agg });
 
@@ -114,14 +144,24 @@ export default function MadeInStatePage() {
             {count > 0 ? (
               <>
                 <span className="font-semibold text-foreground">{count.toLocaleString()}</span>{" "}
-                {count === 1 ? "company" : "companies"} in the Tabarnam catalog manufacture in {name}
-                {data?.hqCount ? (
+                {count === 1 ? "company" : "companies"} in the Tabarnam catalog{" "}
+                {mode === "hq"
+                  ? <>{count === 1 ? "is" : "are"} headquartered in {name}</>
+                  : mode === "both"
+                    ? <>manufacture in or are headquartered in {name}</>
+                    : <>manufacture in {name}</>}
+                {mode === "mfg" && data?.hqCount ? (
                   <> · {data.hqCount.toLocaleString()} {data.hqCount === 1 ? "is" : "are"} headquartered here</>
                 ) : null}
                 .
               </>
             ) : (
-              <>We haven't verified any manufacturers in {name} yet — the catalog grows daily.</>
+              <>
+                {mode === "hq"
+                  ? <>No companies in the catalog are headquartered in {name} yet</>
+                  : <>We haven't verified any manufacturers in {name} yet</>}
+                {" "}— the catalog grows daily.
+              </>
             )}
           </p>
 
@@ -141,9 +181,20 @@ export default function MadeInStatePage() {
             </Link>
           </div>
 
+          {/* The list gets its own inclusive heading: the toggle can show
+              manufacturing, headquarters, or both, and "<place> locations"
+              stays true for all three — while the page title keeps the
+              "Made in ___" identity (and its search keyword). */}
+          {toggleCounts && (toggleCounts.mfg > 0 || toggleCounts.hq > 0) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-10 pb-2 border-b border-border">
+              <h2 className="text-lg font-semibold text-foreground">{name} locations</h2>
+              <ViewToggle mode={mode} onChange={setMode} counts={toggleCounts} />
+            </div>
+          )}
+
           {count > 0 && (
             <>
-              <ul className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 list-none p-0">
+              <ul className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 list-none p-0">
                 {companies.slice(0, visible).map((c) => (
                   <li key={c.id} className="border border-border rounded-lg bg-card p-3">
                     <Link

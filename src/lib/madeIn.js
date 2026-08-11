@@ -133,7 +133,7 @@ export function aggregateByRegion(pins, cc = "US") {
   const bucket = (code) => {
     let b = byRegion.get(code);
     if (!b) {
-      b = { companies: [], hqCount: 0 };
+      b = { companies: [], hqCompanies: [], hqCount: 0 };
       byRegion.set(code, b);
     }
     return b;
@@ -144,12 +144,34 @@ export function aggregateByRegion(pins, cc = "US") {
     const regions = (entry.mfgRegions || []).filter((r) => r.startsWith(prefix));
     if (regions.length) withRegion += 1;
     for (const code of regions) bucket(code).companies.push(entry);
-    if (entry.hqRegion && entry.hqRegion.startsWith(prefix)) bucket(entry.hqRegion).hqCount += 1;
+    if (entry.hqRegion && entry.hqRegion.startsWith(prefix)) {
+      const b = bucket(entry.hqRegion);
+      b.hqCompanies.push(entry);
+      b.hqCount += 1;
+    }
   }
   for (const b of byRegion.values()) {
-    b.companies.sort((a, z) => a.name.localeCompare(z.name));
+    b.companies.sort(byName);
+    b.hqCompanies.sort(byName);
   }
   return { byRegion, withRegion };
+}
+
+const byName = (a, z) => a.name.localeCompare(z.name);
+
+/**
+ * Company list for a bucket under the selected view.
+ * "mfg" (default) = manufactures here; "hq" = headquartered here;
+ * "both" = the union, deduped by id.
+ */
+export function companiesForMode(bucket, mode = "mfg") {
+  if (!bucket) return [];
+  if (mode === "hq") return bucket.hqCompanies || [];
+  if (mode !== "both") return bucket.companies || [];
+  const byId = new Map();
+  for (const c of bucket.companies || []) byId.set(c.id, c);
+  for (const c of bucket.hqCompanies || []) byId.set(c.id, c);
+  return [...byId.values()].sort(byName);
 }
 
 /** Fetch the pins index and aggregate by subdivision (cached upstream). */
@@ -166,7 +188,7 @@ export function aggregateByCountry(pins) {
   const bucket = (cc) => {
     let b = byCC.get(cc);
     if (!b) {
-      b = { companies: [], hqCount: 0 };
+      b = { companies: [], hqCompanies: [], hqCount: 0 };
       byCC.set(cc, b);
     }
     return b;
@@ -174,10 +196,15 @@ export function aggregateByCountry(pins) {
   const values = pins instanceof Map ? pins.values() : [];
   for (const entry of values) {
     for (const cc of entry.mfgCCs || []) bucket(cc).companies.push(entry);
-    if (entry.hqCC) bucket(entry.hqCC).hqCount += 1;
+    if (entry.hqCC) {
+      const b = bucket(entry.hqCC);
+      b.hqCompanies.push(entry);
+      b.hqCount += 1;
+    }
   }
   for (const b of byCC.values()) {
-    b.companies.sort((a, z) => a.name.localeCompare(z.name));
+    b.companies.sort(byName);
+    b.hqCompanies.sort(byName);
   }
   return { byCC, total: pins instanceof Map ? pins.size : 0 };
 }

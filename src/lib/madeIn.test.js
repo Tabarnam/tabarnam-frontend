@@ -102,3 +102,55 @@ describe("aggregateByRegion", () => {
     expect(byRegion.get("AU-SA").companies.map((c) => c.name)).toEqual(["Foreign"]);
   });
 });
+
+describe("companiesForMode", () => {
+  const bucket = {
+    companies: [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }],
+    hqCompanies: [{ id: "b", name: "Beta" }, { id: "c", name: "Gamma" }],
+    hqCount: 2,
+  };
+
+  it("returns manufacturers by default", async () => {
+    const { companiesForMode } = await import("./madeIn");
+    expect(companiesForMode(bucket).map((c) => c.id)).toEqual(["a", "b"]);
+    expect(companiesForMode(bucket, "mfg").map((c) => c.id)).toEqual(["a", "b"]);
+  });
+
+  it("returns headquarters for hq mode", async () => {
+    const { companiesForMode } = await import("./madeIn");
+    expect(companiesForMode(bucket, "hq").map((c) => c.id)).toEqual(["b", "c"]);
+  });
+
+  it("unions and dedupes for both mode, sorted by name", async () => {
+    const { companiesForMode } = await import("./madeIn");
+    expect(companiesForMode(bucket, "both").map((c) => c.name)).toEqual(["Alpha", "Beta", "Gamma"]);
+  });
+
+  it("tolerates a missing bucket", async () => {
+    const { companiesForMode } = await import("./madeIn");
+    expect(companiesForMode(null, "both")).toEqual([]);
+  });
+});
+
+describe("aggregations expose hq company lists", () => {
+  const pins = new Map([
+    ["a", { id: "a", name: "Alpha", hqCC: "US", mfgCCs: ["MX"], hqRegion: "US-CA", mfgRegions: [] }],
+    ["b", { id: "b", name: "Beta", hqCC: "US", mfgCCs: ["US"], hqRegion: "US-TX", mfgRegions: ["US-TX"] }],
+  ]);
+
+  it("country buckets carry hqCompanies alongside manufacturers", async () => {
+    const { aggregateByCountry } = await import("./madeIn");
+    const { byCC } = aggregateByCountry(pins);
+    expect(byCC.get("US").companies.map((c) => c.id)).toEqual(["b"]);
+    expect(byCC.get("US").hqCompanies.map((c) => c.id)).toEqual(["a", "b"]);
+    expect(byCC.get("MX").hqCompanies).toEqual([]);
+  });
+
+  it("region buckets carry hqCompanies too", async () => {
+    const { aggregateByRegion } = await import("./madeIn");
+    const { byRegion } = aggregateByRegion(pins, "US");
+    expect(byRegion.get("US-CA").companies).toEqual([]);
+    expect(byRegion.get("US-CA").hqCompanies.map((c) => c.id)).toEqual(["a"]);
+    expect(byRegion.get("US-TX").companies.map((c) => c.id)).toEqual(["b"]);
+  });
+});

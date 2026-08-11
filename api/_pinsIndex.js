@@ -236,6 +236,15 @@ async function readPinsBlob({ log, ignoreAge = false } = {}) {
     const payload = JSON.parse(body);
     if (!payload || !Array.isArray(payload.companies)) return null;
     if (!ignoreAge) {
+      // Version-aware staleness. A payload written by an older build lacks
+      // whatever fields the current one adds (v2 has no regions, v1 has no
+      // countries), and those pages would silently render empty until the 24h
+      // age-out. Treating an old version as missing makes the first request
+      // after a deploy rebuild it — no admin action required.
+      if (Number(payload.version) !== PAYLOAD_VERSION) {
+        log?.(`[pins-index] blob is v${payload.version}, current is v${PAYLOAD_VERSION} — will rescan`);
+        return null;
+      }
       const age = Date.now() - Date.parse(payload.generated_at || 0);
       if (!Number.isFinite(age) || age > BLOB_MAX_AGE_MS) {
         log?.(`[pins-index] blob stale (age=${Math.round(age / 3600000)}h) — will rescan`);
