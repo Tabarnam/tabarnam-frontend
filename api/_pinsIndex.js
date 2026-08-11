@@ -24,10 +24,12 @@
  */
 
 const { BlobServiceClient } = require("@azure/storage-blob");
+const { resolveLocationCountry } = require("./_countryResolve");
 
 const BLOB_CONTAINER = "config";
 const BLOB_NAME = "map_pins.json";
-const PAYLOAD_VERSION = 1;
+// v2: entries carry hqCC + mfgCCs country attribution (made-in pages).
+const PAYLOAD_VERSION = 2;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const BLOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const TAGLINE_MAX = 80;
@@ -87,7 +89,11 @@ function isLowPrecision(entry) {
 
 /**
  * Build one company's pins entry:
- *   [id, name, tagline, domain, hqLat|null, hqLng|null, [[mLat, mLng, lowPrec01], ...]]
+ *   [id, name, tagline, domain, hqLat|null, hqLng|null,
+ *    [[mLat, mLng, lowPrec01], ...], hqCC|null, [mfgCC, ...]]
+ * hqCC / mfgCCs are ISO 3166-1 alpha-2 attributions resolved from the
+ * location entries (see _countryResolve.js) — they power the /made-in pages'
+ * whole-catalog per-country counts and lists.
  * Returns null when the company is not publicly mappable (deleted, control
  * doc, or no finite coordinates at all) — callers treat null as "remove".
  */
@@ -109,9 +115,14 @@ function buildCompanyEntry(company) {
   const hasHq = hqLat != null && hqLng != null;
 
   const mfg = [];
+  const mfgCCs = new Set();
   const geocodes = Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [];
   const seen = new Set();
   for (const g of geocodes) {
+    // Country attribution considers every entry (a text-only location still
+    // means the company manufactures there); coordinates gate only the pin.
+    const cc = resolveLocationCountry(g);
+    if (cc) mfgCCs.add(cc);
     if (!statusOk(g)) continue;
     const lat = toFiniteNumber(g?.lat);
     const lng = toFiniteNumber(g?.lng);
@@ -122,8 +133,30 @@ function buildCompanyEntry(company) {
     mfg.push([round4(lat), round4(lng), isLowPrecision(g) ? 1 : 0]);
   }
 
+  // HQ country: structured headquarters entries first, then the flat string.
+  let hqCC = null;
+  const hqEntries = [
+    ...(Array.isArray(company.headquarters_locations) ? company.headquarters_locations : []),
+    ...(Array.isArray(company.headquarters) ? company.headquarters : []),
+    company.headquarters_location,
+  ];
+  for (const h of hqEntries) {
+    hqCC = resolveLocationCountry(h);
+    if (hqCC) break;
+  }
+
   if (!hasHq && mfg.length === 0) return null;
-  return [id, name, tagline, domain, hasHq ? round4(hqLat) : null, hasHq ? round4(hqLng) : null, mfg];
+  return [
+    id,
+    name,
+    tagline,
+    domain,
+    hasHq ? round4(hqLat) : null,
+    hasHq ? round4(hqLng) : null,
+    mfg,
+    hqCC,
+    [...mfgCCs],
+  ];
 }
 
 function packPayload(entries) {
@@ -143,7 +176,8 @@ async function buildPinsFromScan(container) {
   const sql = {
     query:
       "SELECT c.id, c.company_id, c.company_name, c.display_name, c.name, c.tagline, " +
-      "c.normalized_domain, c.hq_lat, c.hq_lng, c.manufacturing_geocodes, c.is_deleted, c.type " +
+      "c.normalized_domain, c.hq_lat, c.hq_lng, c.manufacturing_geocodes, " +
+      "c.headquarters_locations, c.headquarters, c.headquarters_location, c.is_deleted, c.type " +
       "FROM c WHERE NOT STARTSWITH(c.id, '_') " +
       "AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false) " +
       "AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')",
