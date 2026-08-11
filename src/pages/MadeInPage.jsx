@@ -3,14 +3,16 @@
 // (whole-catalog, accurate counts) — deliberately NOT the search API, whose
 // mfgCountry filter only sees a 500-doc recency pool.
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { Map as MapIcon, Search } from "lucide-react";
 import useDocumentHead from "@/hooks/useDocumentHead";
+import ViewToggle from "@/components/madein/ViewToggle";
 import {
   getCountryRegistry,
   getMadeInAggregation,
   getRegionRegistry,
   aggregateByRegion,
+  companiesForMode,
   companyHref,
   flagEmoji,
 } from "@/lib/madeIn";
@@ -21,6 +23,7 @@ const SHOW_MORE_STEP = 240;
 
 export default function MadeInPage() {
   const { slug } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [registry, setRegistry] = useState(null);
   const [agg, setAgg] = useState(null);
   const [pins, setPins] = useState(null);
@@ -42,10 +45,33 @@ export default function MadeInPage() {
   }, [slug]);
 
   const country = registry?.bySlug.get(String(slug || "").toLowerCase()) || null;
+  const showParam = (searchParams.get("show") || "").toLowerCase();
+  const mode = showParam === "hq" || showParam === "both" ? showParam : "mfg";
+  const setMode = (next) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "mfg") params.delete("show");
+    else params.set("show", next);
+    setSearchParams(params, { replace: true });
+    setVisible(INITIAL_VISIBLE);
+  };
+
   const data = country && agg ? agg.byCC.get(country.cc) : null;
   // Memoized so the JSON-LD useMemo below doesn't see a new array identity on
   // every render.
-  const companies = useMemo(() => data?.companies || [], [data]);
+  const companies = useMemo(() => companiesForMode(data, mode), [data, mode]);
+  // Head tags always describe the canonical (manufacturing) view.
+  const mfgCount = data?.companies?.length || 0;
+  const toggleCounts = useMemo(
+    () =>
+      data
+        ? {
+            mfg: data.companies.length,
+            hq: data.hqCompanies.length,
+            both: companiesForMode(data, "both").length,
+          }
+        : null,
+    [data]
+  );
 
   // State/territory breakdown — only for countries with published
   // subdivision pages (US today).
@@ -73,14 +99,18 @@ export default function MadeInPage() {
   const flag = country ? flagEmoji(country.cc) : "";
   const canonical = country ? `https://tabarnam.com/made-in/${country.slug}` : "https://tabarnam.com/made-in";
   const title = country
-    ? `Made in ${display} — ${count > 0 ? `${count.toLocaleString()} ` : ""}Companies That Manufacture in ${display} | Tabarnam`
+    ? `Made in ${display} — ${mfgCount > 0 ? `${mfgCount.toLocaleString()} ` : ""}Companies That Manufacture in ${display} | Tabarnam`
     : "Made in… | Tabarnam";
   const description = country
-    ? `${count > 0 ? `${count.toLocaleString()} companies` : "Companies"} that manufacture in ${display}, with headquarters and manufacturing locations verified by Tabarnam. Find products actually made in ${display}.`
+    ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${display}, with headquarters and manufacturing locations verified by Tabarnam. Find products actually made in ${display}.`
     : "";
 
+  // Structured data describes the canonical manufacturing view, not the
+  // currently-toggled one, so the three modes never disagree with the
+  // canonical URL they all point at.
   const itemListSchema = useMemo(() => {
-    if (!country || count === 0) return null;
+    const mfgList = data?.companies || [];
+    if (!country || mfgList.length === 0) return null;
     return {
       "@context": "https://schema.org",
       "@type": "CollectionPage",
@@ -88,8 +118,8 @@ export default function MadeInPage() {
       url: canonical,
       mainEntity: {
         "@type": "ItemList",
-        numberOfItems: count,
-        itemListElement: companies.slice(0, 25).map((c, i) => ({
+        numberOfItems: mfgList.length,
+        itemListElement: mfgList.slice(0, 25).map((c, i) => ({
           "@type": "ListItem",
           position: i + 1,
           name: c.name,
@@ -97,7 +127,7 @@ export default function MadeInPage() {
         })),
       },
     };
-  }, [country, count, display, canonical, companies]);
+  }, [country, display, canonical, data]);
 
   // Written only once the catalog has loaded, so the title never ships a
   // placeholder count. (Hooks run before the redirects below by necessity.)
@@ -142,16 +172,32 @@ export default function MadeInPage() {
             {count > 0 ? (
               <>
                 <span className="font-semibold text-foreground">{count.toLocaleString()}</span>{" "}
-                {count === 1 ? "company" : "companies"} in the Tabarnam catalog manufacture in {display}
-                {data?.hqCount ? (
+                {count === 1 ? "company" : "companies"} in the Tabarnam catalog{" "}
+                {mode === "hq"
+                  ? <>{count === 1 ? "is" : "are"} headquartered in {display}</>
+                  : mode === "both"
+                    ? <>manufacture in or are headquartered in {display}</>
+                    : <>manufacture in {display}</>}
+                {mode === "mfg" && data?.hqCount ? (
                   <> · {data.hqCount.toLocaleString()} {data.hqCount === 1 ? "is" : "are"} headquartered here</>
                 ) : null}
                 .
               </>
             ) : (
-              <>We haven't verified any manufacturers in {display} yet — the catalog grows daily.</>
+              <>
+                {mode === "hq"
+                  ? <>No companies in the catalog are headquartered in {display} yet</>
+                  : <>We haven't verified any manufacturers in {display} yet</>}
+                {" "}— the catalog grows daily.
+              </>
             )}
           </p>
+
+          {toggleCounts && (toggleCounts.mfg > 0 || toggleCounts.hq > 0) && (
+            <div className="mt-4">
+              <ViewToggle mode={mode} onChange={setMode} counts={toggleCounts} />
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-2 mt-4">
             <Link
