@@ -54,6 +54,9 @@ const PUBLIC_ROUTES = new Set([
   "xai",
   // public consumer site
   "search-companies",
+  // Whole-catalog map pins (id/name/tagline/domain/coords) for the consumer
+  // map surfaces — a subset of what search-companies already returns publicly.
+  "map-pins",
   "suggest-companies",
   "suggest-refinements",
   "suggest-cities",
