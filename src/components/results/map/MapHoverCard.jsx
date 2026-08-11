@@ -30,6 +30,16 @@ export default function MapHoverCard({
   const kindLabel = marker.kind === "mfg" ? "Manufacturing" : "Home/HQ";
 
   const href = (() => {
+    // Index pins (matches beyond the loaded page) aren't in the current
+    // result list, so the expand flow would no-op — send them through the
+    // pasted-URL exact-match flow instead, which pins the company with
+    // comparables beneath (product decision 2026-08-11). Fallback: a name
+    // search with expand, which surfaces the company on its own page 1.
+    if (marker.index) {
+      const domain = String(company.normalized_domain || "").trim();
+      if (domain) return `/results?domain=${encodeURIComponent(domain)}`;
+      return `/results?q=${encodeURIComponent(name)}&expand=${encodeURIComponent(String(marker.companyId))}`;
+    }
     const params = new URLSearchParams(linkParams || "");
     params.set("expand", String(marker.companyId));
     return `/results?${params.toString()}`;

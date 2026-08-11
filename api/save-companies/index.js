@@ -469,6 +469,10 @@ async function saveCompaniesHandler(req, context) {
       const skipped_ids = [];
       const skipped_duplicates = [];
       const failed_items = [];
+      // Saved docs accumulate here so ONE pins-blob patch covers the whole
+      // batch after the loop (map freshness on save — product decision
+      // 2026-08-11). Never blocks the save path.
+      const savedDocsForPins = [];
       const errors = [];
 
       // Canonical import completeness contract + session warnings.
@@ -984,6 +988,7 @@ async function saveCompaniesHandler(req, context) {
           saved += 1;
           const savedId = created?.resource?.id || doc.id;
           if (savedId) saved_ids.push(savedId);
+          savedDocsForPins.push(doc);
         } catch (e) {
           const statusCode = Number(e?.code || e?.statusCode || e?.status || 0);
           if (statusCode === 409) {
@@ -1005,6 +1010,15 @@ async function saveCompaniesHandler(req, context) {
       // If this save is part of an import session, finalize the import control docs so /api/import/status
       // and /api/import/progress are consistent (report.completion not null, session.status not stuck).
       if (useProvidedSession) {
+        // Patch the batch's saved companies into the consumer map's pins blob
+        // so they appear on the map immediately. Fire-and-forget.
+        if (savedDocsForPins.length > 0) {
+          try {
+            const { upsertPinsForCompanies } = require("../_pinsIndex");
+            upsertPinsForCompanies(savedDocsForPins, { logger: console }).catch(() => {});
+          } catch { /* non-fatal */ }
+        }
+
         const completedAt = new Date().toISOString();
         const completionId = `_import_complete_${sessionId}`;
 

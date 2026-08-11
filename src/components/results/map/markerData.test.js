@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMarkers } from "./markerData";
+import { buildMarkers, decodePinsPayload, buildIndexMarkers } from "./markerData";
 
 const company = (over = {}) => ({ company_id: "c1", display_name: "Acme", ...over });
 
@@ -154,5 +154,67 @@ describe("buildMarkers", () => {
     const markers = buildMarkers([{ id: 42, _hqDists: [{ lat: 1, lng: 1 }] }]);
     expect(markers).toHaveLength(1);
     expect(markers[0].companyId).toBe("42");
+  });
+});
+
+describe("decodePinsPayload", () => {
+  const payload = {
+    version: 1,
+    companies: [
+      ["c1", "Acme", "Great soap", "acme.com", 33.6, -117.9, [[41.9, 12.5, 0], [35.8616, 104.1954, 1]]],
+      ["c2", "NoCoords", "", "", null, null, []],
+      ["", "MissingId", "", "", 1, 2, []],
+      "junk",
+    ],
+  };
+
+  it("decodes compact rows into an id-keyed Map", () => {
+    const byId = decodePinsPayload(payload);
+    expect(byId.size).toBe(2);
+    expect(byId.get("c1")).toMatchObject({ name: "Acme", domain: "acme.com", hqLat: 33.6, hqLng: -117.9 });
+    expect(byId.get("c1").mfg).toHaveLength(2);
+    expect(byId.get("c2").hqLat).toBeNull();
+  });
+
+  it("tolerates junk payloads", () => {
+    expect(decodePinsPayload(null).size).toBe(0);
+    expect(decodePinsPayload({}).size).toBe(0);
+  });
+});
+
+describe("buildIndexMarkers", () => {
+  const byId = decodePinsPayload({
+    companies: [
+      ["c1", "Acme", "Great soap", "acme.com", 33.6, -117.9, [[41.9, 12.5, 0]]],
+      ["c2", "Bmax", "", "", 10, 20, [[30, 40, 1]]],
+    ],
+  });
+
+  it("plots matched ids that are not on the page, flagged index:true", () => {
+    const markers = buildIndexMarkers(byId, ["c1", "c2"], new Set(["c1"]), "both");
+    expect(markers.every((m) => m.index)).toBe(true);
+    expect(markers.every((m) => m.companyId === "c2")).toBe(true);
+    expect(markers.map((m) => m.kind).sort()).toEqual(["hq", "mfg"]);
+    expect(markers.find((m) => m.kind === "mfg").lowPrecision).toBe(true);
+  });
+
+  it("carries a synthetic company object with the card fields", () => {
+    const markers = buildIndexMarkers(byId, ["c1"], new Set(), "hq");
+    expect(markers[0].company).toMatchObject({
+      company_id: "c1",
+      display_name: "Acme",
+      tagline: "Great soap",
+      normalized_domain: "acme.com",
+    });
+  });
+
+  it("respects the pin filter and skips unknown ids", () => {
+    expect(buildIndexMarkers(byId, ["c2", "ghost"], new Set(), "hq")).toHaveLength(1);
+    expect(buildIndexMarkers(byId, ["c2"], new Set(), "mfg")[0].kind).toBe("mfg");
+  });
+
+  it("tolerates junk input", () => {
+    expect(buildIndexMarkers(null, ["c1"], new Set())).toEqual([]);
+    expect(buildIndexMarkers(byId, null, new Set())).toEqual([]);
   });
 });

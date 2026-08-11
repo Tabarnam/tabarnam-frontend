@@ -141,3 +141,91 @@ export function buildMarkers(companies, pinFilter = "both") {
 
   return markers;
 }
+
+// ── Pins-index (whole-catalog) support ──────────────────────────────────────
+// /api/map-pins serves compact array entries:
+//   [id, name, tagline, domain, hqLat|null, hqLng|null, [[mLat, mLng, lowPrec01], ...]]
+// decodePinsPayload turns the payload into an id-keyed Map; buildIndexMarkers
+// derives lighter "index pin" markers for matched companies that are NOT on
+// the loaded results page.
+
+/** @returns {Map<string, {id, name, tagline, domain, hqLat, hqLng, mfg}>} */
+export function decodePinsPayload(payload) {
+  const byId = new Map();
+  const rows = Array.isArray(payload?.companies) ? payload.companies : [];
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length < 7) continue;
+    const [id, name, tagline, domain, hqLat, hqLng, mfg] = row;
+    const key = String(id ?? "").trim();
+    if (!key) continue;
+    byId.set(key, {
+      id: key,
+      name: String(name ?? ""),
+      tagline: String(tagline ?? ""),
+      domain: String(domain ?? ""),
+      hqLat: toFiniteNumber(hqLat),
+      hqLng: toFiniteNumber(hqLng),
+      mfg: Array.isArray(mfg) ? mfg : [],
+    });
+  }
+  return byId;
+}
+
+/**
+ * Markers for matched companies beyond the loaded page, joined from the pins
+ * index. Same marker shape as buildMarkers plus `index: true` (lighter
+ * rendering, domain-flow click-through) and a synthetic `company` object with
+ * just the fields the hover card reads.
+ */
+export function buildIndexMarkers(pinsById, matchIds, excludeIds, pinFilter = "both") {
+  const markers = [];
+  if (!(pinsById instanceof Map)) return markers;
+  const exclude = excludeIds instanceof Set ? excludeIds : new Set(excludeIds || []);
+  for (const rawId of Array.isArray(matchIds) ? matchIds : []) {
+    const id = String(rawId ?? "").trim();
+    if (!id || exclude.has(id)) continue;
+    const entry = pinsById.get(id);
+    if (!entry) continue;
+    const company = {
+      company_id: id,
+      id,
+      display_name: entry.name,
+      tagline: entry.tagline,
+      normalized_domain: entry.domain,
+    };
+    if (pinFilter !== "mfg" && entry.hqLat != null && entry.hqLng != null) {
+      markers.push({
+        id: `${id}:hq:x`,
+        companyId: id,
+        kind: "hq",
+        lat: entry.hqLat,
+        lng: entry.hqLng,
+        dist: null,
+        label: null,
+        lowPrecision: false,
+        index: true,
+        company,
+      });
+    }
+    if (pinFilter !== "hq") {
+      entry.mfg.forEach((m, i) => {
+        const lat = toFiniteNumber(m?.[0]);
+        const lng = toFiniteNumber(m?.[1]);
+        if (lat == null || lng == null) return;
+        markers.push({
+          id: `${id}:mfg:x${i}`,
+          companyId: id,
+          kind: "mfg",
+          lat,
+          lng,
+          dist: null,
+          label: null,
+          lowPrecision: m?.[2] === 1,
+          index: true,
+          company,
+        });
+      });
+    }
+  }
+  return markers;
+}

@@ -232,6 +232,20 @@ try {
 }
 
 try {
+  console.log("[api] Registering: map-pins");
+  require("./map-pins/index.js");
+} catch (e) {
+  console.error("[api] Failed to load map-pins:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-rebuild-map-pins");
+  require("./xadmin-api-rebuild-map-pins/index.js");
+} catch (e) {
+  console.error("[api] Failed to load xadmin-api-rebuild-map-pins:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-backfill-visible-counts");
   require("./xadmin-api-backfill-visible-counts/index.js");
 } catch (e) {

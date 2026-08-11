@@ -488,7 +488,7 @@ export default defineConfig(({ mode }) => {
       // leaflet/react-leaflet are only reachable through the lazy map chunk;
       // without pre-inclusion Vite discovers them mid-session and re-optimizes
       // them against a second React copy → "Invalid hook call" in dev.
-      include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "leaflet", "react-leaflet"],
+      include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "leaflet", "react-leaflet", "leaflet.markercluster"],
     },
     server: {
       host: "127.0.0.1",

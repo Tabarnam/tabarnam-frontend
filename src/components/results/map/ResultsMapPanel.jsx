@@ -8,7 +8,8 @@ import { useTheme } from "next-themes";
 import "leaflet/dist/leaflet.css";
 import "./map.css";
 import { cn } from "@/lib/utils";
-import { buildMarkers } from "./markerData";
+import { buildMarkers, buildIndexMarkers } from "./markerData";
+import { fetchPinsIndex } from "./pinsIndexClient";
 import { groupByCoord, spiderfyOffsets } from "./spreadOverlaps";
 import { makePinIcon, makeUserIcon } from "./markerIcons";
 import FitBounds from "./FitBounds";
@@ -79,6 +80,7 @@ function MarkersLayer({
         active: activeCompanyIds.has(marker.companyId),
         delayMs: delayFor(marker),
         count,
+        index: !!marker.index,
       })}
       eventHandlers={{
         mouseover: () => onPinOver(marker, latlng),
@@ -108,6 +110,9 @@ function MarkersLayer({
             active: group.markers.some((m) => activeCompanyIds.has(m.companyId)),
             delayMs: delayFor(rep),
             count: group.markers.length,
+            // A stack renders light only when EVERY member is an index pin —
+            // any page result in the pile keeps the stack full-strength.
+            index: group.markers.every((m) => m.index),
           })}
           eventHandlers={{
             click: (e) => {
@@ -156,6 +161,7 @@ export default function ResultsMapPanel({
   boundsKey,
   linkParams = "",
   loading = false,
+  matchIds = null,
 }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -170,7 +176,36 @@ export default function ResultsMapPanel({
   const [recenterNonce, setRecenterNonce] = useState(0);
   const closeTimerRef = useRef(null);
 
-  const markers = useMemo(() => buildMarkers(companies, pinFilter), [companies, pinFilter]);
+  const pageMarkers = useMemo(() => buildMarkers(companies, pinFilter), [companies, pinFilter]);
+
+  // Whole-catalog pins index (fetched once, HTTP-cached) joined against the
+  // search's full matched id list → lighter pins for every match beyond the
+  // loaded page. Best-effort: no index, no extra pins — page pins still work.
+  const [pinsIndex, setPinsIndex] = useState(null);
+  useEffect(() => {
+    let dead = false;
+    fetchPinsIndex()
+      .then((m) => {
+        if (!dead) setPinsIndex(m);
+      })
+      .catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, []);
+  const indexMarkers = useMemo(() => {
+    if (!pinsIndex || !Array.isArray(matchIds) || !matchIds.length) return [];
+    const pageIds = new Set(
+      (Array.isArray(companies) ? companies : [])
+        .map((c) => String(c?.company_id ?? c?.id ?? "").trim())
+        .filter(Boolean)
+    );
+    return buildIndexMarkers(pinsIndex, matchIds, pageIds, pinFilter);
+  }, [pinsIndex, matchIds, companies, pinFilter]);
+
+  // Page markers FIRST: groupByCoord preserves insertion order, so a stack's
+  // representative pin is always a full-strength page pin when one is present.
+  const markers = useMemo(() => [...pageMarkers, ...indexMarkers], [pageMarkers, indexMarkers]);
   const groups = useMemo(() => groupByCoord(markers), [markers]);
 
   // Cascade bookkeeping: a fresh search (boundsKey change) re-animates
@@ -201,7 +236,7 @@ export default function ResultsMapPanel({
       .sort((a, b) => a.dist - b.dist);
     const stagger = Math.min(40, 1200 / ordered.length);
     ordered.forEach((m, i) => reg.set(m.id, i * stagger));
-  }, [markers]);
+  }, [markers, groups]);
   const delayFor = useCallback((marker) => {
     const v = delayRegistryRef.current.map.get(marker.id);
     return v === undefined ? null : v;

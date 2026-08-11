@@ -1,5 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
+import { Map as MapIcon } from "lucide-react";
 import BookmarkHeaderIcon from "@/components/bookmarks/BookmarkHeaderIcon";
 
 const SiteHeader = () => {
@@ -17,13 +18,25 @@ const SiteHeader = () => {
   return (
     <>
       <header className="sticky top-0 z-40 bg-background/70 backdrop-blur border-b border-border">
-        <div className="max-w-6xl mx-auto flex items-center p-3">
+        <div className="max-w-6xl mx-auto flex items-center justify-between p-3">
           <Link to="/" className="inline-block" aria-label="Tabarnam home">
             <img
               src="/tabarnam.png"
               alt="Tabarnam"
               className="h-10 transition-transform duration-150 ease-out hover:scale-[1.04] dark:brightness-110"
             />
+          </Link>
+          <Link
+            to="/map"
+            className={
+              "inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border transition-colors " +
+              (pathname === "/map"
+                ? "bg-tabarnam-blue text-gray-800 dark:text-gray-900 border-tabarnam-blue"
+                : "text-tabarnam-blue-dark dark:text-tabarnam-blue-bold border-tabarnam-blue-bold hover:bg-muted")
+            }
+          >
+            <MapIcon size={15} aria-hidden="true" />
+            Map
           </Link>
         </div>
       </header>
