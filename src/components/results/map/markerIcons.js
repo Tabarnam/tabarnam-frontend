@@ -4,28 +4,30 @@
 // URL patching needed.
 import L from "leaflet";
 
-// HQ: classic teardrop pin with a building glyph. 28x36, tip at bottom center.
-const HQ_SVG = `<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <path class="tab-pin__shape" d="M14 1C6.8 1 1 6.8 1 14c0 9.6 13 21 13 21s13-11.4 13-21C27 6.8 21.2 1 14 1z"/>
-  <g class="tab-pin__glyph">
-    <rect x="9" y="9" width="10" height="10" rx="1"/>
-    <rect class="tab-pin__glyph-cut" x="11" y="11.5" width="2.2" height="2.2"/>
-    <rect class="tab-pin__glyph-cut" x="14.8" y="11.5" width="2.2" height="2.2"/>
-    <rect class="tab-pin__glyph-cut" x="11" y="15" width="2.2" height="2.2"/>
-    <rect class="tab-pin__glyph-cut" x="14.8" y="15" width="2.2" height="2.2"/>
+// HQ: classic teardrop pin with a building glyph. 30x38, tip at bottom center.
+// Glyph geometry uses INTEGER coordinates and ≥3px features — sub-pixel
+// details smear when Leaflet positions markers at fractional pixels.
+const HQ_SVG = `<svg width="30" height="38" viewBox="0 0 30 38" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path class="tab-pin__shape" d="M15 1C7.8 1 2 6.8 2 14c0 9.8 13 23 13 23s13-13.2 13-23C28 6.8 22.2 1 15 1z"/>
+  <g shape-rendering="crispEdges">
+    <rect class="tab-pin__glyph" x="9" y="8" width="12" height="12" rx="1"/>
+    <rect class="tab-pin__glyph-cut" x="11" y="10" width="3" height="3"/>
+    <rect class="tab-pin__glyph-cut" x="16" y="10" width="3" height="3"/>
+    <rect class="tab-pin__glyph-cut" x="11" y="15" width="3" height="3"/>
+    <rect class="tab-pin__glyph-cut" x="16" y="15" width="3" height="3"/>
   </g>
 </svg>`;
 
-// MFG: diamond pin with a factory glyph. 30x34, bottom vertex is the anchor —
+// MFG: diamond pin with a factory glyph. 32x36, bottom vertex is the anchor —
 // distinct from HQ by shape AND color (colorblind-safe pairing).
-const MFG_SVG = `<svg width="30" height="34" viewBox="0 0 30 34" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <path class="tab-pin__shape" d="M15 1L29 15L15 33L1 15Z"/>
-  <path class="tab-pin__glyph" d="M9 20v-7l4 2.6V13l4 2.6V13l4 2.5V20H9z"/>
+const MFG_SVG = `<svg width="32" height="36" viewBox="0 0 32 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path class="tab-pin__shape" d="M16 1L31 16L16 35L1 16Z"/>
+  <path class="tab-pin__glyph" d="M9 23v-9h3v3l5-3v3l5-3v9H9z"/>
 </svg>`;
 
 const SIZES = {
-  hq: { w: 28, h: 36 },
-  mfg: { w: 30, h: 34 },
+  hq: { w: 30, h: 38 },
+  mfg: { w: 32, h: 36 },
 };
 
 // Icon cache — hundreds of markers re-render on hover/filter changes; reuse

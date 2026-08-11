@@ -2,7 +2,7 @@
 // module boundary (React.lazy in ResultsPage) so the ~150 KB vendor-leaflet
 // chunk loads on first toggle — never in the main bundle (900 KB CI gate).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, Polyline, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polyline, ZoomControl, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useTheme } from "next-themes";
 import "leaflet/dist/leaflet.css";
@@ -316,7 +316,11 @@ export default function ResultsMapPanel({
         worldCopyJump
         className="w-full h-full"
         attributionControl
+        zoomControl={false}
       >
+        {/* Default zoom control lives top-LEFT, where the HQ/MFG/Both pill
+            would cover its + button — pin it top-right instead. */}
+        <ZoomControl position="topright" />
         <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} />
         <FitBounds boundsKey={`${boundsKey}|${recenterNonce}`} points={fitPoints} />
         <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
