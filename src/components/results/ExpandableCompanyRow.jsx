@@ -232,8 +232,12 @@ export default function ExpandableCompanyRow({
   // fetch (same source as get-reviews). Authoritative; when absent the card
   // falls back to the stored aggregate.
   reviewCount,
+  // Map-pin click-through (&expand= URL param): the promoted row mounts
+  // already expanded as a de-facto profile. Mount-time init only — the row
+  // stays uncontrolled and the user can collapse it.
+  defaultExpanded = false,
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(!!defaultExpanded);
   // Review submission dialog for the collapsed-card "Review" button. The
   // expanded view has its own button inside ReviewsWidget.
   const [reviewOpen, setReviewOpen] = useState(false);
