@@ -485,7 +485,10 @@ export default defineConfig(({ mode }) => {
       extensions: [".js", ".jsx", ".ts", ".tsx"],
     },
     optimizeDeps: {
-      include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
+      // leaflet/react-leaflet are only reachable through the lazy map chunk;
+      // without pre-inclusion Vite discovers them mid-session and re-optimizes
+      // them against a second React copy → "Invalid hook call" in dev.
+      include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "leaflet", "react-leaflet"],
     },
     server: {
       host: "127.0.0.1",
@@ -540,6 +543,13 @@ export default defineConfig(({ mode }) => {
               if (id.includes("/@radix-ui/")) return "vendor-radix";
               if (id.includes("/framer-motion/")) return "vendor-framer";
               if (id.includes("/sonner/")) return "vendor-sonner";
+              // NOTE: deliberately NO manualChunks entry for leaflet. Its only
+              // importer is the React.lazy ResultsMapPanel boundary, so Rollup
+              // already emits it as an async chunk. A manual "vendor-leaflet"
+              // group was tried and REVERTED: Rollup colocated the shared
+              // commonjs-interop helper into that chunk, which made the main
+              // bundle statically import it — eagerly fetching ~150 KB of
+              // leaflet on every page load.
             }
           },
         },

@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, List as ListIcon, Map as MapIcon } from "lucide-react";
 import { geocode, resolveLocation } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
@@ -16,6 +16,17 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import ShareButton from "@/components/ShareButton";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { promoteExpanded } from "@/components/results/map/promoteExpanded";
+
+// Map view is opt-in and Leaflet is heavy (~150 KB min) — lazy-load the whole
+// panel so the vendor-leaflet chunk is fetched on first toggle, never on the
+// default list view. The 900 KB CI main-bundle gate depends on this.
+const ResultsMapPanel = React.lazy(() => import("@/components/results/map/ResultsMapPanel"));
+
+// Memoized row so hover-sync state changes (map view) re-render only the thin
+// wrapper divs, not 25-100 heavy ExpandableCompanyRow trees. All row props are
+// referentially stable across a hover re-render.
+const MemoRow = React.memo(ExpandableCompanyRow);
 
 // Phase 4.28 — PAGE_SIZE reduced 50 → 25. Halves the per-page row count
 // and the upper-bound fan-out for any lazy-on-mount fetches; combined with
@@ -296,6 +307,17 @@ export default function ResultsPage() {
   const noCorrectParam = searchParams.get("nocorrect") === "1";
   const debugScores = searchParams.get("debug") === "scores";
   const listParam = searchParams.get("list") || "";
+  // Map view state. Pure VIEW params — deliberately NOT in the URL-effect
+  // dependency array below: toggling the map or the pin filter must never
+  // refetch the search.
+  const mapParam = searchParams.get("map") === "1";
+  const pinsRaw = searchParams.get("pins") || "";
+  const pinFilter = pinsRaw === "hq" || pinsRaw === "mfg" ? pinsRaw : "both";
+  // Pin-card click-through: float this company to the top of the list and
+  // render it expanded as a de-facto profile, comparables underneath.
+  const expandParam = (searchParams.get("expand") ?? "").toString().trim();
+  // No map in bookmark-list mode — those results lack search context.
+  const mapOpen = mapParam && !listParam;
 
   const bookmarks = useBookmarks();
 
@@ -415,6 +437,8 @@ export default function ResultsPage() {
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
   const [userCountryCode, setUserCountryCode] = useState("");
+  // Map↔list hover sync (split view only). Shared by row wrappers and pins.
+  const [hoveredCompanyId, setHoveredCompanyId] = useState(null);
   // True when the current center is the San Dimas last-resort fallback (no user
   // location + IP unresolved). Drives the editable "91773" prefill in SearchCard.
   const [fallbackCenter, setFallbackCenter] = useState(false);
@@ -773,6 +797,10 @@ export default function ResultsPage() {
     // Proximity mode is sticky too — carry the "nearest regardless of country"
     // opt-out onto the new search.
     if (strict) next.set("nearest", "1");
+    // Map view + pin filter are sticky view prefs like `size`/`nearest`.
+    // `expand` is deliberately NOT carried — a new search is a new context.
+    if (mapParam) next.set("map", "1");
+    if (pinFilter !== "both") next.set("pins", pinFilter);
     // Reset to page 1 on new search
     next.delete("page");
     skipUrlEffectRef.current = true;
@@ -1271,6 +1299,46 @@ export default function ResultsPage() {
     return arr;
   }, [results, sortBy, strictProximity]);
 
+  // &expand=<companyId> (pin-card click-through): float the target company to
+  // the top, expanded, with the rest of the results as comparables below.
+  // No-ops gracefully when the id isn't on the current page.
+  const { list: displayList, promotedId } = useMemo(
+    () => promoteExpanded(sorted, expandParam),
+    [sorted, expandParam]
+  );
+
+  // Map view identity: refit bounds only when the SEARCH changes (query,
+  // filters, sort, page) — never on infinite-scroll appends, pin-filter
+  // toggles, hover, or expand.
+  const boundsKey = `${qParam}|${countryParam}|${stateParam}|${cityParam}|${sortParam}|${pageParam}|${domainParam}`;
+
+  function toggleMapView(open) {
+    const next = new URLSearchParams(searchParams);
+    if (open) next.set("map", "1");
+    else next.delete("map");
+    setSearchParams(next);
+  }
+
+  // Written by the panel's HQ/MFG/Both segmented control; "both" is the
+  // default and never appears in the URL.
+  function handlePinFilterChange(val) {
+    const next = new URLSearchParams(searchParams);
+    if (val === "hq" || val === "mfg") next.set("pins", val);
+    else next.delete("pins");
+    setSearchParams(next, { replace: true });
+  }
+
+  // Map → list: highlight the hovered pin's row and bring it into view
+  // without yanking the page around.
+  const handlePinHover = useCallback((companyId) => {
+    setHoveredCompanyId(companyId);
+    if (companyId) {
+      document
+        .getElementById(`company-${companyId}`)
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, []);
+
   const rightColsOrder = useMemo(() => {
     if (sortBy === "stars") return ["stars", "manu", "hq"];
     if (sortBy === "hq") return ["hq", "manu", "stars"];
@@ -1300,7 +1368,9 @@ export default function ResultsPage() {
     setSearchParams(next);
   };
 
-  function handleKeywordSearch(keyword) {
+  // useCallback so MemoRow's onKeywordSearch prop stays referentially stable
+  // across hover-sync re-renders (map view).
+  const handleKeywordSearch = useCallback((keyword) => {
     const next = new URLSearchParams(searchParams);
     next.set("q", keyword);
     next.delete("page");
@@ -1309,8 +1379,10 @@ export default function ResultsPage() {
     // A keyword/industry click is a fresh brand-search intent — never inherit a
     // pasted-URL domain lock from the current search.
     next.delete("domain");
+    // A new query is a new context — drop any promoted-company pin-through.
+    next.delete("expand");
     setSearchParams(next);
-  }
+  }, [searchParams, setSearchParams]);
 
   // Run a search for a specific brand/company NAME, dropping any domain lock —
   // used by the opt-in "like brand" suggestion chips after a domain search.
@@ -1322,6 +1394,7 @@ export default function ResultsPage() {
     next.delete("domain");
     next.delete("page");
     next.delete("nocorrect");
+    next.delete("expand");
     setSearchParams(next);
   }
 
@@ -1329,6 +1402,8 @@ export default function ResultsPage() {
     const next = new URLSearchParams(searchParams);
     if (page <= 1) next.delete("page");
     else next.set("page", String(page));
+    // A promoted company belongs to the page it was opened on.
+    next.delete("expand");
     setSearchParams(next, { replace: true });
     // Instant, not smooth. A smooth scroll animates over ~300-500ms; during
     // that window doSearch clears the old results and the page height
@@ -1419,8 +1494,15 @@ export default function ResultsPage() {
     // the highlighted Manufacturing column already signals the default, so a
     // non-actionable "Sort: Nearest Manufacturing" pin would just be clutter.
     if (sortParam && sortParam !== "manu") chips.push({ key: "sort", label: `Sort: ${SORT_LABELS[sortParam] || sortParam}` });
+    // Promoted-company view (map pin click-through). Removable: ✕ deletes
+    // `expand` and the list returns to its natural order.
+    if (promotedId && displayList.length > 0) {
+      const promoted = displayList[0];
+      const name = promoted?.display_name || promoted?.company_name || "company";
+      chips.push({ key: "expand", label: `Viewing: ${name}` });
+    }
     return chips;
-  }, [countryParam, stateParam, cityParam, sortParam]);
+  }, [countryParam, stateParam, cityParam, sortParam, promotedId, displayList]);
 
   const languageSelector = (
     <select
@@ -1445,7 +1527,7 @@ export default function ResultsPage() {
     : "Discover products with transparent origins on Tabarnam.";
 
   return (
-    <div className="px-1 pb-10 max-w-6xl mx-auto">
+    <div className={cn("px-1 pb-10 mx-auto", mapOpen ? "max-w-[1500px]" : "max-w-6xl")}>
       <Helmet>
         <title>{pageTitle}</title>
         <meta property="og:title" content={pageTitle} />
@@ -1592,6 +1674,40 @@ export default function ResultsPage() {
                 />
               </>
             )}
+            {/* List | Map view toggle. Hidden in bookmark-list mode (mapOpen
+                is forced off there and a toggle that can't open would lie). */}
+            {!listParam && (
+              <div className="flex gap-1 bg-muted rounded-lg p-0.5" role="group" aria-label="Results view">
+                <button
+                  type="button"
+                  onClick={() => mapOpen && toggleMapView(false)}
+                  aria-pressed={!mapOpen}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors",
+                    !mapOpen
+                      ? "bg-card shadow-sm font-medium text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <ListIcon size={14} aria-hidden="true" />
+                  List
+                </button>
+                <button
+                  type="button"
+                  onClick={() => !mapOpen && toggleMapView(true)}
+                  aria-pressed={mapOpen}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors",
+                    mapOpen
+                      ? "bg-card shadow-sm font-medium text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <MapIcon size={14} aria-hidden="true" />
+                  Map
+                </button>
+              </div>
+            )}
           </div>
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
@@ -1649,7 +1765,7 @@ export default function ResultsPage() {
       {/* Applied spelling correction. The results below are for the CORRECTED
           term because what was typed found nothing worth showing. Always offer
           the way back — ?nocorrect=1 forces the literal query. */}
-      {correctedQuery && sorted.length > 0 && (
+      {correctedQuery && displayList.length > 0 && (
         <div className="px-2 pb-2 text-sm">
           <span className="text-foreground">
             Showing results for{" "}
@@ -1672,8 +1788,12 @@ export default function ResultsPage() {
         </div>
       )}
 
+      {/* Split view: list (3/5) + sticky map (2/5) on lg+, full map on
+          mobile (list hidden). Plain pass-through when the map is closed. */}
+      <div className={mapOpen ? "lg:grid lg:grid-cols-5 lg:gap-4 lg:items-start" : undefined}>
+      <div className={mapOpen ? "hidden lg:block lg:col-span-3 min-w-0" : undefined}>
       <div className="mb-4">
-        {sorted.length > 0 ? (
+        {displayList.length > 0 ? (
           <div className="space-y-0">
             {(() => {
               // The result list is tier-bucketed under every sort: the
@@ -1693,9 +1813,18 @@ export default function ResultsPage() {
               const rows = [];
               let dividerEmitted = false;
               let sawStrong = false;
-              for (const company of sorted) {
+              let index = -1;
+              for (const company of displayList) {
+                index += 1;
+                const cid = String(company.company_id ?? company.id ?? "").trim();
+                // The promoted row (expand flow) renders OUTSIDE the divider
+                // bookkeeping: it must neither set sawStrong nor trip the
+                // divider, so tier tracking effectively starts at index 1 and
+                // the tail behaves exactly as before.
+                const isPromoted = index === 0 && !!promotedId && cid === promotedId;
                 const loose = isLooselyRelated(company);
                 if (
+                  !isPromoted &&
                   qParam &&
                   loose &&
                   sawStrong &&
@@ -1720,20 +1849,38 @@ export default function ResultsPage() {
                   );
                   dividerEmitted = true;
                 }
-                if (!loose) sawStrong = true;
+                if (!loose && !isPromoted) sawStrong = true;
                 rows.push(
-                  <ExpandableCompanyRow
+                  // Thin wrapper owns hover-sync + highlight so the heavy row
+                  // stays memoized; also the scroll target for map→list hover
+                  // and the promoted-row ring.
+                  <div
                     key={company.id || company.company_name}
-                    company={company}
-                    sortBy={sortBy}
-                    unit={unit}
-                    onKeywordSearch={handleKeywordSearch}
-                    rightColsOrder={rightColsOrder}
-                    debugScores={debugScores}
-                    onInView={requestReviewsForCompany}
-                    query={correctedHighlight || qParam}
-                    reviewCount={reviewCounts[company.company_id || company.id]}
-                  />
+                    id={cid ? `company-${cid}` : undefined}
+                    className={cn(
+                      isPromoted && "ring-2 ring-primary/50 rounded-lg",
+                      mapOpen &&
+                        !isPromoted &&
+                        hoveredCompanyId != null &&
+                        hoveredCompanyId === cid &&
+                        "ring-2 ring-primary/60 rounded-lg"
+                    )}
+                    onMouseEnter={mapOpen ? () => setHoveredCompanyId(cid) : undefined}
+                    onMouseLeave={mapOpen ? () => setHoveredCompanyId(null) : undefined}
+                  >
+                    <MemoRow
+                      company={company}
+                      sortBy={sortBy}
+                      unit={unit}
+                      onKeywordSearch={handleKeywordSearch}
+                      rightColsOrder={rightColsOrder}
+                      debugScores={debugScores}
+                      onInView={requestReviewsForCompany}
+                      query={correctedHighlight || qParam}
+                      reviewCount={reviewCounts[company.company_id || company.id]}
+                      defaultExpanded={isPromoted}
+                    />
+                  </div>
                 );
               }
               return rows;
@@ -1812,7 +1959,7 @@ export default function ResultsPage() {
       {/* Pasted-URL MATCH: opt-in "Explore related" strip below the pinned
           company. Silent otherwise (no "matched by website" cue). Chips run a
           new search with the domain lock dropped. */}
-      {domainSearchMeta?.matchedBy && sorted.length > 0 && (
+      {domainSearchMeta?.matchedBy && displayList.length > 0 && (
         <div className="mb-4">
           <DomainAlternativesStrip
             heading="Explore related"
@@ -1832,7 +1979,7 @@ export default function ResultsPage() {
           const showPager = hasMore || pageParam > 1 || (totalPages && totalPages > 1);
           // Offer the per-page control whenever paging is relevant OR the user
           // has already set a non-default size (so they can change it back).
-          const showPerPage = sorted.length > 0 && (showPager || pageSize !== PAGE_SIZE);
+          const showPerPage = displayList.length > 0 && (showPager || pageSize !== PAGE_SIZE);
           if (!showPager && !showPerPage) return null;
           return (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1852,6 +1999,32 @@ export default function ResultsPage() {
           );
         })()
       )}
+      </div>
+      {/* Map panel — mounted only when open, so the leaflet chunk loads on
+          first toggle. isolation/z-0 keep Leaflet's internal z-indexes (up
+          to ~1000) below site chrome, drawers, and toasts. */}
+      {mapOpen && (
+        <aside
+          className="lg:col-span-2 lg:sticky lg:top-4 relative z-0 h-[calc(100dvh-9rem)] lg:h-[calc(100vh-6rem)] rounded-lg overflow-hidden border border-border bg-card"
+          style={{ isolation: "isolate" }}
+        >
+          <React.Suspense fallback={<Skeleton className="w-full h-full" />}>
+            <ResultsMapPanel
+              companies={displayList}
+              pinFilter={pinFilter}
+              unit={unit}
+              userLoc={userLoc}
+              hoveredCompanyId={hoveredCompanyId}
+              promotedId={promotedId}
+              onPinHover={handlePinHover}
+              onPinFilterChange={handlePinFilterChange}
+              boundsKey={boundsKey}
+              linkParams={searchParams.toString()}
+            />
+          </React.Suspense>
+        </aside>
+      )}
+      </div>
     </div>
   );
 }
