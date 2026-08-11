@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /login
+Disallow: /bulk-import
+
+Sitemap: https://tabarnam.com/sitemap.xml

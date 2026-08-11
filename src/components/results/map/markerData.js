@@ -143,19 +143,23 @@ export function buildMarkers(companies, pinFilter = "both") {
 }
 
 // ── Pins-index (whole-catalog) support ──────────────────────────────────────
-// /api/map-pins serves compact array entries:
-//   [id, name, tagline, domain, hqLat|null, hqLng|null, [[mLat, mLng, lowPrec01], ...]]
-// decodePinsPayload turns the payload into an id-keyed Map; buildIndexMarkers
-// derives lighter "index pin" markers for matched companies that are NOT on
-// the loaded results page.
+// /api/map-pins serves compact array entries (v3):
+//   [id, name, tagline, domain, hqLat|null, hqLng|null,
+//    [[mLat, mLng, lowPrec01], ...], hqCC|null, [mfgCC, ...],
+//    hqRegion|null, [mfgRegion, ...]]
+// hqCC/mfgCCs are ISO country attributions and hqRegion/mfgRegions are ISO
+// 3166-2 subdivisions ("US-CA") — both absent on older payloads, which decode
+// tolerates. decodePinsPayload turns the payload into an id-keyed Map;
+// buildIndexMarkers derives lighter "index pin" markers for matched companies
+// that are NOT on the loaded results page.
 
-/** @returns {Map<string, {id, name, tagline, domain, hqLat, hqLng, mfg}>} */
+/** @returns {Map<string, {id, name, tagline, domain, hqLat, hqLng, mfg, hqCC, mfgCCs, hqRegion, mfgRegions}>} */
 export function decodePinsPayload(payload) {
   const byId = new Map();
   const rows = Array.isArray(payload?.companies) ? payload.companies : [];
   for (const row of rows) {
     if (!Array.isArray(row) || row.length < 7) continue;
-    const [id, name, tagline, domain, hqLat, hqLng, mfg] = row;
+    const [id, name, tagline, domain, hqLat, hqLng, mfg, hqCC, mfgCCs, hqRegion, mfgRegions] = row;
     const key = String(id ?? "").trim();
     if (!key) continue;
     byId.set(key, {
@@ -166,6 +170,10 @@ export function decodePinsPayload(payload) {
       hqLat: toFiniteNumber(hqLat),
       hqLng: toFiniteNumber(hqLng),
       mfg: Array.isArray(mfg) ? mfg : [],
+      hqCC: typeof hqCC === "string" && hqCC ? hqCC : null,
+      mfgCCs: Array.isArray(mfgCCs) ? mfgCCs.filter((c) => typeof c === "string" && c) : [],
+      hqRegion: typeof hqRegion === "string" && hqRegion ? hqRegion : null,
+      mfgRegions: Array.isArray(mfgRegions) ? mfgRegions.filter((r) => typeof r === "string" && r) : [],
     });
   }
   return byId;

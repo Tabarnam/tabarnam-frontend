@@ -51,6 +51,10 @@ const BookmarksPage = lazy(() => import("@/pages/BookmarksPage"));
 // Explore map — lazy so leaflet + markercluster stay out of the main bundle
 // (the 900 KB CI gate depends on the map surfaces loading on demand).
 const MapExplorePage = lazy(() => import("@pages/MapExplorePage"));
+// "Made in ___" SEO pages — lazy; they pull the pins index on demand.
+const MadeInPage = lazy(() => import("@pages/MadeInPage"));
+const MadeInIndexPage = lazy(() => import("@pages/MadeInIndexPage"));
+const MadeInStatePage = lazy(() => import("@pages/MadeInStatePage"));
 
 // Main application component with routing, layout management, and error handling
 // Simple error boundary
@@ -153,6 +157,11 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/results" element={<ResultsPage />} />
               <Route path="/map" element={<MapExplorePage />} />
+              <Route path="/made-in" element={<MadeInIndexPage />} />
+              {/* State route must precede the country route's :slug so
+                  /made-in/usa/california doesn't fall through. */}
+              <Route path="/made-in/usa/:state" element={<MadeInStatePage />} />
+              <Route path="/made-in/:slug" element={<MadeInPage />} />
               <Route path="/bookmarks" element={<Suspense fallback={null}><BookmarksPage /></Suspense>} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/about" element={<AboutPage />} />
