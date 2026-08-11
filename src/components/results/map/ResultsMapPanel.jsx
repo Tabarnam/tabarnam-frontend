@@ -383,7 +383,7 @@ export default function ResultsMapPanel({
 
       {/* HQ/MFG/Both pin filter — map-scoped UI; state lives in the URL. */}
       <div className="absolute top-2 left-2 z-[1000] flex gap-1 bg-muted/90 backdrop-blur-sm rounded-lg p-0.5 border border-border">
-        {filterBtn("both", "Both")}
+        {filterBtn("both", "All")}
         {filterBtn("hq", "HQ")}
         {filterBtn("mfg", "Mfg")}
       </div>

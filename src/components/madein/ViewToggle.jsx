@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  * the three modes never split search-engine equity.
  */
 const MODES = [
-  ["both", "Both"],
+  ["both", "All"],
   ["hq", "HQ"],
   ["mfg", "Mfg"],
 ];
