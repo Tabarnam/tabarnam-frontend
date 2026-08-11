@@ -1816,6 +1816,14 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
   if (container) {
     try {
+      // ── One retrieval + scoring pass ─────────────────────────────────────
+      // Extracted so the entire pipeline can be re-run with a corrected query
+      // when the typed one turns out to be junk (see the auto-correct block
+      // below). Declared here rather than hoisted to module scope so it closes
+      // over container / filters / sort / paging / typoDictionary — no param
+      // threading. The parameters deliberately SHADOW the outer q_* bindings,
+      // so the body below needs no identifier changes.
+      async function runSearchPass(q_raw, q_norm, q_compact, q_stemmed) {
       let items = [];
       // Perf instrument: split retrieval (Cosmos round-trips) from compute
       // (map/dedup/score/sort). Surfaced as meta._timing to confirm where the
@@ -2602,6 +2610,12 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           }
         }
       }
+
+        return { deduped, usedBroadenFallback, hasStrongNameMatch, _tStart, _tRetrieved };
+      }
+
+      const pass1 = await runSearchPass(q_raw, q_norm, q_compact, q_stemmed);
+      let { deduped, usedBroadenFallback, _tStart, _tRetrieved } = pass1;
 
       // countOnly mode: return just the total count, no items (used for async pagination info)
       if (countOnly) {
