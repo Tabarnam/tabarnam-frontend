@@ -4,11 +4,20 @@
 import { API_BASE } from "@/lib/api";
 import { decodePinsPayload } from "./markerData";
 
+// Payload schema this client understands. It rides in the request URL so a
+// schema bump can never be answered from an HTTP/CDN cache holding the old
+// shape — a stale v1 body would leave the made-in pages silently empty (seen
+// in production 2026-08-11). Bump this whenever PAYLOAD_VERSION in
+// api/_pinsIndex.js changes.
+export const PINS_PAYLOAD_VERSION = 3;
+
 let _promise = null;
 
 export function fetchPinsIndex() {
   if (_promise) return _promise;
-  _promise = fetch(`${API_BASE}/map-pins`, { headers: { accept: "application/json" } })
+  _promise = fetch(`${API_BASE}/map-pins?v=${PINS_PAYLOAD_VERSION}`, {
+    headers: { accept: "application/json" },
+  })
     .then((r) => {
       if (!r.ok) throw new Error(`map-pins ${r.status}`);
       return r.json();

@@ -66,9 +66,11 @@ async function handleMapPins(req, context) {
   const headers = {
     ...CORS,
     "Content-Type": "application/json",
-    // Long SWR window: the map tolerates hours-stale pins, and the payload is
-    // ~2MB raw — let the edge and browser reuse it.
-    "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+    // 5-minute freshness + long stale-while-revalidate: repeat loads stay
+    // instant, but a company save or import shows up within minutes instead
+    // of being pinned for an hour. Clients also pass ?v=<schema> so a payload
+    // version bump is never answered from a cache holding the old shape.
+    "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
     ETag: etag,
   };
 
