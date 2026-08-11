@@ -155,6 +155,7 @@ export default function ResultsMapPanel({
   onPinFilterChange,
   boundsKey,
   linkParams = "",
+  loading = false,
 }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -312,7 +313,7 @@ export default function ResultsMapPanel({
         ref={mapRef}
         center={[20, 0]}
         zoom={2}
-        minZoom={2}
+        minZoom={1}
         worldCopyJump
         className="w-full h-full"
         attributionControl
@@ -322,7 +323,7 @@ export default function ResultsMapPanel({
             would cover its + button — pin it top-right instead. */}
         <ZoomControl position="topright" />
         <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} />
-        <FitBounds boundsKey={`${boundsKey}|${recenterNonce}`} points={fitPoints} />
+        <FitBounds boundsKey={boundsKey} points={fitPoints} loading={loading} recenterNonce={recenterNonce} />
         <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
         {active && <CardTracker latlng={active.latlng} onPoint={setCardPoint} />}
         {userLoc && Number.isFinite(userLoc.lat) && Number.isFinite(userLoc.lng) && (
