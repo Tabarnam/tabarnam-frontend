@@ -39,27 +39,28 @@ export default function MapHoverCard({
     return parts.length >= 2 ? `${parts[0]}, ${parts[1]}` : parts[0];
   })();
 
-  const href = (() => {
-    // Every route below carries `expand`, so the link always lands on the
-    // company OPEN. Without it the destination merely lists the company and
-    // the user has to find and click it again — and because index pins are
-    // the ones that lacked it, whether "View company profile" appeared to
-    // work depended on whether that company happened to fall on the loaded
-    // page, which is arbitrary from the outside.
-    const expand = encodeURIComponent(String(marker.companyId));
+  const domain = String(company.normalized_domain || "").trim();
 
-    // Index pins (matches beyond the loaded page) aren't in the current
-    // result list, so expand alone would no-op — pair it with the pasted-URL
-    // exact-match flow, which retrieves the company by domain and pins it
-    // with comparables beneath (product decision 2026-08-11). Fallback for a
-    // company with no domain: a name search, which surfaces it on page 1.
-    if (marker.index) {
-      const domain = String(company.normalized_domain || "").trim();
+  const href = (() => {
+    // ONE url for both kinds of pin: the user's current search, plus the
+    // company to open. `expand` promotes it and renders it as a profile;
+    // `expandDomain` lets the page fetch it first when it isn't among the
+    // loaded results. The search rides along, so whatever the user was
+    // looking at stays underneath as comparables — which is the difference
+    // between a profile and a page showing one company in isolation.
+    const params = new URLSearchParams(linkParams || "");
+    params.set("expand", String(marker.companyId));
+    if (marker.index && domain) params.set("expandDomain", domain);
+
+    // No search to carry (the map opened without one): fall back to the
+    // pasted-URL exact-match flow, or a name search for the rare company
+    // with no domain on file.
+    const hasSearch = ["q", "city", "state", "country", "lat", "domain"].some((k) => params.get(k));
+    if (!hasSearch) {
+      const expand = encodeURIComponent(String(marker.companyId));
       if (domain) return `/results?domain=${encodeURIComponent(domain)}&expand=${expand}`;
       return `/results?q=${encodeURIComponent(name)}&expand=${expand}`;
     }
-    const params = new URLSearchParams(linkParams || "");
-    params.set("expand", String(marker.companyId));
     return `/results?${params.toString()}`;
   })();
 
@@ -134,7 +135,7 @@ export default function MapHoverCard({
                 e.preventDefault();
                 onOpenProfile({
                   companyId: String(marker.companyId),
-                  domain: String(company.normalized_domain || "").trim(),
+                  domain,
                 });
                 onClose?.();
               },
