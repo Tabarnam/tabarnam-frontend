@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Share } from "lucide-react";
 import ShareDialog from "@/components/ShareDialog";
-import { buildShareMessage, nativeShare, prefersNativeShare } from "@/lib/share";
+import { buildShareMessage, canNativeShare, nativeShare } from "@/lib/share";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 
 export default function ShareButton({ company, title: titleProp, text: textProp, url: urlProp, label: labelProp, dialogTitle: dialogTitleProp, className = "" }) {
@@ -33,7 +33,7 @@ export default function ShareButton({ company, title: titleProp, text: textProp,
     e.preventDefault();
     e.stopPropagation();
 
-    if (prefersNativeShare()) {
+    if (canNativeShare()) {
       const result = await nativeShare({
         title: shareTitle,
         text: shareMessage,

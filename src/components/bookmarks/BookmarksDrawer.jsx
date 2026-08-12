@@ -6,7 +6,7 @@ import { searchCompanies } from "@/lib/searchCompanies";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { toast } from "@/lib/toast";
 import ShareDialog from "@/components/ShareDialog";
-import { nativeShare, prefersNativeShare } from "@/lib/share";
+import { canNativeShare, nativeShare } from "@/lib/share";
 
 const DEFAULT_LIST_ID = "saved";
 
@@ -612,7 +612,7 @@ export default function BookmarksDrawer() {
     const shareUrl = `${window.location.origin}/?bookmarks=${encodeURIComponent(encoded)}`;
     const shareTitle = `Check out my "${payload.n}" bookmark list on Tabarnam`;
 
-    if (prefersNativeShare()) {
+    if (canNativeShare()) {
       const result = await nativeShare({ title: shareTitle, text: shareTitle, url: shareUrl });
       if (result !== "fail") return;
     }
