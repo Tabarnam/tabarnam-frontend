@@ -1,4 +1,4 @@
-import React, { createContext, useState, useCallback, useMemo, useEffect } from "react";
+import React, { createContext, useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { toast } from "@/lib/toast";
 
 const STORAGE_KEY = "tabarnam_bookmarks_v1";
@@ -289,10 +289,17 @@ export function BookmarksProvider({ children }) {
     });
   }, []);
 
+  // A shared ?bookmarks= link must import exactly once. StrictMode invokes this
+  // effect twice in dev, and the import body is async, so a flag set inside the
+  // async work would race — both runs would pass the check before either wrote.
+  // Claim the URL synchronously instead.
+  const shareImportedRef = useRef(false);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const encoded = params.get("bookmarks");
-    if (!encoded) return;
+    if (!encoded || shareImportedRef.current) return;
+    shareImportedRef.current = true;
     (async () => {
       try {
         let json;
