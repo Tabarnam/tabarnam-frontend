@@ -249,37 +249,40 @@
 }
 
 /* CARTO's dark basemap barely separates streets from the land they sit on.
-   These are the MEASURED luminance levels, sampled off real tiles on a canvas
-   rather than guessed — the guess was land 18 / road 36, which is twice the
-   real gap and produced a curve that left minor roads invisible:
+   MEASURED levels, sampled off real tiles on a canvas — measure, never
+   eyeball, and sample a COASTAL tile as well as an inland one:
 
-       water 6 · LAND 9 · minor road 13 · road 17 · medium 21-26 · major 38
+       LAND 9 (~2/3 of an inland tile) · minor road 13 · road 17 ·
+       medium 21-26 · WATER 38 (100% of an offshore tile)
 
-   Two-thirds of a regional tile is that single land value, and the minor
-   roads sit four levels above it.
+   WATER IS THE BRIGHTEST THING ON THE MAP. That is the constraint everything
+   else bends around: open sea sits ABOVE every road value, so any curve steep
+   enough to make roads bright makes the ocean brighter still. A 38-grey road
+   pixel and a 38-grey sea pixel are the same pixel — no colour transform can
+   separate them. A curve tuned on an inland tile alone (7.3 / 2.06) turned
+   the Pacific pure white.
 
-   ORDER IS THE WHOLE TRICK. contrast() pivots around a 0.5 midpoint, so on
-   the raw tile — where every one of those values sits far below the pivot —
-   it drags them together into black and erases the streets outright.
-   Brighten FIRST and the same operator does the opposite: the values are now
-   high enough that contrast pushes land back down to black while the roads
-   stay up. A gamma curve built from the two filters CSS actually gives us.
+   Order still matters for what headroom there is: contrast() pivots on a 0.5
+   midpoint, so applied to the raw tile — where every value sits far below the
+   pivot — it drags them together into black. Brighten FIRST and the same
+   operator floors the land while the roads stay up.
 
-   7.3 / 2.06 is not a taste pick, it is the ceiling: it is the curve that
-   drives land to exactly 0 while lifting minor roads as far as they will go.
-   Push harder (9 / 2.4) and land itself rises off black — a dark map traded
-   away for nothing.
+       filter                          land  minor  road  medium  WATER
+       none                               9     13    17      26     38
+       brightness(3) contrast(1.4)        0      4    20      58    109
+       brightness(7.3) contrast(2.06)     0     60   120     255    255  <- white sea
+       brightness(2.2) contrast(1.2)      0      9    19      43     75  <- shipped
 
-       filter                       land  minor  road  medium  major
-       none                            9     13    17      26     38
-       brightness(3) contrast(1.4)     0      4    20      58    109
-       brightness(7.3) contrast(2.06)  0     60   120     255    255
+   2.2 / 1.2 is the practical ceiling: land floors to black, roads gain what
+   little headroom the sea allows, and water stays a dark slate. Real road
+   contrast needs a basemap that draws roads above water instead of below it
+   (Stadia Alidade Smooth Dark does; it needs an API key), not a bigger filter.
 
    Tiles only. Pins, controls and labels-as-markers are separate elements and
    keep their own colour. Applies to every Leaflet map we render (results,
    made-in, explore) since all three use the same CARTO dark tiles. */
 .dark .leaflet-tile {
-  filter: brightness(7.3) contrast(2.06);
+  filter: brightness(2.2) contrast(1.2);
 }
 
 /* Fallback dark-tile treatment for plain OSM tiles — inert unless the
