@@ -737,15 +737,13 @@ export default function ResultsPage() {
 
       const hasCoordParam = !!(latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam)));
       const hasLocationFilter = !!(cityParam || stateParam || countryParam || hasCoordParam);
-      const isLocationOnly = !qParam && hasLocationFilter;
       if (!cancelled && (qParam || hasLocationFilter)) {
         // Seed search history on initial load / URL-driven navigation (skip on browser back/forward)
         if (!poppingStateRef.current) {
           pushSearchHistory({ q: qParam, sort: sortParam, country: countryParam, state: stateParam, city: cityParam });
         }
         poppingStateRef.current = false;
-        // Location-only: load 2 pages eagerly, then lazy-load on scroll
-        const initialTake = isLocationOnly && pageParam === 1 ? pageSize * 2 : pageSize;
+        const initialTake = pageSize;
         await doSearch({
           q: qParam,
           sort: sortParam,
@@ -927,8 +925,7 @@ export default function ResultsPage() {
     }
     navigatingHistoryRef.current = false;
 
-    const isLocationOnlyInline = !q && !!(city || state || country);
-    const inlineTake = isLocationOnlyInline ? pageSize * 2 : pageSize;
+    const inlineTake = pageSize;
     await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: inlineTake, skip: 0, location: searchLocation, strict });
   }
 
@@ -1246,50 +1243,10 @@ export default function ResultsPage() {
     }
   }
 
-  // Location-only mode: hide numbered pagination, lazy-load via scroll instead
-  const isLocationOnly = !qParam && !!(cityParam || stateParam || countryParam || (latParam && lngParam));
-
-  const loadMoreRef = useRef(null);
-  const loadingMoreRef = useRef(false);
-
-  async function loadMore() {
-    if (loadingMoreRef.current || !hasMore || loading) return;
-    loadingMoreRef.current = true;
-    try {
-      await doSearch({
-        q: qParam,
-        sort: sortParam,
-        country: countryParam,
-        state: stateParam,
-        city: cityParam,
-        amazon: amazonParam,
-        hqCountry: hqCountryParam,
-        mfgCountry: mfgCountryParam,
-        domain: domainParam,
-        noCorrect: noCorrectParam,
-        take: pageSize,
-        skip: results.length,
-        location: userLoc,
-        append: true,
-      });
-    } finally {
-      loadingMoreRef.current = false;
-    }
-  }
-
-  useEffect(() => {
-    if (!isLocationOnly) return;
-    const sentinel = loadMoreRef.current;
-    if (!sentinel) return;
-    const obs = new IntersectionObserver((entries) => {
-      const entry = entries[0];
-      if (entry?.isIntersecting && hasMore && !loading) {
-        loadMore();
-      }
-    }, { rootMargin: "200px" });
-    obs.observe(sentinel);
-    return () => obs.disconnect();
-  }, [isLocationOnly, hasMore, loading, results.length]);
+  // Location searches once had no honest total, so they lazy-loaded on scroll
+  // rather than admit how many pages there were. Now that the backend ranks
+  // the whole catalog and reports a real count, they page like any other
+  // search — the scroll sentinel, its observer, and loadMore() are gone.
 
   // Client-side sort: null = relevance (original API order), otherwise by chosen column
   const sorted = useMemo(() => {
@@ -1688,7 +1645,6 @@ export default function ResultsPage() {
                     than one page. */}
                 {(() => {
                   const showPager =
-                    !isLocationOnly &&
                     (hasMore || pageParam > 1 || (totalPages && totalPages > 1));
                   return (
                     <>
@@ -1749,6 +1705,16 @@ export default function ResultsPage() {
                 and let the tooltip explain why the map reaches overseas. */}
             {!qParam && locationLabel && (
               <>
+                {(hasMore || pageParam > 1 || (totalPages && totalPages > 1)) && (
+                  <Pagination
+                    currentPage={pageParam}
+                    hasMore={hasMore}
+                    totalPages={totalPages}
+                    onPageChange={goToPage}
+                    disabled={loading}
+                    compact
+                  />
+                )}
                 <span>
                   for location{" "}
                   <span className="font-medium text-foreground">{locationLabel}</span>
@@ -1758,7 +1724,7 @@ export default function ResultsPage() {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span className="whitespace-nowrap cursor-default underline decoration-dotted underline-offset-2">
-                          · {totalMatchCount >= 500 ? "500+" : totalMatchCount} closest{" "}
+                          · {totalMatchCount.toLocaleString()} closest{" "}
                           {totalMatchCount === 1 ? "result" : "results"}
                         </span>
                       </TooltipTrigger>
@@ -1768,8 +1734,11 @@ export default function ResultsPage() {
                           {sortBy === "hq" ? " (headquarters, in this sort)" : ""}.
                         </p>
                         <p className="m-0 mt-1.5">
-                          The map plots <span className="font-medium">every</span> location of those
-                          companies — including plants overseas — so pins may appear far from{" "}
+                          The map plots <span className="font-medium">every</span> location of
+                          {Array.isArray(matchIds) && matchIds.length < totalMatchCount
+                            ? ` the ${matchIds.length.toLocaleString()} nearest of those companies`
+                            : " those companies"}{" "}
+                          — including plants overseas — so pins may appear far from{" "}
                           {locationLabel}. That contrast is the point: a company can be based nearby
                           and still manufacture on the other side of the world.
                         </p>
@@ -2108,12 +2077,11 @@ export default function ResultsPage() {
         </div>
       )}
 
-      {isLocationOnly ? (
-        <div ref={loadMoreRef} className="py-6 text-center text-sm text-muted-foreground">
-          {hasMore ? (loading ? "Loading more…" : "Scroll for more") : (results.length > 0 ? "End of results" : null)}
-        </div>
-      ) : (
-        (() => {
+      {/* Location searches used to lazy-scroll because their totals were a
+          guess. The backend now ranks the whole catalog and reports a real
+          count, so they get the same numbered pagination as a keyword search —
+          every page is reachable, and only the 25 rows on it are fetched. */}
+      {(() => {
           const showPager = hasMore || pageParam > 1 || (totalPages && totalPages > 1);
           // Offer the per-page control whenever paging is relevant OR the user
           // has already set a non-default size (so they can change it back).
@@ -2135,8 +2103,7 @@ export default function ResultsPage() {
               {showPerPage && <PerPageControl pageSize={pageSize} onChange={handlePerPageChange} />}
             </div>
           );
-        })()
-      )}
+      })()}
       </div>
       {/* Drag handle sits between the two columns (its own grid track). It
           sticks near the middle of the viewport so the balance stays
