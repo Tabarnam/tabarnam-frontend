@@ -184,6 +184,27 @@
   fill: hsl(var(--card));
 }
 
+/* The site header is a 59px sticky bar and the results map tucks under it
+   (the map is sticky at top-4, the header is translucent, so tiles slide
+   beneath it by design). Anything in the map's top ~45px is therefore
+   unreachable the moment the page scrolls — the zoom "+" and the HQ/Mfg pill
+   both disappeared under it. Push the map's own chrome clear of that band.
+
+   One variable, consumed by the Leaflet control below and by the panel's
+   absolutely-positioned buttons, so the row can't drift apart.
+
+   Fullscreen is exempt: it renders above the header (z-250 vs z-40), so its
+   chrome uses the normal inset. */
+.results-map {
+  --tab-map-chrome-top: 10px;
+}
+.results-map--below-header {
+  --tab-map-chrome-top: 50px;
+}
+.results-map--below-header .leaflet-top .leaflet-control {
+  margin-top: var(--tab-map-chrome-top);
+}
+
 /* Cluster bubbles (/map explore route — leaflet.markercluster with our own
    divIcons; the plugin's Default.css is deliberately not imported). */
 .tab-cluster-anchor {
