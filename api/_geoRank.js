@@ -72,4 +72,62 @@ function rankByDistance(payload, origin, mode = "manu") {
   return ranked;
 }
 
-module.exports = { rankByDistance, haversineKm };
+const KM_PER_MI = 1.609344;
+
+// Bands are round numbers in the user's own unit, because the radius gets
+// printed back to them ("145 more within 25 mi"). Picking bands in km and
+// converting would surface "within 16 mi", which reads like a measurement
+// rather than a choice.
+const NEARBY_BANDS = [10, 25, 50, 100, 250];
+const NEARBY_MIN = 25;
+
+/**
+ * Choose the tightest radius that still shows a useful number of neighbours.
+ *
+ * A fixed radius is wrong in both directions: 50 miles around Los Angeles is
+ * noise, and 50 miles around a village in Piedmont is barely anything. So walk
+ * outward through round numbers and stop as soon as the band holds enough
+ * companies — dense metros stay tight, sparse regions reach further. If even
+ * the widest band is thin, that IS the answer; return it and let the UI say so.
+ *
+ * @param {Array<{id:string, km:number}>} ranked - nearest-first, from rankByDistance
+ * @param {Set<string>} excludeIds - companies already counted as in-scope
+ * @param {{unit?:"mi"|"km", minCount?:number}} opts
+ * @returns {{ids: string[], radius: number, unit: "mi"|"km"}}
+ */
+function pickNearbyBand(ranked, excludeIds, opts = {}) {
+  const unit = opts.unit === "km" ? "km" : "mi";
+  const minCount = Number.isFinite(opts.minCount) ? opts.minCount : NEARBY_MIN;
+  const toKm = (v) => (unit === "km" ? v : v * KM_PER_MI);
+
+  const candidates = [];
+  for (const r of Array.isArray(ranked) ? ranked : []) {
+    if (excludeIds && excludeIds.has(r.id)) continue;
+    candidates.push(r);
+  }
+
+  let chosen = NEARBY_BANDS[NEARBY_BANDS.length - 1];
+  for (const band of NEARBY_BANDS) {
+    const limit = toKm(band);
+    // ranked is sorted, so the first entry past the limit ends the band.
+    let count = 0;
+    for (const c of candidates) {
+      if (c.km > limit) break;
+      count++;
+    }
+    if (count >= minCount) {
+      chosen = band;
+      break;
+    }
+  }
+
+  const limitKm = toKm(chosen);
+  const ids = [];
+  for (const c of candidates) {
+    if (c.km > limitKm) break;
+    ids.push(c.id);
+  }
+  return { ids, radius: chosen, unit };
+}
+
+module.exports = { rankByDistance, haversineKm, pickNearbyBand, NEARBY_BANDS };

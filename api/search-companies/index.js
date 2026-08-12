@@ -26,8 +26,9 @@ const {
 } = require("../_typoCorrection");
 const { TTLCache, buildCacheKey } = require("../_responseCache");
 const { getPins } = require("../_pinsIndex");
-const { rankByDistance } = require("../_geoRank");
+const { rankByDistance, pickNearbyBand } = require("../_geoRank");
 const { getCountrySets } = require("../_countryIndex");
+const { getScopeSets, resolveScope } = require("../_placeScope");
 
 // Counts and pagination are honest — a location or country search reports how
 // many companies actually match and how many pages that really is, and any
@@ -1608,6 +1609,63 @@ function mapCompanyToPublic(doc) {
   };
 }
 
+// Below this, a scope is too thin to stand on its own and the nearby band is
+// shown regardless of scope level — a Slovenian search with two companies is
+// exactly the case the old "never filter by country" rule was protecting.
+const SCOPE_STANDS_ALONE = 25;
+
+/**
+ * Split a distance ranking into "in the place the user named" and "nearby".
+ *
+ * Returns null when nothing resolves, in which case the caller keeps the plain
+ * nearest-first ordering it already had.
+ *
+ * @param {{container:object, ranked:Array<{id:string,km:number}>, mode:"manu"|"hq",
+ *          unit:"mi"|"km", want:{city?:string,region?:string,country?:string},
+ *          onError?:Function, deps?:object}} args
+ */
+async function resolveGeoScope({ container, ranked, mode, unit, want, onError, deps = {} }) {
+  if (!want?.city && !want?.region && !want?.country) return null;
+  const scopeSetsFor = deps.getScopeSets || getScopeSets;
+  const countrySetsFor = deps.getCountrySets || getCountrySets;
+
+  let scope = null;
+  try {
+    if (want.city || want.region) {
+      scope = resolveScope(want, await scopeSetsFor(container), mode);
+    }
+    // Country scope comes from the country index, which reads each pin's own
+    // country code and so also counts the country-centroid pins that carry no
+    // city label at all.
+    if (!scope && want.country) {
+      const sets = await countrySetsFor(container);
+      const ids = sets ? (mode === "hq" ? sets.hq : sets.mfg)(want.country) : null;
+      if (ids && ids.size > 0) scope = { level: "country", key: want.country, ids };
+    }
+  } catch (e) {
+    onError?.(e);
+    return null;
+  }
+  if (!scope) return null;
+
+  const inScope = ranked.filter((r) => scope.ids.has(r.id));
+
+  // Nearby is a city idea. Distances here are measured from one geocoded
+  // point, so a "nearby" band around a region means a circle drawn from the
+  // middle of it — for California that reaches Nevada while missing the top of
+  // the state. Cities are small enough for the centroid to be honest.
+  const wantsNearby = scope.level === "city" || inScope.length < SCOPE_STANDS_ALONE;
+  const nearby = wantsNearby ? pickNearbyBand(ranked, scope.ids, { unit }) : null;
+
+  return {
+    level: scope.level,
+    key: scope.key,
+    scopedCount: inScope.length,
+    nearby,
+    orderedIds: [...inScope.map((r) => r.id), ...(nearby ? nearby.ids : [])],
+  };
+}
+
 async function searchCompaniesHandler(req, context, deps = {}) {
   // Log inbound request for wiring diagnostics (helps trace requests from frontend to Function App)
   logInboundRequest(context, req, "search-companies");
@@ -1732,6 +1790,18 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const country = clean(url.searchParams.get("country") || "");
   const state = clean(url.searchParams.get("state") || url.searchParams.get("region") || "");
   const city = clean(url.searchParams.get("city") || "");
+
+  // Scope params are NOT filters. country/state/city above are the legacy
+  // filter inputs the frontend deliberately stopped sending, because excluding
+  // rows by them emptied the results for smaller nations. These say "the user
+  // named this place" so the response can report how many companies are
+  // actually IN it and group the rest as nearby — informing without excluding.
+  const scopeCity = clean(url.searchParams.get("scopeCity") || "");
+  const scopeRegion = (url.searchParams.get("scopeRegion") || "").toUpperCase().trim();
+  const scopeCountry = (url.searchParams.get("scopeCountry") || "").toUpperCase().trim();
+  // The nearby radius gets printed back to the user, so pick bands in the unit
+  // they actually read distances in.
+  const scopeUnit = url.searchParams.get("unit") === "km" ? "km" : "mi";
 
   // Comma-separated concepts (pipe-delimited in the URL). When 2+ present, each
   // concept must match independently — companies missing any concept are filtered.
@@ -1920,10 +1990,44 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   if (geoOnly) {
     try {
       const pins = await getPins(container);
-      const ranked = rankByDistance(pins?.payload, user_location, sort === "hq" ? "hq" : "manu");
+      const mode = sort === "hq" ? "hq" : "manu";
+      const ranked = rankByDistance(pins?.payload, user_location, mode);
       if (ranked.length > 0) {
-        const totalCount = ranked.length;
+        // How many companies are IN the place the user named, and what else is
+        // close to it. Without this the answer to "San Dimas" was 13,739 —
+        // every company in the catalog, because every company has some
+        // distance from San Dimas. Three of them are actually in San Dimas.
+        const scoped = await resolveGeoScope({
+          container,
+          ranked,
+          mode,
+          unit: scopeUnit,
+          want: { city: scopeCity, region: scopeRegion, country: scopeCountry },
+          onError: (e) =>
+            context?.log?.(`[search-companies] scope unavailable: ${e?.message || e}`),
+        });
+
+        const orderedIds = scoped ? scoped.orderedIds : ranked.map((r) => r.id);
+        const totalCount = orderedIds.length;
         const totalPages = Math.ceil(totalCount / take) || 1;
+        const scopeMeta = scoped
+          ? {
+              _scope: { level: scoped.level, key: scoped.key, count: scoped.scopedCount },
+              ...(scoped.nearby
+                ? {
+                    _nearby: {
+                      count: scoped.nearby.ids.length,
+                      radius: scoped.nearby.radius,
+                      unit: scoped.nearby.unit,
+                    },
+                    // Index of the first nearby row in the full ordered list,
+                    // so the UI can place its divider on whichever page holds
+                    // the boundary — the rows themselves stay unfetched.
+                    _nearbyStart: scoped.scopedCount,
+                  }
+                : {}),
+            }
+          : {};
 
         if (countOnly) {
           return json(
@@ -1935,14 +2039,23 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               // No relevance scoring happened, so "direct matches" is not a
               // meaningful number here — same contract as the old path.
               directCount: null,
-              meta: { q: q_raw, sort, take, _geoRanked: true },
+              meta: { q: q_raw, sort, take, _geoRanked: true, ...scopeMeta },
             },
             200,
             req
           );
         }
 
-        const pageRanked = ranked.slice(skip, skip + take);
+        const kmById = new Map(ranked.map((r) => [r.id, r.km]));
+        // Which group each row belongs to travels WITH the row. The client
+        // re-sorts every page by proximity, so a company's position alone
+        // can't carry the distinction — without this tag a nearby company one
+        // mile out would sort above an in-town company three miles out and the
+        // two groups would interleave.
+        const inScopeIds = scoped ? new Set(scoped.orderedIds.slice(0, scoped.scopedCount)) : null;
+        const pageRanked = orderedIds
+          .slice(skip, skip + take)
+          .map((id) => ({ id, km: kmById.get(id) ?? null }));
         let items = [];
         if (pageRanked.length > 0) {
           const ids = pageRanked.map((r) => r.id);
@@ -1964,7 +2077,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               const doc = byId.get(r.id);
               if (!doc) return null;
               const pub = mapCompanyToPublic(doc);
-              if (pub) pub._geoDistanceKm = Math.round(r.km * 10) / 10;
+              if (pub && Number.isFinite(r.km)) pub._geoDistanceKm = Math.round(r.km * 10) / 10;
+              if (pub && inScopeIds) pub._scopeGroup = inScopeIds.has(r.id) ? "in" : "near";
               return pub;
             })
             .filter(Boolean);
@@ -1980,9 +2094,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             totalCount,
             totalPages,
             directCount: null,
-            ...(includeMatchIds
-              ? { match_ids: ranked.slice(0, MAP_PIN_ID_LIMIT).map((r) => r.id) }
-              : {}),
+            ...(includeMatchIds ? { match_ids: orderedIds.slice(0, MAP_PIN_ID_LIMIT) } : {}),
             meta: {
               q: q_raw,
               sort,
@@ -1990,10 +2102,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               take,
               user_location,
               _geoRanked: true,
-              // What was ranked vs what is being returned — the gap is the
-              // horizon, not a retrieval limit.
               _geoCandidates: totalCount,
-              ...(ranked.length > MAP_PIN_ID_LIMIT ? { _mapPinsCapped: MAP_PIN_ID_LIMIT } : {}),
+              ...scopeMeta,
+              ...(orderedIds.length > MAP_PIN_ID_LIMIT ? { _mapPinsCapped: MAP_PIN_ID_LIMIT } : {}),
             },
           },
           200,
@@ -3353,5 +3464,6 @@ module.exports._test = {
   companyMatchesAllConcepts,
   isSynonymOnlyMatch,
   deduplicateByDomain,
+  resolveGeoScope,
   _getResponseCache,
 };
