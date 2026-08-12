@@ -1544,6 +1544,25 @@ export default function ResultsPage() {
     return chips;
   }, [countryParam, stateParam, cityParam, sortParam, promotedId, displayList]);
 
+  // Human label for a location-only search: the most specific place the user
+  // actually named. Falls back to "your location" when the point came from
+  // the device/IP rather than typed input.
+  const locationLabel = useMemo(() => {
+    const city = String(cityParam || "").trim();
+    const state = String(stateParam || "").trim();
+    const country = String(countryParam || "").trim();
+    const specific = city || state || country;
+    if (specific) {
+      // "San Dimas, CA" reads better than either part alone when both exist.
+      if (city && state && state.toLowerCase() !== city.toLowerCase()) {
+        return `${city}, ${state}`;
+      }
+      return specific;
+    }
+    if (latParam && lngParam) return "your location";
+    return "";
+  }, [cityParam, stateParam, countryParam, latParam, lngParam]);
+
   const languageSelector = (
     <select
       className="h-11 text-sm border border-input rounded-md px-3 bg-background text-foreground font-medium hover:border-muted-foreground transition-colors"
@@ -1707,6 +1726,50 @@ export default function ResultsPage() {
                 <ShareButton
                   title={`Search results for "${qParam}" on Tabarnam`}
                   text={`Search results for "${qParam}" on Tabarnam`}
+                  url={window.location.href}
+                  label="Share these search results"
+                  dialogTitle="Share search results"
+                  className="w-8 h-8 min-w-[32px] min-h-[32px]"
+                />
+              </>
+            )}
+            {/* Location-only searches got NO header line at all, which left
+                the result set unexplained: it isn't "companies in San Dimas",
+                it's the catalog ranked by nearest manufacturing. Say that,
+                and let the tooltip explain why the map reaches overseas. */}
+            {!qParam && locationLabel && (
+              <>
+                <span>
+                  for location{" "}
+                  <span className="font-medium text-foreground">{locationLabel}</span>
+                </span>
+                {totalMatchCount > 0 && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="whitespace-nowrap cursor-default underline decoration-dotted underline-offset-2">
+                          · {totalMatchCount >= 500 ? "500+" : totalMatchCount} closest{" "}
+                          {totalMatchCount === 1 ? "result" : "results"}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[320px] text-xs">
+                        <p className="m-0">
+                          Companies ranked by how close their manufacturing is to {locationLabel}
+                          {sortBy === "hq" ? " (headquarters, in this sort)" : ""}.
+                        </p>
+                        <p className="m-0 mt-1.5">
+                          The map plots <span className="font-medium">every</span> location of those
+                          companies — including plants overseas — so pins may appear far from{" "}
+                          {locationLabel}. That contrast is the point: a company can be based nearby
+                          and still manufacture on the other side of the world.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                <ShareButton
+                  title={`Companies near ${locationLabel} on Tabarnam`}
+                  text={`Companies near ${locationLabel} on Tabarnam`}
                   url={window.location.href}
                   label="Share these search results"
                   dialogTitle="Share search results"
