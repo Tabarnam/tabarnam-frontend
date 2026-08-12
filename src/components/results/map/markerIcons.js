@@ -4,25 +4,27 @@
 // URL patching needed.
 import L from "leaflet";
 
-// HQ: classic teardrop pin with a building glyph. 30x38, tip at bottom center.
-// Glyph geometry uses INTEGER coordinates and ≥3px features — sub-pixel
-// details smear when Leaflet positions markers at fractional pixels.
+// HQ / Home: classic teardrop pin with a house glyph. 30x38, tip at bottom
+// center. Glyph geometry uses INTEGER coordinates and ≥3px features —
+// sub-pixel details smear when Leaflet positions markers at fractional pixels.
 const HQ_SVG = `<svg width="30" height="38" viewBox="0 0 30 38" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <path class="tab-pin__shape" d="M15 1C7.8 1 2 6.8 2 14c0 9.8 13 23 13 23s13-13.2 13-23C28 6.8 22.2 1 15 1z"/>
-  <g shape-rendering="crispEdges">
-    <rect class="tab-pin__glyph" x="9" y="8" width="12" height="12" rx="1"/>
-    <rect class="tab-pin__glyph-cut" x="11" y="10" width="3" height="3"/>
-    <rect class="tab-pin__glyph-cut" x="16" y="10" width="3" height="3"/>
-    <rect class="tab-pin__glyph-cut" x="11" y="15" width="3" height="3"/>
-    <rect class="tab-pin__glyph-cut" x="16" y="15" width="3" height="3"/>
-  </g>
+  <path class="tab-pin__glyph" d="M15 6l9 8h-3v8H9v-8H6z"/>
+  <rect class="tab-pin__glyph-cut" x="13" y="16" width="4" height="6" shape-rendering="crispEdges"/>
 </svg>`;
 
-// MFG: diamond pin with a factory glyph. 32x36, bottom vertex is the anchor —
+// MFG: diamond pin with a wrench glyph. 32x36, bottom vertex is the anchor —
 // distinct from HQ by shape AND color (colorblind-safe pairing).
+// The wrench is built from axis-aligned rects and then rotated as a group:
+// composing it on the diagonal directly would mean hand-fitting eight corner
+// coordinates, and the rects stay easy to nudge.
 const MFG_SVG = `<svg width="32" height="36" viewBox="0 0 32 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <path class="tab-pin__shape" d="M16 1L31 16L16 35L1 16Z"/>
-  <path class="tab-pin__glyph" d="M9 23v-9h3v3l5-3v3l5-3v9H9z"/>
+  <g transform="rotate(-45 16 16)">
+    <rect class="tab-pin__glyph" x="14" y="15" width="4" height="10" rx="1"/>
+    <rect class="tab-pin__glyph" x="11" y="7" width="10" height="9" rx="2"/>
+    <rect class="tab-pin__glyph-cut" x="14" y="6" width="4" height="6"/>
+  </g>
 </svg>`;
 
 const SIZES = {
@@ -84,8 +86,10 @@ export function makePinIcon({
 
 /**
  * The search origin — the point every distance on the page is measured from.
- * A house glyph rather than a dot, because a bare dot read as "some other
- * company" next to the company pins.
+ *
+ * A red map pin, which is the one marker convention everybody already reads as
+ * "you are here". It can't be confused with a company: HQ pins are the theme
+ * colour and manufacturing pins are teal, and neither is ever red.
  */
 export function makeUserIcon() {
   const key = "user";
@@ -94,13 +98,14 @@ export function makeUserIcon() {
   const icon = L.divIcon({
     className: "tab-pin-anchor",
     html: `<div class="tab-home" title="Your search location — distances are measured from here">
-      <svg width="26" height="26" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <circle class="tab-home__disc" cx="13" cy="13" r="11"/>
-        <path class="tab-home__glyph" d="M13 6l7 6h-2v7h-4v-4h-2v4H8v-7H6z"/>
+      <svg width="26" height="34" viewBox="0 0 26 34" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path class="tab-home__pin" d="M13 1C6.9 1 2 5.9 2 12c0 8.4 11 21 11 21s11-12.6 11-21C24 5.9 19.1 1 13 1z"/>
+        <circle class="tab-home__hole" cx="13" cy="12" r="4"/>
       </svg>
     </div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
+    // Anchored at the tip, not the middle: a pin points at its location.
+    iconSize: [26, 34],
+    iconAnchor: [13, 34],
   });
   cache.set(key, icon);
   return icon;

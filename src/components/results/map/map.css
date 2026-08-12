@@ -164,12 +164,16 @@
 .tab-home svg {
   display: block;
 }
-.tab-home__disc {
-  fill: hsl(var(--foreground));
+/* Red is fixed, not themed: "you are here" is a convention borrowed from
+   every other map, and it only works if the colour stays put in light and
+   dark alike. No company pin is ever red, so there is nothing to confuse it
+   with. */
+.tab-home__pin {
+  fill: #e5484d;
   stroke: hsl(var(--card));
-  stroke-width: 2;
+  stroke-width: 1.5;
 }
-.tab-home__glyph {
+.tab-home__hole {
   fill: hsl(var(--card));
 }
 
