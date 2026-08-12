@@ -116,7 +116,7 @@ export default function MapHoverCard({
         rel="noopener noreferrer"
         className="inline-block mt-2 text-xs font-semibold text-primary underline underline-offset-2 hover:opacity-80"
       >
-        View &amp; compare ↗
+        View company profile ↗
       </a>
     </div>
   );
