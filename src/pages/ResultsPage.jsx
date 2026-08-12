@@ -736,7 +736,13 @@ export default function ResultsPage() {
 
       const hasCoordParam = !!(latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam)));
       const hasLocationFilter = !!(cityParam || stateParam || countryParam || hasCoordParam);
-      if (!cancelled && (qParam || hasLocationFilter)) {
+      // A domain is a complete search on its own — it names one company
+      // exactly. Leaving it out of this gate meant a bare /results?domain=…
+      // URL never ran a search at all and showed "enter a search term"
+      // instead. Typing a URL into the box still worked (that path calls
+      // doSearch directly), so only LINKS into the domain flow were broken —
+      // which is every map pin for a company beyond the loaded page.
+      if (!cancelled && (qParam || hasLocationFilter || domainParam)) {
         // Seed search history on initial load / URL-driven navigation (skip on browser back/forward)
         if (!poppingStateRef.current) {
           pushSearchHistory({ q: qParam, sort: sortParam, country: countryParam, state: stateParam, city: cityParam });

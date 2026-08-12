@@ -91,7 +91,13 @@ export async function searchCompanies(opts: SearchOptions) {
   const lngNum = Number(asStr(opts.lng));
   const hasCoords = Number.isFinite(latNum) && Number.isFinite(lngNum) && (latNum !== 0 || lngNum !== 0);
   const hasLocation = !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim()) || hasCoords;
-  if (!q && !hasLocation) throw new Error("Please enter a search term, choose a location, or enter a postal/ZIP code.");
+  // A domain identifies one company exactly, so it is a complete search with
+  // no query and no location — the same guard that protects an empty search
+  // box was rejecting it.
+  const hasDomain = !!asStr(opts.domain).trim();
+  if (!q && !hasLocation && !hasDomain) {
+    throw new Error("Please enter a search term, choose a location, or enter a postal/ZIP code.");
+  }
 
   const sort = normalizeSort(opts.sort);
   const take = Math.max(1, Math.min(Number(opts.take ?? 25) || 25, 100));
