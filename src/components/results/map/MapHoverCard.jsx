@@ -39,15 +39,23 @@ export default function MapHoverCard({
   })();
 
   const href = (() => {
+    // Every route below carries `expand`, so the link always lands on the
+    // company OPEN. Without it the destination merely lists the company and
+    // the user has to find and click it again — and because index pins are
+    // the ones that lacked it, whether "View company profile" appeared to
+    // work depended on whether that company happened to fall on the loaded
+    // page, which is arbitrary from the outside.
+    const expand = encodeURIComponent(String(marker.companyId));
+
     // Index pins (matches beyond the loaded page) aren't in the current
-    // result list, so the expand flow would no-op — send them through the
-    // pasted-URL exact-match flow instead, which pins the company with
-    // comparables beneath (product decision 2026-08-11). Fallback: a name
-    // search with expand, which surfaces the company on its own page 1.
+    // result list, so expand alone would no-op — pair it with the pasted-URL
+    // exact-match flow, which retrieves the company by domain and pins it
+    // with comparables beneath (product decision 2026-08-11). Fallback for a
+    // company with no domain: a name search, which surfaces it on page 1.
     if (marker.index) {
       const domain = String(company.normalized_domain || "").trim();
-      if (domain) return `/results?domain=${encodeURIComponent(domain)}`;
-      return `/results?q=${encodeURIComponent(name)}&expand=${encodeURIComponent(String(marker.companyId))}`;
+      if (domain) return `/results?domain=${encodeURIComponent(domain)}&expand=${expand}`;
+      return `/results?q=${encodeURIComponent(name)}&expand=${expand}`;
     }
     const params = new URLSearchParams(linkParams || "");
     params.set("expand", String(marker.companyId));
