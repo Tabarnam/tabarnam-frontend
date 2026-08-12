@@ -36,6 +36,11 @@ const MemoRow = React.memo(ExpandableCompanyRow);
 // drops from 100+ requests to 5-10 (visible rows only).
 const PAGE_SIZE = 25;
 
+// List share below which the split view stops being a split: the map takes
+// the full width with the results full width beneath it. 40% list ≈ the map
+// passing 60%, which is where a shared row stops doing either side justice.
+const STACK_BELOW_RATIO = 40;
+
 /** Skeleton placeholder that mirrors the collapsed ExpandableCompanyRow grid */
 function SkeletonRow() {
   return (
@@ -445,6 +450,11 @@ export default function ResultsPage() {
   const splitRef = useRef(null);
   const [splitRatio, setSplitRatio] = useSplitRatio();
   const [mapFullscreen, setMapFullscreen] = useState(false);
+  // Past this point the map has outgrown sharing a row: rather than squeeze
+  // the cards into a sliver, both the map and the list take the full width,
+  // map on top. Dragging back (or the "Side by side" button) restores columns.
+  const stackedMap = mapOpen && !mapFullscreen && splitRatio < STACK_BELOW_RATIO;
+  const sideBySide = mapOpen && !mapFullscreen && !stackedMap;
   // Every matched company id from the full search response (≤500) — the map
   // joins these against the /api/map-pins index to plot matches beyond the
   // loaded page as lighter "index pins".
@@ -1898,20 +1908,26 @@ export default function ResultsPage() {
           grid-template-columns is inert below lg, where display isn't grid. */}
       <div
         ref={splitRef}
-        className={mapOpen && !mapFullscreen ? "lg:grid lg:gap-3 lg:items-start" : undefined}
+        className={cn(
+          sideBySide && "lg:grid lg:gap-3 lg:items-start",
+          // Stacked: the map gave up on sharing the row, so both it and the
+          // results get the full width back (order-first puts the map above).
+          stackedMap && "lg:flex lg:flex-col"
+        )}
         style={
-          mapOpen && !mapFullscreen
+          sideBySide
             ? { gridTemplateColumns: `minmax(0, ${splitRatio}fr) 14px minmax(0, ${100 - splitRatio}fr)` }
             : undefined
         }
       >
       <div
         className={cn(
-          mapOpen && "hidden lg:block min-w-0",
-          // Below ~45% the card's wide 6/5-column layout stops fitting the
-          // column (it keys off viewport width, not container width), so
-          // stack it instead of letting it shear. Lets the map take 2/3.
-          mapOpen && splitRatio < 45 && "results-list--narrow"
+          mapOpen && !stackedMap && "hidden lg:block min-w-0",
+          mapOpen && stackedMap && "min-w-0",
+          // Between the stack threshold and ~45% the card's wide 6/5-column
+          // layout no longer fits the column (it keys off viewport width, not
+          // container width), so stack the card rather than let it shear.
+          sideBySide && splitRatio < 45 && "results-list--narrow"
         )}
       >
       <div className="mb-4">
@@ -2122,8 +2138,10 @@ export default function ResultsPage() {
         })()
       )}
       </div>
-      {/* Drag handle sits between the two columns (its own grid track). */}
-      {mapOpen && !mapFullscreen && (
+      {/* Drag handle sits between the two columns (its own grid track). It
+          sticks near the middle of the viewport so the balance stays
+          adjustable after the user has scrolled into the results. */}
+      {sideBySide && (
         <SplitHandle ratio={splitRatio} onRatio={setSplitRatio} containerRef={splitRef} />
       )}
       {/* Map panel — mounted only when open, so the leaflet chunk loads on
@@ -2134,9 +2152,16 @@ export default function ResultsPage() {
         <aside
           className={cn(
             "relative overflow-hidden border border-border bg-card",
-            mapFullscreen
-              ? "fixed inset-0 z-[250] h-screen w-screen rounded-none border-0"
-              : "lg:sticky lg:top-4 z-0 h-[calc(100dvh-9rem)] lg:h-[calc(100vh-6rem)] rounded-lg"
+            mapFullscreen &&
+              "fixed inset-0 z-[250] h-screen w-screen rounded-none border-0",
+            // Stacked: full width above the results (order-first), a shorter
+            // band since it no longer has to fill a column's height.
+            stackedMap && "order-first w-full h-[60vh] mb-4 z-0 rounded-lg",
+            // Side-by-side: sticky column that tracks the page as it scrolls.
+            sideBySide &&
+              "lg:sticky lg:top-4 z-0 h-[calc(100dvh-9rem)] lg:h-[calc(100vh-6rem)] rounded-lg",
+            // Below lg the map is the whole view either way.
+            !mapFullscreen && !stackedMap && !sideBySide && "h-[calc(100dvh-9rem)] rounded-lg"
           )}
           style={{ isolation: "isolate" }}
         >
@@ -2156,6 +2181,8 @@ export default function ResultsPage() {
               matchIds={matchIds}
               isFullscreen={mapFullscreen}
               onToggleFullscreen={() => setMapFullscreen((v) => !v)}
+              isStacked={stackedMap}
+              onExitStacked={() => setSplitRatio(60)}
             />
           </React.Suspense>
         </aside>
