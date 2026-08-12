@@ -90,6 +90,7 @@ function MarkersLayer({
         delayMs: delayFor(marker),
         count,
         index: !!marker.index,
+        inScope: !!marker.inScope,
       })}
       eventHandlers={{
         mouseover: () => onPinOver(marker, latlng),
@@ -122,6 +123,10 @@ function MarkersLayer({
             // A stack renders light only when EVERY member is an index pin —
             // any page result in the pile keeps the stack full-strength.
             index: group.markers.every((m) => m.index),
+            // Mirror image: one in-place company in the pile marks the whole
+            // stack, since collapsing it must not hide that the place has a
+            // company in it.
+            inScope: group.markers.some((m) => m.inScope),
           })}
           eventHandlers={{
             click: (e) => {
@@ -171,6 +176,10 @@ export default function ResultsMapPanel({
   linkParams = "",
   loading = false,
   matchIds = null,
+  /** Set of company ids inside the searched place (vs merely near it). */
+  inScopeIds = null,
+  /** Name of that place, for the legend. */
+  scopeLabel = "",
   isFullscreen = false,
   onToggleFullscreen,
   isStacked = false,
@@ -195,13 +204,19 @@ export default function ResultsMapPanel({
   // search's full matched id list → lighter pins for every match beyond the
   // loaded page. Best-effort: no index, no extra pins — page pins still work.
   const [pinsIndex, setPinsIndex] = useState(null);
+  // Settled means "the index is done deciding", success or failure — the
+  // opening fit waits on this so it frames every match, not just this page.
+  const [pinsSettled, setPinsSettled] = useState(false);
   useEffect(() => {
     let dead = false;
     fetchPinsIndex()
       .then((m) => {
         if (!dead) setPinsIndex(m);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!dead) setPinsSettled(true);
+      });
     return () => {
       dead = true;
     };
@@ -218,7 +233,14 @@ export default function ResultsMapPanel({
 
   // Page markers FIRST: groupByCoord preserves insertion order, so a stack's
   // representative pin is always a full-strength page pin when one is present.
-  const markers = useMemo(() => [...pageMarkers, ...indexMarkers], [pageMarkers, indexMarkers]);
+  //
+  // Companies actually IN the searched place are marked so the map agrees
+  // with the list, where they sit above the "Nearby results" divider.
+  const markers = useMemo(() => {
+    const all = [...pageMarkers, ...indexMarkers];
+    if (!inScopeIds || !inScopeIds.size) return all;
+    return all.map((m) => (inScopeIds.has(m.companyId) ? { ...m, inScope: true } : m));
+  }, [pageMarkers, indexMarkers, inScopeIds]);
   const groups = useMemo(() => groupByCoord(markers), [markers]);
 
   // Cascade bookkeeping: a fresh search (boundsKey change) re-animates
@@ -406,7 +428,13 @@ export default function ResultsMapPanel({
             and map.css keeps it small and faded. */}
         <AttributionControl position="bottomright" prefix={false} />
         <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} noWrap />
-        <FitBounds boundsKey={boundsKey} points={fitPoints} loading={loading} recenterNonce={recenterNonce} />
+        <FitBounds
+          boundsKey={boundsKey}
+          points={fitPoints}
+          loading={loading}
+          recenterNonce={recenterNonce}
+          pinsSettled={pinsSettled}
+        />
         <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
         {active && <CardTracker latlng={active.latlng} onPoint={setCardPoint} />}
         {userLoc && Number.isFinite(userLoc.lat) && Number.isFinite(userLoc.lng) && (
@@ -446,6 +474,20 @@ export default function ResultsMapPanel({
           <span className="inline-block w-2.5 h-2.5 rotate-45" style={{ background: "#649BA0" }} />
           Manufacturing
         </span>
+        {/* Only shown when a scope actually split the results, so the ring
+            never appears in the legend without appearing on the map.
+            "Company in X", not "in X": the ring marks every pin belonging to
+            a company that is in X — including its plants abroad, which are
+            the whole point of showing them. */}
+        {inScopeIds && inScopeIds.size > 0 && (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-full"
+              style={{ border: "2px solid hsl(var(--primary))" }}
+            />
+            {scopeLabel ? `Company in ${scopeLabel}` : "Company in this place"}
+          </span>
+        )}
       </div>
 
       {/* Fullscreen toggle. Sits below the zoom control (top-right) rather

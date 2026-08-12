@@ -68,6 +68,32 @@
   transform: scale(0.82);
 }
 
+/* Companies actually IN the searched place, as opposed to merely near it —
+   the map's counterpart to the "Nearby results" divider in the list. A ring
+   rather than a colour change, so it stacks with the existing HQ/MFG colour
+   pairing and the approximate-precision styling instead of competing. An
+   in-place company is never dimmed to index weight: being in the place the
+   user asked about outranks being off the current page. */
+.tab-pin--in-scope {
+  opacity: 1;
+}
+.tab-pin--in-scope::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -60%);
+  border-radius: 9999px;
+  border: 2px solid hsl(var(--primary));
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.7);
+  pointer-events: none;
+}
+.tab-pin--in-scope.tab-pin--index {
+  transform: none;
+}
+
 /* Hover-synced (list row or pin) + promoted-company emphasis. */
 .tab-pin--active {
   transform: scale(1.25);

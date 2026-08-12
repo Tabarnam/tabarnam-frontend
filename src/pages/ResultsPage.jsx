@@ -1591,6 +1591,14 @@ export default function ResultsPage() {
     return "";
   }, [cityParam, stateParam, countryParam, latParam, lngParam]);
 
+  // Which matches are in the searched place rather than merely near it. The
+  // backend orders match_ids in-place-first and reports how many, so the
+  // split is already in hand — no extra field, no second request.
+  const inScopeIds = useMemo(() => {
+    if (!placeScope || !Array.isArray(matchIds) || !placeScope.count) return null;
+    return new Set(matchIds.slice(0, placeScope.count));
+  }, [placeScope, matchIds]);
+
   // What to call the scope in prose. The backend keys a city scope by the name
   // it matched and a region scope by ISO code ("US-CA") — nobody wants to read
   // that, so prefer the label built from what the user actually typed.
@@ -2278,6 +2286,8 @@ export default function ResultsPage() {
               linkParams={searchParams.toString()}
               loading={loading}
               matchIds={matchIds}
+              inScopeIds={inScopeIds}
+              scopeLabel={scopeLabel}
               isFullscreen={mapFullscreen}
               onToggleFullscreen={() => setMapFullscreen((v) => !v)}
               isStacked={stackedMap}

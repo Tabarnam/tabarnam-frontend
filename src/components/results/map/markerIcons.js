@@ -43,8 +43,16 @@ const cache = new Map();
  * @param {number|null} [opts.delayMs] - cascade animation delay; null = no cascade
  * @param {number} [opts.count] - stack badge count (coordinate pile-ups)
  */
-export function makePinIcon({ kind, lowPrecision = false, active = false, delayMs = null, count = 0, index = false }) {
-  const key = `${kind}|${lowPrecision ? 1 : 0}|${active ? 1 : 0}|${delayMs ?? "x"}|${count}|${index ? 1 : 0}`;
+export function makePinIcon({
+  kind,
+  lowPrecision = false,
+  active = false,
+  delayMs = null,
+  count = 0,
+  index = false,
+  inScope = false,
+}) {
+  const key = `${kind}|${lowPrecision ? 1 : 0}|${active ? 1 : 0}|${delayMs ?? "x"}|${count}|${index ? 1 : 0}|${inScope ? 1 : 0}`;
   const cached = cache.get(key);
   if (cached) return cached;
 
@@ -56,6 +64,7 @@ export function makePinIcon({ kind, lowPrecision = false, active = false, delayM
     active && "tab-pin--active",
     delayMs != null && "tab-pin--cascade",
     index && "tab-pin--index",
+    inScope && "tab-pin--in-scope",
   ]
     .filter(Boolean)
     .join(" ");
