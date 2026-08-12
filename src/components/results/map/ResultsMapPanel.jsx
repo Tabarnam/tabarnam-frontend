@@ -440,7 +440,14 @@ export default function ResultsMapPanel({
   );
 
   return (
-    <div ref={wrapperRef} className="results-map relative w-full h-full">
+    <div
+      ref={wrapperRef}
+      className={cn(
+        "results-map relative w-full h-full",
+        // Only when tucked under the sticky site header — see map.css.
+        !isFullscreen && "results-map--below-header"
+      )}
+    >
       <MapContainer
         ref={mapRef}
         center={[20, 0]}
@@ -497,7 +504,10 @@ export default function ResultsMapPanel({
       </MapContainer>
 
       {/* HQ/MFG/Both pin filter — map-scoped UI; state lives in the URL. */}
-      <div className="absolute top-2 left-2 z-[1000] flex gap-1 bg-muted/90 backdrop-blur-sm rounded-lg p-0.5 border border-border">
+      <div
+        style={{ top: "var(--tab-map-chrome-top)" }}
+        className="absolute left-2 z-[1000] flex gap-1 bg-muted/90 backdrop-blur-sm rounded-lg p-0.5 border border-border"
+      >
         {filterBtn("both", "All")}
         {filterBtn("hq", "HQ")}
         {filterBtn("mfg", "Mfg")}
@@ -545,7 +555,10 @@ export default function ResultsMapPanel({
           onClick={onToggleFullscreen}
           aria-pressed={isFullscreen}
           title={isFullscreen ? "Exit full screen (Esc)" : "Full screen map"}
-          className="absolute top-[76px] right-2 z-[1000] w-8 h-8 inline-flex items-center justify-center rounded-md bg-card/90 backdrop-blur-sm border border-border text-foreground hover:bg-muted transition-colors"
+          // Sits directly under the two 30px zoom buttons, wherever those
+          // ended up (66px = 2 × 30 + a 6px gap).
+          style={{ top: "calc(var(--tab-map-chrome-top) + 66px)" }}
+          className="absolute right-2 z-[1000] w-8 h-8 inline-flex items-center justify-center rounded-md bg-card/90 backdrop-blur-sm border border-border text-foreground hover:bg-muted transition-colors"
         >
           {isFullscreen ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}
           <span className="sr-only">{isFullscreen ? "Exit full screen" : "Full screen map"}</span>
