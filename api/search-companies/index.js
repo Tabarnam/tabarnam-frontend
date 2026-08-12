@@ -28,6 +28,11 @@ const { TTLCache, buildCacheKey } = require("../_responseCache");
 const { getPins } = require("../_pinsIndex");
 const { rankByDistance } = require("../_geoRank");
 
+// How many nearest companies a location-only search returns. The ranking
+// covers the entire catalog; this bounds what travels back over the wire and
+// what pagination pretends to offer.
+const GEO_RESULT_HORIZON = 500;
+
 // In-worker hot-query cache. Two anonymous users searching "candle" within
 // the TTL window share the same Cosmos work. Cross-user by design (cache
 // key is query+params, never user identity). Per-worker, so 1-3 workers
@@ -1793,7 +1798,13 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   if (geoOnly) {
     try {
       const pins = await getPins(container);
-      const ranked = rankByDistance(pins?.payload, user_location, sort === "hq" ? "hq" : "manu");
+      const rankedAll = rankByDistance(pins?.payload, user_location, sort === "hq" ? "hq" : "manu");
+      // Rank the whole catalog, but RETURN a horizon. Every company has a
+      // distance, so an uncapped result set claimed "13,739 closest results",
+      // offered 1,145 pages, and shipped a 479KB id list in a 561KB response.
+      // 500 matches the pool size the rest of the pipeline uses and is far
+      // past where "nearest" stops meaning anything.
+      const ranked = rankedAll.slice(0, GEO_RESULT_HORIZON);
       if (ranked.length > 0) {
         const totalCount = ranked.length;
         const totalPages = Math.ceil(totalCount / take) || 1;
@@ -1861,6 +1872,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               take,
               user_location,
               _geoRanked: true,
+              // What was ranked vs what is being returned — the gap is the
+              // horizon, not a retrieval limit.
+              _geoRankedTotal: rankedAll.length,
               _geoCandidates: totalCount,
             },
           },
