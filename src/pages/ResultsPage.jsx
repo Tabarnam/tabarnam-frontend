@@ -1924,10 +1924,10 @@ export default function ResultsPage() {
         className={cn(
           mapOpen && !stackedMap && "hidden lg:block min-w-0",
           mapOpen && stackedMap && "min-w-0",
-          // Between the stack threshold and ~45% the card's wide 6/5-column
+          // Between the stack threshold and 50% the card's wide 6/5-column
           // layout no longer fits the column (it keys off viewport width, not
           // container width), so stack the card rather than let it shear.
-          sideBySide && splitRatio < 45 && "results-list--narrow"
+          sideBySide && splitRatio < 50 && "results-list--narrow"
         )}
       >
       <div className="mb-4">
