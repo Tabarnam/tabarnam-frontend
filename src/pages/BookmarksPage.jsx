@@ -11,6 +11,8 @@ import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { searchCompanies } from "@/lib/searchCompanies";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { toast } from "@/lib/toast";
+import ShareDialog from "@/components/ShareDialog";
+import { nativeShare, prefersNativeShare } from "@/lib/share";
 
 const DEFAULT_LIST_ID = "saved";
 
@@ -435,6 +437,9 @@ export default function BookmarksPage() {
   const navigate = useNavigate();
   const [openFolderId, setOpenFolderId] = useState(null);
   const [coverEditorListId, setCoverEditorListId] = useState(null);
+  // Share payload is computed per-list on click (the companies are encoded into
+  // the URL), so the dialog is driven by state rather than a rendered trigger.
+  const [shareTarget, setShareTarget] = useState(null);
 
   const itemsByList = useMemo(() => {
     const map = {};
@@ -479,15 +484,11 @@ export default function BookmarksPage() {
     } catch { encoded = btoa(unescape(encodeURIComponent(json))); }
     const shareUrl = `${window.location.origin}/?bookmarks=${encodeURIComponent(encoded)}`;
     const shareTitle = `Check out my "${payload.n}" bookmark list on Tabarnam`;
-    const shareText = `${shareTitle}\n\n${shareUrl}`;
-    if (navigator.share) {
-      try { await navigator.share({ title: shareTitle, text: shareText, url: shareUrl }); return; }
-      catch (err) { if (err.name === "AbortError") return; }
+    if (prefersNativeShare()) {
+      const result = await nativeShare({ title: shareTitle, text: shareTitle, url: shareUrl });
+      if (result !== "fail") return;
     }
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      toast.success("Share link copied to clipboard");
-    } catch { toast.error("Failed to copy"); }
+    setShareTarget({ title: shareTitle, url: shareUrl });
   }, [lists, itemsByList]);
 
   const handleDelete = useCallback((listId, listName) => {
@@ -593,6 +594,15 @@ export default function BookmarksPage() {
           onClose={() => setCoverEditorListId(null)}
         />
       )}
+
+      <ShareDialog
+        open={!!shareTarget}
+        onOpenChange={(open) => { if (!open) setShareTarget(null); }}
+        dialogTitle="Share bookmark list"
+        shareTitle={shareTarget?.title || ""}
+        shareMessage={shareTarget?.title || ""}
+        shareUrl={shareTarget?.url || ""}
+      />
     </>
   );
 }

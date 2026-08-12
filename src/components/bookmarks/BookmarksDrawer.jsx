@@ -5,6 +5,8 @@ import { useBookmarks } from "@/hooks/useBookmarks";
 import { searchCompanies } from "@/lib/searchCompanies";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { toast } from "@/lib/toast";
+import ShareDialog from "@/components/ShareDialog";
+import { nativeShare, prefersNativeShare } from "@/lib/share";
 
 const DEFAULT_LIST_ID = "saved";
 
@@ -235,30 +237,6 @@ function ListSection({ list, items, onRemove, onRemoveFromAll, onNavigate, onDra
   );
 }
 
-async function copyToClipboard(text) {
-  const value = (text || "").toString();
-  if (!value.trim()) return false;
-  try {
-    await navigator.clipboard.writeText(value);
-    return true;
-  } catch {
-    try {
-      const el = document.createElement("textarea");
-      el.value = value;
-      el.setAttribute("readonly", "");
-      el.style.position = "absolute";
-      el.style.left = "-9999px";
-      document.body.appendChild(el);
-      el.select();
-      const ok = document.execCommand("copy");
-      document.body.removeChild(el);
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
-
 function ListHeader({ list, onRename, onDelete, onShare, onSort, onOpenInResults, itemCount }) {
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -438,6 +416,9 @@ export default function BookmarksDrawer() {
 
   const [creatingList, setCreatingList] = useState(false);
   const [newListName, setNewListName] = useState("");
+  // Share payload is computed per-list on click (the companies are encoded into
+  // the URL), so the dialog is driven by state rather than a rendered trigger.
+  const [shareTarget, setShareTarget] = useState(null);
   // Item drag state (move items between lists)
   const dragRef = useRef(null);
   const [dropTargetId, setDropTargetId] = useState(null);
@@ -630,22 +611,12 @@ export default function BookmarksDrawer() {
     }
     const shareUrl = `${window.location.origin}/?bookmarks=${encodeURIComponent(encoded)}`;
     const shareTitle = `Check out my "${payload.n}" bookmark list on Tabarnam`;
-    const shareText = `${shareTitle}\n\n${shareUrl}`;
 
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
-        return;
-      } catch (error) {
-        if (error.name === "AbortError") return;
-      }
+    if (prefersNativeShare()) {
+      const result = await nativeShare({ title: shareTitle, text: shareTitle, url: shareUrl });
+      if (result !== "fail") return;
     }
-    const ok = await copyToClipboard(shareUrl);
-    if (ok) {
-      toast.success("Share link copied to clipboard");
-    } else {
-      toast.error("Failed to copy");
-    }
+    setShareTarget({ title: shareTitle, url: shareUrl });
   }, [lists, itemsByList]);
 
   return (
@@ -806,6 +777,15 @@ export default function BookmarksDrawer() {
           )}
         </div>
       </div>
+
+      <ShareDialog
+        open={!!shareTarget}
+        onOpenChange={(open) => { if (!open) setShareTarget(null); }}
+        dialogTitle="Share bookmark list"
+        shareTitle={shareTarget?.title || ""}
+        shareMessage={shareTarget?.title || ""}
+        shareUrl={shareTarget?.url || ""}
+      />
     </>
   );
 }
