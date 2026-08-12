@@ -112,14 +112,14 @@ function ClickableLogo({ websiteUrl, logoUrl, displayName, imgClassName, onError
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
       title={`Visit ${displayName}`}
-      className="group/logo relative block rounded ring-1 ring-transparent transition hover:ring-border"
+      className="group/logo relative block rounded-md ring-2 ring-transparent transition hover:ring-ring"
     >
       {img}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute right-1 top-1 flex items-center justify-center rounded-md bg-background/90 p-1 opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-150 group-hover/logo:opacity-100"
+        className="pointer-events-none absolute right-1 top-1 flex items-center justify-center rounded-md bg-background/90 p-1 opacity-0 shadow-sm ring-1 ring-ring transition-opacity duration-150 group-hover/logo:opacity-100"
       >
-        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+        <ExternalLink className="h-3.5 w-3.5 text-primary" />
       </span>
     </a>
   );
