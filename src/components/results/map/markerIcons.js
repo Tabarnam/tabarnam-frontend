@@ -4,27 +4,48 @@
 // URL patching needed.
 import L from "leaflet";
 
-// HQ / Home: classic teardrop pin with a house glyph. 30x38, tip at bottom
-// center. Glyph geometry uses INTEGER coordinates and ≥3px features —
-// sub-pixel details smear when Leaflet positions markers at fractional pixels.
-const HQ_SVG = `<svg width="30" height="38" viewBox="0 0 30 38" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <path class="tab-pin__shape" d="M15 1C7.8 1 2 6.8 2 14c0 9.8 13 23 13 23s13-13.2 13-23C28 6.8 22.2 1 15 1z"/>
-  <path class="tab-pin__glyph" d="M15 6l9 8h-3v8H9v-8H6z"/>
+// Geometry lives here as bare path data so the map pins and the map's legend
+// are drawn from the SAME source. A legend that quietly drifts from the pins
+// it explains is worse than no legend.
+//
+// Glyph geometry uses INTEGER coordinates and ≥3px features — sub-pixel
+// details smear when Leaflet positions markers at fractional pixels.
+
+// HQ / Home: classic teardrop, tip at bottom center, viewBox 30x38.
+export const HQ_VIEWBOX = "0 0 30 38";
+export const HQ_SHAPE_D =
+  "M15 1C7.8 1 2 6.8 2 14c0 9.8 13 23 13 23s13-13.2 13-23C28 6.8 22.2 1 15 1z";
+/** A house: roof spanning the full glyph width, then the body beneath it. */
+export const HQ_GLYPH_D = "M15 6l9 8h-3v8H9v-8H6z";
+
+// MFG: diamond, bottom vertex is the anchor, viewBox 32x36 — distinct from HQ
+// by shape AND colour (see map.css for the pairing).
+export const MFG_VIEWBOX = "0 0 32 36";
+export const MFG_SHAPE_D = "M16 1L31 16L16 35L1 16Z";
+/**
+ * A hex bolt head, seen from above. A wrench was tried first and lost too much
+ * at 12px — a spanner is mostly thin diagonal shaft, which is exactly what
+ * disappears at that size. Six straight edges and a round hole survive it,
+ * and read as "made" just as immediately.
+ */
+export const MFG_GLYPH_D = "M16 9L22 12.5V19.5L16 23L10 19.5V12.5Z";
+
+// The search origin: a plain red teardrop, no glyph — the one marker
+// convention everybody already reads as "you are here".
+export const HOME_VIEWBOX = "0 0 26 34";
+export const HOME_SHAPE_D =
+  "M13 1C6.9 1 2 5.9 2 12c0 8.4 11 21 11 21s11-12.6 11-21C24 5.9 19.1 1 13 1z";
+
+const HQ_SVG = `<svg width="30" height="38" viewBox="${HQ_VIEWBOX}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path class="tab-pin__shape" d="${HQ_SHAPE_D}"/>
+  <path class="tab-pin__glyph" d="${HQ_GLYPH_D}"/>
   <rect class="tab-pin__glyph-cut" x="13" y="16" width="4" height="6" shape-rendering="crispEdges"/>
 </svg>`;
 
-// MFG: diamond pin with a wrench glyph. 32x36, bottom vertex is the anchor —
-// distinct from HQ by shape AND color (colorblind-safe pairing).
-// The wrench is built from axis-aligned rects and then rotated as a group:
-// composing it on the diagonal directly would mean hand-fitting eight corner
-// coordinates, and the rects stay easy to nudge.
-const MFG_SVG = `<svg width="32" height="36" viewBox="0 0 32 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <path class="tab-pin__shape" d="M16 1L31 16L16 35L1 16Z"/>
-  <g transform="rotate(-45 16 16)">
-    <rect class="tab-pin__glyph" x="14" y="15" width="4" height="10" rx="1"/>
-    <rect class="tab-pin__glyph" x="11" y="7" width="10" height="9" rx="2"/>
-    <rect class="tab-pin__glyph-cut" x="14" y="6" width="4" height="6"/>
-  </g>
+const MFG_SVG = `<svg width="32" height="36" viewBox="${MFG_VIEWBOX}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path class="tab-pin__shape" d="${MFG_SHAPE_D}"/>
+  <path class="tab-pin__glyph" d="${MFG_GLYPH_D}"/>
+  <circle class="tab-pin__glyph-cut" cx="16" cy="16" r="3"/>
 </svg>`;
 
 const SIZES = {
@@ -98,8 +119,8 @@ export function makeUserIcon() {
   const icon = L.divIcon({
     className: "tab-pin-anchor",
     html: `<div class="tab-home" title="Your search location — distances are measured from here">
-      <svg width="26" height="34" viewBox="0 0 26 34" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <path class="tab-home__pin" d="M13 1C6.9 1 2 5.9 2 12c0 8.4 11 21 11 21s11-12.6 11-21C24 5.9 19.1 1 13 1z"/>
+      <svg width="26" height="34" viewBox="${HOME_VIEWBOX}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path class="tab-home__pin" d="${HOME_SHAPE_D}"/>
         <circle class="tab-home__hole" cx="13" cy="12" r="4"/>
       </svg>
     </div>`,
