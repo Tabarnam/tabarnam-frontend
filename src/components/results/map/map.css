@@ -248,9 +248,28 @@
   font: inherit;
 }
 
+/* CARTO's dark basemap draws streets barely above the land it sits on: land
+   lands around 18/255 and road fill around 36/255, an 18-level gap that all
+   but disappears on a dim screen.
+
+   brightness() is the only useful lever here, and the intuitive one is a
+   trap: contrast() pivots around a 0.5 midpoint, and since BOTH values sit
+   far below it, contrast(1.4) drives land and road alike to pure black and
+   erases the streets entirely. brightness() multiplies instead, so the gap
+   widens with the values — at 1.6 it goes 18 → 29 (land 29, road 58), which
+   makes streets legible while the map still reads as dark rather than grey.
+
+   Tiles only. Pins, controls and labels-as-markers are separate elements and
+   keep their own colour. Applies to every Leaflet map we render (results,
+   made-in, explore) since all three use the same CARTO dark tiles. */
+.dark .leaflet-tile {
+  filter: brightness(1.6);
+}
+
 /* Fallback dark-tile treatment for plain OSM tiles — inert unless the
    TileLayer opts in with className="osm-fallback" (primary provider is
-   CARTO's purpose-built dark basemap). */
+   CARTO's purpose-built dark basemap). Overrides the brightness lift above:
+   inverted OSM has its own contrast profile and does not want it. */
 .dark .results-map .osm-fallback .leaflet-tile {
   filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
 }
