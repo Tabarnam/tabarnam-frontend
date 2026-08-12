@@ -28,6 +28,15 @@ export default function MapHoverCard({
   const tagline = typeof company.tagline === "string" ? company.tagline.trim() : "";
   const qq = getQQScore(company);
   const kindLabel = marker.kind === "mfg" ? "Manufacturing" : "Home/HQ";
+  // The company's home base, from whichever source this marker came from:
+  // page results carry the full doc, index pins carry the pins-index label.
+  const hqLine = (() => {
+    if (marker.hqLabel) return marker.hqLabel;
+    const raw = company.headquarters_location;
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+    return parts.length >= 2 ? `${parts[0]}, ${parts[1]}` : parts[0];
+  })();
 
   const href = (() => {
     // Index pins (matches beyond the loaded page) aren't in the current
@@ -87,6 +96,15 @@ export default function MapHoverCard({
           <span className="text-muted-foreground"> · {marker.dist.toFixed(1)} {unit}</span>
         ) : null}
       </div>
+      {/* On a manufacturing pin, name the company's home base too — "made
+          here, based there" is the comparison the whole product exists for,
+          and the card is where a user actually asks it. */}
+      {marker.kind === "mfg" && hqLine && (
+        <div className="text-xs mt-0.5">
+          <span className="font-medium">Home/HQ</span>
+          <span className="text-muted-foreground"> · {hqLine}</span>
+        </div>
+      )}
       {marker.lowPrecision && (
         <div className="text-[11px] text-muted-foreground/80 mt-1 italic">
           Approximate — country/region-level location

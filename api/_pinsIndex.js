@@ -34,7 +34,9 @@ const BLOB_NAME = "map_pins.json";
 // v4: each mfg pin carries its OWN cc + region, so a place-scoped map plots
 //     only the pins actually in that place (a company that manufactures in
 //     California and Italy must not drop an Italy pin on the California page).
-const PAYLOAD_VERSION = 4;
+// v5: short place labels (hqLabel + a label per mfg pin) so hover cards can
+//     name the location instead of showing a bare "Manufacturing".
+const PAYLOAD_VERSION = 5;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const BLOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const TAGLINE_MAX = 80;
@@ -93,10 +95,30 @@ function isLowPrecision(entry) {
 }
 
 /**
+ * A compact "City, Region" label for a hover card. Full formatted addresses
+ * ("Brea, CA, USA" / "Milan, Metropolitan City of Milan, Italy") are too long
+ * for the card and repeat the country the page already implies, so keep the
+ * first two comma segments and cap the length.
+ */
+function shortPlace(entry) {
+  if (entry == null) return null;
+  const raw =
+    typeof entry === "string"
+      ? entry
+      : entry.formatted || entry.geocode_formatted_address || entry.full_address || entry.address || "";
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  const parts = text.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  const label = parts.length >= 2 ? `${parts[0]}, ${parts[1]}` : parts[0];
+  return label.length > 42 ? `${label.slice(0, 41)}…` : label;
+}
+
+/**
  * Build one company's pins entry:
  *   [id, name, tagline, domain, hqLat|null, hqLng|null,
- *    [[mLat, mLng, lowPrec01, cc|null, region|null], ...], hqCC|null,
- *    [mfgCC, ...], hqRegion|null, [mfgRegion, ...]]
+ *    [[mLat, mLng, lowPrec01, cc|null, region|null, label|null], ...],
+ *    hqCC|null, [mfgCC, ...], hqRegion|null, [mfgRegion, ...], hqLabel|null]
  * hqCC / mfgCCs are ISO 3166-1 alpha-2 attributions and hqRegion / mfgRegions
  * are ISO 3166-2 subdivisions ("US-CA") resolved from the location entries
  * (see _countryResolve.js / _regionResolve.js) — they power the /made-in
@@ -145,7 +167,7 @@ function buildCompanyEntry(company) {
     seen.add(key);
     // Per-pin cc/region: a place-scoped map filters on these so it never
     // shows a company's other-country pins.
-    mfg.push([round4(lat), round4(lng), isLowPrecision(g) ? 1 : 0, cc, region]);
+    mfg.push([round4(lat), round4(lng), isLowPrecision(g) ? 1 : 0, cc, region, shortPlace(g)]);
   }
 
   // HQ country + region: structured headquarters entries first, then the
@@ -157,10 +179,12 @@ function buildCompanyEntry(company) {
     ...(Array.isArray(company.headquarters) ? company.headquarters : []),
     company.headquarters_location,
   ];
+  let hqLabel = null;
   for (const h of hqEntries) {
     hqCC = resolveLocationCountry(h);
     if (hqCC) {
       hqRegion = resolveLocationRegion(h, hqCC);
+      hqLabel = shortPlace(h) || shortPlace(company.headquarters_location);
       break;
     }
   }
@@ -178,6 +202,7 @@ function buildCompanyEntry(company) {
     [...mfgCCs],
     hqRegion,
     [...mfgRegions],
+    hqLabel,
   ];
 }
 

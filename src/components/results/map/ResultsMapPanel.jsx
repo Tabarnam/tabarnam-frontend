@@ -2,10 +2,10 @@
 // module boundary (React.lazy in ResultsPage) so the ~150 KB vendor-leaflet
 // chunk loads on first toggle — never in the main bundle (900 KB CI gate).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, Polyline, ZoomControl, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polyline, ZoomControl, AttributionControl, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useTheme } from "next-themes";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { Maximize2, Minimize2, Columns } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import "./map.css";
 import { cn } from "@/lib/utils";
@@ -165,6 +165,8 @@ export default function ResultsMapPanel({
   matchIds = null,
   isFullscreen = false,
   onToggleFullscreen,
+  isStacked = false,
+  onExitStacked,
 }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -354,12 +356,19 @@ export default function ResultsMapPanel({
         minZoom={1}
         worldCopyJump
         className="w-full h-full"
-        attributionControl
+        // The OSM + CARTO credit is REQUIRED by ODbL and CARTO's basemap
+        // terms, so it stays — but the "Leaflet" prefix is optional and the
+        // rest is styled quiet (see .leaflet-control-attribution in map.css).
+        attributionControl={false}
         zoomControl={false}
       >
         {/* Default zoom control lives top-LEFT, where the HQ/MFG/Both pill
             would cover its + button — pin it top-right instead. */}
         <ZoomControl position="topright" />
+        {/* OSM + CARTO credit is required by ODbL and CARTO's terms, so it
+            stays — prefix={false} drops only the optional "Leaflet" mention,
+            and map.css keeps it small and faded. */}
+        <AttributionControl position="bottomright" prefix={false} />
         <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} />
         <FitBounds boundsKey={boundsKey} points={fitPoints} loading={loading} recenterNonce={recenterNonce} />
         <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
@@ -416,6 +425,20 @@ export default function ResultsMapPanel({
         >
           {isFullscreen ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}
           <span className="sr-only">{isFullscreen ? "Exit full screen" : "Full screen map"}</span>
+        </button>
+      )}
+
+      {/* In stacked mode there is no divider to drag back, so offer the way
+          out explicitly. */}
+      {isStacked && onExitStacked && (
+        <button
+          type="button"
+          onClick={onExitStacked}
+          title="Put the map back beside the results"
+          className="absolute top-2 right-12 z-[1000] inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md bg-card/90 backdrop-blur-sm border border-border text-foreground hover:bg-muted transition-colors"
+        >
+          <Columns size={14} aria-hidden="true" />
+          Side by side
         </button>
       )}
 

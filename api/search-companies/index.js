@@ -25,6 +25,8 @@ const {
   startBackgroundLoad: startTypoBackgroundLoad,
 } = require("../_typoCorrection");
 const { TTLCache, buildCacheKey } = require("../_responseCache");
+const { getPins } = require("../_pinsIndex");
+const { rankByDistance } = require("../_geoRank");
 
 // In-worker hot-query cache. Two anonymous users searching "candle" within
 // the TTL window share the same Cosmos work. Cross-user by design (cache
@@ -1764,6 +1766,114 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     : clamp(skip + take + 1, 1, 501);
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
+
+  // ── Geo fast path: a location search with no query ────────────────────────
+  // The generic pipeline has NO geographic query. For a query-less search it
+  // retrieved `TOP 500 ... ORDER BY c._ts DESC` — the most recently UPDATED
+  // companies — and re-ranked those by distance, so it answered "which of the
+  // 500 most recently touched records is nearest?" Measured on production
+  // 2026-08-12: a search centred on San Dimas returned ZERO of the 19
+  // companies actually in San Dimas, while surfacing manufacturers in
+  // Corning NY and Hartford WI.
+  //
+  // The pins index already holds every company's coordinates, so we rank the
+  // whole catalog by real distance (~1ms over 13.7k entries) and hydrate only
+  // the requested page. Deliberately narrow: any text query, domain lookup or
+  // attribute filter falls through to the normal pipeline, which owns
+  // relevance scoring.
+  const geoOnly =
+    !!user_location &&
+    !q_norm &&
+    !domainParam &&
+    !amazonOnly &&
+    !country && !state && !city && !hqCountry && !mfgCountry &&
+    (sort === "manu" || sort === "hq" || sort === "recent") &&
+    !!container;
+
+  if (geoOnly) {
+    try {
+      const pins = await getPins(container);
+      const ranked = rankByDistance(pins?.payload, user_location, sort === "hq" ? "hq" : "manu");
+      if (ranked.length > 0) {
+        const totalCount = ranked.length;
+        const totalPages = Math.ceil(totalCount / take) || 1;
+
+        if (countOnly) {
+          return json(
+            {
+              ok: true,
+              success: true,
+              totalCount,
+              totalPages,
+              // No relevance scoring happened, so "direct matches" is not a
+              // meaningful number here — same contract as the old path.
+              directCount: null,
+              meta: { q: q_raw, sort, take, _geoRanked: true },
+            },
+            200,
+            req
+          );
+        }
+
+        const pageRanked = ranked.slice(skip, skip + take);
+        let items = [];
+        if (pageRanked.length > 0) {
+          const ids = pageRanked.map((r) => r.id);
+          const { resources } = await container.items
+            .query(
+              {
+                query: `SELECT ${SELECT_FIELDS} FROM c WHERE ARRAY_CONTAINS(@ids, c.id) AND ${softDeleteFilter}`,
+                parameters: [{ name: "@ids", value: ids }],
+              },
+              { enableCrossPartitionQuery: true }
+            )
+            .fetchAll();
+          const byId = new Map((resources || []).map((r) => [String(r.id), r]));
+          // Preserve the distance ranking — the Cosmos result order is
+          // arbitrary, and a doc missing here (deleted between index rebuilds)
+          // simply drops out.
+          items = pageRanked
+            .map((r) => {
+              const doc = byId.get(r.id);
+              if (!doc) return null;
+              const pub = mapCompanyToPublic(doc);
+              if (pub) pub._geoDistanceKm = Math.round(r.km * 10) / 10;
+              return pub;
+            })
+            .filter(Boolean);
+        }
+
+        return json(
+          {
+            ok: true,
+            success: true,
+            items,
+            count: items.length,
+            hasMore: totalCount > skip + take,
+            totalCount,
+            totalPages,
+            directCount: null,
+            ...(includeMatchIds ? { match_ids: ranked.map((r) => r.id) } : {}),
+            meta: {
+              q: q_raw,
+              sort,
+              skip,
+              take,
+              user_location,
+              _geoRanked: true,
+              _geoCandidates: totalCount,
+            },
+          },
+          200,
+          req
+        );
+      }
+    } catch (e) {
+      // Never fail a search because the index was cold — fall through to the
+      // original pipeline.
+      context?.log?.(`[search-companies] geo fast path unavailable: ${e?.message || e}`);
+    }
+  }
 
   // Pre-Cosmos typo correction. When the user types a common product
   // word with a typo ("paintt", "puzle", "jerkey-but-as-an-actual-typo"),

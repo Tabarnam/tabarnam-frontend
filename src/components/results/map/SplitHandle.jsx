@@ -8,7 +8,10 @@ import React, { useCallback, useEffect, useRef } from "react";
  * Accessible as a real separator: focusable, arrow keys nudge, Home/End jump
  * to the bounds, and it reports its position via aria-valuenow.
  */
-export const SPLIT_MIN = 20;
+// The list can shrink to a third of the row (map takes two thirds) — the
+// product owner's call, favouring user autonomy. Below that the company
+// cards' 6/5-column grid wraps into unreadable slivers.
+export const SPLIT_MIN = 33;
 export const SPLIT_MAX = 80;
 
 export default function SplitHandle({ ratio, onRatio, containerRef }) {
@@ -95,11 +98,14 @@ export default function SplitHandle({ ratio, onRatio, containerRef }) {
         onRatio(60);
       }}
       title="Drag to resize · double-click to reset"
-      className="hidden lg:flex items-center justify-center cursor-col-resize group touch-none select-none focus:outline-none"
+      // Sticky + full-column height: the rail stays reachable after the user
+      // scrolls into the results, instead of being stranded at the top.
+      className="hidden lg:flex items-start justify-center cursor-col-resize group touch-none select-none focus:outline-none sticky top-4 h-[calc(100vh-6rem)]"
     >
       {/* Thin rail that thickens on hover/focus so the target is easy to grab
-          without the divider shouting for attention at rest. */}
-      <div className="h-16 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus:bg-primary group-active:bg-primary" />
+          without the divider shouting for attention at rest. Centred in the
+          sticky column so it sits mid-viewport while scrolling. */}
+      <div className="mt-[45vh] h-16 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus:bg-primary group-active:bg-primary" />
     </div>
   );
 }

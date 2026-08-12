@@ -36,6 +36,11 @@ const MemoRow = React.memo(ExpandableCompanyRow);
 // drops from 100+ requests to 5-10 (visible rows only).
 const PAGE_SIZE = 25;
 
+// List share below which the split view stops being a split: the map takes
+// the full width with the results full width beneath it. 40% list ≈ the map
+// passing 60%, which is where a shared row stops doing either side justice.
+const STACK_BELOW_RATIO = 40;
+
 /** Skeleton placeholder that mirrors the collapsed ExpandableCompanyRow grid */
 function SkeletonRow() {
   return (
@@ -445,6 +450,11 @@ export default function ResultsPage() {
   const splitRef = useRef(null);
   const [splitRatio, setSplitRatio] = useSplitRatio();
   const [mapFullscreen, setMapFullscreen] = useState(false);
+  // Past this point the map has outgrown sharing a row: rather than squeeze
+  // the cards into a sliver, both the map and the list take the full width,
+  // map on top. Dragging back (or the "Side by side" button) restores columns.
+  const stackedMap = mapOpen && !mapFullscreen && splitRatio < STACK_BELOW_RATIO;
+  const sideBySide = mapOpen && !mapFullscreen && !stackedMap;
   // Every matched company id from the full search response (≤500) — the map
   // joins these against the /api/map-pins index to plot matches beyond the
   // loaded page as lighter "index pins".
@@ -1544,6 +1554,25 @@ export default function ResultsPage() {
     return chips;
   }, [countryParam, stateParam, cityParam, sortParam, promotedId, displayList]);
 
+  // Human label for a location-only search: the most specific place the user
+  // actually named. Falls back to "your location" when the point came from
+  // the device/IP rather than typed input.
+  const locationLabel = useMemo(() => {
+    const city = String(cityParam || "").trim();
+    const state = String(stateParam || "").trim();
+    const country = String(countryParam || "").trim();
+    const specific = city || state || country;
+    if (specific) {
+      // "San Dimas, CA" reads better than either part alone when both exist.
+      if (city && state && state.toLowerCase() !== city.toLowerCase()) {
+        return `${city}, ${state}`;
+      }
+      return specific;
+    }
+    if (latParam && lngParam) return "your location";
+    return "";
+  }, [cityParam, stateParam, countryParam, latParam, lngParam]);
+
   const languageSelector = (
     <select
       className="h-11 text-sm border border-input rounded-md px-3 bg-background text-foreground font-medium hover:border-muted-foreground transition-colors"
@@ -1714,6 +1743,50 @@ export default function ResultsPage() {
                 />
               </>
             )}
+            {/* Location-only searches got NO header line at all, which left
+                the result set unexplained: it isn't "companies in San Dimas",
+                it's the catalog ranked by nearest manufacturing. Say that,
+                and let the tooltip explain why the map reaches overseas. */}
+            {!qParam && locationLabel && (
+              <>
+                <span>
+                  for location{" "}
+                  <span className="font-medium text-foreground">{locationLabel}</span>
+                </span>
+                {totalMatchCount > 0 && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="whitespace-nowrap cursor-default underline decoration-dotted underline-offset-2">
+                          · {totalMatchCount >= 500 ? "500+" : totalMatchCount} closest{" "}
+                          {totalMatchCount === 1 ? "result" : "results"}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[320px] text-xs">
+                        <p className="m-0">
+                          Companies ranked by how close their manufacturing is to {locationLabel}
+                          {sortBy === "hq" ? " (headquarters, in this sort)" : ""}.
+                        </p>
+                        <p className="m-0 mt-1.5">
+                          The map plots <span className="font-medium">every</span> location of those
+                          companies — including plants overseas — so pins may appear far from{" "}
+                          {locationLabel}. That contrast is the point: a company can be based nearby
+                          and still manufacture on the other side of the world.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                <ShareButton
+                  title={`Companies near ${locationLabel} on Tabarnam`}
+                  text={`Companies near ${locationLabel} on Tabarnam`}
+                  url={window.location.href}
+                  label="Share these search results"
+                  dialogTitle="Share search results"
+                  className="w-8 h-8 min-w-[32px] min-h-[32px]"
+                />
+              </>
+            )}
             {/* List | Map view toggle. Hidden in bookmark-list mode (mapOpen
                 is forced off there and a toggle that can't open would lie). */}
             {!listParam && (
@@ -1835,14 +1908,28 @@ export default function ResultsPage() {
           grid-template-columns is inert below lg, where display isn't grid. */}
       <div
         ref={splitRef}
-        className={mapOpen && !mapFullscreen ? "lg:grid lg:gap-3 lg:items-start" : undefined}
+        className={cn(
+          sideBySide && "lg:grid lg:gap-3 lg:items-start",
+          // Stacked: the map gave up on sharing the row, so both it and the
+          // results get the full width back (order-first puts the map above).
+          stackedMap && "lg:flex lg:flex-col"
+        )}
         style={
-          mapOpen && !mapFullscreen
+          sideBySide
             ? { gridTemplateColumns: `minmax(0, ${splitRatio}fr) 14px minmax(0, ${100 - splitRatio}fr)` }
             : undefined
         }
       >
-      <div className={mapOpen ? "hidden lg:block min-w-0" : undefined}>
+      <div
+        className={cn(
+          mapOpen && !stackedMap && "hidden lg:block min-w-0",
+          mapOpen && stackedMap && "min-w-0",
+          // Between the stack threshold and 50% the card's wide 6/5-column
+          // layout no longer fits the column (it keys off viewport width, not
+          // container width), so stack the card rather than let it shear.
+          sideBySide && splitRatio < 50 && "results-list--narrow"
+        )}
+      >
       <div className="mb-4">
         {displayList.length > 0 ? (
           <div className="space-y-0">
@@ -2051,8 +2138,10 @@ export default function ResultsPage() {
         })()
       )}
       </div>
-      {/* Drag handle sits between the two columns (its own grid track). */}
-      {mapOpen && !mapFullscreen && (
+      {/* Drag handle sits between the two columns (its own grid track). It
+          sticks near the middle of the viewport so the balance stays
+          adjustable after the user has scrolled into the results. */}
+      {sideBySide && (
         <SplitHandle ratio={splitRatio} onRatio={setSplitRatio} containerRef={splitRef} />
       )}
       {/* Map panel — mounted only when open, so the leaflet chunk loads on
@@ -2063,9 +2152,16 @@ export default function ResultsPage() {
         <aside
           className={cn(
             "relative overflow-hidden border border-border bg-card",
-            mapFullscreen
-              ? "fixed inset-0 z-[250] h-screen w-screen rounded-none border-0"
-              : "lg:sticky lg:top-4 z-0 h-[calc(100dvh-9rem)] lg:h-[calc(100vh-6rem)] rounded-lg"
+            mapFullscreen &&
+              "fixed inset-0 z-[250] h-screen w-screen rounded-none border-0",
+            // Stacked: full width above the results (order-first), a shorter
+            // band since it no longer has to fill a column's height.
+            stackedMap && "order-first w-full h-[60vh] mb-4 z-0 rounded-lg",
+            // Side-by-side: sticky column that tracks the page as it scrolls.
+            sideBySide &&
+              "lg:sticky lg:top-4 z-0 h-[calc(100dvh-9rem)] lg:h-[calc(100vh-6rem)] rounded-lg",
+            // Below lg the map is the whole view either way.
+            !mapFullscreen && !stackedMap && !sideBySide && "h-[calc(100dvh-9rem)] rounded-lg"
           )}
           style={{ isolation: "isolate" }}
         >
@@ -2085,6 +2181,8 @@ export default function ResultsPage() {
               matchIds={matchIds}
               isFullscreen={mapFullscreen}
               onToggleFullscreen={() => setMapFullscreen((v) => !v)}
+              isStacked={stackedMap}
+              onExitStacked={() => setSplitRatio(60)}
             />
           </React.Suspense>
         </aside>
