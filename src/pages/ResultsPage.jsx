@@ -459,6 +459,8 @@ export default function ResultsPage() {
   // joins these against the /api/map-pins index to plot matches beyond the
   // loaded page as lighter "index pins".
   const [matchIds, setMatchIds] = useState(null);
+  // { level, key, count, nearbyCount, nearbyRadius, nearbyUnit, nearbyStart }
+  const [placeScope, setPlaceScope] = useState(null);
   // True when the current center is the San Dimas last-resort fallback (no user
   // location + IP unresolved). Drives the editable "91773" prefill in SearchCard.
   const [fallbackCenter, setFallbackCenter] = useState(false);
@@ -840,6 +842,7 @@ export default function ResultsPage() {
 
     // Resolve typed location if present
     let searchLocation = null;
+    const resolvedGeo = { country: "", state: "", city: "" };
     try {
       // Fallback postal (91773) → San Dimas without geocoding (offline-safe).
       if ((city || "").trim() === SAN_DIMAS.postal && !state && !country) {
@@ -858,6 +861,12 @@ export default function ResultsPage() {
             searchLocation = { lat: r.lat, lng: r.lng };
             resolvedCC = r.countryCode || "";
           }
+          // Keep the structured codes, not just the coordinates. Scoping needs
+          // "CA", and what the user typed is "California" — or a postal code,
+          // which is not a place name at all.
+          if (r.countryCode) resolvedGeo.country = r.countryCode;
+          if (r.stateCode) resolvedGeo.state = r.stateCode;
+          if (r.city) resolvedGeo.city = r.city;
         }
 
         // Country-only fallback: centroid is acceptable when user didn't specify city/state
@@ -926,7 +935,13 @@ export default function ResultsPage() {
     navigatingHistoryRef.current = false;
 
     const inlineTake = pageSize;
-    await doSearch({ q, sort, country, state, city, amazon, hqCountry, mfgCountry, domain, take: inlineTake, skip: 0, location: searchLocation, strict });
+    await doSearch({
+      q, sort,
+      country: resolvedGeo.country || country,
+      state: resolvedGeo.state || state,
+      city: resolvedGeo.city || city,
+      amazon, hqCountry, mfgCountry, domain, take: inlineTake, skip: 0, location: searchLocation, strict,
+    });
   }
 
   // Lightweight auto-search: fetches results without updating URL (avoids input interruption)
@@ -1010,7 +1025,21 @@ export default function ResultsPage() {
       const stateFilter = "";
       const countryFilter = "";
 
-      const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, domain, noCorrect, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng };
+      // The same place names travel on as SCOPE instead. They still exclude
+      // nothing — they let the backend say how many companies are actually in
+      // the named place and group the rest as nearby, which is the thing the
+      // filter was reached for in the first place. Region keys are ISO
+      // 3166-2 ("US-CA"), matching what the pins index stores.
+      const scopeCountry = (country || "").trim().toUpperCase();
+      const scopeState = (state || "").trim().toUpperCase();
+      const scopeOpts = {
+        scopeCity: (city || "").trim(),
+        scopeRegion: scopeCountry && scopeState ? `${scopeCountry}-${scopeState}` : "",
+        scopeCountry,
+        unit,
+      };
+
+      const commonOpts = { q, sort, country: countryFilter, state: stateFilter, city: cityFilter, amazon, hqCountry, mfgCountry, domain, noCorrect, take, skip, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng, ...scopeOpts };
 
       // Domestic-first context: the freshly-resolved user country (via ref, not
       // the lagging state) + its address-match tokens, precomputed once so
@@ -1126,7 +1155,14 @@ export default function ResultsPage() {
       // Tier -1 (exact name match) subsumes the old exact-name anchor.
       // Stars / recent / relevance sorts keep API order.
       const withDistances = (sort === "manu" || sort === "hq")
-        ? distanced.slice().sort((a, b) => proximityDomesticCompare(a, b, sort === "manu", !!domCC))
+        ? distanced.slice().sort((a, b) => {
+            // Same rule as the display sort: the in-place group never falls
+            // below the nearby group, however the distances compare.
+            const groupA = a._scopeGroup === "near" ? 1 : 0;
+            const groupB = b._scopeGroup === "near" ? 1 : 0;
+            if (groupA !== groupB) return groupA - groupB;
+            return proximityDomesticCompare(a, b, sort === "manu", !!domCC);
+          })
         : distanced;
 
       // Append on infinite scroll, replace on a fresh search
@@ -1149,6 +1185,23 @@ export default function ResultsPage() {
       // Appends (infinite scroll) keep the existing list.
       if (!append) {
         setMatchIds(Array.isArray(searchResult.matchIds) ? searchResult.matchIds : null);
+        // How many of these results are actually in the place the user named,
+        // and where the nearby run begins. Absent on keyword searches and on
+        // any backend that predates scoping — the UI just omits the divider.
+        const scope = meta?._scope || null;
+        setPlaceScope(
+          scope && Number.isFinite(scope.count)
+            ? {
+                level: scope.level,
+                key: scope.key,
+                count: scope.count,
+                nearbyCount: Number(meta?._nearby?.count) || 0,
+                nearbyRadius: Number(meta?._nearby?.radius) || 0,
+                nearbyUnit: meta?._nearby?.unit === "km" ? "km" : "mi",
+                nearbyStart: Number.isFinite(meta?._nearbyStart) ? meta._nearbyStart : null,
+              }
+            : null
+        );
       }
 
       // Page-count resolution. Two paths:
@@ -1190,7 +1243,7 @@ export default function ResultsPage() {
           lastCountedKeyRef.current = searchKey;
           getSearchCount({
             q, sort, country: "", state: "", city: "", amazon, hqCountry, mfgCountry,
-            noCorrect,
+            noCorrect, ...scopeOpts,
             take: pageSize, lat: effectiveLocation?.lat, lng: effectiveLocation?.lng,
           })
             .then((r) => {
@@ -1254,6 +1307,14 @@ export default function ResultsPage() {
 
     const arr = [...results];
     arr.sort((a, b) => {
+      // Companies in the place the user named stay above companies merely
+      // near it, whatever the column sort says. A neighbouring town one mile
+      // out is still not in this town, and letting distance reorder across
+      // that line would mix the two groups together under one divider.
+      const groupA = a._scopeGroup === "near" ? 1 : 0;
+      const groupB = b._scopeGroup === "near" ? 1 : 0;
+      if (groupA !== groupB) return groupA - groupB;
+
       // Tier-aware sort: bucket by relevance tier first, then apply the
       // user's chosen column metric *within* each tier. Tier -1 (exact name
       // match) subsumes the old exact-name anchor — a company the user typed
@@ -1530,6 +1591,15 @@ export default function ResultsPage() {
     return "";
   }, [cityParam, stateParam, countryParam, latParam, lngParam]);
 
+  // What to call the scope in prose. The backend keys a city scope by the name
+  // it matched and a region scope by ISO code ("US-CA") — nobody wants to read
+  // that, so prefer the label built from what the user actually typed.
+  const scopeLabel = useMemo(() => {
+    if (!placeScope) return "";
+    if (placeScope.level === "city") return placeScope.key || locationLabel;
+    return locationLabel || placeScope.key;
+  }, [placeScope, locationLabel]);
+
   const languageSelector = (
     <select
       className="h-11 text-sm border border-input rounded-md px-3 bg-background text-foreground font-medium hover:border-muted-foreground transition-colors"
@@ -1724,15 +1794,38 @@ export default function ResultsPage() {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span className="whitespace-nowrap cursor-default underline decoration-dotted underline-offset-2">
-                          · {totalMatchCount.toLocaleString()} closest{" "}
-                          {totalMatchCount === 1 ? "result" : "results"}
+                          {/* Scoped searches count the place, not the catalog:
+                              "3 in San Dimas", not "13,739 closest". */}
+                          {placeScope
+                            ? `· ${placeScope.count.toLocaleString()} in ${scopeLabel}`
+                            : `· ${totalMatchCount.toLocaleString()} closest ${totalMatchCount === 1 ? "result" : "results"}`}
+                          {placeScope?.nearbyCount > 0 && (
+                            <> · {placeScope.nearbyCount.toLocaleString()} nearby</>
+                          )}
                         </span>
                       </TooltipTrigger>
                       <TooltipContent className="max-w-[320px] text-xs">
-                        <p className="m-0">
-                          Companies ranked by how close their manufacturing is to {locationLabel}
-                          {sortBy === "hq" ? " (headquarters, in this sort)" : ""}.
-                        </p>
+                        {placeScope ? (
+                          <p className="m-0">
+                            <span className="font-medium">{placeScope.count.toLocaleString()}</span>{" "}
+                            {placeScope.count === 1 ? "company is" : "companies are"} in {scopeLabel}
+                            {sortBy === "hq" ? " by headquarters" : " by manufacturing"}.
+                            {placeScope.nearbyCount > 0 && (
+                              <>
+                                {" "}
+                                Another {placeScope.nearbyCount.toLocaleString()}{" "}
+                                {placeScope.nearbyCount === 1 ? "is" : "are"} within{" "}
+                                {placeScope.nearbyRadius} {placeScope.nearbyUnit}, listed under
+                                “Nearby results”.
+                              </>
+                            )}
+                          </p>
+                        ) : (
+                          <p className="m-0">
+                            Companies ranked by how close their manufacturing is to {locationLabel}
+                            {sortBy === "hq" ? " (headquarters, in this sort)" : ""}.
+                          </p>
+                        )}
                         <p className="m-0 mt-1.5">
                           The map plots <span className="font-medium">every</span> location of
                           {Array.isArray(matchIds) && matchIds.length < totalMatchCount
@@ -1918,6 +2011,14 @@ export default function ResultsPage() {
               //   - the page actually contains the transition (a strong
               //     company followed by a loose one)
               const rows = [];
+              // The boundary is wherever the rows themselves change group, so
+              // it survives the client-side re-sort and lands on whichever
+              // page actually holds the transition. Pages made up entirely of
+              // nearby rows show no bar — the header already says how the
+              // results split.
+              const showNearbyDivider = !!placeScope && placeScope.nearbyCount > 0;
+              let nearbyDividerEmitted = false;
+              let sawInScope = false;
               let dividerEmitted = false;
               let sawStrong = false;
               let index = -1;
@@ -1929,6 +2030,37 @@ export default function ResultsPage() {
                 // divider, so tier tracking effectively starts at index 1 and
                 // the tail behaves exactly as before.
                 const isPromoted = index === 0 && !!promotedId && cid === promotedId;
+
+                // "Nearby results" bar: everything above it is genuinely in
+                // the place the user named, everything below is close to it.
+                if (company._scopeGroup === "in" && !isPromoted) sawInScope = true;
+                if (
+                  showNearbyDivider &&
+                  !nearbyDividerEmitted &&
+                  sawInScope &&
+                  company._scopeGroup === "near"
+                ) {
+                  nearbyDividerEmitted = true;
+                  rows.push(
+                    <div
+                      key="__nearby-divider"
+                      className="flex items-center gap-3 px-2 py-3 my-1"
+                    >
+                      <div className="flex-1 h-px bg-border" />
+                      <div className="text-center">
+                        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Nearby results
+                        </div>
+                        <div className="text-xs text-muted-foreground/80 mt-0.5">
+                          {placeScope.nearbyCount.toLocaleString()} more within{" "}
+                          {placeScope.nearbyRadius} {placeScope.nearbyUnit} of {scopeLabel}
+                        </div>
+                      </div>
+                      <div className="flex-1 h-px bg-border" />
+                    </div>
+                  );
+                }
+
                 const loose = isLooselyRelated(company);
                 if (
                   !isPromoted &&
