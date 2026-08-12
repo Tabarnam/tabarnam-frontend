@@ -54,13 +54,6 @@ const Footer = () => {
           >
             Privacy
           </Link>
-          <span className="text-muted-foreground/50" aria-hidden="true">·</span>
-          <Link
-            to="/map"
-            className="text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Company map
-          </Link>
         </nav>
         <nav
           aria-label="Browse by manufacturing country"

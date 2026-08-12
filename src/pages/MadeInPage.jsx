@@ -4,7 +4,7 @@
 // mfgCountry filter only sees a 500-doc recency pool.
 import React, { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
-import { Map as MapIcon, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import useDocumentHead from "@/hooks/useDocumentHead";
 import ViewToggle from "@/components/madein/ViewToggle";
 import {
@@ -194,15 +194,8 @@ export default function MadeInPage() {
 
           <div className="flex flex-wrap gap-2 mt-4">
             <Link
-              to="/map"
-              className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-tabarnam-blue-bold text-tabarnam-blue-dark dark:text-tabarnam-blue-bold hover:bg-muted transition-colors"
-            >
-              <MapIcon size={15} aria-hidden="true" />
-              See the company map
-            </Link>
-            <Link
               to={`/results?country=${encodeURIComponent(country.name)}`}
-              className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border text-foreground hover:bg-muted transition-colors"
+              className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-tabarnam-blue-bold text-tabarnam-blue-dark dark:text-tabarnam-blue-bold hover:bg-muted transition-colors"
             >
               <Search size={15} aria-hidden="true" />
               Search within {display}
