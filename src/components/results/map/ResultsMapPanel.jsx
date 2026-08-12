@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { MapContainer, TileLayer, Marker, Polyline, ZoomControl, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useTheme } from "next-themes";
+import { Maximize2, Minimize2 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import "./map.css";
 import { cn } from "@/lib/utils";
@@ -162,6 +163,8 @@ export default function ResultsMapPanel({
   linkParams = "",
   loading = false,
   matchIds = null,
+  isFullscreen = false,
+  onToggleFullscreen,
 }) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -399,6 +402,22 @@ export default function ResultsMapPanel({
           Manufacturing
         </span>
       </div>
+
+      {/* Fullscreen toggle. Sits below the zoom control (top-right) rather
+          than in a bottom corner, which the site's floating theme toggle
+          already occupies. */}
+      {onToggleFullscreen && (
+        <button
+          type="button"
+          onClick={onToggleFullscreen}
+          aria-pressed={isFullscreen}
+          title={isFullscreen ? "Exit full screen (Esc)" : "Full screen map"}
+          className="absolute top-[76px] right-2 z-[1000] w-8 h-8 inline-flex items-center justify-center rounded-md bg-card/90 backdrop-blur-sm border border-border text-foreground hover:bg-muted transition-colors"
+        >
+          {isFullscreen ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}
+          <span className="sr-only">{isFullscreen ? "Exit full screen" : "Full screen map"}</span>
+        </button>
+      )}
 
       {/* Recenter — refits to the current pins on demand (the only refit
           outside a search change). Bottom-CENTER: the bottom-right corner is
