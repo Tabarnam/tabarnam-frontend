@@ -39,7 +39,11 @@ const PAGE_SIZE = 25;
 // List share below which the split view stops being a split: the map takes
 // the full width with the results full width beneath it. 40% list ≈ the map
 // passing 60%, which is where a shared row stops doing either side justice.
-const STACK_BELOW_RATIO = 40;
+// Two thresholds, not one. A single boundary makes the layout flutter when
+// the divider is parked on it — a few pixels of hand tremor flips the whole
+// page back and forth. Entering stacked takes a firmer pull than leaving it.
+const STACK_ENTER_RATIO = 40;
+const STACK_EXIT_RATIO = 45;
 
 /** Skeleton placeholder that mirrors the collapsed ExpandableCompanyRow grid */
 function SkeletonRow() {
@@ -452,9 +456,34 @@ export default function ResultsPage() {
   const [mapFullscreen, setMapFullscreen] = useState(false);
   // Past this point the map has outgrown sharing a row: rather than squeeze
   // the cards into a sliver, both the map and the list take the full width,
-  // map on top. Dragging back (or the "Side by side" button) restores columns.
-  const stackedMap = mapOpen && !mapFullscreen && splitRatio < STACK_BELOW_RATIO;
+  // map on top.
+  //
+  // The switch is COMMITTED ON RELEASE, never mid-drag. Flipping while the
+  // pointer was still down unmounted the divider from under the cursor — the
+  // gesture died with it and the only way back was hunting for a button. Now
+  // the columns resize live, the rail shows what releasing will do, and
+  // dragging back out of range simply cancels it.
+  const [draggingSplit, setDraggingSplit] = useState(false);
+  const [stackedCommitted, setStackedCommitted] = useState(
+    () => splitRatio < STACK_ENTER_RATIO
+  );
+  const wouldStack = stackedCommitted
+    ? splitRatio <= STACK_EXIT_RATIO
+    : splitRatio < STACK_ENTER_RATIO;
+  useEffect(() => {
+    if (draggingSplit) return; // mid-gesture: hold the current layout
+    setStackedCommitted(wouldStack);
+  }, [draggingSplit, wouldStack]);
+
+  const stackedMap = mapOpen && !mapFullscreen && stackedCommitted;
   const sideBySide = mapOpen && !mapFullscreen && !stackedMap;
+  // Shown on the rail only when releasing here would actually change things.
+  const splitHint =
+    draggingSplit && wouldStack !== stackedCommitted
+      ? wouldStack
+        ? "Release for a full-width map"
+        : "Release for side-by-side"
+      : null;
   // Every matched company id from the full search response (≤500) — the map
   // joins these against the /api/map-pins index to plot matches beyond the
   // loaded page as lighter "index pins".
@@ -2249,7 +2278,13 @@ export default function ResultsPage() {
           sticks near the middle of the viewport so the balance stays
           adjustable after the user has scrolled into the results. */}
       {sideBySide && (
-        <SplitHandle ratio={splitRatio} onRatio={setSplitRatio} containerRef={splitRef} />
+        <SplitHandle
+          ratio={splitRatio}
+          onRatio={setSplitRatio}
+          containerRef={splitRef}
+          onDragStateChange={setDraggingSplit}
+          hint={splitHint}
+        />
       )}
       {/* Map panel — mounted only when open, so the leaflet chunk loads on
           first toggle. isolation/z-0 keep Leaflet's internal z-indexes (up
@@ -2272,6 +2307,20 @@ export default function ResultsPage() {
           )}
           style={{ isolation: "isolate" }}
         >
+          {/* Stacked: the divider hasn't disappeared, it has moved to the
+              map's left edge. Dragging it right is the literal inverse of the
+              drag that collapsed the list, so the gesture undoes itself
+              without anyone having to find a button. */}
+          {stackedMap && (
+            <SplitHandle
+              variant="edge"
+              ratio={splitRatio}
+              onRatio={setSplitRatio}
+              containerRef={splitRef}
+              onDragStateChange={setDraggingSplit}
+              hint={splitHint}
+            />
+          )}
           <React.Suspense fallback={<Skeleton className="w-full h-full" />}>
             <ResultsMapPanel
               companies={displayList}

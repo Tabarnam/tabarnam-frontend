@@ -14,8 +14,22 @@ import React, { useCallback, useEffect, useRef } from "react";
 export const SPLIT_MIN = 33;
 export const SPLIT_MAX = 80;
 
-export default function SplitHandle({ ratio, onRatio, containerRef }) {
+export default function SplitHandle({
+  ratio,
+  onRatio,
+  containerRef,
+  /** Called with true on pointer-down, false on release. Lets the page hold
+   *  off a layout switch until the gesture ends. */
+  onDragStateChange,
+  /** Short text shown beside the rail mid-drag, telling the user what
+   *  releasing here will do. Null hides it. */
+  hint = null,
+  /** "column" is the divider between list and map; "edge" is the rail pinned
+   *  to the left of a stacked (full-width) map, which drags the list back. */
+  variant = "column",
+}) {
   const draggingRef = useRef(false);
+  const isEdge = variant === "edge";
 
   const ratioFromClientX = useCallback(
     (clientX) => {
@@ -29,13 +43,17 @@ export default function SplitHandle({ ratio, onRatio, containerRef }) {
     [containerRef]
   );
 
-  const handlePointerDown = useCallback((e) => {
-    draggingRef.current = true;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    // Stop the drag from selecting list text under the cursor.
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-  }, []);
+  const handlePointerDown = useCallback(
+    (e) => {
+      draggingRef.current = true;
+      onDragStateChange?.(true);
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      // Stop the drag from selecting list text under the cursor.
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    },
+    [onDragStateChange]
+  );
 
   const handlePointerMove = useCallback(
     (e) => {
@@ -53,16 +71,25 @@ export default function SplitHandle({ ratio, onRatio, containerRef }) {
       e.currentTarget?.releasePointerCapture?.(e.pointerId);
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
+      // Release is the commit point: the page reads the final ratio now and
+      // decides whether to switch layouts.
+      onDragStateChange?.(false);
     },
-    []
+    [onDragStateChange]
   );
 
   useEffect(
     () => () => {
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
+      // Unmounting mid-drag (layout switch, navigation) must not strand the
+      // page in a permanent "dragging" state.
+      if (draggingRef.current) {
+        draggingRef.current = false;
+        onDragStateChange?.(false);
+      }
     },
-    []
+    [onDragStateChange]
   );
 
   const handleKeyDown = useCallback(
@@ -97,15 +124,46 @@ export default function SplitHandle({ ratio, onRatio, containerRef }) {
       onDoubleClick={() => {
         onRatio(60);
       }}
-      title="Drag to resize · double-click to reset"
+      title={
+        isEdge
+          ? "Drag right to bring the results back beside the map"
+          : "Drag to resize · double-click to reset"
+      }
       // Sticky + full-column height: the rail stays reachable after the user
       // scrolls into the results, instead of being stranded at the top.
-      className="hidden lg:flex items-start justify-center cursor-col-resize group touch-none select-none focus:outline-none sticky top-4 h-[calc(100vh-6rem)]"
+      // The edge variant rides the left border of a stacked map, which is
+      // exactly where the divider went when the list collapsed — so the
+      // gesture that collapsed it is also the gesture that undoes it.
+      className={
+        isEdge
+          ? "hidden lg:flex absolute left-0 inset-y-0 z-[500] w-4 items-center justify-center cursor-col-resize group touch-none select-none focus:outline-none"
+          : "hidden lg:flex relative items-start justify-center cursor-col-resize group touch-none select-none focus:outline-none sticky top-4 h-[calc(100vh-6rem)]"
+      }
     >
       {/* Thin rail that thickens on hover/focus so the target is easy to grab
           without the divider shouting for attention at rest. Centred in the
           sticky column so it sits mid-viewport while scrolling. */}
-      <div className="mt-[45vh] h-16 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus:bg-primary group-active:bg-primary" />
+      <div
+        className={
+          isEdge
+            ? "h-16 w-1 rounded-full bg-border/80 transition-colors group-hover:bg-primary/60 group-focus:bg-primary group-active:bg-primary"
+            : "mt-[45vh] h-16 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-focus:bg-primary group-active:bg-primary"
+        }
+      />
+      {/* Mid-drag preview: says what releasing here will do, so a layout
+          switch is never a surprise. Nothing changes until the pointer is
+          released, so dragging back out of range simply cancels it. */}
+      {hint && (
+        <div
+          className={
+            isEdge
+              ? "absolute left-5 top-1/2 -translate-y-1/2 z-[501] whitespace-nowrap rounded-md border border-primary/40 bg-card/95 px-2 py-1 text-[11px] font-medium text-foreground shadow-lg pointer-events-none"
+              : "absolute left-1/2 top-[45vh] mt-6 -translate-x-1/2 z-[501] whitespace-nowrap rounded-md border border-primary/40 bg-card/95 px-2 py-1 text-[11px] font-medium text-foreground shadow-lg pointer-events-none"
+          }
+        >
+          {hint}
+        </div>
+      )}
     </div>
   );
 }
