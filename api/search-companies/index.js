@@ -29,10 +29,14 @@ const { getPins } = require("../_pinsIndex");
 const { rankByDistance } = require("../_geoRank");
 const { getCountrySets } = require("../_countryIndex");
 
-// How many nearest companies a location-only search returns. The ranking
-// covers the entire catalog; this bounds what travels back over the wire and
-// what pagination pretends to offer.
-const GEO_RESULT_HORIZON = 500;
+// Counts and pagination are honest — a location or country search reports how
+// many companies actually match and how many pages that really is, and any
+// page can be requested because only the 25 rows on it get hydrated.
+//
+// The one thing worth bounding is the id list the MAP uses to draw pins:
+// uncapped it was 479KB of ids inside a 561KB response. Past a few thousand
+// pins the map is a smear anyway, so cap that list alone and say so in meta.
+const MAP_PIN_ID_LIMIT = 2000;
 
 // In-worker hot-query cache. Two anonymous users searching "candle" within
 // the TTL window share the same Cosmos work. Cross-user by design (cache
@@ -1847,9 +1851,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           );
           ids.sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity));
         }
-        const totalCount = Math.min(ids.length, GEO_RESULT_HORIZON);
-        const capped = ids.slice(0, GEO_RESULT_HORIZON);
+        const totalCount = ids.length;
         const totalPages = Math.ceil(totalCount / take) || 1;
+        const pinIds = ids.slice(0, MAP_PIN_ID_LIMIT);
 
         if (countOnly) {
           return json(
@@ -1866,7 +1870,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           );
         }
 
-        const pageIds = capped.slice(skip, skip + take);
+        const pageIds = ids.slice(skip, skip + take);
         let items = [];
         if (pageIds.length > 0) {
           const { resources } = await container.items
@@ -1892,7 +1896,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             totalCount,
             totalPages,
             directCount: null,
-            ...(includeMatchIds ? { match_ids: capped } : {}),
+            ...(includeMatchIds ? { match_ids: pinIds } : {}),
             meta: {
               q: q_raw,
               sort,
@@ -1901,6 +1905,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               user_location,
               _countryFiltered: true,
               _countryMatchTotal: ids.length,
+              ...(ids.length > pinIds.length ? { _mapPinsCapped: pinIds.length } : {}),
             },
           },
           200,
@@ -1915,13 +1920,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   if (geoOnly) {
     try {
       const pins = await getPins(container);
-      const rankedAll = rankByDistance(pins?.payload, user_location, sort === "hq" ? "hq" : "manu");
-      // Rank the whole catalog, but RETURN a horizon. Every company has a
-      // distance, so an uncapped result set claimed "13,739 closest results",
-      // offered 1,145 pages, and shipped a 479KB id list in a 561KB response.
-      // 500 matches the pool size the rest of the pipeline uses and is far
-      // past where "nearest" stops meaning anything.
-      const ranked = rankedAll.slice(0, GEO_RESULT_HORIZON);
+      const ranked = rankByDistance(pins?.payload, user_location, sort === "hq" ? "hq" : "manu");
       if (ranked.length > 0) {
         const totalCount = ranked.length;
         const totalPages = Math.ceil(totalCount / take) || 1;
@@ -1981,7 +1980,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             totalCount,
             totalPages,
             directCount: null,
-            ...(includeMatchIds ? { match_ids: ranked.map((r) => r.id) } : {}),
+            ...(includeMatchIds
+              ? { match_ids: ranked.slice(0, MAP_PIN_ID_LIMIT).map((r) => r.id) }
+              : {}),
             meta: {
               q: q_raw,
               sort,
@@ -1991,8 +1992,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               _geoRanked: true,
               // What was ranked vs what is being returned — the gap is the
               // horizon, not a retrieval limit.
-              _geoRankedTotal: rankedAll.length,
               _geoCandidates: totalCount,
+              ...(ranked.length > MAP_PIN_ID_LIMIT ? { _mapPinsCapped: MAP_PIN_ID_LIMIT } : {}),
             },
           },
           200,
