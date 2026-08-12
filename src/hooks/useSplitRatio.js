@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "tabarnam_results_map_split";
 const DEFAULT_RATIO = 60; // % of the row given to the results list
@@ -24,17 +24,28 @@ export default function useSplitRatio() {
     return DEFAULT_RATIO;
   });
 
+  const write = (value) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, String(value));
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  // Latest value, readable from the unmount cleanup below without making it
+  // depend on (and re-run for) every ratio change.
+  const latestRef = useRef(ratio);
+  latestRef.current = ratio;
+
   useEffect(() => {
     // Debounced so a drag doesn't hammer localStorage on every pointermove.
-    const t = setTimeout(() => {
-      try {
-        localStorage.setItem(STORAGE_KEY, String(ratio));
-      } catch {
-        /* non-fatal */
-      }
-    }, 250);
+    const t = setTimeout(() => write(ratio), 250);
     return () => clearTimeout(t);
   }, [ratio]);
+
+  // Flush on unmount: closing the map or navigating within the debounce
+  // window would otherwise drop the user's last adjustment.
+  useEffect(() => () => write(latestRef.current), []);
 
   return [ratio, setRatio];
 }
