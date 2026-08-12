@@ -29,6 +29,17 @@ export interface SearchOptions {
   amazon?: boolean;
   hqCountry?: string;
   mfgCountry?: string;
+  /**
+   * The place the user named, resolved to structured codes. Not filters —
+   * nothing is excluded by them. They let the backend report how many
+   * companies are actually IN that place and group the remainder as nearby.
+   */
+  scopeCity?: string;
+  /** ISO 3166-2, e.g. "US-CA". */
+  scopeRegion?: string;
+  scopeCountry?: string;
+  /** Unit the nearby radius should be expressed in, since it's shown to the user. */
+  unit?: "mi" | "km";
   quick?: boolean;
   /** Exact stored normalized_domain for a pasted-URL search (domain-only retrieval). */
   domain?: unknown;
@@ -111,6 +122,13 @@ export async function searchCompanies(opts: SearchOptions) {
   if (opts.amazon) params.set("amazon", "1");
   if (opts.hqCountry) params.set("hqCountry", opts.hqCountry);
   if (opts.mfgCountry) params.set("mfgCountry", opts.mfgCountry);
+  const scopeCity = asStr(opts.scopeCity).trim();
+  const scopeRegion = asStr(opts.scopeRegion).trim();
+  const scopeCountry = asStr(opts.scopeCountry).trim();
+  if (scopeCity) params.set("scopeCity", scopeCity);
+  if (scopeRegion) params.set("scopeRegion", scopeRegion);
+  if (scopeCountry) params.set("scopeCountry", scopeCountry);
+  if (opts.unit === "km" || opts.unit === "mi") params.set("unit", opts.unit);
   if (opts.quick) params.set("quick", "1");
   else params.set("matchIds", "1"); // full matched id list for the map view (ids only, ≤500)
   if (opts.noCorrect) params.set("nocorrect", "1");
@@ -379,7 +397,7 @@ export async function getStateSuggestions(q: unknown, country?: string): Promise
  * Lightweight call that returns only totalCount/totalPages (no items).
  * Intended to be fired in the background after results are already displayed.
  */
-export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon" | "hqCountry" | "mfgCountry" | "noCorrect"> & { take?: number }): Promise<{ totalCount: number; totalPages: number; directCount: number | null } | null> {
+export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon" | "hqCountry" | "mfgCountry" | "noCorrect" | "scopeCity" | "scopeRegion" | "scopeCountry" | "unit"> & { take?: number }): Promise<{ totalCount: number; totalPages: number; directCount: number | null } | null> {
   const q = asStr(opts.q).trim();
   const latNum = Number(asStr(opts.lat));
   const lngNum = Number(asStr(opts.lng));
@@ -408,6 +426,12 @@ export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "c
   if (opts.amazon) params.set("amazon", "1");
   if (opts.hqCountry) params.set("hqCountry", opts.hqCountry);
   if (opts.mfgCountry) params.set("mfgCountry", opts.mfgCountry);
+  // Scope changes what gets counted (in-place plus its nearby band), so the
+  // count request has to carry the same scope the results request did.
+  if (asStr(opts.scopeCity).trim()) params.set("scopeCity", asStr(opts.scopeCity).trim());
+  if (asStr(opts.scopeRegion).trim()) params.set("scopeRegion", asStr(opts.scopeRegion).trim());
+  if (asStr(opts.scopeCountry).trim()) params.set("scopeCountry", asStr(opts.scopeCountry).trim());
+  if (opts.unit === "km" || opts.unit === "mi") params.set("unit", opts.unit);
   // Must match the results request, or the totals would be counted from a
   // corrected pool while the page shows literal results (or vice versa).
   if (opts.noCorrect) params.set("nocorrect", "1");
