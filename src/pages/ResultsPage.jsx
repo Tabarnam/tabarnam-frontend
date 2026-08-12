@@ -1,6 +1,6 @@
 // src/pages/ResultsPage.jsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Helmet } from "react-helmet-async";
+import { Helmet } from "@/components/DocumentHead";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, X, List as ListIcon, Map as MapIcon } from "lucide-react";
 import { geocode, resolveLocation } from "@/lib/google";

@@ -1,4 +1,4 @@
-import { Helmet } from 'react-helmet-async';
+import { Helmet } from "@/components/DocumentHead";
 import { ShieldCheck } from 'lucide-react';
 
 export default function PrivacyPage() {

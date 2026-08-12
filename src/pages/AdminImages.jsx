@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Helmet } from "react-helmet-async";
+import { Helmet } from "@/components/DocumentHead";
 import { useTheme } from "next-themes";
 import DataTable from "react-data-table-component";
 import { Check, Copy, ImageOff, Pencil, Search, Sparkles, Trash2, Upload, X } from "lucide-react";

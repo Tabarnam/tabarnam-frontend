@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Helmet } from "react-helmet-async";
+import { Helmet } from "@/components/DocumentHead";
 import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2, Volume2, Tags, Check, X } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Helmet } from "react-helmet-async";
+import { Helmet } from "@/components/DocumentHead";
 import {
   ArrowLeft, LayoutGrid, List, Building2, MoreHorizontal,
   X, ExternalLink, Pencil, Trash2, Share, ArrowDownAZ, ArrowUpZA,

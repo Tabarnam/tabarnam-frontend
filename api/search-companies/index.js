@@ -27,6 +27,7 @@ const {
 const { TTLCache, buildCacheKey } = require("../_responseCache");
 const { getPins } = require("../_pinsIndex");
 const { rankByDistance } = require("../_geoRank");
+const { getCountrySets } = require("../_countryIndex");
 
 // How many nearest companies a location-only search returns. The ranking
 // covers the entire catalog; this bounds what travels back over the wire and
@@ -1786,6 +1787,34 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   // the requested page. Deliberately narrow: any text query, domain lookup or
   // attribute filter falls through to the normal pipeline, which owns
   // relevance scoring.
+  // Country sets from the pins index, used by the filters far below and by
+  // the country fast path here. Resolved once per request; null when the
+  // index is cold, in which case every consumer falls back to string matching.
+  let countrySets = null;
+  if (container && (hqCountry || mfgCountry)) {
+    try {
+      countrySets = await getCountrySets(container);
+    } catch {
+      countrySets = null;
+    }
+  }
+
+  // A country filter with no query hits the same trap the geo path fixed: no
+  // country predicate reaches Cosmos, so retrieval returned the 500 most
+  // recently updated companies and filtered those. "Companies manufacturing
+  // in Italy" therefore meant "Italian manufacturers among the 500 newest
+  // records". The resolved country set covers the whole catalog, so answer
+  // from it instead — ordered by distance when we have a location, otherwise
+  // by name so the list is at least stable and browsable.
+  const countryOnly =
+    !q_norm &&
+    !domainParam &&
+    !amazonOnly &&
+    !country && !state && !city &&
+    (!!hqCountry || !!mfgCountry) &&
+    !!countrySets &&
+    !!container;
+
   const geoOnly =
     !!user_location &&
     !q_norm &&
@@ -1794,6 +1823,94 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     !country && !state && !city && !hqCountry && !mfgCountry &&
     (sort === "manu" || sort === "hq" || sort === "recent") &&
     !!container;
+
+  if (countryOnly) {
+    try {
+      const set =
+        (mfgCountry ? countrySets.mfg(mfgCountry) : null) ||
+        (hqCountry ? countrySets.hq(hqCountry) : null);
+      // Both filters given: intersect them ("HQ in X that also makes in Y").
+      let ids = set ? [...set] : [];
+      if (mfgCountry && hqCountry) {
+        const hqSet = countrySets.hq(hqCountry);
+        ids = hqSet ? ids.filter((id) => hqSet.has(id)) : ids;
+      }
+      if (ids.length > 0) {
+        const pins = await getPins(container);
+        // Order: nearest first when we know where the user is, otherwise the
+        // ranking is arbitrary, so fall back to the index's own order.
+        if (user_location) {
+          const rank = new Map(
+            rankByDistance(pins?.payload, user_location, sort === "hq" ? "hq" : "manu").map(
+              (r, i) => [r.id, i]
+            )
+          );
+          ids.sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity));
+        }
+        const totalCount = Math.min(ids.length, GEO_RESULT_HORIZON);
+        const capped = ids.slice(0, GEO_RESULT_HORIZON);
+        const totalPages = Math.ceil(totalCount / take) || 1;
+
+        if (countOnly) {
+          return json(
+            {
+              ok: true,
+              success: true,
+              totalCount,
+              totalPages,
+              directCount: null,
+              meta: { q: q_raw, sort, take, _countryFiltered: true },
+            },
+            200,
+            req
+          );
+        }
+
+        const pageIds = capped.slice(skip, skip + take);
+        let items = [];
+        if (pageIds.length > 0) {
+          const { resources } = await container.items
+            .query(
+              {
+                query: `SELECT ${SELECT_FIELDS} FROM c WHERE ARRAY_CONTAINS(@ids, c.id) AND ${softDeleteFilter}`,
+                parameters: [{ name: "@ids", value: pageIds }],
+              },
+              { enableCrossPartitionQuery: true }
+            )
+            .fetchAll();
+          const byId = new Map((resources || []).map((r) => [String(r.id), r]));
+          items = pageIds.map((id) => byId.get(id)).filter(Boolean).map(mapCompanyToPublic).filter(Boolean);
+        }
+
+        return json(
+          {
+            ok: true,
+            success: true,
+            items,
+            count: items.length,
+            hasMore: totalCount > skip + take,
+            totalCount,
+            totalPages,
+            directCount: null,
+            ...(includeMatchIds ? { match_ids: capped } : {}),
+            meta: {
+              q: q_raw,
+              sort,
+              skip,
+              take,
+              user_location,
+              _countryFiltered: true,
+              _countryMatchTotal: ids.length,
+            },
+          },
+          200,
+          req
+        );
+      }
+    } catch (e) {
+      context?.log?.(`[search-companies] country fast path unavailable: ${e?.message || e}`);
+    }
+  }
 
   if (geoOnly) {
     try {
@@ -2434,23 +2551,39 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
       // HQ country filter: keep only companies with HQ in the specified country
       if (hqCountry) {
-        const tokens = countryMatchTokens(hqCountry);
-        deduped = deduped.filter((c) => {
-          if (locationMatchesCountry(c.headquarters_location, tokens)) return true;
-          const hqArr = Array.isArray(c.headquarters) ? c.headquarters : [];
-          return hqArr.some((h) => locationMatchesCountry(h.formatted || h, tokens));
-        });
+        // Resolved sets first (see the mfgCountry note below).
+        const set = countrySets?.hq(hqCountry) || null;
+        if (set) {
+          deduped = deduped.filter((c) => set.has(String(c.company_id || c.id || "")));
+        } else {
+          const tokens = countryMatchTokens(hqCountry);
+          deduped = deduped.filter((c) => {
+            if (locationMatchesCountry(c.headquarters_location, tokens)) return true;
+            const hqArr = Array.isArray(c.headquarters) ? c.headquarters : [];
+            return hqArr.some((h) => locationMatchesCountry(h.formatted || h, tokens));
+          });
+        }
       }
 
       // Manufacturing country filter: keep only companies manufacturing in the specified country
       if (mfgCountry) {
-        const tokens = countryMatchTokens(mfgCountry);
-        deduped = deduped.filter((c) => {
-          const locs = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
-          if (locs.some((l) => locationMatchesCountry(l, tokens))) return true;
-          const geos = Array.isArray(c.manufacturing_geocodes) ? c.manufacturing_geocodes : [];
-          return geos.some((g) => locationMatchesCountry(g.formatted, tokens));
-        });
+        // Prefer the resolved country sets from the pins index: they come from
+        // the same address parsing the /made-in pages use, so "manufactures in
+        // Italy" means the same thing everywhere, and there is no token
+        // matching to mistake "Milwaukee" for "uk". Falls back to the legacy
+        // string match when the index is cold.
+        const set = countrySets?.mfg(mfgCountry) || null;
+        if (set) {
+          deduped = deduped.filter((c) => set.has(String(c.company_id || c.id || "")));
+        } else {
+          const tokens = countryMatchTokens(mfgCountry);
+          deduped = deduped.filter((c) => {
+            const locs = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
+            if (locs.some((l) => locationMatchesCountry(l, tokens))) return true;
+            const geos = Array.isArray(c.manufacturing_geocodes) ? c.manufacturing_geocodes : [];
+            return geos.some((g) => locationMatchesCountry(g.formatted, tokens));
+          });
+        }
       }
 
       // Comma-separated concept filter: "air compressor, tires" requires BOTH

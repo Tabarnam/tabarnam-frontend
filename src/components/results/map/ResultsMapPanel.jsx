@@ -9,6 +9,7 @@ import { Maximize2, Minimize2, Columns } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import "./map.css";
 import { cn } from "@/lib/utils";
+import { calculateDistance } from "@/lib/distance";
 import { buildMarkers, buildIndexMarkers } from "./markerData";
 import { fetchPinsIndex } from "./pinsIndexClient";
 import { groupByCoord, spiderfyOffsets } from "./spreadOverlaps";
@@ -20,6 +21,8 @@ import MapHoverCard from "./MapHoverCard";
 // traffic — revisit the provider if volume grows. The plain-OSM fallback
 // (tile.openstreetmap.org + .osm-fallback CSS inversion, see map.css) is a
 // one-line swap here; OSM's donated tile servers have their own usage policy.
+const WORLD_BOUNDS = [[-85, -180], [85, 180]];
+
 const TILE_DARK = {
   url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
   attribution:
@@ -31,6 +34,11 @@ const TILE_LIGHT = {
 };
 
 const CASCADE_MAX_PINS = 50;
+
+// Opening-view horizon for a search with a location: frame roughly this many
+// of the nearest pins, and never stretch past this radius to include one.
+const LOCAL_FIT_COUNT = 40;
+const LOCAL_FIT_MAX_KM = 400;
 
 /** Reports the container-pixel position of a latlng, tracking map move/zoom. */
 function CardTracker({ latlng, onPoint }) {
@@ -322,12 +330,35 @@ export default function ResultsMapPanel({
     return ids;
   }, [hoveredCompanyId, promotedId, active]);
 
+  // Opening view. With a search location, fit the LOCAL neighbourhood rather
+  // than every pin: these companies' overseas plants are on the map too, and
+  // including them zoomed the opening view out to the whole world — the
+  // opposite of what a "near me" search asked for. The far pins stay put;
+  // they just don't get a vote on the starting zoom. Zoom out (or hit
+  // Recenter after panning) and they're all still there.
   const fitPoints = useMemo(() => {
-    const pts = markers.map((m) => ({ lat: m.lat, lng: m.lng }));
-    if (userLoc && Number.isFinite(userLoc.lat) && Number.isFinite(userLoc.lng)) {
-      pts.push({ lat: userLoc.lat, lng: userLoc.lng });
+    const all = markers.map((m) => ({ lat: m.lat, lng: m.lng }));
+    const hasOrigin = userLoc && Number.isFinite(userLoc.lat) && Number.isFinite(userLoc.lng);
+    if (!hasOrigin) return all;
+
+    const origin = { lat: userLoc.lat, lng: userLoc.lng };
+    const byDistance = markers
+      .map((m) => ({ m, km: calculateDistance(origin.lat, origin.lng, m.lat, m.lng) }))
+      .filter((x) => Number.isFinite(x.km))
+      .sort((a, b) => a.km - b.km);
+    if (byDistance.length === 0) return [origin];
+
+    // Take the nearest cluster of pins, but never let one outlier stretch the
+    // view: stop at LOCAL_FIT_COUNT pins or the first that is more than
+    // LOCAL_FIT_MAX_KM away, whichever comes first. A minimum of one pin means
+    // the view always frames at least the closest company.
+    const local = [];
+    for (const { m, km } of byDistance) {
+      if (local.length >= LOCAL_FIT_COUNT) break;
+      if (local.length > 0 && km > LOCAL_FIT_MAX_KM) break;
+      local.push({ lat: m.lat, lng: m.lng });
     }
-    return pts;
+    return [origin, ...local];
   }, [markers, userLoc]);
 
   const filterBtn = (val, label) => (
@@ -354,7 +385,12 @@ export default function ResultsMapPanel({
         center={[20, 0]}
         zoom={2}
         minZoom={1}
-        worldCopyJump
+        // One world, not a filmstrip of them. Leaflet wraps infinitely by
+        // default, which repeated whole continents side by side and made a
+        // global pin set unreadable. maxBounds pins the view to a single
+        // Earth; noWrap on the tiles stops the copies being drawn at all.
+        maxBounds={WORLD_BOUNDS}
+        maxBoundsViscosity={1}
         className="w-full h-full"
         // The OSM + CARTO credit is REQUIRED by ODbL and CARTO's basemap
         // terms, so it stays — but the "Leaflet" prefix is optional and the
@@ -369,7 +405,7 @@ export default function ResultsMapPanel({
             stays — prefix={false} drops only the optional "Leaflet" mention,
             and map.css keeps it small and faded. */}
         <AttributionControl position="bottomright" prefix={false} />
-        <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} />
+        <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} noWrap />
         <FitBounds boundsKey={boundsKey} points={fitPoints} loading={loading} recenterNonce={recenterNonce} />
         <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
         {active && <CardTracker latlng={active.latlng} onPoint={setCardPoint} />}

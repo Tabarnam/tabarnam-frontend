@@ -1,5 +1,5 @@
 import React, { useEffect, lazy, Suspense } from "react";
-import { HelmetProvider } from "react-helmet-async";
+import { HelmetProvider } from "@/components/DocumentHead";
 import { MotionConfig } from "framer-motion";
 import {
   BrowserRouter as Router,
