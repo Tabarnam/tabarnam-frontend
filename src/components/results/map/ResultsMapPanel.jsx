@@ -213,6 +213,12 @@ export default function ResultsMapPanel({
   promotedId = null,
   onPinHover,
   onPinFilterChange,
+  /**
+   * Open a pinned company in the results column instead of a new tab.
+   * Null when there is no column on screen (fullscreen / mobile), which
+   * falls the card back to its link.
+   */
+  onOpenProfile = null,
   boundsKey,
   linkParams = "",
   loading = false,
@@ -590,6 +596,7 @@ export default function ResultsMapPanel({
         containerSize={containerSize}
         unit={unit}
         linkParams={linkParams}
+        onOpenProfile={onOpenProfile}
         onMouseEnter={cancelClose}
         onMouseLeave={scheduleClose}
         onClose={() => setActive(null)}

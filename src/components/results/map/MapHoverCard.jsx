@@ -17,6 +17,7 @@ export default function MapHoverCard({
   containerSize,
   unit,
   linkParams,
+  onOpenProfile = null,
   onMouseEnter,
   onMouseLeave,
   onClose,
@@ -118,13 +119,30 @@ export default function MapHoverCard({
           Approximate — country/region-level location
         </div>
       )}
+      {/* When the results column is beside the map, the profile opens THERE:
+          the company floats to the top of the list, expanded, with the
+          search still beneath it as comparables. A new tab would throw that
+          context away. The href stays real either way, so ctrl/middle-click
+          still opens a tab and the link remains copyable. */}
       <a
         href={href}
-        target="_blank"
-        rel="noopener noreferrer"
+        {...(onOpenProfile
+          ? {
+              onClick: (e) => {
+                // Let the browser handle deliberate new-tab gestures.
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                onOpenProfile({
+                  companyId: String(marker.companyId),
+                  domain: String(company.normalized_domain || "").trim(),
+                });
+                onClose?.();
+              },
+            }
+          : { target: "_blank", rel: "noopener noreferrer" })}
         className="inline-block mt-2 text-xs font-semibold text-primary underline underline-offset-2 hover:opacity-80"
       >
-        View company profile ↗
+        View company profile {onOpenProfile ? "→" : "↗"}
       </a>
     </div>
   );
