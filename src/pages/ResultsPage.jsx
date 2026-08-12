@@ -319,6 +319,11 @@ export default function ResultsPage() {
   // Pin-card click-through: float this company to the top of the list and
   // render it expanded as a de-facto profile, comparables underneath.
   const expandParam = (searchParams.get("expand") ?? "").toString().trim();
+  // The expand target's domain, carried alongside `expand` when the company
+  // is NOT in the current results (a map pin for a match beyond the loaded
+  // page). It's the handle we re-fetch that one company by, so its profile
+  // can join the list in place instead of replacing the search.
+  const expandDomainParam = (searchParams.get("expandDomain") ?? "").toString().trim().toLowerCase();
   // No map in bookmark-list mode — those results lack search context.
   const mapOpen = mapParam && !listParam;
 
@@ -1348,14 +1353,52 @@ export default function ResultsPage() {
     return arr;
   }, [results, sortBy, strictProximity]);
 
+  // A company opened from the map that isn't in the current results. Fetched
+  // by domain and prepended, so the profile appears above the search rather
+  // than replacing it — the comparables underneath are the whole point.
+  const [expandExtra, setExpandExtra] = useState(null);
+  useEffect(() => {
+    if (!expandParam || !expandDomainParam) {
+      setExpandExtra(null);
+      return;
+    }
+    // Already on the page: promoteExpanded handles it, no fetch needed.
+    const present = results.some(
+      (c) => String(c?.company_id ?? c?.id ?? "").trim() === expandParam
+    );
+    if (present) {
+      setExpandExtra(null);
+      return;
+    }
+    let dead = false;
+    (async () => {
+      try {
+        const res = await searchCompanies({ domain: expandDomainParam, take: 1 });
+        const doc = (res?.items || []).find(
+          (c) => String(c?.company_id ?? c?.id ?? "").trim() === expandParam
+        );
+        if (!dead && doc) setExpandExtra(doc);
+      } catch {
+        /* the pin still links out; a failed hydrate just leaves the list alone */
+      }
+    })();
+    return () => {
+      dead = true;
+    };
+  }, [expandParam, expandDomainParam, results]);
+
   // &expand=<companyId> (pin-card click-through): float the target company to
   // the top, expanded, with the rest of the results as comparables below.
-  // No-ops gracefully when the id isn't on the current page.
-  const { list: displayList, promotedId } = useMemo(
-    () => promoteExpanded(sorted, expandParam),
-    [sorted, expandParam]
-  );
-
+  // No-ops gracefully when the id isn't on the current page and no domain was
+  // supplied to fetch it with.
+  const { list: displayList, promotedId } = useMemo(() => {
+    const base =
+      expandExtra &&
+      !sorted.some((c) => String(c?.company_id ?? c?.id ?? "").trim() === expandParam)
+        ? [normalizeStars(attachDistances(expandExtra, userLoc, unit)), ...sorted]
+        : sorted;
+    return promoteExpanded(base, expandParam);
+  }, [sorted, expandParam, expandExtra, userLoc, unit]);
   // Map view identity: refit bounds only when the SEARCH changes (query,
   // filters, sort, page) — never on infinite-scroll appends, pin-filter
   // toggles, hover, or expand.
@@ -1376,6 +1419,28 @@ export default function ResultsPage() {
     else next.delete("pins");
     setSearchParams(next, { replace: true });
   }
+
+  /**
+   * Open a pinned company's profile in the results column beside the map,
+   * rather than in a new tab. The search itself is untouched — `expand` and
+   * `expandDomain` are deliberately absent from the URL-effect dependency
+   * array, so this reorders and hydrates without refetching — which is what
+   * keeps the existing results underneath as comparables.
+   */
+  const handleOpenProfile = useCallback(
+    ({ companyId, domain }) => {
+      const next = new URLSearchParams(searchParams);
+      next.set("expand", String(companyId));
+      // Only needed when the company isn't already on the page; harmless
+      // otherwise, and it makes the URL self-sufficient if shared.
+      if (domain) next.set("expandDomain", String(domain));
+      else next.delete("expandDomain");
+      setSearchParams(next, { replace: false });
+      // The profile lands at the top of the column — put the user there.
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [searchParams, setSearchParams]
+  );
 
   // Esc leaves fullscreen — the expected exit for any full-viewport overlay.
   useEffect(() => {
@@ -2280,6 +2345,11 @@ export default function ResultsPage() {
               promotedId={promotedId}
               onPinHover={handlePinHover}
               onPinFilterChange={handlePinFilterChange}
+              // Only when the results column is actually on screen. In
+              // fullscreen, or on mobile where the map takes the whole view,
+              // there is nothing beside the map to open into, so those keep
+              // the new-tab behaviour.
+              onOpenProfile={sideBySide && !mapFullscreen ? handleOpenProfile : null}
               boundsKey={boundsKey}
               linkParams={searchParams.toString()}
               loading={loading}
