@@ -1,27 +1,27 @@
 // /made-in/usa/:state — companies that manufacture in a US state, DC, or
 // territory. Same pins-index data path as the country pages (the search API
 // cannot answer this accurately — see src/lib/madeIn.js).
-import React, { useEffect, useMemo, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
-import { Map as MapIcon } from "lucide-react";
 import useDocumentHead from "@/hooks/useDocumentHead";
 import ViewToggle from "@/components/madein/ViewToggle";
+import { fetchPinsIndex } from "@/components/results/map/pinsIndexClient";
+import { buildPlaceMarkers } from "@/components/results/map/markerData";
 import {
   getRegionRegistry,
   getMadeInRegionAggregation,
   companiesForMode,
-  companyHref,
 } from "@/lib/madeIn";
 
-const INITIAL_VISIBLE = 96;
-const SHOW_MORE_STEP = 240;
+// Lazy so leaflet + markercluster stay out of the main bundle.
+const MadeInMap = lazy(() => import("@/components/madein/MadeInMap"));
 
 export default function MadeInStatePage() {
   const { state: stateSlug } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [agg, setAgg] = useState(null);
+  const [pins, setPins] = useState(null);
   const [failed, setFailed] = useState(false);
-  const [visible, setVisible] = useState(INITIAL_VISIBLE);
 
   const showParam = (searchParams.get("show") || "").toLowerCase();
   const mode = showParam === "hq" || showParam === "both" ? showParam : "mfg";
@@ -30,7 +30,6 @@ export default function MadeInStatePage() {
     if (next === "mfg") params.delete("show");
     else params.set("show", next);
     setSearchParams(params, { replace: true });
-    setVisible(INITIAL_VISIBLE);
   };
 
   useEffect(() => {
@@ -38,14 +37,13 @@ export default function MadeInStatePage() {
     getMadeInRegionAggregation("US")
       .then((a) => !dead && setAgg(a))
       .catch(() => !dead && setFailed(true));
+    fetchPinsIndex()
+      .then((p) => !dead && setPins(p))
+      .catch(() => {});
     return () => {
       dead = true;
     };
   }, []);
-
-  useEffect(() => {
-    setVisible(INITIAL_VISIBLE);
-  }, [stateSlug]);
 
   const registry = useMemo(() => getRegionRegistry("US"), []);
   const region = registry.bySlug.get(String(stateSlug || "").toLowerCase()) || null;
@@ -53,6 +51,13 @@ export default function MadeInStatePage() {
   // Memoized so the JSON-LD useMemo below sees a stable array identity.
   const companies = useMemo(() => companiesForMode(data, mode), [data, mode]);
   const count = companies.length;
+  // Map pins scoped to THIS state — filtered on each pin's own region code,
+  // so a company that also manufactures elsewhere contributes only its
+  // in-state locations.
+  const markers = useMemo(
+    () => (pins && region ? buildPlaceMarkers(pins, { region: region.code, mode }) : []),
+    [pins, region, mode]
+  );
   // Head tags always describe the canonical (manufacturing) view.
   const mfgCount = data?.companies?.length || 0;
   const toggleCounts = useMemo(
@@ -89,7 +94,9 @@ export default function MadeInStatePage() {
 
   // Structured data describes the canonical manufacturing view, not the
   // currently-toggled one, so the three modes never disagree with the
-  // canonical URL they all point at.
+  // canonical URL they all point at. Individual companies are deliberately
+  // NOT enumerated: the page shows them on a map rather than as visible text,
+  // and structured data must describe content the visitor can actually see.
   const jsonLd = useMemo(() => {
     const mfgList = data?.companies || [];
     if (!region || mfgList.length === 0) return null;
@@ -97,16 +104,11 @@ export default function MadeInStatePage() {
       "@context": "https://schema.org",
       "@type": "CollectionPage",
       name: `Companies that manufacture in ${name}`,
+      description: `${mfgList.length} companies in the Tabarnam catalog manufacture in ${name}.`,
       url: canonical,
       mainEntity: {
         "@type": "ItemList",
         numberOfItems: mfgList.length,
-        itemListElement: mfgList.slice(0, 25).map((c, i) => ({
-          "@type": "ListItem",
-          position: i + 1,
-          name: c.name,
-          url: `https://tabarnam.com${companyHref(c)}`,
-        })),
       },
     };
   }, [region, name, canonical, data]);
@@ -167,13 +169,6 @@ export default function MadeInStatePage() {
 
           <div className="flex flex-wrap gap-2 mt-4">
             <Link
-              to="/map"
-              className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-tabarnam-blue-bold text-tabarnam-blue-dark dark:text-tabarnam-blue-bold hover:bg-muted transition-colors"
-            >
-              <MapIcon size={15} aria-hidden="true" />
-              See the company map
-            </Link>
-            <Link
               to="/made-in/usa"
               className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-border text-foreground hover:bg-muted transition-colors"
             >
@@ -193,34 +188,16 @@ export default function MadeInStatePage() {
           )}
 
           {count > 0 && (
-            <>
-              <ul className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 list-none p-0">
-                {companies.slice(0, visible).map((c) => (
-                  <li key={c.id} className="border border-border rounded-lg bg-card p-3">
-                    <Link
-                      to={companyHref(c)}
-                      className="font-semibold text-tabarnam-blue-dark dark:text-tabarnam-blue-bold hover:underline underline-offset-2"
-                    >
-                      {c.name}
-                    </Link>
-                    {c.tagline && (
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{c.tagline}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              {visible < count && (
-                <div className="text-center mt-6">
-                  <button
-                    type="button"
-                    onClick={() => setVisible((v) => v + SHOW_MORE_STEP)}
-                    className="text-sm px-4 py-2 rounded-md border border-border text-foreground hover:bg-muted transition-colors"
-                  >
-                    Show more ({(count - visible).toLocaleString()} remaining)
-                  </button>
-                </div>
-              )}
-            </>
+            <div className="mt-5">
+              <Suspense
+                fallback={<div className="h-[420px] sm:h-[520px] rounded-lg border border-border bg-card" />}
+              >
+                <MadeInMap markers={markers} placeName={name} />
+              </Suspense>
+              <p className="text-xs text-muted-foreground mt-2">
+                Hover a pin for the company; click through to open its profile in a new tab.
+              </p>
+            </div>
           )}
 
           {siblings.length > 0 && (

@@ -143,10 +143,10 @@ export function buildMarkers(companies, pinFilter = "both") {
 }
 
 // ── Pins-index (whole-catalog) support ──────────────────────────────────────
-// /api/map-pins serves compact array entries (v3):
+// /api/map-pins serves compact array entries (v4):
 //   [id, name, tagline, domain, hqLat|null, hqLng|null,
-//    [[mLat, mLng, lowPrec01], ...], hqCC|null, [mfgCC, ...],
-//    hqRegion|null, [mfgRegion, ...]]
+//    [[mLat, mLng, lowPrec01, cc|null, region|null], ...], hqCC|null,
+//    [mfgCC, ...], hqRegion|null, [mfgRegion, ...]]
 // hqCC/mfgCCs are ISO country attributions and hqRegion/mfgRegions are ISO
 // 3166-2 subdivisions ("US-CA") — both absent on older payloads, which decode
 // tolerates. decodePinsPayload turns the payload into an id-keyed Map;
@@ -185,6 +185,75 @@ export function decodePinsPayload(payload) {
  * rendering, domain-flow click-through) and a synthetic `company` object with
  * just the fields the hover card reads.
  */
+/**
+ * Markers for one PLACE — a country (cc) or subdivision (region, e.g.
+ * "US-CA"). Filters on each pin's OWN codes, so a company that manufactures
+ * in several countries contributes only the pins actually in this place.
+ * HQ pins are matched on the entry-level hqCC/hqRegion (there is one HQ).
+ *
+ * @param {Map} pinsById
+ * @param {{cc?: string, region?: string, mode?: "mfg"|"hq"|"both"}} scope
+ */
+export function buildPlaceMarkers(pinsById, { cc, region, mode = "mfg" } = {}) {
+  const markers = [];
+  if (!(pinsById instanceof Map)) return markers;
+  const wantMfg = mode !== "hq";
+  const wantHq = mode !== "mfg";
+
+  for (const entry of pinsById.values()) {
+    const company = {
+      company_id: entry.id,
+      id: entry.id,
+      display_name: entry.name,
+      tagline: entry.tagline,
+      normalized_domain: entry.domain,
+    };
+
+    if (wantHq && entry.hqLat != null && entry.hqLng != null) {
+      const hqHere = region ? entry.hqRegion === region : entry.hqCC === cc;
+      if (hqHere) {
+        markers.push({
+          id: `${entry.id}:hq`,
+          companyId: entry.id,
+          kind: "hq",
+          lat: entry.hqLat,
+          lng: entry.hqLng,
+          dist: null,
+          label: null,
+          lowPrecision: false,
+          index: true,
+          company,
+        });
+      }
+    }
+
+    if (wantMfg) {
+      entry.mfg.forEach((m, i) => {
+        const lat = toFiniteNumber(m?.[0]);
+        const lng = toFiniteNumber(m?.[1]);
+        if (lat == null || lng == null) return;
+        const pinCC = typeof m?.[3] === "string" ? m[3] : null;
+        const pinRegion = typeof m?.[4] === "string" ? m[4] : null;
+        const here = region ? pinRegion === region : pinCC === cc;
+        if (!here) return;
+        markers.push({
+          id: `${entry.id}:mfg:${i}`,
+          companyId: entry.id,
+          kind: "mfg",
+          lat,
+          lng,
+          dist: null,
+          label: null,
+          lowPrecision: m?.[2] === 1,
+          index: true,
+          company,
+        });
+      });
+    }
+  }
+  return markers;
+}
+
 export function buildIndexMarkers(pinsById, matchIds, excludeIds, pinFilter = "both") {
   const markers = [];
   if (!(pinsById instanceof Map)) return markers;

@@ -16,6 +16,8 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import ShareButton from "@/components/ShareButton";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import useSplitRatio from "@/hooks/useSplitRatio";
+import SplitHandle from "@/components/results/map/SplitHandle";
 import { promoteExpanded } from "@/components/results/map/promoteExpanded";
 
 // Map view is opt-in and Leaflet is heavy (~150 KB min) — lazy-load the whole
@@ -439,6 +441,10 @@ export default function ResultsPage() {
   const [userCountryCode, setUserCountryCode] = useState("");
   // Map↔list hover sync (split view only). Shared by row wrappers and pins.
   const [hoveredCompanyId, setHoveredCompanyId] = useState(null);
+  // Split-view layout: user-set list/map balance (persisted) + fullscreen map.
+  const splitRef = useRef(null);
+  const [splitRatio, setSplitRatio] = useSplitRatio();
+  const [mapFullscreen, setMapFullscreen] = useState(false);
   // Every matched company id from the full search response (≤500) — the map
   // joins these against the /api/map-pins index to plot matches beyond the
   // loaded page as lighter "index pins".
@@ -1340,6 +1346,28 @@ export default function ResultsPage() {
     setSearchParams(next, { replace: true });
   }
 
+  // Esc leaves fullscreen — the expected exit for any full-viewport overlay.
+  useEffect(() => {
+    if (!mapFullscreen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setMapFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    // Don't leave the page scrollable behind the overlay.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [mapFullscreen]);
+
+  // Closing the map view drops fullscreen with it, so reopening never lands
+  // the user back in an overlay they didn't ask for.
+  useEffect(() => {
+    if (!mapOpen) setMapFullscreen(false);
+  }, [mapOpen]);
+
   // Map → list: highlight the hovered pin's row and bring it into view
   // without yanking the page around.
   const handlePinHover = useCallback((companyId) => {
@@ -1802,8 +1830,19 @@ export default function ResultsPage() {
 
       {/* Split view: list (3/5) + sticky map (2/5) on lg+, full map on
           mobile (list hidden). Plain pass-through when the map is closed. */}
-      <div className={mapOpen ? "lg:grid lg:grid-cols-5 lg:gap-4 lg:items-start" : undefined}>
-      <div className={mapOpen ? "hidden lg:block lg:col-span-3 min-w-0" : undefined}>
+      {/* Split view. The list/map balance is user-set (draggable divider,
+          remembered in localStorage) rather than a fixed 60/40 — the inline
+          grid-template-columns is inert below lg, where display isn't grid. */}
+      <div
+        ref={splitRef}
+        className={mapOpen && !mapFullscreen ? "lg:grid lg:gap-3 lg:items-start" : undefined}
+        style={
+          mapOpen && !mapFullscreen
+            ? { gridTemplateColumns: `minmax(0, ${splitRatio}fr) 14px minmax(0, ${100 - splitRatio}fr)` }
+            : undefined
+        }
+      >
+      <div className={mapOpen ? "hidden lg:block min-w-0" : undefined}>
       <div className="mb-4">
         {displayList.length > 0 ? (
           <div className="space-y-0">
@@ -2012,12 +2051,22 @@ export default function ResultsPage() {
         })()
       )}
       </div>
+      {/* Drag handle sits between the two columns (its own grid track). */}
+      {mapOpen && !mapFullscreen && (
+        <SplitHandle ratio={splitRatio} onRatio={setSplitRatio} containerRef={splitRef} />
+      )}
       {/* Map panel — mounted only when open, so the leaflet chunk loads on
           first toggle. isolation/z-0 keep Leaflet's internal z-indexes (up
-          to ~1000) below site chrome, drawers, and toasts. */}
+          to ~1000) below site chrome, drawers, and toasts. Fullscreen lifts
+          it out of the grid entirely. */}
       {mapOpen && (
         <aside
-          className="lg:col-span-2 lg:sticky lg:top-4 relative z-0 h-[calc(100dvh-9rem)] lg:h-[calc(100vh-6rem)] rounded-lg overflow-hidden border border-border bg-card"
+          className={cn(
+            "relative overflow-hidden border border-border bg-card",
+            mapFullscreen
+              ? "fixed inset-0 z-[250] h-screen w-screen rounded-none border-0"
+              : "lg:sticky lg:top-4 z-0 h-[calc(100dvh-9rem)] lg:h-[calc(100vh-6rem)] rounded-lg"
+          )}
           style={{ isolation: "isolate" }}
         >
           <React.Suspense fallback={<Skeleton className="w-full h-full" />}>
@@ -2034,6 +2083,8 @@ export default function ResultsPage() {
               linkParams={searchParams.toString()}
               loading={loading}
               matchIds={matchIds}
+              isFullscreen={mapFullscreen}
+              onToggleFullscreen={() => setMapFullscreen((v) => !v)}
             />
           </React.Suspense>
         </aside>
