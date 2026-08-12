@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Check, Copy, MoreHorizontal } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -8,19 +8,14 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "@/lib/toast";
-import {
-  buildShareTargets,
-  canNativeShare,
-  copyToClipboard,
-  nativeShare,
-} from "@/lib/share";
+import { buildShareTargets, copyToClipboard } from "@/lib/share";
 
 /**
- * The share sheet we control: a copyable link, direct social targets, and an
- * optional hand-off to the OS sheet. Used on desktop, where the native sheet
- * offers neither a link nor any social app. Payload is fully controlled by the
- * caller so it can be computed at click time (bookmark lists encode their
- * companies into the URL asynchronously).
+ * Fallback share sheet for browsers without Web Share (desktop Firefox), and
+ * for the rare case where the OS sheet fails to open. Everywhere else the
+ * native sheet is used instead — see canNativeShare in @/lib/share. Payload is
+ * fully controlled by the caller so it can be computed at click time (bookmark
+ * lists encode their companies into the URL asynchronously).
  */
 export default function ShareDialog({
   open,
@@ -49,16 +44,6 @@ export default function ShareDialog({
     } else {
       toast.error("Failed to copy");
     }
-  };
-
-  const handleNativeFromDialog = async (e) => {
-    e.stopPropagation();
-    const result = await nativeShare({
-      title: shareTitle,
-      text: shareMessage,
-      url: shareUrl,
-    });
-    if (result === "ok") onOpenChange(false);
   };
 
   return (
@@ -117,17 +102,6 @@ export default function ShareDialog({
               </a>
             ))}
           </div>
-
-          {canNativeShare() && (
-            <button
-              type="button"
-              onClick={handleNativeFromDialog}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-md border border-input px-3 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-[#3F97A2] focus:ring-offset-1"
-            >
-              <MoreHorizontal className="w-4 h-4" />
-              More apps&hellip;
-            </button>
-          )}
 
           <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
             {/* Instagram has no web share intent — there is no URL that opens a

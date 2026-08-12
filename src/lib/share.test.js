@@ -4,23 +4,13 @@ import {
   buildShareTargets,
   canNativeShare,
   nativeShare,
-  prefersNativeShare,
 } from "@/lib/share";
 
-// The share buttons regressed silently once: Chromium shipped Web Share on
-// desktop Windows, `navigator.share` became defined in desktop Brave/Chrome,
-// and every share button started handing off to the Windows share sheet —
-// which lists only installed apps and has no copy-link, so Facebook/X/etc.
-// became unreachable. Nothing failed, because the old gate was just
-// "does navigator.share exist". These tests pin the replacement gate so the
-// next browser change can't flip the behaviour unnoticed.
-
-function setPointer(kind) {
-  window.matchMedia = vi.fn((query) => ({
-    matches: query.includes(`pointer: ${kind}`),
-    media: query,
-  }));
-}
+// The OS share sheet is the preferred UI wherever it exists. It only looked
+// barren before because the payload omitted `url` — Windows filters targets by
+// data type, so a text-only payload was never offered to the link-handling apps
+// and got no copy-link or QR affordance. The `nativeShare` tests below pin that
+// payload; the dialog is the fallback for browsers without Web Share.
 
 function setNativeShare(impl) {
   Object.defineProperty(navigator, "share", {
@@ -36,39 +26,18 @@ function clearNativeShare() {
 
 afterEach(() => {
   clearNativeShare();
-  delete window.matchMedia;
   vi.restoreAllMocks();
 });
 
-describe("prefersNativeShare", () => {
-  test("false on desktop even when the browser supports Web Share", () => {
-    // The exact regression: desktop Brave/Chrome on Windows. The OS sheet is
-    // available but is the wrong UI, so we must fall through to our dialog.
+describe("canNativeShare", () => {
+  test("true when the browser exposes Web Share", () => {
     setNativeShare(() => Promise.resolve());
-    setPointer("fine");
     expect(canNativeShare()).toBe(true);
-    expect(prefersNativeShare()).toBe(false);
   });
 
-  test("true on touch devices, where the native sheet is the better UI", () => {
-    setNativeShare(() => Promise.resolve());
-    setPointer("coarse");
-    expect(prefersNativeShare()).toBe(true);
-  });
-
-  test("false when the browser has no Web Share at all", () => {
+  test("false when it does not, so callers fall back to the dialog", () => {
     clearNativeShare();
-    setPointer("coarse");
     expect(canNativeShare()).toBe(false);
-    expect(prefersNativeShare()).toBe(false);
-  });
-
-  test("false when matchMedia is unavailable or throws", () => {
-    setNativeShare(() => Promise.resolve());
-    window.matchMedia = () => {
-      throw new Error("not implemented");
-    };
-    expect(prefersNativeShare()).toBe(false);
   });
 });
 

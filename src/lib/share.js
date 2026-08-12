@@ -22,24 +22,15 @@ export async function copyToClipboard(text) {
   }
 }
 
+// The OS share sheet is the preferred UI wherever the browser offers it. It
+// only looked barren before because the payload omitted `url`: Windows filters
+// share targets by data type, so a text-only payload was never offered to the
+// link-handling apps (Gmail, X, WhatsApp, Facebook, LinkedIn, Discord) and got
+// no copy-link or QR affordance either. Sending a real url restores all of it.
+// The dialog below stays as the fallback for browsers without Web Share, such
+// as desktop Firefox.
 export const canNativeShare = () =>
   typeof navigator !== "undefined" && typeof navigator.share === "function";
-
-// Chromium enabled Web Share on desktop Windows, so `navigator.share` alone no
-// longer means "the OS sheet is the better UI". On desktop it opens the Windows
-// share sheet, which lists only installed apps (Outlook, Teams, Nearby Sharing)
-// and has no copy-link — Facebook/X/etc. are simply not reachable from it. On a
-// phone the same sheet is genuinely the best option, so gate on the pointer:
-// coarse primary pointer = touch device. A touchscreen laptop still reports
-// `fine` because the media query describes the *primary* pointer.
-export function prefersNativeShare() {
-  if (!canNativeShare()) return false;
-  try {
-    return window.matchMedia("(pointer: coarse)").matches;
-  } catch {
-    return false;
-  }
-}
 
 // Returns "ok" | "abort" | "fail" so callers can distinguish a user-cancelled
 // sheet (do nothing) from a broken one (fall back to the dialog).
