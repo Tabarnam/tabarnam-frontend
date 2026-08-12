@@ -73,16 +73,25 @@ export function makePinIcon({ kind, lowPrecision = false, active = false, delayM
   return icon;
 }
 
-/** Small pulsing dot for the user's own location. */
+/**
+ * The search origin — the point every distance on the page is measured from.
+ * A house glyph rather than a dot, because a bare dot read as "some other
+ * company" next to the company pins.
+ */
 export function makeUserIcon() {
   const key = "user";
   const cached = cache.get(key);
   if (cached) return cached;
   const icon = L.divIcon({
     className: "tab-pin-anchor",
-    html: `<div class="tab-user-dot" aria-hidden="true"></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    html: `<div class="tab-home" title="Your search location — distances are measured from here">
+      <svg width="26" height="26" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle class="tab-home__disc" cx="13" cy="13" r="11"/>
+        <path class="tab-home__glyph" d="M13 6l7 6h-2v7h-4v-4h-2v4H8v-7H6z"/>
+      </svg>
+    </div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
   });
   cache.set(key, icon);
   return icon;

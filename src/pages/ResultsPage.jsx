@@ -1905,7 +1905,15 @@ export default function ResultsPage() {
             : undefined
         }
       >
-      <div className={mapOpen ? "hidden lg:block min-w-0" : undefined}>
+      <div
+        className={cn(
+          mapOpen && "hidden lg:block min-w-0",
+          // Below ~45% the card's wide 6/5-column layout stops fitting the
+          // column (it keys off viewport width, not container width), so
+          // stack it instead of letting it shear. Lets the map take 2/3.
+          mapOpen && splitRatio < 45 && "results-list--narrow"
+        )}
+      >
       <div className="mb-4">
         {displayList.length > 0 ? (
           <div className="space-y-0">

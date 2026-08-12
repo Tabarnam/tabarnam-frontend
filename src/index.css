@@ -320,3 +320,20 @@ html.transitioning *::after {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Narrow results column (split map view) ──────────────────────────────────
+   ExpandableCompanyRow lays out on a 6/5-column grid chosen by Tailwind's
+   `lg:` prefix — which keys off VIEWPORT width. In the split view the viewport
+   is wide but the list column can be ~400px, so the card kept the wide layout
+   inside a narrow box and its columns collapsed into unreadable slivers
+   (measured: 10 elements overflowing their card at a 33% split).
+
+   ResultsPage adds this class when the user drags the divider past the point
+   where the wide layout stops fitting; the card then stacks into one column,
+   which stays readable at any width and lets the map take two thirds. */
+.results-list--narrow .grid.grid-cols-6 {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.results-list--narrow .grid.grid-cols-6 > * {
+  grid-column: span 1 / span 1 !important;
+}

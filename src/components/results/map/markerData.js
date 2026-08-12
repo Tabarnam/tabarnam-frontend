@@ -143,10 +143,10 @@ export function buildMarkers(companies, pinFilter = "both") {
 }
 
 // ── Pins-index (whole-catalog) support ──────────────────────────────────────
-// /api/map-pins serves compact array entries (v4):
+// /api/map-pins serves compact array entries (v5):
 //   [id, name, tagline, domain, hqLat|null, hqLng|null,
-//    [[mLat, mLng, lowPrec01, cc|null, region|null], ...], hqCC|null,
-//    [mfgCC, ...], hqRegion|null, [mfgRegion, ...]]
+//    [[mLat, mLng, lowPrec01, cc|null, region|null, label|null], ...],
+//    hqCC|null, [mfgCC, ...], hqRegion|null, [mfgRegion, ...], hqLabel|null]
 // hqCC/mfgCCs are ISO country attributions and hqRegion/mfgRegions are ISO
 // 3166-2 subdivisions ("US-CA") — both absent on older payloads, which decode
 // tolerates. decodePinsPayload turns the payload into an id-keyed Map;
@@ -159,7 +159,8 @@ export function decodePinsPayload(payload) {
   const rows = Array.isArray(payload?.companies) ? payload.companies : [];
   for (const row of rows) {
     if (!Array.isArray(row) || row.length < 7) continue;
-    const [id, name, tagline, domain, hqLat, hqLng, mfg, hqCC, mfgCCs, hqRegion, mfgRegions] = row;
+    const [id, name, tagline, domain, hqLat, hqLng, mfg, hqCC, mfgCCs, hqRegion, mfgRegions, hqLabel] =
+      row;
     const key = String(id ?? "").trim();
     if (!key) continue;
     byId.set(key, {
@@ -174,6 +175,7 @@ export function decodePinsPayload(payload) {
       mfgCCs: Array.isArray(mfgCCs) ? mfgCCs.filter((c) => typeof c === "string" && c) : [],
       hqRegion: typeof hqRegion === "string" && hqRegion ? hqRegion : null,
       mfgRegions: Array.isArray(mfgRegions) ? mfgRegions.filter((r) => typeof r === "string" && r) : [],
+      hqLabel: typeof hqLabel === "string" && hqLabel ? hqLabel : null,
     });
   }
   return byId;
@@ -219,9 +221,10 @@ export function buildPlaceMarkers(pinsById, { cc, region, mode = "mfg" } = {}) {
           lat: entry.hqLat,
           lng: entry.hqLng,
           dist: null,
-          label: null,
+          label: entry.hqLabel || null,
           lowPrecision: false,
           index: true,
+          hqLabel: entry.hqLabel || null,
           company,
         });
       }
@@ -243,9 +246,10 @@ export function buildPlaceMarkers(pinsById, { cc, region, mode = "mfg" } = {}) {
           lat,
           lng,
           dist: null,
-          label: null,
+          label: typeof m?.[5] === "string" ? m[5] : null,
           lowPrecision: m?.[2] === 1,
           index: true,
+          hqLabel: entry.hqLabel || null,
           company,
         });
       });
@@ -278,9 +282,10 @@ export function buildIndexMarkers(pinsById, matchIds, excludeIds, pinFilter = "b
         lat: entry.hqLat,
         lng: entry.hqLng,
         dist: null,
-        label: null,
+        label: entry.hqLabel || null,
         lowPrecision: false,
         index: true,
+        hqLabel: entry.hqLabel || null,
         company,
       });
     }
@@ -296,9 +301,10 @@ export function buildIndexMarkers(pinsById, matchIds, excludeIds, pinFilter = "b
           lat,
           lng,
           dist: null,
-          label: null,
+          label: typeof m?.[5] === "string" ? m[5] : null,
           lowPrecision: m?.[2] === 1,
           index: true,
+          hqLabel: entry.hqLabel || null,
           company,
         });
       });

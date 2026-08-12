@@ -8,7 +8,7 @@
 // the main bundle.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { MapContainer, TileLayer, ZoomControl, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, ZoomControl, AttributionControl, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useTheme } from "next-themes";
 import "leaflet/dist/leaflet.css";
@@ -42,8 +42,10 @@ function ClusterLayer({ markers, onPinOver, onPinOut, onPinTap }) {
     const group = L.markerClusterGroup({
       chunkedLoading: true,
       showCoverageOnHover: false,
-      maxClusterRadius: 60,
+      maxClusterRadius: 45,
       spiderfyOnMaxZoom: true,
+      // Stop clustering once there's room to show pins individually.
+      disableClusteringAtZoom: 10,
       iconCreateFunction: (cluster) => {
         const n = cluster.getChildCount();
         const size = n >= 1000 ? "lg" : n >= 100 ? "md" : "sm";
@@ -261,11 +263,15 @@ export default function MapExplorePage() {
           minZoom={1}
           worldCopyJump
           className="w-full h-full"
-          attributionControl
+          attributionControl={false}
           zoomControl={false}
         >
           {/* Zoom control top-right: top-left is the HQ/MFG/Both pill. */}
           <ZoomControl position="topright" />
+          {/* OSM + CARTO credit is required by ODbL and CARTO's terms, so it
+              stays — prefix={false} drops only the optional "Leaflet" mention,
+              and map.css keeps it small and faded. */}
+          <AttributionControl position="bottomright" prefix={false} />
           <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} />
           <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
           {active && <CardTracker latlng={active.latlng} onPoint={setCardPoint} />}

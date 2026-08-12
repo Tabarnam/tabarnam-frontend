@@ -8,7 +8,10 @@ import React, { useCallback, useEffect, useRef } from "react";
  * Accessible as a real separator: focusable, arrow keys nudge, Home/End jump
  * to the bounds, and it reports its position via aria-valuenow.
  */
-export const SPLIT_MIN = 20;
+// The list can shrink to a third of the row (map takes two thirds) — the
+// product owner's call, favouring user autonomy. Below that the company
+// cards' 6/5-column grid wraps into unreadable slivers.
+export const SPLIT_MIN = 33;
 export const SPLIT_MAX = 80;
 
 export default function SplitHandle({ ratio, onRatio, containerRef }) {
