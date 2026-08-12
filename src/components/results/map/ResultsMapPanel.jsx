@@ -21,6 +21,8 @@ import MapHoverCard from "./MapHoverCard";
 // traffic — revisit the provider if volume grows. The plain-OSM fallback
 // (tile.openstreetmap.org + .osm-fallback CSS inversion, see map.css) is a
 // one-line swap here; OSM's donated tile servers have their own usage policy.
+const WORLD_BOUNDS = [[-85, -180], [85, 180]];
+
 const TILE_DARK = {
   url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
   attribution:
@@ -383,7 +385,12 @@ export default function ResultsMapPanel({
         center={[20, 0]}
         zoom={2}
         minZoom={1}
-        worldCopyJump
+        // One world, not a filmstrip of them. Leaflet wraps infinitely by
+        // default, which repeated whole continents side by side and made a
+        // global pin set unreadable. maxBounds pins the view to a single
+        // Earth; noWrap on the tiles stops the copies being drawn at all.
+        maxBounds={WORLD_BOUNDS}
+        maxBoundsViscosity={1}
         className="w-full h-full"
         // The OSM + CARTO credit is REQUIRED by ODbL and CARTO's basemap
         // terms, so it stays — but the "Leaflet" prefix is optional and the
@@ -398,7 +405,7 @@ export default function ResultsMapPanel({
             stays — prefix={false} drops only the optional "Leaflet" mention,
             and map.css keeps it small and faded. */}
         <AttributionControl position="bottomright" prefix={false} />
-        <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} />
+        <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} noWrap />
         <FitBounds boundsKey={boundsKey} points={fitPoints} loading={loading} recenterNonce={recenterNonce} />
         <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
         {active && <CardTracker latlng={active.latlng} onPoint={setCardPoint} />}

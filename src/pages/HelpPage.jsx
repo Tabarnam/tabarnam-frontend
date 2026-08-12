@@ -1,4 +1,4 @@
-import { Helmet } from 'react-helmet-async';
+import { Helmet } from "@/components/DocumentHead";
 import { Link } from 'react-router-dom';
 import { Compass, Play } from 'lucide-react';
 

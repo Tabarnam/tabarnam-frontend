@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Helmet } from "react-helmet-async";
+import { Helmet } from "@/components/DocumentHead";
 import { Link } from "react-router-dom";
 import DataTable from "react-data-table-component";
 import { useTheme } from "next-themes";

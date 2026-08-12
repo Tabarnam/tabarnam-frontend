@@ -7,7 +7,7 @@
 // This page lazy-loads via App.jsx, so leaflet + markercluster never touch
 // the main bundle.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Helmet } from "react-helmet-async";
+import { Helmet } from "@/components/DocumentHead";
 import { MapContainer, TileLayer, ZoomControl, AttributionControl, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useTheme } from "next-themes";
@@ -20,6 +20,8 @@ import { buildIndexMarkers } from "@/components/results/map/markerData";
 import { fetchPinsIndex } from "@/components/results/map/pinsIndexClient";
 import { makePinIcon, makeUserIcon } from "@/components/results/map/markerIcons";
 import MapHoverCard from "@/components/results/map/MapHoverCard";
+
+const WORLD_BOUNDS = [[-85, -180], [85, 180]];
 
 const TILE_DARK = {
   url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
@@ -272,7 +274,7 @@ export default function MapExplorePage() {
               stays — prefix={false} drops only the optional "Leaflet" mention,
               and map.css keeps it small and faded. */}
           <AttributionControl position="bottomright" prefix={false} />
-          <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} />
+          <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} noWrap />
           <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
           {active && <CardTracker latlng={active.latlng} onPoint={setCardPoint} />}
           {markers.length > 0 && (

@@ -1,4 +1,4 @@
-import { Helmet } from 'react-helmet-async';
+import { Helmet } from "@/components/DocumentHead";
 import { Building2 } from 'lucide-react';
 
 export default function AboutPage() {

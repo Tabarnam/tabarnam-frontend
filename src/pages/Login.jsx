@@ -1,5 +1,5 @@
 import React from 'react';
-import { Helmet } from 'react-helmet-async';
+import { Helmet } from "@/components/DocumentHead";
 import { Button } from '@/components/ui/button';
 import { LogIn, AlertTriangle } from 'lucide-react';
 import { useLocation } from 'react-router-dom';

@@ -13,6 +13,8 @@ import "@/components/results/map/map.css";
 import { makePinIcon } from "@/components/results/map/markerIcons";
 import MapHoverCard from "@/components/results/map/MapHoverCard";
 
+const WORLD_BOUNDS = [[-85, -180], [85, 180]];
+
 const TILE_DARK = {
   url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
   attribution:
@@ -173,7 +175,7 @@ export default function MadeInMap({ markers, placeName }) {
             stays — prefix={false} drops only the optional "Leaflet" mention,
             and map.css keeps it small and faded. */}
         <AttributionControl position="bottomright" prefix={false} />
-        <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} />
+        <TileLayer key={isDark ? "dark" : "light"} url={tiles.url} attribution={tiles.attribution} noWrap />
         <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
         {active && <CardTracker latlng={active.latlng} onPoint={setCardPoint} />}
         {markers.length > 0 && (
