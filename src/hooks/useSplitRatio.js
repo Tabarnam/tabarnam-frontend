@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "tabarnam_results_map_split";
 const DEFAULT_RATIO = 60; // % of the row given to the results list
-// Mirrors STACK_BELOW_RATIO in ResultsPage: below this the layout stacks.
-const STACK_FLOOR = 40;
+// Mirrors SPLIT_MIN / SPLIT_MAX in SplitHandle — the range the drag allows.
+const MIN_RATIO = 33;
+const MAX_RATIO = 80;
 
 /**
  * The list/map split percentage, remembered across searches and sessions.
@@ -19,12 +20,10 @@ export default function useSplitRatio() {
   const [ratio, setRatio] = useState(() => {
     try {
       const stored = Number(localStorage.getItem(STORAGE_KEY));
-      // Restore side-by-side widths only. Stacking (full-width map above the
-      // results) is a deliberate in-session view, not a durable default —
-      // one accidental drag past the threshold shouldn't make every future
-      // visit open full-width. Anything below the stack threshold restores
-      // as the default split instead.
-      if (Number.isFinite(stored) && stored >= STACK_FLOOR && stored <= 80) return stored;
+      // Any width the drag can produce is a width worth remembering; anything
+      // outside that range is stale (it predates the current bounds) and
+      // restores as the default instead.
+      if (Number.isFinite(stored) && stored >= MIN_RATIO && stored <= MAX_RATIO) return stored;
     } catch {
       /* private mode / storage disabled — fall through to the default */
     }
