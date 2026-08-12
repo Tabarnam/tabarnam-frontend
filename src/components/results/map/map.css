@@ -248,32 +248,38 @@
   font: inherit;
 }
 
-/* CARTO's dark basemap draws streets barely above the land it sits on: land
-   lands around 18/255 and road fill around 36/255, an 18-level gap that all
-   but disappears on a dim screen.
+/* CARTO's dark basemap barely separates streets from the land they sit on.
+   These are the MEASURED luminance levels, sampled off real tiles on a canvas
+   rather than guessed — the guess was land 18 / road 36, which is twice the
+   real gap and produced a curve that left minor roads invisible:
+
+       water 6 · LAND 9 · minor road 13 · road 17 · medium 21-26 · major 38
+
+   Two-thirds of a regional tile is that single land value, and the minor
+   roads sit four levels above it.
 
    ORDER IS THE WHOLE TRICK. contrast() pivots around a 0.5 midpoint, so on
-   the raw tile — where land and road both sit far below that midpoint — it
-   drags the two together into pure black and erases the streets outright.
+   the raw tile — where every one of those values sits far below the pivot —
+   it drags them together into black and erases the streets outright.
    Brighten FIRST and the same operator does the opposite: the values are now
-   high enough that contrast pushes the land back down toward black while the
-   roads stay up. Effectively a gamma curve built from the two filters CSS
-   actually gives us.
+   high enough that contrast pushes land back down to black while the roads
+   stay up. A gamma curve built from the two filters CSS actually gives us.
 
-       none                     land 18 · road  36 · gap 18
-       brightness(1.6)          land 29 · road  58 · gap 29   (lifts everything)
-       brightness(3) contrast(1.4)  land 25 · road 100 · gap 75
+   7.3 / 2.06 is not a taste pick, it is the ceiling: it is the curve that
+   drives land to exactly 0 while lifting minor roads as far as they will go.
+   Push harder (9 / 2.4) and land itself rises off black — a dark map traded
+   away for nothing.
 
-   The compound curve is the better trade in both directions at once: streets
-   separate four times as strongly as the raw tile, and the background still
-   lands DARKER than a plain 1.6 lift, so the map never turns grey. Labels
-   clip to white, which is a gain at regional zoom where they were muddy.
+       filter                       land  minor  road  medium  major
+       none                            9     13    17      26     38
+       brightness(3) contrast(1.4)     0      4    20      58    109
+       brightness(7.3) contrast(2.06)  0     60   120     255    255
 
    Tiles only. Pins, controls and labels-as-markers are separate elements and
    keep their own colour. Applies to every Leaflet map we render (results,
    made-in, explore) since all three use the same CARTO dark tiles. */
 .dark .leaflet-tile {
-  filter: brightness(3) contrast(1.4);
+  filter: brightness(7.3) contrast(2.06);
 }
 
 /* Fallback dark-tile treatment for plain OSM tiles — inert unless the
