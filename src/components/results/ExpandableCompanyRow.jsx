@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Copy, Pencil } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Pencil, ExternalLink } from "lucide-react";
 import ShareButton from "@/components/ShareButton";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import ReviewsWidget from "@/components/ReviewsWidget";
@@ -91,6 +91,38 @@ async function copyToClipboard(text) {
       return false;
     }
   }
+}
+
+// The logo links to the company's website in a new tab, but it lives inside a
+// card whose entire surface is click-to-expand. Nothing distinguished the two
+// targets — the whole card already shows cursor-pointer, so the cursor is no
+// help. On hover we (a) lift the logo with a ring so it reads as its own
+// target, and (b) show an external-link badge in the corner, the same
+// "leaves the site" convention as the row's Amazon/review links. When there is
+// no website URL the logo is intentionally not a link and gets neither.
+function ClickableLogo({ websiteUrl, logoUrl, displayName, imgClassName, onError }) {
+  const img = (
+    <img src={logoUrl} alt={displayName} className={imgClassName} onError={onError} loading="lazy" />
+  );
+  if (!websiteUrl) return img;
+  return (
+    <a
+      href={websiteUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={`Visit ${displayName}`}
+      className="group/logo relative block rounded ring-1 ring-transparent transition hover:ring-border"
+    >
+      {img}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute right-1 top-1 flex items-center justify-center rounded-md bg-background/90 p-1 opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-150 group-hover/logo:opacity-100"
+      >
+        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+      </span>
+    </a>
+  );
 }
 
 function CompanyNameWithUrlTooltip({ href, className, children, onClick }) {
@@ -787,31 +819,13 @@ export default function ExpandableCompanyRow({
           <div className="col-span-2 lg:col-span-1">
             <div className="relative group inline-block w-full">
               {shouldShowLogo ? (
-                websiteUrl ? (
-                  <a
-                    href={websiteUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="block"
-                  >
-                    <img
-                      src={logoUrl}
-                      alt={displayName}
-                      className="w-full max-h-40 h-auto object-contain"
-                      onError={() => setLogoFailed(true)}
-                      loading="lazy"
-                    />
-                  </a>
-                ) : (
-                  <img
-                    src={logoUrl}
-                    alt={displayName}
-                    className="w-full max-h-40 h-auto object-contain"
-                    onError={() => setLogoFailed(true)}
-                    loading="lazy"
-                  />
-                )
+                <ClickableLogo
+                  websiteUrl={websiteUrl}
+                  logoUrl={logoUrl}
+                  displayName={displayName}
+                  imgClassName="w-full max-h-40 h-auto object-contain"
+                  onError={() => setLogoFailed(true)}
+                />
               ) : (
                 <div className="w-full h-32 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
                   {logoStatus === "not_found_on_site" ? (
@@ -1089,31 +1103,13 @@ export default function ExpandableCompanyRow({
       <div className="col-span-2 lg:col-span-1 flex items-center justify-center">
         <div className="relative group inline-block w-full">
           {shouldShowLogo ? (
-            websiteUrl ? (
-              <a
-                href={websiteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="block"
-              >
-                <img
-                  src={logoUrl}
-                  alt={displayName}
-                  className="w-full max-h-60 h-auto object-contain"
-                  onError={() => setLogoFailed(true)}
-                  loading="lazy"
-                />
-              </a>
-            ) : (
-              <img
-                src={logoUrl}
-                alt={displayName}
-                className="w-full max-h-60 h-auto object-contain"
-                onError={() => setLogoFailed(true)}
-                loading="lazy"
-              />
-            )
+            <ClickableLogo
+              websiteUrl={websiteUrl}
+              logoUrl={logoUrl}
+              displayName={displayName}
+              imgClassName="w-full max-h-60 h-auto object-contain"
+              onError={() => setLogoFailed(true)}
+            />
           ) : (
             <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
               {logoStatus === "not_found_on_site" ? (
