@@ -13,7 +13,18 @@ import { calculateDistance } from "@/lib/distance";
 import { buildMarkers, buildIndexMarkers } from "./markerData";
 import { fetchPinsIndex } from "./pinsIndexClient";
 import { groupByCoord, spiderfyOffsets } from "./spreadOverlaps";
-import { makePinIcon, makeUserIcon } from "./markerIcons";
+import {
+  makePinIcon,
+  makeUserIcon,
+  HQ_VIEWBOX,
+  HQ_SHAPE_D,
+  HQ_GLYPH_D,
+  MFG_VIEWBOX,
+  MFG_SHAPE_D,
+  MFG_GLYPH_D,
+  HOME_VIEWBOX,
+  HOME_SHAPE_D,
+} from "./markerIcons";
 import FitBounds from "./FitBounds";
 import MapHoverCard from "./MapHoverCard";
 
@@ -34,6 +45,36 @@ const TILE_LIGHT = {
 };
 
 const CASCADE_MAX_PINS = 50;
+
+/**
+ * A legend swatch that IS the pin — same paths, same CSS classes, so it picks
+ * up the same colours and can never drift from what's on the map.
+ */
+function LegendPin({ kind }) {
+  const spec =
+    kind === "hq"
+      ? { viewBox: HQ_VIEWBOX, shape: HQ_SHAPE_D, glyph: HQ_GLYPH_D, cls: "tab-pin--hq", w: 11, h: 14 }
+      : kind === "mfg"
+        ? { viewBox: MFG_VIEWBOX, shape: MFG_SHAPE_D, glyph: MFG_GLYPH_D, cls: "tab-pin--mfg", w: 12, h: 14 }
+        : { viewBox: HOME_VIEWBOX, shape: HOME_SHAPE_D, glyph: null, cls: "", w: 11, h: 14 };
+  const home = kind === "home";
+  return (
+    <svg
+      width={spec.w}
+      height={spec.h}
+      viewBox={spec.viewBox}
+      className={cn("shrink-0", spec.cls)}
+      aria-hidden="true"
+    >
+      <path className={home ? "tab-home__pin" : "tab-pin__shape"} d={spec.shape} />
+      {home ? (
+        <circle className="tab-home__hole" cx="13" cy="12" r="4" />
+      ) : (
+        <path className="tab-pin__glyph" d={spec.glyph} />
+      )}
+    </svg>
+  );
+}
 
 // Opening-view horizon for a search with a location: frame roughly this many
 // of the nearest pins, and never stretch past this radius to include one.
@@ -464,13 +505,20 @@ export default function ResultsMapPanel({
 
       {/* Legend */}
       <div className="absolute bottom-6 left-2 z-[1000] flex flex-col gap-1 bg-card/90 backdrop-blur-sm rounded-lg px-2 py-1.5 border border-border text-[11px] text-muted-foreground">
+        {/* The swatches are the pins themselves, at the same geometry and off
+            the same path data — a dot and a rotated square explained the
+            colours but not what the user is actually looking at. */}
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: "hsl(var(--primary))" }} />
+          <LegendPin kind="hq" />
           Home/HQ
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block w-2.5 h-2.5 rotate-45" style={{ background: "#649BA0" }} />
+          <LegendPin kind="mfg" />
           Manufacturing
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <LegendPin kind="home" />
+          Your location
         </span>
         {/* Only shown when a scope actually split the results, so the ring
             never appears in the legend without appearing on the map.
@@ -480,7 +528,7 @@ export default function ResultsMapPanel({
         {inScopeIds && inScopeIds.size > 0 && (
           <span className="inline-flex items-center gap-1.5">
             <span
-              className="inline-block w-2.5 h-2.5 rounded-full"
+              className="inline-block w-3 h-3 rounded-full shrink-0"
               style={{ border: "2px solid hsl(var(--primary))" }}
             />
             {scopeLabel ? `Company in ${scopeLabel}` : "Company in this place"}

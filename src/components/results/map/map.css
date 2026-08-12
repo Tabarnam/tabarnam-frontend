@@ -22,11 +22,18 @@
   shape-rendering: geometricPrecision;
 }
 
+/* HQ and manufacturing must separate at a glance, not on inspection. The old
+   pairing (brand teal against #649ba0) put two teals side by side and left the
+   silhouette doing all the work; on a dark basemap the map read as one colour.
+   Amber sits opposite teal, so the two split instantly and stay split for
+   red-green colour blindness, where both hues survive on the blue-yellow axis.
+   Amber rather than red: red belongs to the search origin (.tab-home__pin) and
+   must not be shared. Nothing else on the map is warm. */
 .tab-pin--hq {
   color: hsl(var(--primary));
 }
 .tab-pin--mfg {
-  color: #649ba0;
+  color: #e0952a;
 }
 
 .tab-pin__shape {
