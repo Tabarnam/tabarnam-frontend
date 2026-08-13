@@ -112,7 +112,7 @@ function ClickableLogo({ websiteUrl, logoUrl, displayName, imgClassName, onError
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
       title={`Visit ${displayName}`}
-      className="group/logo relative block rounded-md ring-2 ring-transparent transition hover:bg-primary/10 hover:ring-ring"
+      className="group/logo relative block rounded-md ring-2 ring-transparent transition hover:bg-primary/15 hover:ring-ring"
     >
       {img}
       <span
