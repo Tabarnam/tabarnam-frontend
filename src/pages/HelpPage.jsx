@@ -155,13 +155,6 @@ export default function HelpPage() {
               <li><strong className="text-foreground">Filter what's on the map</strong> — the <em>HQ / Mfg / All</em> pill toggles pin kinds. Recenter, fullscreen, and zoom controls sit around the map's edges.</li>
               <li><strong className="text-foreground">Map a company's network</strong> — HQ and manufacturing pins already appear side by side on the map. Click the <em>Trace network</em> button in an expanded row to focus the map on just that company and draw lines from its headquarters to each manufacturing site — a hub-and-spokes picture of where it operates.</li>
             </ul>
-            <p>
-              <strong className="text-foreground">Whole-catalog explore.</strong> Visit{' '}
-              <Link to="/map" className="text-primary underline underline-offset-4">/map</Link>{' '}
-              for a full-screen browse of every company and every location, worldwide. Zoom out to see clusters;
-              zoom in and individual pins take over. A <em>Near me</em> button in the top-right of the page flies
-              to your current location.
-            </p>
           </section>
 
           <section id="qq">
