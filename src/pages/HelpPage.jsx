@@ -11,7 +11,7 @@ export default function HelpPage() {
         <title>How Tabarnam Works – Help</title>
         <meta
           name="description"
-          content="A quick guide to searching Tabarnam, targeting a location, sorting results, reading a company profile, adding reviews, saving bookmarks, sharing, and giving feedback."
+          content="A quick guide to searching Tabarnam, targeting a location, sorting results, browsing on a map, reading a company profile, adding reviews, saving bookmarks, sharing, and giving feedback."
         />
       </Helmet>
 
@@ -48,6 +48,7 @@ export default function HelpPage() {
             <li><a href="#searching" className="text-primary underline underline-offset-4">Searching</a></li>
             <li><a href="#location" className="text-primary underline underline-offset-4">Targeting a location</a></li>
             <li><a href="#sorting" className="text-primary underline underline-offset-4">Sorting and filtering</a></li>
+            <li><a href="#map" className="text-primary underline underline-offset-4">Map</a></li>
             <li><a href="#qq" className="text-primary underline underline-offset-4">The QQ score</a></li>
             <li><a href="#row" className="text-primary underline underline-offset-4">Reading a result</a></li>
             <li><a href="#profile" className="text-primary underline underline-offset-4">Company profile</a></li>
@@ -136,6 +137,33 @@ export default function HelpPage() {
               <em> Manufacturing</em> header on the results table to re-sort existing results by proximity to your specified location.
               If no location is set, results are sorted by proximity to your detected location — or, when we can't detect one,
               to San Dimas, CA, USA. Click the <em>QQ</em> header to sort by score.
+            </p>
+          </section>
+
+          <section id="map">
+            <h2 className="text-xl font-semibold text-foreground mb-3">Map</h2>
+            <p className="mb-3">
+              Every search has a map view alongside the list. Use the <em>List | Map</em> toggle in the results
+              toolbar; your choice is saved in the URL so the view is shareable.
+            </p>
+            <ul className="list-disc pl-6 space-y-1.5 mb-3">
+              <li><strong className="text-foreground">Two pin kinds</strong> — headquarters and manufacturing use different colors and shapes. The red teardrop is your search origin; distances in the list are measured from it.</li>
+              <li><strong className="text-foreground">Precise vs approximate</strong> — solid pins mark precise addresses; hollow, dashed pins mean we only know the country or state.</li>
+              <li><strong className="text-foreground">In-scope ring</strong> — companies located inside the place you searched get a highlight ring, matching the "Nearby results" idea from the list.</li>
+              <li><strong className="text-foreground">Hover a pin</strong> for a company card with name, tagline, QQ rating, distance, and a link to open the full profile.</li>
+              <li><strong className="text-foreground">List ↔ map sync</strong> — hovering a row lights up its pin; hovering a pin scrolls the row into view. Click any location in a row and the map flies to it.</li>
+              <li><strong className="text-foreground">Filter what's on the map</strong> — the <em>HQ / Mfg / All</em> pill toggles pin kinds. Recenter, fullscreen, and zoom controls sit around the map's edges.</li>
+              <li><strong className="text-foreground">Trace a network</strong> — on companies with more than one site, dashed lines connect HQ to each manufacturing location.</li>
+            </ul>
+            <p className="mb-3">
+              <strong className="text-foreground">Whole-catalog explore.</strong> Visit{' '}
+              <Link to="/map" className="text-primary underline underline-offset-4">/map</Link>{' '}
+              for a full-screen browse of every company and every location. Zoom out to see clusters; zoom in
+              and individual pins take over. The <em>Near me</em> button flies to your current location.
+            </p>
+            <p>
+              <strong className="text-foreground">On a phone</strong>, tapping Map replaces the list — the split
+              view is a desktop-and-tablet layout.
             </p>
           </section>
 
