@@ -112,6 +112,29 @@ function extractActor(req) {
 }
 
 /**
+ * Decide which identity signs an audit entry.
+ *
+ * The AUTHENTICATED identity (SWA client principal) wins. The body-supplied
+ * actor is self-reported and therefore spoofable, so it is only a fallback for
+ * callers that have no principal — the bulk-import frontend passes the user's
+ * email from getAdminUser explicitly so those entries still carry provenance.
+ *
+ * This is an audit trail: a caller must not be able to sign an entry as someone
+ * else. Matches the actor plumbing in admin-companies-v2's write path.
+ */
+function resolveActor(req, body) {
+  const { actor_email, actor_user_id } = extractActor(req);
+
+  const bodyActorEmail = String(body?.actor_email || body?.actorEmail || "").trim();
+  const bodyActorUserId = String(body?.actor_user_id || body?.actorUserId || "").trim();
+
+  return {
+    actor_email: actor_email || bodyActorEmail || undefined,
+    actor_user_id: actor_user_id || bodyActorUserId || undefined,
+  };
+}
+
+/**
  * Project a Cosmos history doc to the row shape the UI consumes. Strip
  * the large `diff` payload — the global feed only needs the headline,
  * not the field-by-field before/after (the per-company history page
@@ -302,17 +325,12 @@ async function handlePost(req, context) {
     );
   }
 
-  const { actor_email, actor_user_id } = extractActor(req);
-  // Body-supplied actor_email overrides (the bulk-import frontend has
-  // the user's email via getAdminUser and passes it explicitly so the
-  // entry has provenance even when SWA principal isn't present).
-  const bodyActorEmail = String(body.actor_email || body.actorEmail || "").trim();
-  const bodyActorUserId = String(body.actor_user_id || body.actorUserId || "").trim();
+  const { actor_email, actor_user_id } = resolveActor(req, body);
 
   const result = await writeBatchSummaryEntry({
     action,
-    actor_email: bodyActorEmail || actor_email || undefined,
-    actor_user_id: bodyActorUserId || actor_user_id || undefined,
+    actor_email,
+    actor_user_id,
     request_id: String(body.request_id || body.requestId || "").trim() || undefined,
     batch_id: String(body.batch_id || body.batchId || "").trim() || undefined,
     source: String(body.source || "admin-ui").trim() || "admin-ui",
@@ -348,5 +366,5 @@ if (!hasRoute(ROUTE)) {
 
 module.exports = {
   handler,
-  _test: { handleGet, handlePost, projectRow, ALLOWED_SUMMARY_ACTIONS },
+  _test: { handleGet, handlePost, projectRow, resolveActor, ALLOWED_SUMMARY_ACTIONS },
 };
