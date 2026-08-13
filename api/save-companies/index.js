@@ -18,6 +18,7 @@ const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 const { deduplicateLocationEntries } = require("../import-start/_importStartCompanyUtils");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { resolveAttribution } = require("../_attribution");
+const { consumeImportQuota, quotaDenialResponse, isMetered } = require("../_importQuota");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
@@ -453,6 +454,25 @@ async function saveCompaniesHandler(req, context) {
       const companies = bodyObj.companies || [];
       if (!Array.isArray(companies) || companies.length === 0) {
         return json({ ok: false, error: "companies array required" }, 400);
+      }
+
+      // Daily import allowance — contributors only. Charged BEFORE any company
+      // is written, so a refused batch costs nothing. Admins and the internal
+      // workers are never metered (see _importQuota.js).
+      if (isMetered(req)) {
+        const quota = await consumeImportQuota({
+          email: req.__actor_email || req.__admin_email,
+          count: companies.length,
+        });
+
+        if (!quota.ok) {
+          const denied = quotaDenialResponse(quota);
+          context?.log?.("[save-companies] import quota refused", {
+            reason: quota.reason,
+            limit: quota.limit,
+          });
+          return json(denied.body, denied.status);
+        }
       }
 
       const providedSessionId = typeof bodyObj.session_id === "string" ? bodyObj.session_id.trim() : "";

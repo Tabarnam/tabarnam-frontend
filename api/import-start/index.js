@@ -43,6 +43,7 @@ const {
   enrichCompanyFields: enrichCompanyFieldsUnified,
 } = require("../_grokEnrichment");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
+const { consumeImportQuota, quotaDenialResponse, isMetered } = require("../_importQuota");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { applyEnrichment } = require("../_applyEnrichment");
 const {
@@ -565,8 +566,11 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       // â”€â”€ Admin auth gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      const { adminGuard } = require("../_adminAuth");
-      const authError = adminGuard(req, context);
+      // Contributors are admitted here, then constrained below: they must
+      // supply a seed companies list, the batch is charged against their daily
+      // allowance, and they cannot assign the batch to anyone else.
+      const { contributorGuard } = require("../_adminAuth");
+      const authError = contributorGuard(req, context);
       if (authError) return authError;
       // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -758,8 +762,56 @@ const importStartHandlerInner = async (req, context) => {
       // Batch-level owner assignment (like batch_industries): lets the importer
       // hand every company in this run to another admin. Client-chosen on
       // purpose â€” unlike imported_by it is an explicit instruction, not identity.
-      const ownerOverride =
+      const ownerOverrideRaw =
         (typeof bodyObj?.owner === "string" && bodyObj.owner.trim() && bodyObj.owner.trim().toLowerCase()) || null;
+
+      // ── Contributor import limits ─────────────────────────────────────────
+      // Contributors reach this endpoint through withContributorGuard; three
+      // things change for them, and nothing changes for anyone else.
+      if (isMetered(req)) {
+        const contributorEmail = String(req.__actor_email || req.__admin_email || "").trim().toLowerCase();
+        const seededCompanies = Array.isArray(bodyObj?.companies) ? bodyObj.companies : [];
+
+        // 1. A seed list is required. A query-driven xAI discovery run has no
+        //    knowable company count until the model answers, so there is
+        //    nothing to charge against the allowance up front — which is
+        //    exactly the unbounded-spend case the cap exists to prevent.
+        if (seededCompanies.length === 0) {
+          return json(
+            {
+              ok: false,
+              error:
+                "Contributor imports must supply a companies list. Discovery-by-query imports are staff-only.",
+              quota_error: "seed_list_required",
+            },
+            400
+          );
+        }
+
+        // 2. The batch is charged against today's allowance before any work
+        //    starts, so a refusal costs nothing.
+        const quota = await consumeImportQuota({
+          email: contributorEmail,
+          count: seededCompanies.length,
+        });
+
+        if (!quota.ok) {
+          const denied = quotaDenialResponse(quota);
+          try {
+            context.log("[import-start] import quota refused", {
+              reason: quota.reason,
+              limit: quota.limit,
+              requested: seededCompanies.length,
+            });
+          } catch {}
+          return json(denied.body, denied.status);
+        }
+      }
+
+      // 3. Batch owner assignment is a staff instruction. For a contributor the
+      //    rows must land on them — handing a batch to someone else, or taking
+      //    one, is the reassignment path they do not have.
+      const ownerOverride = isMetered(req) ? null : ownerOverrideRaw;
 
       const hasBodySessionId = Boolean(bodyObj && typeof bodyObj === "object" && Object.prototype.hasOwnProperty.call(bodyObj, "session_id"));
       const bodySessionIdValue = hasBodySessionId ? bodyObj.session_id : undefined;

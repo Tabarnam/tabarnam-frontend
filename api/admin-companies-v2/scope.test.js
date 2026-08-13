@@ -146,8 +146,44 @@ function seeded() {
   return makeMemoryContainer([OWNED, OTHERS]);
 }
 
+// A permissive in-memory stand-in for the daily-import counter. The quota
+// itself is covered in _importQuota.test.js; these tests are about row scope,
+// so the meter is present but never the reason a request fails.
+function makeQuotaContainer() {
+  const store = new Map();
+  return {
+    item(id) {
+      return {
+        async read() {
+          const doc = store.get(String(id));
+          if (!doc) {
+            const err = new Error("NotFound");
+            err.code = 404;
+            throw err;
+          }
+          return { resource: doc };
+        },
+      };
+    },
+    items: {
+      async create(doc) {
+        store.set(String(doc.id), { ...doc, _etag: "e1" });
+        return { resource: doc };
+      },
+      async upsert(doc) {
+        store.set(String(doc.id), { ...doc, _etag: "e2" });
+        return { resource: doc };
+      },
+    },
+  };
+}
+
 const call = (container, req, ctxExtra = {}) =>
-  _test.adminCompaniesHandler(req, { log() {}, ...ctxExtra }, { container });
+  _test.adminCompaniesHandler(
+    req,
+    { log() {}, ...ctxExtra },
+    { container, quotaContainer: makeQuotaContainer() }
+  );
 
 // The list response carries rows under `items`.
 function listIds(res) {
@@ -442,4 +478,81 @@ test("a contributor with no resolvable identity gets nothing, not everything", a
   const res = await call(seeded(), req);
 
   assert.equal(res.status, 403);
+});
+
+// ── The create quota ────────────────────────────────────────────────
+// Full quota behavior lives in _importQuota.test.js. What matters here is that
+// the editor's "+ Company" button is metered at all — otherwise it is an
+// uncapped way around the daily import limit.
+
+test("POST: a contributor's create is charged against the daily allowance", async () => {
+  const quotaContainer = makeQuotaContainer();
+
+  await _test.adminCompaniesHandler(
+    makeReq({
+      ...asContributor(),
+      method: "POST",
+      json: async () => ({ company_name: "Metered Co", website_url: "https://metered.example" }),
+    }),
+    { log() {} },
+    { container: seeded(), quotaContainer }
+  );
+
+  const counter = await quotaContainer
+    .item(`quota_${DANA}_${require("../_importQuota").getQuotaDayKey()}`)
+    .read();
+
+  assert.equal(counter.resource.used, 1, "creating a company spends one unit");
+});
+
+test("POST: an admin's create is never metered", async () => {
+  const quotaContainer = makeQuotaContainer();
+
+  await _test.adminCompaniesHandler(
+    makeReq({
+      ...asAdmin(),
+      method: "POST",
+      json: async () => ({ company_name: "Staff Co", website_url: "https://staff.example" }),
+    }),
+    { log() {} },
+    { container: seeded(), quotaContainer }
+  );
+
+  await assert.rejects(
+    () => quotaContainer.item(`quota_${JON}_${require("../_importQuota").getQuotaDayKey()}`).read(),
+    "no counter document should exist for staff"
+  );
+});
+
+test("POST: a contributor is refused when the quota store is unreachable", async () => {
+  const brokenQuota = {
+    item() {
+      return {
+        async read() {
+          const err = new Error("ServiceUnavailable");
+          err.code = 503;
+          throw err;
+        },
+      };
+    },
+    items: { async create() {}, async upsert() {} },
+  };
+
+  const container = seeded();
+  const res = await _test.adminCompaniesHandler(
+    makeReq({
+      ...asContributor(),
+      method: "POST",
+      json: async () => ({ company_name: "Blocked Co", website_url: "https://blocked.example" }),
+    }),
+    { log() {} },
+    { container, quotaContainer: brokenQuota }
+  );
+
+  assert.equal(res.status, 429, "fails closed — an unreadable meter is not spare budget");
+  assert.equal(
+    container._dump().find((d) => d.company_name === "Blocked Co"),
+    undefined,
+    "nothing was written"
+  );
 });

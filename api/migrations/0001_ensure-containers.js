@@ -14,6 +14,10 @@ const CONTAINERS = [
   { id: "import_logs", partitionKey: "/session_id" },
   { id: "analytics", partitionKey: "/id" },
   { id: "keywords", partitionKey: "/id" },
+  // Per-contributor daily import counters. defaultTtl -1 enables per-item TTL
+  // so the counters written by _importQuota.js expire on their own instead of
+  // accumulating one document per person per day forever.
+  { id: "contributor_quota", partitionKey: "/id", defaultTtl: -1 },
 ];
 
 module.exports = {
@@ -33,6 +37,7 @@ module.exports = {
         await database.containers.createIfNotExists({
           id: spec.id,
           partitionKey: { paths: [spec.partitionKey] },
+          ...(spec.defaultTtl !== undefined ? { defaultTtl: spec.defaultTtl } : {}),
         });
         log(`  Container "${spec.id}" ready (pk: ${spec.partitionKey})`);
       } catch (e) {
