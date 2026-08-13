@@ -9,6 +9,7 @@ const { getBuildInfo } = require("../_buildInfo");
 const { computeTopLevelDiff, writeCompanyEditHistoryEntry, getCompanyEditHistoryContainer } = require("../_companyEditHistory");
 const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_geocode");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
+const { resolveAttribution } = require("../_attribution");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { computeMissingFields } = require("../_requiredFields");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
@@ -1941,14 +1942,16 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         // misattribute the existing unattributed rows to whoever happens to
         // edit them next, which is worse than leaving them blank.
         if (!existingDoc) {
-          const importedBy =
-            String(base.imported_by || "").trim().toLowerCase() ||
-            String(authedActorEmail || "").trim().toLowerCase() ||
-            null;
+          const { imported_by, owner } = resolveAttribution({
+            role: req?.__role,
+            actorEmail: authedActorEmail,
+            carriedImportedBy: base.imported_by,
+            carriedOwner: base.owner,
+          });
 
-          doc.imported_by = importedBy;
-          doc.imported_by_at = importedBy ? base.imported_by_at || now : null;
-          doc.owner = String(base.owner || "").trim().toLowerCase() || importedBy;
+          doc.imported_by = imported_by;
+          doc.imported_by_at = imported_by ? base.imported_by_at || now : null;
+          doc.owner = owner;
         }
 
         // Keep review_count consistent with curated reviews + public/private counts.
