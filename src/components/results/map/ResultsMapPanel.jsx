@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { MapContainer, TileLayer, Marker, Polyline, ZoomControl, AttributionControl, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useTheme } from "next-themes";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { Maximize2, Minimize2, Share2 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import "./map.css";
 import { cn } from "@/lib/utils";
@@ -219,6 +219,11 @@ export default function ResultsMapPanel({
    * falls the card back to its link.
    */
   onOpenProfile = null,
+  /** {lat,lng,companyId,kind,label,nonce} — fly here; nonce re-fires repeats. */
+  focusTarget = null,
+  /** Show ONE company as a hub and spokes. Empty string = off. */
+  networkCompanyId = "",
+  onExitNetwork,
   boundsKey,
   linkParams = "",
   loading = false,
@@ -281,11 +286,36 @@ export default function ResultsMapPanel({
   //
   // Companies actually IN the searched place are marked so the map agrees
   // with the list, where they sit above the "Nearby results" divider.
-  const markers = useMemo(() => {
+  const allMarkers = useMemo(() => {
     const all = [...pageMarkers, ...indexMarkers];
     if (!inScopeIds || !inScopeIds.size) return all;
     return all.map((m) => (inScopeIds.has(m.companyId) ? { ...m, inScope: true } : m));
   }, [pageMarkers, indexMarkers, inScopeIds]);
+
+  // Network mode narrows the map to a single company. Every other pin is
+  // noise when the question is "where does THIS company make things" — the
+  // lines below only mean something if there is nothing else to trace them
+  // against.
+  const markers = useMemo(
+    () => (networkCompanyId ? allMarkers.filter((m) => m.companyId === networkCompanyId) : allMarkers),
+    [allMarkers, networkCompanyId]
+  );
+
+  /**
+   * Hub and spokes: one line from the company's home base to each place it
+   * manufactures. Drawn from the HQ pin when there is one — that is the hub
+   * the user is asking about — and skipped entirely when there is nothing to
+   * join.
+   */
+  const networkSpokes = useMemo(() => {
+    if (!networkCompanyId) return [];
+    const hq = markers.find((m) => m.kind === "hq");
+    if (!hq) return [];
+    return markers
+      .filter((m) => m.kind === "mfg")
+      .map((m) => ({ id: m.id, from: [hq.lat, hq.lng], to: [m.lat, m.lng] }));
+  }, [markers, networkCompanyId]);
+
   const groups = useMemo(() => groupByCoord(markers), [markers]);
 
   // Cascade bookkeeping: a fresh search (boundsKey change) re-animates
@@ -358,6 +388,40 @@ export default function ResultsMapPanel({
     setCardPoint({ x: pt.x, y: pt.y });
   }, []);
 
+  // A location name was clicked in the results list: fly there and open its
+  // card, so the answer to "where is that?" is on screen without hunting for
+  // the pin. Keyed on nonce so clicking the same location twice works.
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m || !focusTarget || !Number.isFinite(focusTarget.lat) || !Number.isFinite(focusTarget.lng)) return;
+    const latlng = [focusTarget.lat, focusTarget.lng];
+    // setView, not flyTo. The animated flight throws "Invalid LatLng (NaN,
+    // NaN)" here — its interpolation runs across the ResizeObserver's
+    // invalidateSize(), the same collision that forced animate:false on the
+    // bounds fit. A jump also lands the answer immediately, which is what a
+    // click on a place name is asking for.
+    m.setView(latlng, Math.max(m.getZoom(), 9), { animate: false });
+    const marker = markers.find(
+      (mk) =>
+        mk.companyId === focusTarget.companyId &&
+        Math.abs(mk.lat - focusTarget.lat) < 1e-6 &&
+        Math.abs(mk.lng - focusTarget.lng) < 1e-6
+    );
+    if (!marker) return;
+    // One frame later, so the card is placed against the new viewport.
+    const t = setTimeout(() => {
+      const mm = mapRef.current;
+      if (!mm) return;
+      const pt = mm.latLngToContainerPoint(latlng);
+      setCardPoint({ x: pt.x, y: pt.y });
+      setActive({ marker, latlng });
+    }, 60);
+    return () => clearTimeout(t);
+    // markers deliberately omitted: a re-render of the pin set should not
+    // re-trigger a flight the user didn't ask for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTarget?.nonce]);
+
   const handlePinOver = useCallback(
     (marker, latlng) => {
       cancelClose();
@@ -405,6 +469,11 @@ export default function ResultsMapPanel({
   // Recenter after panning) and they're all still there.
   const fitPoints = useMemo(() => {
     const all = markers.map((m) => ({ lat: m.lat, lng: m.lng }));
+    // Network mode frames the whole network, however far it reaches — a
+    // company that makes things in Vietnam has a network that spans an ocean,
+    // and the local-radius fit below would cut exactly the part being asked
+    // about. The search origin is irrelevant here too.
+    if (networkCompanyId) return all;
     const hasOrigin = userLoc && Number.isFinite(userLoc.lat) && Number.isFinite(userLoc.lng);
     if (!hasOrigin) return all;
 
@@ -426,7 +495,7 @@ export default function ResultsMapPanel({
       local.push({ lat: m.lat, lng: m.lng });
     }
     return [origin, ...local];
-  }, [markers, userLoc]);
+  }, [markers, userLoc, networkCompanyId]);
 
   const filterBtn = (val, label) => (
     <button
@@ -488,6 +557,20 @@ export default function ResultsMapPanel({
           pinsSettled={pinsSettled}
         />
         <MapClickCatcher onBackgroundClick={handleBackgroundClick} />
+        {/* Hub and spokes. Drawn under the pins (rendered before them) so a
+            line never sits on top of the place it points at. */}
+        {networkSpokes.map((s) => (
+          <Polyline
+            key={`spoke:${s.id}`}
+            positions={[s.from, s.to]}
+            pathOptions={{
+              color: "hsl(var(--primary))",
+              weight: 2,
+              opacity: 0.75,
+              dashArray: "4 4",
+            }}
+          />
+        ))}
         {active && <CardTracker latlng={active.latlng} onPoint={setCardPoint} />}
         {userLoc && Number.isFinite(userLoc.lat) && Number.isFinite(userLoc.lng) && (
           <Marker
@@ -510,6 +593,35 @@ export default function ResultsMapPanel({
       </MapContainer>
 
       {/* HQ/MFG/Both pin filter — map-scoped UI; state lives in the URL. */}
+      {/* Network mode: say whose network this is and how to get back. The map
+          is showing one company out of a whole result set — without this the
+          missing pins read as a bug. */}
+      {networkCompanyId && markers.length > 0 && (
+        <div
+          style={{ top: "calc(var(--tab-map-chrome-top) + 34px)" }}
+          className="absolute left-2 right-2 z-[1000] flex items-center gap-2 rounded-lg border border-primary/40 bg-card/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-sm"
+        >
+          <Share2 size={13} aria-hidden="true" className="rotate-90 shrink-0 text-primary" />
+          <span className="min-w-0 truncate">
+            <span className="font-medium">{markers[0]?.company?.company_name || markers[0]?.company?.display_name || "This company"}</span>
+            <span className="text-muted-foreground">
+              {" "}— {networkSpokes.length || "no"} manufacturing{" "}
+              {networkSpokes.length === 1 ? "site" : "sites"}
+              {networkSpokes.length > 0 ? " traced from home base" : " to trace"}
+            </span>
+          </span>
+          {onExitNetwork && (
+            <button
+              type="button"
+              onClick={onExitNetwork}
+              className="ml-auto shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Show all results
+            </button>
+          )}
+        </div>
+      )}
+
       <div
         style={{ top: "var(--tab-map-chrome-top)" }}
         className="absolute left-2 z-[1000] flex gap-1 bg-muted/90 backdrop-blur-sm rounded-lg p-0.5 border border-border"

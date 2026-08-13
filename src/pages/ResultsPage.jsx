@@ -324,6 +324,10 @@ export default function ResultsPage() {
   // page). It's the handle we re-fetch that one company by, so its profile
   // can join the list in place instead of replacing the search.
   const expandDomainParam = (searchParams.get("expandDomain") ?? "").toString().trim().toLowerCase();
+  // Hub-and-spoke view for a single company. A URL param so the view is
+  // shareable and survives a reload; kept out of the search effect's deps so
+  // entering it never refetches.
+  const networkParam = (searchParams.get("network") ?? "").toString().trim();
   // No map in bookmark-list mode — those results lack search context.
   const mapOpen = mapParam && !listParam;
 
@@ -1402,7 +1406,9 @@ export default function ResultsPage() {
   // Map view identity: refit bounds only when the SEARCH changes (query,
   // filters, sort, page) — never on infinite-scroll appends, pin-filter
   // toggles, hover, or expand.
-  const boundsKey = `${qParam}|${countryParam}|${stateParam}|${cityParam}|${sortParam}|${pageParam}|${domainParam}`;
+  // networkParam included: entering or leaving the hub-and-spoke view is a
+  // different set of pins and must re-frame the map.
+  const boundsKey = `${qParam}|${countryParam}|${stateParam}|${cityParam}|${sortParam}|${pageParam}|${domainParam}|${networkParam}`;
 
   function toggleMapView(open) {
     const next = new URLSearchParams(searchParams);
@@ -1419,6 +1425,47 @@ export default function ResultsPage() {
     else next.delete("pins");
     setSearchParams(next, { replace: true });
   }
+
+  /**
+   * Click a location name in a row → show that exact point on the map.
+   * Opens the map if it's closed, since the answer can't be shown otherwise.
+   * The nonce makes repeat clicks on the same location fire again.
+   */
+  const [focusTarget, setFocusTarget] = useState(null);
+  const focusNonceRef = useRef(0);
+  const handleFocusLocation = useCallback(
+    (target) => {
+      if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
+      if (!mapOpen) {
+        const next = new URLSearchParams(searchParams);
+        next.set("map", "1");
+        setSearchParams(next, { replace: true });
+      }
+      focusNonceRef.current += 1;
+      setFocusTarget({ ...target, nonce: focusNonceRef.current });
+    },
+    [mapOpen, searchParams, setSearchParams]
+  );
+
+  /**
+   * "Trace network" → the map shows one company: its HQ, every manufacturing
+   * site, and a line from the hub to each spoke. (networkParam is declared
+   * with the other URL params above: boundsKey reads it earlier than this.)
+   */
+  const handleShowNetwork = useCallback(
+    ({ companyId }) => {
+      const next = new URLSearchParams(searchParams);
+      next.set("map", "1");
+      next.set("network", String(companyId));
+      setSearchParams(next, { replace: false });
+    },
+    [searchParams, setSearchParams]
+  );
+  const handleExitNetwork = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("network");
+    setSearchParams(next, { replace: false });
+  }, [searchParams, setSearchParams]);
 
   /**
    * Open a pinned company's profile in the results column beside the map,
@@ -2188,6 +2235,8 @@ export default function ResultsPage() {
                       query={correctedHighlight || qParam}
                       reviewCount={reviewCounts[company.company_id || company.id]}
                       defaultExpanded={isPromoted}
+                      onFocusLocation={handleFocusLocation}
+                      onShowNetwork={handleShowNetwork}
                     />
                   </div>
                 );
@@ -2350,6 +2399,9 @@ export default function ResultsPage() {
               // there is nothing beside the map to open into, so those keep
               // the new-tab behaviour.
               onOpenProfile={sideBySide && !mapFullscreen ? handleOpenProfile : null}
+              focusTarget={focusTarget}
+              networkCompanyId={networkParam}
+              onExitNetwork={handleExitNetwork}
               boundsKey={boundsKey}
               linkParams={searchParams.toString()}
               loading={loading}

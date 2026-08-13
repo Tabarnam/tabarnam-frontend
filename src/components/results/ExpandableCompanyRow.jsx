@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Copy, Pencil, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Pencil, ExternalLink, Share2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import ShareButton from "@/components/ShareButton";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import ReviewsWidget from "@/components/ReviewsWidget";
@@ -264,6 +265,12 @@ export default function ExpandableCompanyRow({
   // fetch (same source as get-reviews). Authoritative; when absent the card
   // falls back to the stored aggregate.
   reviewCount,
+  // Click a location name to see it on the map. Absent (or a location with
+  // no coordinates) leaves the name as plain text.
+  onFocusLocation,
+  // "Trace network": draw this company's HQ and manufacturing sites with the
+  // lines between them. Absent hides the button entirely.
+  onShowNetwork,
   // Map-pin click-through (&expand= URL param): the promoted row mounts
   // already expanded as a de-facto profile. Mount-time init only — the row
   // stays uncontrolled and the user can collapse it.
@@ -377,6 +384,10 @@ export default function ExpandableCompanyRow({
         formatted: formatLocationDisplayName(loc),
         distance: typeof loc?.dist === "number" ? loc.dist : null,
         geocode_status: typeof loc?.geocode_status === "string" ? loc.geocode_status : null,
+        // Carried so the line can be clicked through to the map. Locations
+        // without coordinates simply render as plain text.
+        lat: toFiniteNumber(loc?.lat),
+        lng: toFiniteNumber(loc?.lng),
       }));
 
       // Add locations from the source array that weren't included in _manuDists
@@ -440,6 +451,8 @@ export default function ExpandableCompanyRow({
           formatted: formatLocationDisplayName(hq),
           distance: typeof hq.dist === "number" ? hq.dist : null,
           geocode_status: typeof hq?.geocode_status === "string" ? hq.geocode_status : null,
+          lat: toFiniteNumber(hq?.lat),
+          lng: toFiniteNumber(hq?.lng),
         }))
       : Array.isArray(company.headquarters) && company.headquarters.length > 0
         ? company.headquarters.slice(0, 5).map((hq) => ({
@@ -485,6 +498,77 @@ export default function ExpandableCompanyRow({
     };
   };
 
+  const rowCompanyId = String(company?.company_id ?? company?.id ?? "").trim();
+
+  /**
+   * A location's name, clickable when we know where it is and the page gave
+   * us somewhere to send it. Reading "Vietnam" next to a distance tells you
+   * how far; clicking it shows you where — which is the question the number
+   * raises and the row alone can't answer.
+   */
+  const locationName = (loc, kind, extraClass = "text-foreground") => {
+    const canFocus =
+      typeof onFocusLocation === "function" &&
+      Number.isFinite(loc?.lat) &&
+      Number.isFinite(loc?.lng);
+    if (!canFocus) return <div className={extraClass}>{loc.formatted}</div>;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocusLocation({
+            companyId: rowCompanyId,
+            lat: loc.lat,
+            lng: loc.lng,
+            kind,
+            label: loc.formatted,
+            companyName: displayName,
+          });
+        }}
+        title={`Show ${loc.formatted} on the map`}
+        className={cn(
+          extraClass,
+          "text-left underline decoration-dotted decoration-muted-foreground/50 underline-offset-2",
+          "hover:text-primary hover:decoration-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded-sm transition-colors"
+        )}
+      >
+        {loc.formatted}
+      </button>
+    );
+  };
+
+  /**
+   * "Trace network" — draws this company's HQ and every manufacturing site on
+   * the map with lines between them: hub and spokes. It sits at the right
+   * edge of the Manufacturing header, which puts it between the two location
+   * columns it joins, and says what it does rather than naming a chart type.
+   *
+   * Only offered when there is actually a network to draw: an HQ, and at
+   * least one manufacturing site somewhere else.
+   */
+  const networkPoints = (() => {
+    const hq = hqLocation.filter((l) => Number.isFinite(l.lat) && Number.isFinite(l.lng));
+    const mfg = manuLocations.filter((l) => Number.isFinite(l.lat) && Number.isFinite(l.lng));
+    return { hq, mfg, canTrace: hq.length > 0 && mfg.length > 0 };
+  })();
+
+  const networkButton =
+    typeof onShowNetwork === "function" && networkPoints.canTrace ? (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onShowNetwork({ companyId: rowCompanyId, companyName: displayName });
+        }}
+        title={`Map ${displayName}'s network: headquarters, every manufacturing site, and the lines between them`}
+        className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/10 hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+      >
+        <Share2 size={12} aria-hidden="true" className="rotate-90" />
+        Trace network
+      </button>
+    ) : null;
+
   const renderRightColumn = (colKey) => {
     if (colKey === "manu") {
       // Show up to 3, but if there's only 1 more beyond that, show it instead of "+1 more"
@@ -509,7 +593,13 @@ export default function ExpandableCompanyRow({
                       : "Distance unavailable"}
                 </div>
               )}
-              <div className={(loc.limitedMfg || company?.unknown_manufacturing) ? "text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]" : "text-foreground"}>{loc.formatted}</div>
+              {loc.limitedMfg || company?.unknown_manufacturing ? (
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
+                  {loc.formatted}
+                </div>
+              ) : (
+                locationName(loc, "mfg")
+              )}
             </div>
           ))}
           {hiddenCount > 0 && (
@@ -530,7 +620,7 @@ export default function ExpandableCompanyRow({
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
-              <div className="text-foreground">{loc.formatted}</div>
+              {locationName(loc, "hq")}
             </div>
           ))}
           {hqLocation.length === 0 && <div className="text-sm text-muted-foreground">—</div>}
@@ -552,7 +642,13 @@ export default function ExpandableCompanyRow({
                       : "Distance unavailable"}
                 </div>
               )}
-              <div className={(loc.limitedMfg || company?.unknown_manufacturing) ? "text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]" : "text-foreground"}>{loc.formatted}</div>
+              {loc.limitedMfg || company?.unknown_manufacturing ? (
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
+                  {loc.formatted}
+                </div>
+              ) : (
+                locationName(loc, "mfg")
+              )}
             </div>
           ))}
           {manuLocations.length === 0 && <div className="text-sm text-muted-foreground">—</div>}
@@ -860,8 +956,9 @@ export default function ExpandableCompanyRow({
             <div className="grid grid-cols-3 gap-x-3">
               {rightColsOrder.map((colKey) => (
                 <div key={colKey}>
-                  <div className="text-sm font-semibold text-foreground mb-2">
+                  <div className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1">
                     {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "Home/HQ" : "QQ"}
+                    {colKey === "manu" ? networkButton : null}
                   </div>
                   {renderRightColumn(colKey)}
                 </div>
@@ -1144,6 +1241,7 @@ export default function ExpandableCompanyRow({
         <div key={colKey} className="col-span-2 lg:col-span-1">
           <div className="text-xs font-semibold text-foreground flex items-center gap-1 mb-2">
             {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "Home/HQ" : "QQ"}
+            {colKey === "manu" ? networkButton : null}
           </div>
           {renderRightColumn(colKey)}
         </div>
