@@ -175,6 +175,9 @@ export default function AdminHeader() {
               <NavLink to="/admin/extract-companies" className={navLinkClass}>
                 Extract Companies
               </NavLink>
+              <NavLink to="/admin/audit-log" className={navLinkClass}>
+                Activity
+              </NavLink>
               <NavLink to="/admin/diagnostics" className={navLinkClass}>
                 Diagnostics
               </NavLink>
