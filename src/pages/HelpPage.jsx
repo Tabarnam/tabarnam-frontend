@@ -143,17 +143,18 @@ export default function HelpPage() {
           <section id="map">
             <h2 className="text-xl font-semibold text-foreground mb-3">Map</h2>
             <p className="mb-3">
-              Every search has a map view alongside the list. Use the <em>List | Map</em> toggle in the results
-              toolbar; your choice is saved in the URL so the view is shareable.
+              Every search has a map view. Use the <em>List | Map</em> toggle in the results toolbar; your
+              choice is saved in the URL, so the view is shareable. On a wide screen the map sits beside the
+              results and the divider between them can be dragged; on a narrow one it takes the full width.
             </p>
-            <ul className="list-disc pl-6 space-y-1.5 mb-3">
-              <li><strong className="text-foreground">Two pin kinds</strong> — headquarters and manufacturing use different colors and shapes. The red teardrop is your search origin; distances in the list are measured from it.</li>
-              <li><strong className="text-foreground">Precise vs approximate</strong> — solid pins mark precise addresses; hollow, dashed pins mean we only know the country or state.</li>
-              <li><strong className="text-foreground">In-scope ring</strong> — companies located inside the place you searched get a highlight ring, matching the "Nearby results" idea from the list.</li>
-              <li><strong className="text-foreground">Hover a pin</strong> for a company card with name, tagline, QQ rating, distance, and a link to open the full profile.</li>
-              <li><strong className="text-foreground">List ↔ map sync</strong> — hovering a row lights up its pin; hovering a pin scrolls the row into view. Click any location in a row and the map flies to it.</li>
-              <li><strong className="text-foreground">Filter what's on the map</strong> — the <em>HQ / Mfg / All</em> pill toggles pin kinds. Recenter, fullscreen, and zoom controls sit around the map's edges.</li>
-              <li><strong className="text-foreground">Map a company's network</strong> — HQ and manufacturing pins already appear side by side on the map. Click the <em>Trace network</em> button in an expanded row to focus the map on just that company and draw lines from its headquarters to each manufacturing site — a hub-and-spokes picture of where it operates.</li>
+            <ul className="list-disc pl-6 space-y-1.5">
+              <li><strong className="text-foreground">Three markers</strong> — headquarters and manufacturing sites each have their own colour and shape: a teal house, an amber bolt head. The red teardrop is your search origin, and every distance in the list is measured from it.</li>
+              <li><strong className="text-foreground">Precise vs approximate</strong> — solid pins mark a real address; hollow, dashed pins mean we only know the country or state.</li>
+              <li><strong className="text-foreground">In-scope ring</strong> — on a location search, companies that are genuinely in the place you searched carry a ring. The ring marks the company, so its distant sites are ringed too: a San Dimas company's plant in Shenzhen is still that company's.</li>
+              <li><strong className="text-foreground">Hover a pin</strong> for a card with the company, tagline, QQ rating and distance, plus a link to open its profile. The profile opens in the results column beside the map, with the rest of your search beneath it as comparables.</li>
+              <li><strong className="text-foreground">List ↔ map sync</strong> — hovering a row lights up its pin; hovering a pin scrolls the row into view. Click any location in a row and the map moves there and opens that pin's card.</li>
+              <li><strong className="text-foreground">Filter what's shown</strong> — the <em>All / HQ / Mfg</em> pill toggles pin kinds. Zoom, recenter and fullscreen controls sit around the map's edges.</li>
+              <li><strong className="text-foreground">Trace a company's network</strong> — a company's headquarters and its factories appear on the same map, but they are rarely near one another; a brand headquartered in Washington may make everything in Vietnam. Click <em>Trace network</em> on any row to show that company on its own, with a line drawn from its headquarters to each manufacturing site — the hub and its spokes, at whatever distance they really are.</li>
             </ul>
           </section>
 
