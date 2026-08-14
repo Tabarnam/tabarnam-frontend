@@ -365,6 +365,28 @@ async function handleGet(req, context, deps = {}) {
     });
   }
 
+  // count=1 answers "how big is this export" with the SAME filters, so the
+  // button can state the number before committing anyone to a long download.
+  if (String(getQueryParam(req, "count") || "").trim() === "1") {
+    const countSpec = buildQuery({ window: win, sort, limit, filters, multiField: false });
+    const countQuery = countSpec.query
+      .replace(/^SELECT \* FROM c/, "SELECT VALUE COUNT(1) FROM c")
+      .replace(/ ORDER BY .*$/, "");
+
+    try {
+      const { resources } = await container.items
+        .query({ query: countQuery, parameters: countSpec.parameters }, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      return json({ ok: true, total: Number(resources?.[0]) || 0, window: win });
+    } catch (e) {
+      try {
+        context?.log?.("[audit-log] count failed", { error: e?.message });
+      } catch {}
+      return json({ ok: false, total: null, error: "count_failed" }, 500);
+    }
+  }
+
   let ordering = "indexed";
   let spec = buildQuery({ window: win, sort, limit, filters, multiField: true });
 
