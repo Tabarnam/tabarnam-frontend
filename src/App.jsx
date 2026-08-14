@@ -12,6 +12,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { initializeAzureUser } from "@/lib/azureAuth";
 import { logWiringDiagnostics } from "@/lib/diagnostics";
 import { consumePostLoginDest } from "@/lib/postLoginDest";
+import { installStaleBuildRecovery } from "@/lib/staleBuildRecovery";
 
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
@@ -115,6 +116,10 @@ let diagnosticsRun = false;
 
 export default function App() {
   useEffect(() => {
+    // A tab open across a deploy asks for chunks that no longer exist. Reload
+    // once rather than leaving it stranded on a build the server deleted.
+    installStaleBuildRecovery();
+
     // Honor a post-login destination stashed before the SWA auth round-trip.
     // SWA's own redirect cookie (SameSite=None) is dropped by strict-cookie
     // browsers like Brave, landing admins on "/" instead of the page they asked
