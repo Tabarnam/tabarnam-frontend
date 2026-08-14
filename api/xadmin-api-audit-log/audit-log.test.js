@@ -284,3 +284,70 @@ test("the response states the window it actually used", async () => {
   assert.equal(body.window.hours, 72);
   assert.equal(body.window.is_default, true, "the UI must be able to say 'last 72 hours'");
 });
+
+// ── All-time window and company-name resolution ─────────────────────
+
+test("all=1 lifts the lower bound and says so", () => {
+  const win = _test.resolveWindow(makeReq({ all: "1" }), NOW);
+
+  assert.equal(win.is_all_time, true);
+  assert.equal(win.from, new Date(0).toISOString());
+  assert.equal(win.hours, null, "an unbounded window has no hour count to report");
+});
+
+test("all-time is opt-in — the default stays bounded", () => {
+  assert.equal(_test.resolveWindow(makeReq(), NOW).is_all_time, false);
+  assert.equal(_test.resolveWindow(makeReq({ all: "0" }), NOW).is_all_time, false);
+});
+
+test("company_ids narrows to the resolved set", () => {
+  const spec = _test.buildQuery({
+    window: { from: "a", to: "b" },
+    sort: { field: "created_at", dir: "desc" },
+    limit: 100,
+    filters: { company_ids: ["company_1", "company_2"] },
+    multiField: true,
+  });
+
+  assert.match(spec.query, /c\.company_id IN \(@cid0, @cid1\)/);
+  assert.equal(spec.parameters.find((p) => p.name === "@cid0").value, "company_1");
+  assert.ok(!spec.query.includes("company_1"), "ids are parameterized, not interpolated");
+});
+
+test("no company_ids means no IN clause at all", () => {
+  const spec = _test.buildQuery({
+    window: { from: "a", to: "b" },
+    sort: { field: "created_at", dir: "desc" },
+    limit: 100,
+    filters: { company_ids: [] },
+    multiField: true,
+  });
+
+  assert.ok(!spec.query.includes("IN ("), "an empty list must not become a filter");
+});
+
+test("a name search that matched nothing returns nothing, not everything", async () => {
+  // The dangerous case: dropping an empty id list would show ALL activity and
+  // read as "nobody ever touched this company".
+  let queried = false;
+  const container = {
+    items: {
+      query() {
+        queried = true;
+        return { async fetchNext() { return { resources: [], continuationToken: null }; } };
+      },
+    },
+  };
+
+  const res = await _test.handleGet(
+    makeReq({ company_ids: "__none__" }),
+    { log() {} },
+    { container, now: NOW }
+  );
+  const body = JSON.parse(res.body);
+
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.items, []);
+  assert.equal(body.no_company_match, true, "the page can say 'no company matched'");
+  assert.equal(queried, false, "and it costs no query");
+});
