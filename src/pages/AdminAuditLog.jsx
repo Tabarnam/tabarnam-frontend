@@ -420,28 +420,38 @@ export default function AdminAuditLog() {
       // rather than a root export, and the node build pulls fs.
       const { default: writeXlsxFile } = await import("write-excel-file/browser");
 
-      const schema = [
-        { column: "When (PT)", type: String, width: 22, value: (r) => formatWhen(r.created_at) },
-        { column: "When (UTC)", type: String, width: 24, value: (r) => r.created_at },
-        { column: "Who", type: String, width: 28, value: (r) => r.actor_email || "system" },
-        { column: "Action", type: String, width: 22, value: (r) => r.action },
-        { column: "Company", type: String, width: 34, value: (r) => r.company_name || r.company_id || "" },
-        { column: "Company ID", type: String, width: 34, value: (r) => r.company_id || "" },
-        { column: "Fields changed", type: Number, width: 14, value: (r) => r.changed_field_count ?? 0 },
-        { column: "Changed", type: String, width: 60, value: (r) => (r.changed_fields || []).join(", ") },
-        { column: "Source", type: String, width: 16, value: (r) => r.source || "" },
+      // v4 column contract: `header` + `cell(row)` returning a Cell object.
+      // NOT `column` + `value` — that was v2/v3 and fails with "cell is not a
+      // function", which is how the export got as far as building nothing.
+      const columns = [
+        { header: "When (PT)", width: 22, cell: (r) => ({ type: String, value: formatWhen(r.created_at) }) },
+        { header: "When (UTC)", width: 24, cell: (r) => ({ type: String, value: r.created_at || "" }) },
+        { header: "Who", width: 28, cell: (r) => ({ type: String, value: r.actor_email || "system" }) },
+        { header: "Action", width: 22, cell: (r) => ({ type: String, value: r.action || "" }) },
+        { header: "Company", width: 34, cell: (r) => ({ type: String, value: r.company_name || r.company_id || "" }) },
+        { header: "Company ID", width: 34, cell: (r) => ({ type: String, value: r.company_id || "" }) },
+        { header: "Fields changed", width: 14, cell: (r) => ({ type: Number, value: r.changed_field_count ?? 0 }) },
+        { header: "Changed", width: 60, cell: (r) => ({ type: String, value: (r.changed_fields || []).join(", ") }) },
+        { header: "Source", width: 16, cell: (r) => ({ type: String, value: r.source || "" }) },
       ];
 
       const stamp = new Date().toISOString().slice(0, 10);
 
-      await writeXlsxFile(all, {
-        schema,
-        fileName: `tabarnam-activity-${stamp}.xlsx`,
+      // v4 RETURNS { toBlob, toFile } — it does not download from a `fileName`
+      // option, which is the v1 API. Passing fileName built the whole
+      // spreadsheet and then discarded it: the status said "exported 60,875
+      // rows" while nothing ever reached the disk.
+      const file = await writeXlsxFile(all, {
+        // v4 renamed `schema` to `columns` and REJECTS the old name outright.
+        columns,
         headerStyle: { fontWeight: "bold" },
-        // Excel's own filter dropdowns, armed on open — the thing the in-app
-        // column menus do here, available there too.
+        // Freezes the header row while scrolling. NOT an autofilter — the
+        // library has no autofilter support, so Excel's own dropdowns are one
+        // click away under Data > Filter rather than pre-armed.
         stickyRowsCount: 1,
       });
+
+      await file.toFile(`tabarnam-activity-${stamp}.xlsx`);
 
       setExportNote(
         capped
