@@ -29,19 +29,30 @@ function env(k, d = "") {
   return (v == null ? d : String(v)).trim();
 }
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
+  "X-Api-Handler": HANDLER_ID,
+  "X-Api-Build-Id": String(BUILD_INFO.build_id || ""),
+};
+
 function json(obj, status = 200) {
   return {
     status,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
-      "X-Api-Handler": HANDLER_ID,
-      "X-Api-Build-Id": String(BUILD_INFO.build_id || ""),
-    },
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
     body: JSON.stringify(obj),
   };
+}
+
+/**
+ * 204 means No Content. Attaching a body makes the response invalid, and the
+ * Functions host turns that into a 500 — which is what the CORS preflight for
+ * this endpoint was returning. A preflight needs the CORS headers and nothing
+ * else.
+ */
+function noContent() {
+  return { status: 204, headers: { ...CORS_HEADERS } };
 }
 
 function getCompaniesContainer() {
@@ -228,7 +239,7 @@ async function importPreflightHandler(req, context) {
   const method = (req.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
-    return json({}, 204);
+    return noContent();
   }
 
   // ── Admin auth gate ──────────────────────────────────────────
