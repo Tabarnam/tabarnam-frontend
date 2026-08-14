@@ -20,6 +20,44 @@ function makeReq(query = {}) {
 
 const NOW = new Date("2026-08-13T18:00:00Z");
 
+// Mocks mirroring the two SDK surfaces the handler uses:
+//   ordered   -> fetchAll()  (SQL carries OFFSET/LIMIT)
+//   unordered -> hasMoreResults() + fetchNext()  (continuation tokens)
+function orderedContainer(rows, onQuery) {
+  return {
+    items: {
+      query(spec, options) {
+        if (onQuery) onQuery(spec, options);
+        return {
+          fetchAll: async () => ({ resources: rows }),
+          fetchNext: async () => ({ resources: rows, continuationToken: null }),
+          hasMoreResults: () => false,
+        };
+      },
+    },
+  };
+}
+
+function tokenContainer(pages, onQuery) {
+  let i = 0;
+  return {
+    items: {
+      query(spec, options) {
+        if (onQuery) onQuery(spec, options);
+        return {
+          hasMoreResults: () => i < pages.length,
+          fetchNext: async () => {
+            const p = pages[i++] || { resources: [], continuationToken: null };
+            return p;
+          },
+          fetchAll: async () => ({ resources: pages.flatMap((p) => p.resources) }),
+        };
+      },
+    },
+  };
+}
+
+
 // ── The window ──────────────────────────────────────────────────────
 
 test("window: defaults to the previous 72 hours", () => {
@@ -199,15 +237,17 @@ test("falls back to single-field ordering AND reports it", async () => {
     items: {
       query(spec) {
         return {
-          async fetchNext() {
+          async fetchAll() {
             attempts++;
             if (/ORDER BY .+,/.test(spec.query)) {
               const err = new Error("The order by query does not have a corresponding composite index");
               err.code = 400;
               throw err;
             }
-            return { resources: [{ id: "audit_1", created_at: "2026-08-13T00:00:00Z", action: "update" }], continuationToken: null };
+            return { resources: [{ id: "audit_1", created_at: "2026-08-13T00:00:00Z", action: "update" }] };
           },
+          hasMoreResults: () => false,
+          fetchNext: async () => ({ resources: [], continuationToken: null }),
         };
       },
     },
@@ -243,40 +283,99 @@ test("a non-index query failure is surfaced, not disguised as a fallback", async
   assert.equal(JSON.parse(res.body).error, "query_failed");
 });
 
-test("paging: the continuation token is passed through", async () => {
-  let seenToken = null;
+// ── Paging ──────────────────────────────────────────────────────────
+// Cosmos does NOT return a continuation token for a cross-partition ORDER BY
+// query — it comes back undefined while hasMoreResults is true. Token paging
+// therefore stops dead after one page on any sorted query, which is every
+// query the table runs. Ordered results page by OFFSET; only the unordered
+// export path uses tokens.
 
-  const container = {
-    items: {
-      query(_spec, options) {
-        seenToken = options?.continuationToken || null;
-        return {
-          async fetchNext() {
-            return { resources: [], continuationToken: "next-page-token" };
-          },
-        };
-      },
-    },
-  };
+test("an ORDERED query pages by offset, never by token", async () => {
+  let seenToken;
+  const container = orderedContainer(
+    Array.from({ length: 100 }, (_, i) => ({ id: `a${i}` })),
+    (_spec, options) => {
+      seenToken = options?.continuationToken;
+    }
+  );
 
   const res = await _test.handleGet(
-    makeReq({ cursor: "page-2-token" }),
+    makeReq({ limit: "100", cursor: "ignored-for-ordered" }),
     { log() {} },
     { container, now: NOW }
   );
+  const body = JSON.parse(res.body);
+
+  assert.equal(seenToken, undefined, "a cursor must not be sent for an ordered query");
+  assert.equal(body.paging, "offset");
+  assert.equal(body.next_cursor, null, "returning one here is what silently ended paging");
+  assert.equal(body.next_offset, 100, "the next page is reachable");
+});
+
+test("offset is applied to the SQL for ordered paging", () => {
+  const spec = _test.buildQuery({
+    window: { from: "a", to: "b" },
+    sort: { field: "created_at", dir: "desc" },
+    limit: 100,
+    filters: {},
+    multiField: true,
+    offset: 300,
+  });
+
+  assert.match(spec.query, /ORDER BY c\.created_at DESC OFFSET 300 LIMIT 100$/);
+  assert.equal(spec.paging, "offset");
+});
+
+test("a short page reports no next offset", async () => {
+  const container = orderedContainer([{ id: "a" }]);
+
+  const res = await _test.handleGet(makeReq({ limit: "100" }), { log() {} }, { container, now: NOW });
+  assert.equal(JSON.parse(res.body).next_offset, null, "fewer rows than asked means the end");
+});
+
+test("unordered=1 drops the ORDER BY so tokens work", () => {
+  const spec = _test.buildQuery({
+    window: { from: "a", to: "b" },
+    sort: { field: "created_at", dir: "desc" },
+    limit: 1000,
+    filters: {},
+    multiField: true,
+    unordered: true,
+  });
+
+  assert.ok(!/ORDER BY/.test(spec.query), "the ORDER BY is what suppresses the token");
+  assert.ok(!/OFFSET/.test(spec.query));
+  assert.equal(spec.paging, "token");
+});
+
+test("the unordered export path passes the cursor through and returns the next one", async () => {
+  let seenToken = null;
+  const container = tokenContainer(
+    [
+      { resources: [{ id: "a" }], continuationToken: "next-page-token" },
+      { resources: [{ id: "b" }], continuationToken: "next-page-token" },
+    ],
+    (_spec, options) => {
+      seenToken = options?.continuationToken || null;
+    }
+  );
+
+  // limit=1 so the internal drain stops with pages still remaining — otherwise
+  // the handler correctly reports null, having reached the end.
+  const res = await _test.handleGet(
+    makeReq({ unordered: "1", cursor: "page-2-token", limit: "1" }),
+    { log() {} },
+    { container, now: NOW }
+  );
+  const body = JSON.parse(res.body);
 
   assert.equal(seenToken, "page-2-token", "the caller's cursor reaches Cosmos");
-  assert.equal(JSON.parse(res.body).next_cursor, "next-page-token");
+  assert.equal(body.next_cursor, "next-page-token", "and the next one comes back");
+  assert.equal(body.paging, "token");
 });
 
 test("the response states the window it actually used", async () => {
-  const container = {
-    items: {
-      query() {
-        return { async fetchNext() { return { resources: [], continuationToken: null }; } };
-      },
-    },
-  };
+  const container = orderedContainer([]);
 
   const res = await _test.handleGet(makeReq(), { log() {} }, { container, now: NOW });
   const body = JSON.parse(res.body);
