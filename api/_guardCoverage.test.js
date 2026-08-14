@@ -8,10 +8,15 @@
 //
 // Guard detection is source-based: a route is considered guarded if its handler
 // file — or any local module it directly requires (one level) — references one
-// of the known guard mechanisms (withAdminGuard / adminGuard / requireAdmin from
-// _adminAuth, isInternalJobRequest from _internalJobAuth, or isDebugAuthorized
-// from _debugSnapshots). The inline-vs-wrapper distinction doesn't matter; the
-// guard call lives in one of those sources either way.
+// of the known guard mechanisms (withAdminGuard / adminGuard / requireAdmin /
+// withContributorGuard / contributorGuard / requireRole from _adminAuth,
+// isInternalJobRequest from _internalJobAuth, or isDebugAuthorized from
+// _debugSnapshots). The inline-vs-wrapper distinction doesn't matter; the guard
+// call lives in one of those sources either way.
+//
+// NOTE: this gate proves a route requires a KNOWN CALLER. It does not and
+// cannot prove that a contributor-guarded route scopes its rows to that
+// caller — owner scoping is enforced per-endpoint and tested per-endpoint.
 //
 // Limitation: detection is file-level, so a single file mixing a guarded route
 // and an unguarded admin route would pass. In this codebase multi-registration
@@ -26,7 +31,7 @@ const path = require("node:path");
 const API_DIR = __dirname;
 
 const GUARD_RE =
-  /withAdminGuard|adminGuard|requireAdmin|isInternalJobRequest|getInternalAuthDecision|isDebugAuthorized/;
+  /withAdminGuard|adminGuard|requireAdmin|withContributorGuard|contributorGuard|requireRole|isInternalJobRequest|getInternalAuthDecision|isDebugAuthorized/;
 const HAS_HTTP_RE = /app\.http\(/;
 const ROUTE_RE = /route:\s*["'`]([^"'`]+)["'`]/g;
 const LOCAL_REQUIRE_RE = /require\(\s*["'`](\.[^"'`]+)["'`]\s*\)/g;
@@ -190,6 +195,10 @@ test("guard-coverage gate flags an unguarded, non-public admin route", () => {
   assert.ok(
     GUARD_RE.test('handler: require("../_adminAuth").withAdminGuard(h),'),
     "GUARD_RE should detect withAdminGuard"
+  );
+  assert.ok(
+    GUARD_RE.test('handler: require("../_adminAuth").withContributorGuard(h),'),
+    "GUARD_RE should detect withContributorGuard"
   );
   assert.ok(!GUARD_RE.test("handler: bareHandler,"), "GUARD_RE should not match a bare handler");
 

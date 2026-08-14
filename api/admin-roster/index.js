@@ -7,10 +7,17 @@
 // admin-facing control — owner dropdowns, person filter, the admin route gate —
 // pick them up with no frontend change.
 //
-// Admin-guarded: the roster is only visible to someone already on it.
+// Contributor-guarded rather than admin-guarded: a contributor needs this to
+// pass the frontend's /admin route gate and to learn its own role. The response
+// carries no company data — only who works here — and is still closed to anyone
+// on neither list.
 
 const { app, hasRoute } = require("../_app");
-const { getAdminEmails, withAdminGuard } = require("../_adminAuth");
+const {
+  getAdminEmails,
+  getContributorEmails,
+  withContributorGuard,
+} = require("../_adminAuth");
 const { getBuildInfo } = require("../_buildInfo");
 
 const BUILD_INFO = getBuildInfo();
@@ -33,14 +40,25 @@ async function handler(req) {
   if (method === "OPTIONS") return json({ ok: true });
   if (method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
 
-  const admins = getAdminEmails()
-    .map((e) => String(e || "").trim().toLowerCase())
-    .filter(Boolean);
+  const clean = (list) =>
+    list.map((e) => String(e || "").trim().toLowerCase()).filter(Boolean);
 
+  const admins = clean(getAdminEmails());
+
+  // `admins` stays the owner/person dropdown source — companies are assigned to
+  // staff, and a contributor must not be able to hand work to themselves.
+  // `contributors` is separate so the UI can gate the /admin route on the union
+  // without polluting those dropdowns.
+  //
+  // `role` lets the UI hide controls the caller can't use. It is a display hint
+  // ONLY — every restriction is enforced server-side, so a tampered client
+  // gains nothing beyond seeing buttons that return 403.
   return json({
     ok: true,
     admins,
+    contributors: clean(getContributorEmails()),
     me: String(req?.__admin_email || "").trim().toLowerCase() || null,
+    role: String(req?.__role || "").trim() || null,
     build_id: String(BUILD_INFO.build_id || ""),
   });
 }
@@ -51,7 +69,7 @@ if (!hasRoute(ROUTE)) {
     route: ROUTE,
     methods: ["GET", "OPTIONS"],
     authLevel: "anonymous",
-    handler: withAdminGuard(handler),
+    handler: withContributorGuard(handler),
   });
 }
 
