@@ -73,7 +73,7 @@ import ImportDebugPanel from "./admin-import/ImportDebugPanel";
 import ImportReportSection from "./admin-import/ImportReportSection";
 import StatusAlerts from "./admin-import/StatusAlerts";
 import ImportResultsPanels from "./admin-import/ImportResultsPanels";
-import { getAdminUser, getAuthorizedAdminEmails } from "@/lib/azureAuth";
+import { getAdminUser, getAssignableOwnerEmails } from "@/lib/azureAuth";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader,
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
@@ -6865,7 +6865,7 @@ export default function AdminImport() {
                   aria-label="Assign owner for this batch"
                 >
                   <option value="">Me (importer)</option>
-                  {getAuthorizedAdminEmails()
+                  {getAssignableOwnerEmails()
                     .filter((email) => email !== (getAdminUser()?.email || "").toLowerCase())
                     .map((email) => (
                       <option key={email} value={email}>

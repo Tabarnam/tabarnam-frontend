@@ -9,6 +9,7 @@ import {
   getContributorEmails,
   getCurrentRole,
   isContributor,
+  getAssignableOwnerEmails,
 } from "./azureAuth";
 
 // The admin allowlist lives on the BACKEND (api/_adminAuth.js). The frontend
@@ -185,5 +186,58 @@ describe("contributor role", () => {
 
     expect(getCurrentRole()).toBe("contributor");
     expect(getContributorEmails()).toEqual(["dana@tabarnam.com"]);
+  });
+});
+
+// ── Assignment targets ──────────────────────────────────────────────
+// Assigning companies to a contributor is the entire point of the role.
+// Leaving them out of the owner dropdowns doesn't restrict the contributor —
+// it stops an admin from giving them anything to do.
+
+describe("getAssignableOwnerEmails", () => {
+  test("includes contributors — they are the people work gets assigned to", async () => {
+    mockRosterResponse({
+      ok: true,
+      admins: ["jon@tabarnam.com"],
+      contributors: ["dana@tabarnam.com"],
+      role: "admin",
+    });
+    await fetchAdminRoster();
+
+    expect(getAssignableOwnerEmails()).toContain("dana@tabarnam.com");
+    expect(getAssignableOwnerEmails()).toContain("jon@tabarnam.com");
+  });
+
+  test("is a superset of the staff list", async () => {
+    mockRosterResponse({
+      ok: true,
+      admins: ["jon@tabarnam.com", "kels@tabarnam.com"],
+      contributors: ["dana@tabarnam.com"],
+      role: "admin",
+    });
+    await fetchAdminRoster();
+
+    for (const staff of getAuthorizedAdminEmails()) {
+      expect(getAssignableOwnerEmails()).toContain(staff);
+    }
+  });
+
+  test("does not duplicate someone on both lists", async () => {
+    mockRosterResponse({
+      ok: true,
+      admins: ["jon@tabarnam.com"],
+      contributors: ["jon@tabarnam.com"],
+      role: "admin",
+    });
+    await fetchAdminRoster();
+
+    expect(getAssignableOwnerEmails()).toEqual(["jon@tabarnam.com"]);
+  });
+
+  test("falls back to staff when no contributors are configured", async () => {
+    mockRosterResponse({ ok: true, admins: ["jon@tabarnam.com"], contributors: [], role: "admin" });
+    await fetchAdminRoster();
+
+    expect(getAssignableOwnerEmails()).toEqual(["jon@tabarnam.com"]);
   });
 });

@@ -42,7 +42,7 @@ import { API_BASE, apiFetch, apiFetchParsed, getCachedBuildId, getLastApiRequest
 import { deleteHomepageBlob, deleteLogoBlob, uploadHomepageBlobFile, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getCompanyHomepageUrl } from "@/lib/homepageUrl";
-import { getAdminUser, getAuthorizedAdminEmails } from "@/lib/azureAuth";
+import { getAdminUser, getAssignableOwnerEmails, isContributor } from "@/lib/azureAuth";
 import {
   Dialog,
   DialogContent,
@@ -4246,7 +4246,7 @@ export default function CompanyDashboard() {
           <option value="" disabled>
             {bulkAssignLoading ? "Assigning…" : `Assign ${selectedRows.length} to…`}
           </option>
-          {getAuthorizedAdminEmails().map((email) => (
+          {getAssignableOwnerEmails().map((email) => (
             <option key={email} value={email}>
               {email}
             </option>
@@ -4428,7 +4428,7 @@ export default function CompanyDashboard() {
                 {getAdminUser()?.email ? (
                   <option value={`owner:${getAdminUser().email.toLowerCase()}`}>Mine</option>
                 ) : null}
-                {getAuthorizedAdminEmails()
+                {getAssignableOwnerEmails()
                   .filter((email) => email !== (getAdminUser()?.email || "").toLowerCase())
                   .map((email) => (
                     <option key={`owner:${email}`} value={`owner:${email}`}>{email}</option>
@@ -4438,7 +4438,7 @@ export default function CompanyDashboard() {
                 {getAdminUser()?.email ? (
                   <option value={`imported_by:${getAdminUser().email.toLowerCase()}`}>Mine</option>
                 ) : null}
-                {getAuthorizedAdminEmails()
+                {getAssignableOwnerEmails()
                   .filter((email) => email !== (getAdminUser()?.email || "").toLowerCase())
                   .map((email) => (
                     <option key={`imported_by:${email}`} value={`imported_by:${email}`}>{email}</option>
@@ -4769,14 +4769,19 @@ export default function CompanyDashboard() {
                                 }
                               >
                                 <label className="text-xs text-slate-600 dark:text-muted-foreground">Owner</label>
+                                {/* A contributor's `owner` write is stripped server-side, so
+                                    leaving this editable would be a control that silently
+                                    does nothing. Disabled so the boundary is visible. */}
                                 <select
                                   value={asString(editorDraft.owner).trim().toLowerCase()}
                                   onChange={(e) => setEditorDraft((d) => ({ ...d, owner: e.target.value }))}
-                                  className="h-8 w-44 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                                  disabled={isContributor()}
+                                  title={isContributor() ? "Only staff can reassign a company" : undefined}
+                                  className="h-8 w-44 rounded-md border border-input bg-background px-2 text-xs text-foreground disabled:opacity-60 disabled:cursor-not-allowed"
                                   aria-label="Owner"
                                 >
                                   <option value="">(unassigned)</option>
-                                  {getAuthorizedAdminEmails().map((email) => (
+                                  {getAssignableOwnerEmails().map((email) => (
                                     <option key={email} value={email}>
                                       {email}
                                     </option>

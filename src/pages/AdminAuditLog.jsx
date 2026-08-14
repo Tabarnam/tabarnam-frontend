@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import AdminHeader from "@/components/AdminHeader";
-import { getAuthorizedAdminEmails } from "@/lib/azureAuth";
+import { getAssignableOwnerEmails } from "@/lib/azureAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -115,7 +115,7 @@ export default function AdminAuditLog() {
   const [cursor, setCursor] = useState(null);
   const [meta, setMeta] = useState(null);
 
-  const people = useMemo(() => getAuthorizedAdminEmails(), []);
+  const people = useMemo(() => getAssignableOwnerEmails(), []);
 
   const buildParams = useCallback(
     (nextCursor) => {
