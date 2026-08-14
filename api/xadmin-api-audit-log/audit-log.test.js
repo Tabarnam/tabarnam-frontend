@@ -416,3 +416,69 @@ test("csvParam trims, lowercases when asked, and drops blanks", () => {
     "test@tabarnam.com",
   ]);
 });
+
+// ── Count mode ──────────────────────────────────────────────────────
+// The export asks how big it will be BEFORE downloading, so a truncated
+// export is never a surprise discovered in Excel.
+
+test("count=1 returns a total using the same filters", async () => {
+  let seen = null;
+  const container = {
+    items: {
+      query(spec) {
+        seen = spec;
+        return { fetchAll: async () => ({ resources: [60801] }) };
+      },
+    },
+  };
+
+  const res = await _test.handleGet(
+    makeReq({ count: "1", actor_email: "jon@tabarnam.com" }),
+    { log() {} },
+    { container, now: NOW }
+  );
+
+  const body = JSON.parse(res.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.total, 60801);
+
+  assert.match(seen.query, /SELECT VALUE COUNT\(1\) FROM c/);
+  assert.ok(!/ORDER BY/.test(seen.query), "a count has no ordering to do");
+  assert.equal(
+    seen.parameters.find((p) => p.name === "@actor").value,
+    "jon@tabarnam.com",
+    "the count must reflect the same filters as the export"
+  );
+});
+
+test("count mode reports the window it counted", async () => {
+  const container = {
+    items: {
+      query() {
+        return { fetchAll: async () => ({ resources: [5] }) };
+      },
+    },
+  };
+
+  const res = await _test.handleGet(makeReq({ count: "1", all: "1" }), { log() {} }, { container, now: NOW });
+  assert.equal(JSON.parse(res.body).window.is_all_time, true);
+});
+
+test("a failed count is reported rather than passed off as zero", async () => {
+  const container = {
+    items: {
+      query() {
+        return {
+          async fetchAll() {
+            throw new Error("boom");
+          },
+        };
+      },
+    },
+  };
+
+  const res = await _test.handleGet(makeReq({ count: "1" }), { log() {} }, { container, now: NOW });
+
+  assert.equal(res.status, 500);
+  assert.equal(JSON.parse(res.body).total, null, "null means unknown; 0 would mean empty");
+});

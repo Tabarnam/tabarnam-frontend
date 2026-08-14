@@ -344,24 +344,55 @@ export default function AdminAuditLog() {
   // an export that silently stops at 100 rows is worse than no export. Pages
   // through with the same cursor the table uses, capped so a "forever ever"
   // export cannot run unbounded.
-  const EXPORT_MAX = 10000;
+  // A backstop against unbounded growth, not a practical limit: the whole log
+  // is ~61k entries today, so a full-history export fits with headroom. The
+  // earlier 10k would have silently handed back a sixth of it.
+  const EXPORT_MAX = 100000;
+  const EXPORT_PAGE = 1000;
 
   const exportToExcel = useCallback(async () => {
     setExporting(true);
     setExportNote("");
 
     try {
+      // Ask how big this is before committing anyone to a long download, and
+      // say so if the cap will bite — a truncated export must never be a
+      // surprise discovered in Excel.
+      let expected = null;
+      try {
+        const cRes = await apiFetch(`/xadmin-api-audit-log?${buildParams(null)}&count=1`);
+        const cData = await cRes.json().catch(() => null);
+        if (cRes.ok && cData?.ok && typeof cData.total === "number") expected = cData.total;
+      } catch {
+        // Non-fatal: fall back to counting as we go.
+      }
+
+      if (expected !== null) {
+        setExportNote(
+          expected > EXPORT_MAX
+            ? `${expected.toLocaleString()} rows match — exporting the first ${EXPORT_MAX.toLocaleString()}…`
+            : `exporting ${expected.toLocaleString()} rows…`
+        );
+      }
+
       const all = [];
       let next = null;
 
       do {
-        const res = await apiFetch(`/xadmin-api-audit-log?${buildParams(next)}&limit=500`);
+        const res = await apiFetch(
+          `/xadmin-api-audit-log?${buildParams(next)}&limit=${EXPORT_PAGE}`
+        );
         const data = await res.json().catch(() => null);
         if (!res.ok || !data?.ok) break;
 
         all.push(...(data.items || []));
         next = data.next_cursor || null;
-        setExportNote(`${all.length} rows…`);
+
+        setExportNote(
+          expected
+            ? `${all.length.toLocaleString()} of ${Math.min(expected, EXPORT_MAX).toLocaleString()} rows…`
+            : `${all.length.toLocaleString()} rows…`
+        );
       } while (next && all.length < EXPORT_MAX);
 
       if (all.length === 0) {
@@ -401,7 +432,9 @@ export default function AdminAuditLog() {
       });
 
       setExportNote(
-        capped ? `exported ${all.length} rows (capped at ${EXPORT_MAX})` : `exported ${all.length} rows`
+        capped
+          ? `exported ${all.length.toLocaleString()} rows — CAPPED at ${EXPORT_MAX.toLocaleString()}, narrow the filters for the rest`
+          : `exported ${all.length.toLocaleString()} rows`
       );
     } catch (e) {
       setExportNote(`export failed: ${e?.message || "unknown error"}`);
