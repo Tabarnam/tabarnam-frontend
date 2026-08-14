@@ -634,6 +634,15 @@ try {
   console.error("[api] ❌ Failed to load xadmin-api-recent-activity:", e?.message || e);
 }
 
+// Sortable whole-catalog activity table (/admin/audit-log).
+try {
+  console.log("[api] Registering: xadmin-api-audit-log");
+  require("./xadmin-api-audit-log/index.js");
+  console.log("[api] ✓ xadmin-api-audit-log registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-audit-log:", e?.message || e);
+}
+
 try {
   console.log("[api] Registering: xadmin-api-debug");
   require("./admin-debug/index.js");
