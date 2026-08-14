@@ -5,6 +5,10 @@ import {
   fetchAdminRoster,
   getAdminUser,
   getAuthorizedAdminEmails,
+  getAdminPortalEmails,
+  getContributorEmails,
+  getCurrentRole,
+  isContributor,
 } from "./azureAuth";
 
 // The admin allowlist lives on the BACKEND (api/_adminAuth.js). The frontend
@@ -82,5 +86,104 @@ describe("getAdminUser", () => {
     mockRosterResponse({ ok: true, admins: ["jon@tabarnam.com", "newperson@tabarnam.com"] });
     await fetchAdminRoster();
     expect(getAdminUser()?.email).toBe("newperson@tabarnam.com");
+  });
+});
+
+// ── Contributor role ────────────────────────────────────────────────
+// The two lists must stay separate. `admins` feeds owner/person dropdowns —
+// companies are assigned to staff, and a contributor must not be able to hand
+// work to themselves. The union only decides whether the portal renders.
+
+describe("contributor role", () => {
+  test("admins and contributors are kept in separate lists", async () => {
+    mockRosterResponse({
+      ok: true,
+      admins: ["jon@tabarnam.com"],
+      contributors: ["dana@tabarnam.com"],
+      role: "admin",
+    });
+    await fetchAdminRoster();
+
+    expect(getAuthorizedAdminEmails()).toEqual(["jon@tabarnam.com"]);
+    expect(getContributorEmails()).toEqual(["dana@tabarnam.com"]);
+  });
+
+  test("a contributor never appears in the owner-dropdown source", async () => {
+    mockRosterResponse({
+      ok: true,
+      admins: ["jon@tabarnam.com"],
+      contributors: ["dana@tabarnam.com"],
+      role: "contributor",
+    });
+    await fetchAdminRoster();
+
+    expect(getAuthorizedAdminEmails()).not.toContain("dana@tabarnam.com");
+  });
+
+  test("the portal list is the union of both", async () => {
+    mockRosterResponse({
+      ok: true,
+      admins: ["jon@tabarnam.com"],
+      contributors: ["dana@tabarnam.com"],
+      role: "admin",
+    });
+    await fetchAdminRoster();
+
+    expect(getAdminPortalEmails().sort()).toEqual(["dana@tabarnam.com", "jon@tabarnam.com"]);
+  });
+
+  test("the caller's own role is exposed for UI gating", async () => {
+    mockRosterResponse({ ok: true, admins: ["jon@tabarnam.com"], contributors: ["dana@tabarnam.com"], role: "contributor" });
+    await fetchAdminRoster();
+
+    expect(getCurrentRole()).toBe("contributor");
+    expect(isContributor()).toBe(true);
+  });
+
+  test("an admin is not treated as scoped", async () => {
+    mockRosterResponse({ ok: true, admins: ["jon@tabarnam.com"], contributors: [], role: "admin" });
+    await fetchAdminRoster();
+
+    expect(isContributor()).toBe(false);
+  });
+
+  test("before the roster resolves, nothing is assumed scoped", () => {
+    // A null role must not read as "contributor" — that would hide staff nav
+    // on a slow first load.
+    expect(getCurrentRole()).toBeNull();
+    expect(isContributor()).toBe(false);
+  });
+
+  test("a roster without the new fields degrades to admins-only", async () => {
+    // An older API build, or a cached response from before this change.
+    mockRosterResponse({ ok: true, admins: ["jon@tabarnam.com"] });
+    await fetchAdminRoster();
+
+    expect(getContributorEmails()).toEqual([]);
+    expect(getCurrentRole()).toBeNull();
+    expect(getAdminPortalEmails()).toEqual(["jon@tabarnam.com"]);
+  });
+
+  test("an unrecognised role value is ignored rather than trusted", async () => {
+    mockRosterResponse({ ok: true, admins: ["jon@tabarnam.com"], role: "superuser" });
+    await fetchAdminRoster();
+
+    expect(getCurrentRole()).toBeNull();
+  });
+
+  test("role and contributors survive a page reload via sessionStorage", async () => {
+    mockRosterResponse({
+      ok: true,
+      admins: ["jon@tabarnam.com"],
+      contributors: ["dana@tabarnam.com"],
+      role: "contributor",
+    });
+    await fetchAdminRoster();
+
+    // Simulate a fresh module load with sessionStorage intact.
+    __resetAuthCachesForTest();
+
+    expect(getCurrentRole()).toBe("contributor");
+    expect(getContributorEmails()).toEqual(["dana@tabarnam.com"]);
   });
 });

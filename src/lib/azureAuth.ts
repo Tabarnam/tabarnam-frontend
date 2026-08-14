@@ -45,29 +45,71 @@ let cacheTime: number = 0;
 const CACHE_DURATION = 60000; // 1 minute cache
 
 // ── Admin roster (fetched from the backend allowlist) ────────────────
-const ROSTER_STORAGE_KEY = 'admin_roster_v1';
+const ROSTER_STORAGE_KEY = 'admin_roster_v2';
 const ROSTER_TTL_MS = 5 * 60 * 1000;
 
-let rosterCache: string[] | null = null;
+/**
+ * Two lists, deliberately separate.
+ *
+ *  admins       — staff. The ONLY source for owner/person dropdowns: companies
+ *                 are assigned to staff, and a contributor must not be able to
+ *                 hand work to themselves.
+ *  contributors — scoped outside help. May enter /admin, but sees only the
+ *                 companies they own.
+ *
+ * `role` is the CALLER's own role. It exists so the UI can hide controls that
+ * would only return 403 — it is a display hint, never an enforcement boundary.
+ * Every restriction is enforced server-side.
+ */
+export type AdminRole = 'admin' | 'contributor';
 
-function readStoredRoster(): string[] | null {
+let rosterCache: string[] | null = null;
+let contributorCache: string[] | null = null;
+let roleCache: AdminRole | null = null;
+
+interface StoredRoster {
+  admins: string[];
+  contributors: string[];
+  role: AdminRole | null;
+  ts: number;
+}
+
+function readStoredRoster(): StoredRoster | null {
   try {
     const raw = sessionStorage.getItem(ROSTER_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.admins) || typeof parsed.ts !== 'number') return null;
     if (Date.now() - parsed.ts > ROSTER_TTL_MS) return null;
-    const admins = parsed.admins.filter((e: unknown) => typeof e === 'string' && (e as string).trim());
-    return admins.length > 0 ? admins : null;
+
+    const clean = (list: unknown): string[] =>
+      Array.isArray(list)
+        ? list.filter((e: unknown) => typeof e === 'string' && (e as string).trim())
+        : [];
+
+    const admins = clean(parsed.admins);
+    if (admins.length === 0) return null;
+
+    return {
+      admins,
+      contributors: clean(parsed.contributors),
+      role: parsed.role === 'admin' || parsed.role === 'contributor' ? parsed.role : null,
+      ts: parsed.ts,
+    };
   } catch {
     return null;
   }
 }
 
-function storeRoster(admins: string[]): void {
+function storeRoster(admins: string[], contributors: string[], role: AdminRole | null): void {
   rosterCache = admins;
+  contributorCache = contributors;
+  roleCache = role;
   try {
-    sessionStorage.setItem(ROSTER_STORAGE_KEY, JSON.stringify({ admins, ts: Date.now() }));
+    sessionStorage.setItem(
+      ROSTER_STORAGE_KEY,
+      JSON.stringify({ admins, contributors, role, ts: Date.now() })
+    );
   } catch {
     // sessionStorage unavailable — module cache still works for this page
   }
@@ -100,14 +142,22 @@ export async function fetchAdminRoster(): Promise<RosterFetchResult> {
     if (!res.ok) return { status: 'error' };
 
     const data = await res.json().catch(() => null);
-    const admins: string[] = Array.isArray(data?.admins)
-      ? data.admins
-          .filter((e: unknown) => typeof e === 'string' && (e as string).trim())
-          .map((e: string) => e.trim().toLowerCase())
-      : [];
+
+    const clean = (list: unknown): string[] =>
+      Array.isArray(list)
+        ? list
+            .filter((e: unknown) => typeof e === 'string' && (e as string).trim())
+            .map((e: string) => e.trim().toLowerCase())
+        : [];
+
+    const admins = clean(data?.admins);
     if (!data?.ok || admins.length === 0) return { status: 'error' };
 
-    storeRoster(admins);
+    const contributors = clean(data?.contributors);
+    const role: AdminRole | null =
+      data?.role === 'admin' || data?.role === 'contributor' ? data.role : null;
+
+    storeRoster(admins, contributors, role);
     return { status: 'ok', admins };
   } catch {
     return { status: 'error' };
@@ -123,10 +173,57 @@ export function getAuthorizedAdminEmails(): string[] {
   if (rosterCache && rosterCache.length > 0) return rosterCache;
   const stored = readStoredRoster();
   if (stored) {
-    rosterCache = stored;
-    return stored;
+    rosterCache = stored.admins;
+    contributorCache = stored.contributors;
+    roleCache = stored.role;
+    return stored.admins;
   }
   return FALLBACK_ADMIN_USERS;
+}
+
+/** Contributors only. Not a source for owner dropdowns — see the note above. */
+export function getContributorEmails(): string[] {
+  if (contributorCache) return contributorCache;
+  const stored = readStoredRoster();
+  if (stored) {
+    rosterCache = stored.admins;
+    contributorCache = stored.contributors;
+    roleCache = stored.role;
+    return stored.contributors;
+  }
+  return [];
+}
+
+/**
+ * Everyone who may enter /admin at all. Used by the route gate ONLY — what a
+ * person can then do is decided per request by the server.
+ */
+export function getAdminPortalEmails(): string[] {
+  return [...new Set([...getAuthorizedAdminEmails(), ...getContributorEmails()])];
+}
+
+/**
+ * The signed-in user's own role, once the roster has been fetched. Returns null
+ * before that resolves.
+ *
+ * Use this to hide controls that would only 403, never to decide whether an
+ * action is permitted — the server decides that, every time.
+ */
+export function getCurrentRole(): AdminRole | null {
+  if (roleCache) return roleCache;
+  const stored = readStoredRoster();
+  if (stored) {
+    rosterCache = stored.admins;
+    contributorCache = stored.contributors;
+    roleCache = stored.role;
+    return stored.role;
+  }
+  return null;
+}
+
+/** True only when we positively know the caller is scoped. */
+export function isContributor(): boolean {
+  return getCurrentRole() === 'contributor';
 }
 
 /**
@@ -145,7 +242,7 @@ export function getAdminUser(): AdminUser | null {
     // Note: In production, consider making this async
     // For now, we use localStorage as a fallback during initial page load
     const storedEmail = sessionStorage.getItem('azure_user_email');
-    if (storedEmail && getAuthorizedAdminEmails().includes(storedEmail.toLowerCase())) {
+    if (storedEmail && getAdminPortalEmails().includes(storedEmail.toLowerCase())) {
       cachedUser = { email: storedEmail };
       cacheTime = now;
       return cachedUser;
@@ -199,4 +296,6 @@ export function __resetAuthCachesForTest(): void {
   cachedUser = null;
   cacheTime = 0;
   rosterCache = null;
+  contributorCache = null;
+  roleCache = null;
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
-import { fetchAdminRoster, fetchAuthState, getAuthorizedAdminEmails } from '@/lib/azureAuth';
+import { fetchAdminRoster, fetchAuthState, getAdminPortalEmails } from '@/lib/azureAuth';
 
 // Pull the caller's email out of the SWA clientPrincipal (userDetails, or an
 // email-bearing claim). Mirrors api/_adminAuth.js::extractEmail so the UI gate
@@ -143,8 +143,12 @@ export default function AdminRoute({ children }) {
 
       // verdict.status === 'error' — endpoint unreachable. Fall back to the last
       // known/hardcoded list so an API blip can't lock out existing admins.
-      const admins = getAuthorizedAdminEmails().map((e) => e.toLowerCase());
-      if (email && admins.includes(email)) {
+      //
+      // The union of admins AND contributors: this decides only whether the
+      // portal renders. What a contributor can then do is decided per request
+      // by the server, so being generous here grants nothing.
+      const allowed = getAdminPortalEmails().map((e) => e.toLowerCase());
+      if (email && allowed.includes(email)) {
         setStatus('allowed');
       } else {
         setDiag({ email, reason: 'roster_unavailable' });
