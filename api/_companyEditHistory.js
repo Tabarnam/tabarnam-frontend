@@ -100,6 +100,37 @@ function normalizeDiffValue(fieldName, value) {
   });
 }
 
+/**
+ * Fields the system recomputes on every save. They are derived entirely from
+ * other fields on the same document, so recording them tells you nothing a
+ * human did — only that a save happened, which the entry already says.
+ *
+ * Measured over 25 consecutive production entries: the five search_text_*
+ * fields and search_tokens appeared in ~72% of them, _kwCacheKey in 68%. They
+ * are also long strings, so they dominated the stored `diff` payload (11.5 KB
+ * for one edit) and pushed the real change behind a "+27 more" summary.
+ *
+ * `profile_completeness` (the score) is deliberately NOT here — a company going
+ * 88% -> 95% is meaningful. Only its verbose `_meta` breakdown is dropped.
+ *
+ * Nothing is lost that cannot be recomputed from the document itself.
+ */
+const DERIVED_FIELDS = [
+  // Full-text search index payload (patchCompanyWithSearchText)
+  "search_text",
+  "search_text_norm",
+  "search_text_compact",
+  "search_text_stemmed",
+  "search_text_stemmed_compact",
+  "search_tokens",
+  // Keyword-match cache
+  "_kwCacheKey",
+  "_kwRelevantCount",
+  // Rollups computed from fields already recorded individually
+  "profile_completeness_meta",
+  "enrichment_health",
+];
+
 function computeTopLevelDiff(beforeDoc, afterDoc, opts = {}) {
   const ignore = new Set([
     "_rid",
@@ -111,6 +142,7 @@ function computeTopLevelDiff(beforeDoc, afterDoc, opts = {}) {
     "updatedAt",
     "created_at",
     "createdAt",
+    ...DERIVED_FIELDS,
     ...(Array.isArray(opts.ignoreKeys) ? opts.ignoreKeys : []),
   ]);
 
@@ -329,5 +361,6 @@ module.exports = {
   writeBatchSummaryEntry,
   computeTopLevelDiff,
   truncateForStorage,
+  DERIVED_FIELDS,
   BATCH_SUMMARY_PARTITION,
 };
