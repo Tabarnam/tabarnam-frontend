@@ -4,6 +4,7 @@ import AdminHeader from "@/components/AdminHeader";
 import { getAssignableOwnerEmails } from "@/lib/azureAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import ColumnFilterMenu from "@/components/admin/ColumnFilterMenu";
 import {
   RefreshCw,
   Loader2,
@@ -11,6 +12,7 @@ import {
   ArrowUp,
   ArrowDown,
   Clock,
+  Download,
 } from "lucide-react";
 
 // Admin activity log — who changed what, when.
@@ -40,6 +42,16 @@ const COLUMNS = [
   { key: "company_id", label: "Company", sortable: true },
   { key: "changed_fields", label: "Changed", sortable: false },
   { key: "source", label: "Source", sortable: false, width: "w-32" },
+];
+
+// The full vocabulary, so the Action dropdown offers every value rather than
+// only those that happen to be on the loaded page.
+const KNOWN_ACTIONS = [
+  "create",
+  "update",
+  "delete",
+  "bulk_import_summary",
+  "apply_batch_fields_summary",
 ];
 
 const ACTION_PILL = {
@@ -129,6 +141,24 @@ export default function AdminAuditLog() {
   const [cursor, setCursor] = useState(null);
   const [meta, setMeta] = useState(null);
 
+  // Excel-style per-column multi-select. Applied server-side (see
+  // ColumnFilterMenu) — a client-side checkbox filter would narrow only the
+  // page on screen while looking like it narrowed the query.
+  const [columnFilters, setColumnFilters] = useState({
+    actor_email: [],
+    action: [],
+    source: [],
+  });
+
+  // Nobody should walk the entire log by accident. An all-time query with no
+  // other filter is gated behind an explicit choice; once made, it holds until
+  // the range changes so paging and sorting don't re-prompt.
+  const [confirmUnfocused, setConfirmUnfocused] = useState(false);
+  const [unfocusedAccepted, setUnfocusedAccepted] = useState(false);
+
+  const [exporting, setExporting] = useState(false);
+  const [exportNote, setExportNote] = useState("");
+
   // The person filter lists everyone who has ever written to the log, unioned
   // with everyone who currently has access. Building it from the live roster
   // alone made a departed contributor's name vanish from the filter while
@@ -164,6 +194,10 @@ export default function AdminAuditLog() {
         params.set("company_ids", resolvedCompanyIds.length ? resolvedCompanyIds.join(",") : "__none__");
       }
 
+      if (columnFilters.actor_email.length) params.set("actor_emails", columnFilters.actor_email.join(","));
+      if (columnFilters.action.length) params.set("actions", columnFilters.action.join(","));
+      if (columnFilters.source.length) params.set("sources", columnFilters.source.join(","));
+
       params.set("sort", sortField);
       params.set("dir", sortDir);
       params.set("limit", "100");
@@ -172,8 +206,32 @@ export default function AdminAuditLog() {
 
       return params.toString();
     },
-    [windowHours, allTime, customFrom, customTo, actorFilter, companyFilter, resolvedCompanyIds, sortField, sortDir]
+    [windowHours, allTime, customFrom, customTo, actorFilter, companyFilter, resolvedCompanyIds, columnFilters, sortField, sortDir]
   );
+
+  // "Focused" means anything that narrows the log to something a person could
+  // reasonably read. An all-time query with none of these walks everything.
+  const isFocused =
+    Boolean(actorFilter) ||
+    Boolean(companyFilter.trim()) ||
+    Boolean(companyNameQuery.trim()) ||
+    columnFilters.actor_email.length > 0 ||
+    columnFilters.action.length > 0 ||
+    columnFilters.source.length > 0;
+
+  const needsConfirmation = allTime && !isFocused && !unfocusedAccepted;
+
+  // Leaving all-time clears the acceptance, so returning to it asks again.
+  useEffect(() => {
+    if (!allTime) {
+      setUnfocusedAccepted(false);
+      setConfirmUnfocused(false);
+    }
+  }, [allTime]);
+
+  useEffect(() => {
+    if (needsConfirmation) setConfirmUnfocused(true);
+  }, [needsConfirmation]);
 
   const load = useCallback(
     async (nextCursor = null) => {
@@ -207,9 +265,10 @@ export default function AdminAuditLog() {
   // Refetch whenever anything that shapes the query changes. Paging resets,
   // because a cursor is only valid for the query that produced it.
   useEffect(() => {
+    if (needsConfirmation) return; // gated: wait for an explicit choice
     setCursor(null);
     load(null);
-  }, [load]);
+  }, [load, needsConfirmation]);
 
   // Fetch the historical actor list once. Cached server-side for an hour, so
   // this is cheap despite being a DISTINCT over the whole log.
@@ -265,6 +324,92 @@ export default function AdminAuditLog() {
     };
   }, [companyNameQuery]);
 
+  // Distinct values for the column dropdowns. `Who` uses the complete
+  // historical actor list so someone who has left is still selectable; Action
+  // and Source union the known vocabulary with whatever is on screen.
+  const columnValues = useMemo(
+    () => ({
+      actor_email: people,
+      action: [...new Set([...KNOWN_ACTIONS, ...rows.map((r) => r.action).filter(Boolean)])].sort(),
+      source: [...new Set(rows.map((r) => r.source).filter(Boolean))].sort(),
+    }),
+    [people, rows]
+  );
+
+  const applyColumnFilter = useCallback((key, values) => {
+    setColumnFilters((prev) => ({ ...prev, [key]: values }));
+  }, []);
+
+  // Export EVERY row the current filters match, not just the page on screen —
+  // an export that silently stops at 100 rows is worse than no export. Pages
+  // through with the same cursor the table uses, capped so a "forever ever"
+  // export cannot run unbounded.
+  const EXPORT_MAX = 10000;
+
+  const exportToExcel = useCallback(async () => {
+    setExporting(true);
+    setExportNote("");
+
+    try {
+      const all = [];
+      let next = null;
+
+      do {
+        const res = await apiFetch(`/xadmin-api-audit-log?${buildParams(next)}&limit=500`);
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data?.ok) break;
+
+        all.push(...(data.items || []));
+        next = data.next_cursor || null;
+        setExportNote(`${all.length} rows…`);
+      } while (next && all.length < EXPORT_MAX);
+
+      if (all.length === 0) {
+        setExportNote("nothing to export");
+        return;
+      }
+
+      const capped = all.length >= EXPORT_MAX;
+
+      // Loaded on demand so the spreadsheet writer never ships in the main
+      // bundle for someone who only reads the table.
+      // Browser entry explicitly: the package exposes ./browser and ./node
+      // rather than a root export, and the node build pulls fs.
+      const { default: writeXlsxFile } = await import("write-excel-file/browser");
+
+      const schema = [
+        { column: "When (PT)", type: String, width: 22, value: (r) => formatWhen(r.created_at) },
+        { column: "When (UTC)", type: String, width: 24, value: (r) => r.created_at },
+        { column: "Who", type: String, width: 28, value: (r) => r.actor_email || "system" },
+        { column: "Action", type: String, width: 22, value: (r) => r.action },
+        { column: "Company", type: String, width: 34, value: (r) => r.company_name || r.company_id || "" },
+        { column: "Company ID", type: String, width: 34, value: (r) => r.company_id || "" },
+        { column: "Fields changed", type: Number, width: 14, value: (r) => r.changed_field_count ?? 0 },
+        { column: "Changed", type: String, width: 60, value: (r) => (r.changed_fields || []).join(", ") },
+        { column: "Source", type: String, width: 16, value: (r) => r.source || "" },
+      ];
+
+      const stamp = new Date().toISOString().slice(0, 10);
+
+      await writeXlsxFile(all, {
+        schema,
+        fileName: `tabarnam-activity-${stamp}.xlsx`,
+        headerStyle: { fontWeight: "bold" },
+        // Excel's own filter dropdowns, armed on open — the thing the in-app
+        // column menus do here, available there too.
+        stickyRowsCount: 1,
+      });
+
+      setExportNote(
+        capped ? `exported ${all.length} rows (capped at ${EXPORT_MAX})` : `exported ${all.length} rows`
+      );
+    } catch (e) {
+      setExportNote(`export failed: ${e?.message || "unknown error"}`);
+    } finally {
+      setExporting(false);
+    }
+  }, [buildParams]);
+
   const toggleSort = (field) => {
     if (field === sortField) {
       setSortDir((d) => (d === "desc" ? "asc" : "desc"));
@@ -294,6 +439,18 @@ export default function AdminAuditLog() {
             </p>
           </div>
 
+          <div className="flex items-center gap-2">
+            {exportNote && (
+              <span className="text-xs text-muted-foreground">{exportNote}</span>
+            )}
+            <Button variant="outline" onClick={exportToExcel} disabled={exporting || loading}>
+              {exporting ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              Export to Excel
+            </Button>
           <Button variant="outline" onClick={() => load(null)} disabled={loading}>
             {loading ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -302,6 +459,7 @@ export default function AdminAuditLog() {
             )}
             Refresh
           </Button>
+          </div>
         </div>
 
         {/* Controls */}
@@ -463,6 +621,51 @@ export default function AdminAuditLog() {
           </div>
         )}
 
+        {/* Unfocused all-time guard. Walking the entire log should be a
+            decision, not something you fall into by clicking a time range. */}
+        {confirmUnfocused && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+            <div className="w-full max-w-lg rounded-lg border border-slate-200 dark:border-border bg-white dark:bg-card p-6 shadow-xl">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    That&apos;s the whole log, with no filters
+                  </h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    You should probably focus the search with dates and/or company.
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Unfiltered, this walks every entry ever written. It still loads one
+                    page at a time — you&apos;ll click through the rest.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setUnfocusedAccepted(true);
+                    setConfirmUnfocused(false);
+                  }}
+                >
+                  I&apos;d like more data than I can reasonably handle
+                </Button>
+                <Button
+                  onClick={() => {
+                    setAllTime(false);
+                    setWindowHours(48);
+                    setConfirmUnfocused(false);
+                  }}
+                >
+                  Refine search like a sane person
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Table */}
         <div className="bg-white dark:bg-card rounded-lg border border-slate-200 dark:border-border overflow-hidden">
           <div className="overflow-x-auto">
@@ -474,22 +677,42 @@ export default function AdminAuditLog() {
                       key={col.key}
                       className={`text-left px-4 py-2.5 font-medium text-muted-foreground ${col.width || ""}`}
                     >
-                      {col.sortable ? (
-                        <button
-                          onClick={() => toggleSort(col.key)}
-                          className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
-                        >
-                          {col.label}
-                          {sortField === col.key &&
-                            (sortDir === "desc" ? (
-                              <ArrowDown className="h-3 w-3" />
-                            ) : (
-                              <ArrowUp className="h-3 w-3" />
-                            ))}
-                        </button>
-                      ) : (
-                        col.label
-                      )}
+                      <span className="inline-flex items-center">
+                        {col.sortable ? (
+                          <button
+                            onClick={() => toggleSort(col.key)}
+                            className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                          >
+                            {col.label}
+                            {sortField === col.key &&
+                              (sortDir === "desc" ? (
+                                <ArrowDown className="h-3 w-3" />
+                              ) : (
+                                <ArrowUp className="h-3 w-3" />
+                              ))}
+                          </button>
+                        ) : (
+                          col.label
+                        )}
+
+                        {Object.prototype.hasOwnProperty.call(columnFilters, col.key) && (
+                          <ColumnFilterMenu
+                            label={col.label}
+                            values={columnValues[col.key] || []}
+                            selected={columnFilters[col.key]}
+                            onApply={(vals) => applyColumnFilter(col.key, vals)}
+                            onSort={
+                              col.sortable
+                                ? (dir) => {
+                                    setSortField(col.key);
+                                    setSortDir(dir);
+                                  }
+                                : undefined
+                            }
+                            sortDir={sortField === col.key ? sortDir : undefined}
+                          />
+                        )}
+                      </span>
                     </th>
                   ))}
                 </tr>
