@@ -10,6 +10,7 @@ const { computeTopLevelDiff, writeCompanyEditHistoryEntry, getCompanyEditHistory
 const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_geocode");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { resolveAttribution } = require("../_attribution");
+const { consumeImportQuota, quotaDenialResponse } = require("../_importQuota");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { computeMissingFields } = require("../_requiredFields");
 const { patchCompanyWithSearchText } = require("../_computeSearchText");
@@ -1930,9 +1931,29 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         // Both failures answer 404, not 403: "you may not edit this" and "this
         // does not exist" must be indistinguishable, or PUT becomes an
         // existence oracle over the catalog.
-        // (POST is unaffected: `existingDoc` is only looked up for PUT, and a
-        // contributor's POST already had id/company_id stripped, so it always
-        // creates a fresh document owned by them.)
+        // A contributor creating a company here spends one unit of the same
+        // daily allowance that meters bulk imports — otherwise the editor's
+        // "+ Company" button is an uncapped way around the cap. Charged before
+        // the write, so a refusal costs nothing.
+        if (scope && method === "POST") {
+          const quota = await consumeImportQuota({
+            container: deps.quotaContainer,
+            email: scope.email,
+            count: 1,
+          });
+
+          if (!quota.ok) {
+            const denied = quotaDenialResponse(quota);
+            context.log("[admin-companies-v2] create refused by import quota", {
+              reason: quota.reason,
+            });
+            return json(denied.body, denied.status);
+          }
+        }
+
+        // (POST is unaffected by the owner re-check below: `existingDoc` is only
+        // looked up for PUT, and a contributor's POST already had id/company_id
+        // stripped, so it always creates a fresh document owned by them.)
         if (scope && method === "PUT") {
           if (!existingDoc) {
             // No create-via-PUT. A contributor creates through POST, where
