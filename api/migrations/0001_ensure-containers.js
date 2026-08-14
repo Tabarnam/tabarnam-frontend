@@ -17,6 +17,11 @@ const CONTAINERS = [
   // Per-contributor daily import counters. defaultTtl -1 enables per-item TTL
   // so the counters written by _importQuota.js expire on their own instead of
   // accumulating one document per person per day forever.
+  //
+  // NOTE: production had already applied this migration when the container was
+  // added here, and the runner skips applied migrations — so prod gets it from
+  // 0004 instead. Listed here so a FRESH environment still creates it. Both
+  // paths are createIfNotExists; running either is harmless.
   { id: "contributor_quota", partitionKey: "/id", defaultTtl: -1 },
 ];
 
