@@ -414,6 +414,12 @@ export default function AdminAuditLog() {
 
       const capped = all.length >= EXPORT_MAX;
 
+      // The rows arrive UNORDERED — that is precisely what lets the export page
+      // through everything — so the sheet would otherwise open on whatever
+      // Cosmos happened to return first, which is the oldest contract-test
+      // rows. Sort newest-first here so the file opens on real, recent work.
+      all.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+
       // Loaded on demand so the spreadsheet writer never ships in the main
       // bundle for someone who only reads the table.
       // Browser entry explicitly: the package exposes ./browser and ./node
@@ -426,7 +432,11 @@ export default function AdminAuditLog() {
       const columns = [
         { header: "When (PT)", width: 22, cell: (r) => ({ type: String, value: formatWhen(r.created_at) }) },
         { header: "When (UTC)", width: 24, cell: (r) => ({ type: String, value: r.created_at || "" }) },
-        { header: "Who", width: 28, cell: (r) => ({ type: String, value: r.actor_email || "system" }) },
+        // NOT "system". 27,852 of the ~34.6k actor-less entries came from
+        // source "admin-ui" — a person made them, we just failed to record who
+        // before attribution was stamped reliably (last such entry 2026-07-21).
+        // Labelling those "system" credits a machine for human edits.
+        { header: "Who", width: 28, cell: (r) => ({ type: String, value: r.actor_email || "(unattributed)" }) },
         { header: "Action", width: 22, cell: (r) => ({ type: String, value: r.action || "" }) },
         { header: "Company", width: 34, cell: (r) => ({ type: String, value: r.company_name || r.company_id || "" }) },
         { header: "Company ID", width: 34, cell: (r) => ({ type: String, value: r.company_id || "" }) },
