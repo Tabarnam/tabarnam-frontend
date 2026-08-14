@@ -46,6 +46,7 @@ const AdminBackfillHomepages = lazy(() => import("@pages/AdminBackfillHomepages"
 const AdminBackfillLogos = lazy(() => import("@pages/AdminBackfillLogos"));
 const AdminExtractCompanies = lazy(() => import("@pages/AdminExtractCompanies"));
 const AdminCompanyHistory = lazy(() => import("@pages/AdminCompanyHistory"));
+const AdminAuditLog = lazy(() => import("@pages/AdminAuditLog"));
 const BookmarksDrawer = lazy(() => import("@/components/bookmarks/BookmarksDrawer"));
 const BookmarksPage = lazy(() => import("@/pages/BookmarksPage"));
 // "Made in ___" SEO pages — lazy; they pull the pins index on demand.
@@ -222,6 +223,14 @@ export default function App() {
                 element={
                   <AdminRoute>
                     <AdminReviewQueue />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/audit-log"
+                element={
+                  <AdminRoute>
+                    <AdminAuditLog />
                   </AdminRoute>
                 }
               />
