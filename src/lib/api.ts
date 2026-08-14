@@ -9,6 +9,8 @@
 // - API_BASE always falls back to same-origin "/api" when VITE_* is missing or invalid.
 // - If you set an absolute API_BASE to a different origin, CORS may be required.
 
+import { savePostLoginDest } from "@/lib/postLoginDest";
+
 type JsonRecord = Record<string, unknown>;
 
 function looksLikeAbsoluteUrl(value: string) {
@@ -591,7 +593,12 @@ export async function apiFetch(path: string, init?: RequestInit) {
     if (response.status === 401 && /\/xadmin-api-|\/admin\/|\/import-preflight|\/import\/preflight/i.test(path)) {
       try {
         if (typeof window !== "undefined") {
-          const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+          const dest = window.location.pathname + window.location.search;
+          const returnTo = encodeURIComponent(dest);
+          // Stash the target in localStorage too — SWA's SameSite=None redirect
+          // cookie is dropped by strict-cookie browsers (Brave), which lands the
+          // user on "/". App honors this on return. See src/lib/postLoginDest.
+          savePostLoginDest(dest);
           // Use SWA login redirect — refreshes the session cookie without losing location
           window.location.href = `/.auth/login/aad?post_login_redirect_uri=${returnTo}`;
           // Return a pending-forever response so callers don't process the 401

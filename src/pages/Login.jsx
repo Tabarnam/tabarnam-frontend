@@ -3,6 +3,7 @@ import { Helmet } from "@/components/DocumentHead";
 import { Button } from '@/components/ui/button';
 import { LogIn, AlertTriangle } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
+import { savePostLoginDest } from '@/lib/postLoginDest';
 
 export default function Login() {
   const { search } = useLocation();
@@ -40,7 +41,7 @@ export default function Login() {
             </div>
           )}
 
-          <a href={loginHref} className="block">
+          <a href={loginHref} className="block" onClick={() => savePostLoginDest(safePath)}>
             <Button type="button" className="w-full">
               <LogIn className="w-5 h-5 mr-2" />
               Sign in with Microsoft

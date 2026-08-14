@@ -11,6 +11,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { initializeAzureUser } from "@/lib/azureAuth";
 import { logWiringDiagnostics } from "@/lib/diagnostics";
+import { consumePostLoginDest } from "@/lib/postLoginDest";
 
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
@@ -114,6 +115,21 @@ let diagnosticsRun = false;
 
 export default function App() {
   useEffect(() => {
+    // Honor a post-login destination stashed before the SWA auth round-trip.
+    // SWA's own redirect cookie (SameSite=None) is dropped by strict-cookie
+    // browsers like Brave, landing admins on "/" instead of the page they asked
+    // for. We stash the admin path in localStorage at login time and redirect
+    // here on return. One-shot + 5-min TTL, admin paths only (see postLoginDest),
+    // so this can't hijack ordinary navigation or loop. Runs before anything
+    // else so we don't kick off homepage init we're about to navigate away from.
+    try {
+      const dest = consumePostLoginDest();
+      if (dest && dest !== window.location.pathname + window.location.search) {
+        window.location.replace(dest);
+        return;
+      }
+    } catch { /* non-fatal — SWA cookie remains the fallback */ }
+
     // Initialize Azure Entra ID user on app load
     initializeAzureUser().catch(err => {
       console.error('[App] Failed to initialize Azure user:', err);

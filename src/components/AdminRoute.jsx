@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { fetchAdminRoster, fetchAuthState, getAdminPortalEmails, isContributor } from '@/lib/azureAuth';
+import { savePostLoginDest } from '@/lib/postLoginDest';
 
 // Pull the caller's email out of the SWA clientPrincipal (userDetails, or an
 // email-bearing claim). Mirrors api/_adminAuth.js::extractEmail so the UI gate
@@ -68,6 +69,11 @@ export default function AdminRoute({ children, staffOnly = false }) {
     const goToLogin = () => {
       markReloginAttempted();
       const target = pathname + (search || '');
+      // Belt to SWA's cookie suspenders: strict-cookie browsers (Brave) drop the
+      // SameSite=None context cookie SWA uses to remember post_login_redirect_uri,
+      // landing the admin on "/". Stash the target in localStorage so App can
+      // honor it on return regardless. See src/lib/postLoginDest.
+      savePostLoginDest(target);
       window.location.replace(
         `/.auth/login/aad?post_login_redirect_uri=${encodeURIComponent(target)}`
       );
