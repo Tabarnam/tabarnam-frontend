@@ -643,6 +643,15 @@ try {
   console.error("[api] ❌ Failed to load xadmin-api-audit-log:", e?.message || e);
 }
 
+// Everyone who has ever written to the activity log, incl. departed users.
+try {
+  console.log("[api] Registering: xadmin-api-audit-actors");
+  require("./xadmin-api-audit-actors/index.js");
+  console.log("[api] ✓ xadmin-api-audit-actors registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-audit-actors:", e?.message || e);
+}
+
 // Per-contributor assigned-company counts for the admin person filter.
 try {
   console.log("[api] Registering: xadmin-api-contributor-counts");

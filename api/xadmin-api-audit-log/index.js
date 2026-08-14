@@ -25,6 +25,11 @@ const DEFAULT_WINDOW_HOURS = 72;
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 
+// Cap on ids from a name search. A broad name can match many companies; past
+// this the IN clause stops being worth its cost and the filter stops being a
+// filter.
+const MAX_COMPANY_IDS = 60;
+
 // Columns the table may sort by. Anything else is rejected rather than
 // interpolated — these names reach the SQL string.
 const SORTABLE = new Map([
@@ -90,6 +95,24 @@ function parseIso(value) {
  */
 function resolveWindow(req, now = new Date()) {
   const to = parseIso(getQueryParam(req, "to")) || now;
+
+  // `all=1` lifts the lower bound entirely. This is the one query that walks
+  // the whole container, so it is opt-in and reported back as such — the page
+  // must be able to say which it ran.
+  const allTime = ["1", "true", "yes"].includes(
+    String(getQueryParam(req, "all") || "").trim().toLowerCase()
+  );
+
+  if (allTime) {
+    return {
+      from: new Date(0).toISOString(),
+      to: to.toISOString(),
+      is_default: false,
+      is_all_time: true,
+      hours: null,
+    };
+  }
+
   const explicitFrom = parseIso(getQueryParam(req, "from"));
   const from =
     explicitFrom || new Date(to.getTime() - DEFAULT_WINDOW_HOURS * 60 * 60 * 1000);
@@ -98,6 +121,7 @@ function resolveWindow(req, now = new Date()) {
     from: from.toISOString(),
     to: to.toISOString(),
     is_default: !explicitFrom && !parseIso(getQueryParam(req, "to")),
+    is_all_time: false,
     hours: Math.round((new Date(to).getTime() - new Date(from).getTime()) / 36e5),
   };
 }
@@ -173,6 +197,16 @@ function buildQuery({ window: win, sort, limit, filters, multiField }) {
   if (filters.company_id) {
     where.push("c.company_id = @company_id");
     parameters.push({ name: "@company_id", value: filters.company_id });
+  }
+
+  // Resolved from a company-NAME search on the client, which runs against the
+  // same companies endpoint the admin list uses — so "name" here means exactly
+  // what it means in the /admin search box, rather than a second, subtly
+  // different matcher living in this file.
+  if (Array.isArray(filters.company_ids) && filters.company_ids.length > 0) {
+    const names = filters.company_ids.map((_, i) => `@cid${i}`);
+    filters.company_ids.forEach((id, i) => parameters.push({ name: `@cid${i}`, value: id }));
+    where.push(`c.company_id IN (${names.join(", ")})`);
   }
 
   const column = SORTABLE.get(sort.field);
@@ -269,7 +303,33 @@ async function handleGet(req, context, deps = {}) {
     actor_email: String(getQueryParam(req, "actor_email") || "").trim().toLowerCase(),
     action: String(getQueryParam(req, "action") || "").trim(),
     company_id: String(getQueryParam(req, "company_id") || "").trim(),
+    company_ids: String(getQueryParam(req, "company_ids") || "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .slice(0, MAX_COMPANY_IDS),
   };
+
+  // A name search that matched nothing must return nothing. Without this the
+  // empty id list would be dropped and the page would show ALL activity —
+  // reading as "this company was never touched by anyone" when the truth is
+  // "no company matched that name".
+  const nameSearchMissed =
+    String(getQueryParam(req, "company_ids") || "").trim() === "__none__";
+
+  if (nameSearchMissed) {
+    return json({
+      ok: true,
+      items: [],
+      count: 0,
+      window: resolveWindow(req, deps.now),
+      sort: { field: "created_at", dir: "desc" },
+      ordering: "indexed",
+      limit,
+      next_cursor: null,
+      no_company_match: true,
+    });
+  }
 
   let ordering = "indexed";
   let spec = buildQuery({ window: win, sort, limit, filters, multiField: true });
@@ -353,6 +413,7 @@ module.exports = {
     projectRow,
     clampLimit,
     isMissingCompositeIndexError,
+    MAX_COMPANY_IDS,
     SORTABLE,
     DEFAULT_WINDOW_HOURS,
     MAX_LIMIT,

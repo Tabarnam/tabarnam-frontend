@@ -19,11 +19,18 @@ import {
 // would look identical to a real sort while only ordering the rows already on
 // screen, which is how a wrong answer gets trusted.
 
+// Named windows. The tooltip carries the definition so the label can stay
+// short without becoming a guessing game.
 const WINDOW_PRESETS = [
-  { label: "72 hours", hours: 72 },
-  { label: "7 days", hours: 24 * 7 },
-  { label: "30 days", hours: 24 * 30 },
-  { label: "90 days", hours: 24 * 90 },
+  { label: "biduum", hours: 48, title: "Biduum — 2 days" },
+  { label: "fortnight", hours: 24 * 14, title: "Fortnight — 14 nights" },
+  { label: "lunation", hours: 29.5 * 24, title: "Lunation — 29.5 days, one lunar month" },
+  {
+    label: "forever ever?",
+    hours: null,
+    allTime: true,
+    title: "Forever ever — the entire history, no lower bound. Slower: this is the one query that walks the whole log.",
+  },
 ];
 
 const COLUMNS = [
@@ -102,12 +109,19 @@ export default function AdminAuditLog() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
-  const [windowHours, setWindowHours] = useState(72);
+  const [windowHours, setWindowHours] = useState(48);
+  const [allTime, setAllTime] = useState(false);
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
 
   const [actorFilter, setActorFilter] = useState("");
   const [companyFilter, setCompanyFilter] = useState("");
+  const [companyNameQuery, setCompanyNameQuery] = useState("");
+  // null = no name filter active. [] = searched and matched nothing.
+  const [resolvedCompanyIds, setResolvedCompanyIds] = useState(null);
+  const [resolvingName, setResolvingName] = useState(false);
+  // Everyone who has EVER acted, not just who currently has access.
+  const [actors, setActors] = useState([]);
 
   const [sortField, setSortField] = useState("created_at");
   const [sortDir, setSortDir] = useState("desc");
@@ -115,7 +129,14 @@ export default function AdminAuditLog() {
   const [cursor, setCursor] = useState(null);
   const [meta, setMeta] = useState(null);
 
-  const people = useMemo(() => getAssignableOwnerEmails(), []);
+  // The person filter lists everyone who has ever written to the log, unioned
+  // with everyone who currently has access. Building it from the live roster
+  // alone made a departed contributor's name vanish from the filter while
+  // their entries stayed in the log — unreachable through the UI.
+  const people = useMemo(
+    () => [...new Set([...actors, ...getAssignableOwnerEmails()])].sort(),
+    [actors]
+  );
 
   const buildParams = useCallback(
     (nextCursor) => {
@@ -124,6 +145,8 @@ export default function AdminAuditLog() {
       if (customFrom || customTo) {
         if (customFrom) params.set("from", new Date(customFrom).toISOString());
         if (customTo) params.set("to", new Date(customTo).toISOString());
+      } else if (allTime) {
+        params.set("all", "1");
       } else if (windowHours) {
         const from = new Date(Date.now() - windowHours * 60 * 60 * 1000);
         params.set("from", from.toISOString());
@@ -131,6 +154,15 @@ export default function AdminAuditLog() {
 
       if (actorFilter) params.set("actor_email", actorFilter);
       if (companyFilter.trim()) params.set("company_id", companyFilter.trim());
+
+      // Company NAME resolves to ids client-side against the same endpoint the
+      // /admin list searches, so "name" means here exactly what it means in
+      // that search box. `__none__` is the deliberate signal for "the name
+      // matched nothing" — dropping an empty list would show ALL activity and
+      // read as "nobody ever touched this company".
+      if (resolvedCompanyIds !== null) {
+        params.set("company_ids", resolvedCompanyIds.length ? resolvedCompanyIds.join(",") : "__none__");
+      }
 
       params.set("sort", sortField);
       params.set("dir", sortDir);
@@ -140,7 +172,7 @@ export default function AdminAuditLog() {
 
       return params.toString();
     },
-    [windowHours, customFrom, customTo, actorFilter, companyFilter, sortField, sortDir]
+    [windowHours, allTime, customFrom, customTo, actorFilter, companyFilter, resolvedCompanyIds, sortField, sortDir]
   );
 
   const load = useCallback(
@@ -179,6 +211,60 @@ export default function AdminAuditLog() {
     load(null);
   }, [load]);
 
+  // Fetch the historical actor list once. Cached server-side for an hour, so
+  // this is cheap despite being a DISTINCT over the whole log.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch("/xadmin-api-audit-actors");
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!cancelled && data?.ok && Array.isArray(data.actors)) setActors(data.actors);
+      } catch {
+        // Non-fatal: the filter falls back to the current roster alone.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Resolve a typed company NAME to ids using the SAME endpoint the /admin list
+  // searches, rather than reimplementing matching here. Debounced, because it
+  // fires per keystroke.
+  useEffect(() => {
+    const q = companyNameQuery.trim();
+
+    if (!q) {
+      setResolvedCompanyIds(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setResolvingName(true);
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await apiFetch(`/xadmin-api-companies?search=${encodeURIComponent(q)}&take=60`);
+        const data = await res.json().catch(() => null);
+        const rows = data?.items || data?.companies || [];
+        if (!cancelled) {
+          setResolvedCompanyIds(rows.map((r) => r.company_id || r.id).filter(Boolean));
+        }
+      } catch {
+        if (!cancelled) setResolvedCompanyIds([]);
+      } finally {
+        if (!cancelled) setResolvingName(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [companyNameQuery]);
+
   const toggleSort = (field) => {
     if (field === sortField) {
       setSortDir((d) => (d === "desc" ? "asc" : "desc"));
@@ -190,8 +276,9 @@ export default function AdminAuditLog() {
 
   const windowLabel = (() => {
     if (customFrom || customTo) return "custom range";
+    if (allTime) return "all time";
     const preset = WINDOW_PRESETS.find((p) => p.hours === windowHours);
-    return preset ? `last ${preset.label}` : `last ${windowHours} hours`;
+    return preset ? `the last ${preset.label}` : `the last ${windowHours} hours`;
   })();
 
   return (
@@ -225,23 +312,31 @@ export default function AdminAuditLog() {
                 Time range
               </label>
               <div className="flex gap-1">
-                {WINDOW_PRESETS.map((preset) => (
-                  <button
-                    key={preset.hours}
-                    onClick={() => {
-                      setCustomFrom("");
-                      setCustomTo("");
-                      setWindowHours(preset.hours);
-                    }}
-                    className={`px-3 py-1.5 rounded text-sm border transition-colors ${
-                      !customFrom && !customTo && windowHours === preset.hours
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-white dark:bg-card border-slate-200 dark:border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800"
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+                {WINDOW_PRESETS.map((preset) => {
+                  const active =
+                    !customFrom && !customTo &&
+                    (preset.allTime ? allTime : !allTime && windowHours === preset.hours);
+
+                  return (
+                    <button
+                      key={preset.label}
+                      title={preset.title}
+                      onClick={() => {
+                        setCustomFrom("");
+                        setCustomTo("");
+                        setAllTime(Boolean(preset.allTime));
+                        if (!preset.allTime) setWindowHours(preset.hours);
+                      }}
+                      className={`px-3 py-1.5 rounded text-sm border transition-colors ${
+                        active
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-white dark:bg-card border-slate-200 dark:border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -285,6 +380,30 @@ export default function AdminAuditLog() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                Company name
+              </label>
+              <Input
+                value={companyNameQuery}
+                onChange={(e) => setCompanyNameQuery(e.target.value)}
+                placeholder="Search by name…"
+                title="Matches the same way as the search box on the Companies page"
+                className="w-56"
+              />
+              {companyNameQuery.trim() && (
+                <div className="text-[11px] text-muted-foreground mt-1">
+                  {resolvingName
+                    ? "matching…"
+                    : resolvedCompanyIds === null
+                      ? ""
+                      : resolvedCompanyIds.length === 0
+                        ? "no company matched"
+                        : `${resolvedCompanyIds.length} compan${resolvedCompanyIds.length === 1 ? "y" : "ies"} matched`}
+                </div>
+              )}
             </div>
 
             <div>
