@@ -24,6 +24,7 @@ const {
 const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
 
 const { getBuildInfo } = require("../_buildInfo");
+const { assertSessionAccess } = require("../_companyOwnership");
 
 // â”€â”€ Extracted modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const {
@@ -190,6 +191,25 @@ async function handler(req, context) {
 
   if (!sessionId) {
     return json({ ok: false, error: "Missing session_id", ...EMPTY_RESUME_DIAGNOSTICS }, 400, req);
+  }
+
+  // Contributors may only watch import runs they started. Checked before any
+  // status work so a refusal costs one point-read rather than the full
+  // multi-document status assembly below.
+  if (req?.__role === "contributor") {
+    try {
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+      const client = require("../_cosmosConfig").getCosmosClient();
+      const accessError = await assertSessionAccess(req, sessionId, {
+        container: client.database(databaseId).container(containerId),
+        context,
+      });
+      if (accessError) return accessError;
+    } catch {
+      // Fail closed: if ownership cannot be established, do not answer.
+      return json({ ok: false, error: "forbidden", reason: "ownership_check_unavailable" }, 403, req);
+    }
   }
 
   const extraHeaders = { "x-session-id": sessionId };
@@ -2510,7 +2530,7 @@ app.http("import-status", {
   route: "import/status",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(handler),
+  handler: require("../_adminAuth").withContributorGuard(handler),
 });
 
 app.http("import-status-alt", {

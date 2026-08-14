@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
-import { fetchAdminRoster, fetchAuthState, getAdminPortalEmails } from '@/lib/azureAuth';
+import { fetchAdminRoster, fetchAuthState, getAdminPortalEmails, isContributor } from '@/lib/azureAuth';
 
 // Pull the caller's email out of the SWA clientPrincipal (userDetails, or an
 // email-bearing claim). Mirrors api/_adminAuth.js::extractEmail so the UI gate
@@ -42,7 +42,14 @@ function clearReloginAttempted() {
   } catch { /* non-fatal */ }
 }
 
-export default function AdminRoute({ children }) {
+// `staffOnly` marks a page whose endpoints are not owner-scoped, so a
+// contributor could reach the route but every request would 403. Showing a
+// plain "not available for your account" is kinder than a page that renders
+// and then fails halfway through a task.
+//
+// This is presentation only. The server rejects those endpoints regardless of
+// what the router does, so removing this prop would leak nothing.
+export default function AdminRoute({ children, staffOnly = false }) {
   const { pathname, search } = useLocation();
   // checking  — still resolving
   // allowed   — admin, render the shell
@@ -216,6 +223,23 @@ export default function AdminRoute({ children }) {
           <p className="text-gray-600 text-[11px]">
             signed in as: {diag.email || '(no email in token)'} · {diag.reason || 'unknown'}
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (staffOnly && isContributor()) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
+        <div className="bg-slate-800 p-6 rounded-lg shadow-lg w-full max-w-md text-center space-y-4">
+          <h2 className="text-white text-xl font-semibold">Not available for your account</h2>
+          <p className="text-gray-400 text-sm">
+            This page is for Tabarnam staff. Your account works on the companies
+            assigned to you.
+          </p>
+          <a href="/admin" className="inline-block text-sm text-purple-300 underline">
+            Back to your companies
+          </a>
         </div>
       </div>
     );

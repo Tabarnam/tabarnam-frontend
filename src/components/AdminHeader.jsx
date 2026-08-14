@@ -23,9 +23,11 @@ const navLinkClass = ({ isActive }) =>
 // and then breaks halfway through a task.
 const NAV_ITEMS = [
   { to: "/admin", label: "Companies", end: true, contributor: true },
-  { to: "/admin/import", label: "Import" },
-  { to: "/admin/images", label: "Images" },
-  { to: "/admin/logos", label: "Logos" },
+  { to: "/admin/import", label: "Import", contributor: true },
+  { to: "/admin/images", label: "Images", contributor: true },
+  { to: "/admin/logos", label: "Logos", contributor: true },
+  // Search & Edit stays staff-only: its batch-update endpoint acts on many
+  // companies at once and is not owner-scoped.
   { to: "/admin/search-edit", label: "Search & Edit" },
   { to: "/admin/backfill-scores", label: "Scores" },
   { to: "/admin/review-queue", label: "Reviews" },

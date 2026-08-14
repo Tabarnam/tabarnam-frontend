@@ -6,6 +6,7 @@ try {
   app = { http() {} };
 }
 const { CosmosClient } = require("@azure/cosmos");
+const { assertSessionAccess } = require("../_companyOwnership");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
@@ -143,6 +144,12 @@ async function importStopHandler(req, context) {
       const database = client.database(databaseId);
       const container = database.container(containerId);
 
+      // Contributors may only stop import runs they started.
+      {
+        const accessError = await assertSessionAccess(req, sessionId, { container, context });
+        if (accessError) return accessError;
+      }
+
       // Store stop signal as a reserved document in the companies container
       // This avoids needing a separate container and ensures reliability
       const stopDocId = `_import_stop_${sessionId}`;
@@ -227,7 +234,7 @@ app.http("import-stop", {
   route: "import/stop",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(importStopHandler),
+  handler: require("../_adminAuth").withContributorGuard(importStopHandler),
 });
 
 module.exports = { handler: importStopHandler };

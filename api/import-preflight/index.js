@@ -232,8 +232,14 @@ async function importPreflightHandler(req, context) {
   }
 
   // ── Admin auth gate ──────────────────────────────────────────
-  const { adminGuard } = require("../_adminAuth");
-  const authError = adminGuard(req, context);
+  // Contributor-guarded with no row scoping, deliberately. This endpoint
+  // answers "does this company already exist" for a pasted list — that is its
+  // entire purpose, and avoiding duplicate imports is exactly what a
+  // contributor needs it for. It returns name, domain and id: name and domain
+  // are already public via site search, and an id grants nothing because every
+  // company endpoint is owner-scoped for this role.
+  const { contributorGuard } = require("../_adminAuth");
+  const authError = contributorGuard(req, context);
   if (authError) return authError;
   // ─────────────────────────────────────────────────────────────
 

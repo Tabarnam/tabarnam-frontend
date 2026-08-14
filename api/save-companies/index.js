@@ -1129,7 +1129,7 @@ app.http("save-companies", {
   route: "save-companies",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(saveCompaniesHandler),
+  handler: require("../_adminAuth").withContributorGuard(saveCompaniesHandler),
 });
 
 module.exports = { handler: saveCompaniesHandler };

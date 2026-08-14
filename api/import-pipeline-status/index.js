@@ -1,6 +1,9 @@
 /**
  * Pipeline-status signal for the admin Import page.
- * Route: GET /api/import-pipeline-status   (withAdminGuard)
+ * Route: GET /api/import-pipeline-status   (withContributorGuard)
+ * Global operational aggregate — is anything importing right now. Not
+ * scopable to a row, and it exposes no company data, so contributors see the
+ * same traffic light everyone else does.
  *
  * Answers one operator question: "is it safe to start a new import series,
  * or is earlier work still enriching?" Three signals, cheapest first:
@@ -18,7 +21,7 @@
  */
 
 const { app } = require("../_app");
-const { withAdminGuard } = require("../_adminAuth");
+const { withContributorGuard } = require("../_adminAuth");
 const { getCosmosClient } = require("../_cosmosConfig");
 const { resolveQueueConfig } = require("../_enrichmentQueue");
 
@@ -192,7 +195,7 @@ app.http("importPipelineStatus", {
   route: "import-pipeline-status",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: withAdminGuard(handler),
+  handler: withContributorGuard(handler),
 });
 
 module.exports = {};

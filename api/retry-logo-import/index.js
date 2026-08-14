@@ -5,6 +5,7 @@ try {
   app = { http() {} };
 }
 const { CosmosClient } = require("@azure/cosmos");
+const { assertCompanyAccess } = require("../_companyOwnership");
 const { importCompanyLogo } = require("../_logoImport");
 
 function env(k, d = "") {
@@ -73,6 +74,10 @@ async function retryLogoImportHandler(req, context) {
     if (!container) {
       return json({ ok: false, error: "Cosmos DB not configured" }, 503, req);
     }
+
+    // Contributors may only retry the logo import for a company they own.
+    const accessError = await assertCompanyAccess(req, companyId, { container, context });
+    if (accessError) return accessError;
 
     try {
       const querySpec = {
@@ -165,7 +170,7 @@ app.http("retry-logo-import", {
   route: "retry-logo-import",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(retryLogoImportHandler),
+  handler: require("../_adminAuth").withContributorGuard(retryLogoImportHandler),
 });
 
 module.exports = { handler: retryLogoImportHandler };

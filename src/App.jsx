@@ -205,7 +205,7 @@ export default function App() {
               <Route
                 path="/admin/search-edit"
                 element={
-                  <AdminRoute>
+                  <AdminRoute staffOnly>
                     <AdminSearchEdit />
                   </AdminRoute>
                 }
@@ -213,7 +213,7 @@ export default function App() {
               <Route
                 path="/admin/backfill-scores"
                 element={
-                  <AdminRoute>
+                  <AdminRoute staffOnly>
                     <AdminBackfillScores />
                   </AdminRoute>
                 }
@@ -221,7 +221,7 @@ export default function App() {
               <Route
                 path="/admin/review-queue"
                 element={
-                  <AdminRoute>
+                  <AdminRoute staffOnly>
                     <AdminReviewQueue />
                   </AdminRoute>
                 }
@@ -229,7 +229,7 @@ export default function App() {
               <Route
                 path="/admin/audit-log"
                 element={
-                  <AdminRoute>
+                  <AdminRoute staffOnly>
                     <AdminAuditLog />
                   </AdminRoute>
                 }
@@ -237,7 +237,7 @@ export default function App() {
               <Route
                 path="/admin/backfill-homepages"
                 element={
-                  <AdminRoute>
+                  <AdminRoute staffOnly>
                     <AdminBackfillHomepages />
                   </AdminRoute>
                 }
@@ -245,7 +245,7 @@ export default function App() {
               <Route
                 path="/admin/backfill-logos"
                 element={
-                  <AdminRoute>
+                  <AdminRoute staffOnly>
                     <AdminBackfillLogos />
                   </AdminRoute>
                 }
@@ -253,7 +253,7 @@ export default function App() {
               <Route
                 path="/admin/extract-companies"
                 element={
-                  <AdminRoute>
+                  <AdminRoute staffOnly>
                     <AdminExtractCompanies />
                   </AdminRoute>
                 }
@@ -269,7 +269,7 @@ export default function App() {
               <Route
                 path="/admin/diagnostics"
                 element={
-                  <AdminRoute>
+                  <AdminRoute staffOnly>
                     <AdminPanel />
                   </AdminRoute>
                 }

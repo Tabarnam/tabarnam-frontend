@@ -64,11 +64,14 @@ async function logoScrapeHandler(req, context) {
   }
 }
 
+// No ownership check: this endpoint takes a website URL and returns a logo
+// source URL. It reads no company and writes nothing, so there is no row to
+// scope it to. Guarded so it is not an open scraping proxy.
 app.http("logo-scrape", {
   route: "logo-scrape",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(logoScrapeHandler),
+  handler: require("../_adminAuth").withContributorGuard(logoScrapeHandler),
 });
 
 module.exports = { handler: logoScrapeHandler };

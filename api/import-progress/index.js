@@ -6,6 +6,7 @@ try {
   app = { http() {} };
 }
 const { CosmosClient } = require("@azure/cosmos");
+const { assertSessionAccess } = require("../_companyOwnership");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
@@ -100,6 +101,14 @@ async function importProgressHandler(req, ctx) {
 
     const client = require("../_cosmosConfig").getCosmosClient();
     const container = client.database(databaseId).container(containerId);
+
+    // Contributors may only watch import runs they started. Sessions are
+    // stamped with initiated_by by import-start; an unattributed session
+    // predates that change and is refused rather than shared.
+    {
+      const accessError = await assertSessionAccess(req, sessionId, { container });
+      if (accessError) return accessError;
+    }
 
     try {
       // Check if import was stopped, timed out, completed, or failed
@@ -198,7 +207,7 @@ app.http("import-progress", {
   route: "import/progress",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(importProgressHandler),
+  handler: require("../_adminAuth").withContributorGuard(importProgressHandler),
 });
 
 module.exports = { handler: importProgressHandler };
