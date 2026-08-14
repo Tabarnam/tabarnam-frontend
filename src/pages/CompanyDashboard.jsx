@@ -4231,7 +4231,12 @@ export default function CompanyDashboard() {
         </span>
 
         {/* Reassign every selected company to one admin. Choosing an email fires
-            immediately — the select resets itself via the cleared selection. */}
+            immediately — the select resets itself via the cleared selection.
+
+            Staff only: reassignment is the one thing a contributor cannot do
+            (the server strips `owner` from their writes), so offering it would
+            be a control that silently fails on every row. */}
+        {!isContributor() && (
         <select
           defaultValue=""
           disabled={bulkAssignLoading}
@@ -4252,6 +4257,7 @@ export default function CompanyDashboard() {
             </option>
           ))}
         </select>
+        )}
 
         <Button
           variant="outline"
@@ -4415,7 +4421,14 @@ export default function CompanyDashboard() {
                 imported-by (who first imported it, immutable). Values encode
                 as "axis:email"; "" = All (the default), "owner:__none__" =
                 unattributed legacy rows. Options come from the live admin
-                allowlist so newly added admins appear automatically. */}
+                allowlist so newly added admins appear automatically.
+
+                Hidden entirely for contributors. The server forces their scope
+                to their own rows and ignores this parameter, so the control
+                could only ever do nothing — picking another name and still
+                seeing your own companies reads as a bug. It also puts the staff
+                roster in front of an outside contractor for no purpose. */}
+            {!isContributor() && (
             <select
               value={personFilter}
               onChange={(e) => setPersonFilter(e.target.value)}
@@ -4446,6 +4459,7 @@ export default function CompanyDashboard() {
               </optgroup>
               <option value="owner:__none__">(unattributed)</option>
             </select>
+            )}
 
             {loading && (
               <div className="text-sm text-slate-600 dark:text-muted-foreground">
