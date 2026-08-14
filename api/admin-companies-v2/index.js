@@ -1333,6 +1333,43 @@ async function doesCompanyIdExist(container, id) {
  *
  * The Admin UI relies on this behavior to avoid guessing after deletion.
  */
+// ── Contributor row scope ───────────────────────────────────────────
+// A contributor may see and touch ONLY the companies they own. That single
+// predicate is the entire boundary for the role, so it is derived from the
+// identity the guard attached and NEVER from anything in the request — a
+// client-supplied ?owner= is ignored, not merged.
+//
+// Returns null for admins and internal jobs (unscoped, as today).
+function getContributorScope(req) {
+  if (req?.__role !== "contributor") return null;
+
+  const email = String(req?.__actor_email || req?.__admin_email || "")
+    .trim()
+    .toLowerCase();
+
+  // A contributor whose identity did not resolve must match NOTHING. Returning
+  // null here would silently promote them to unscoped access, so the caller
+  // fails the request closed instead.
+  return { email };
+}
+
+// Fields a contributor may not write. `owner` is the security boundary itself;
+// the rest are lifecycle and provenance plumbing rather than company data.
+// Everything else on the document is theirs to edit on rows they own.
+const CONTRIBUTOR_DENIED_FIELDS = [
+  "owner",
+  "imported_by",
+  "imported_by_at",
+  "is_deleted",
+  "deleted_at",
+  "deleted_by",
+];
+
+// On create only: a caller-chosen id would let a contributor upsert straight
+// over an existing company (POST does not look up an existing doc first).
+// Stripping these forces a server-generated id.
+const CONTRIBUTOR_DENIED_CREATE_FIELDS = ["id", "company_id"];
+
 async function adminCompaniesHandler(req, context, deps = {}) {
     console.log("[admin-companies-v2-handler] Request received:", { method: req.method, url: req.url });
     context.log("admin-companies-v2 function invoked");
@@ -1362,6 +1399,15 @@ async function adminCompaniesHandler(req, context, deps = {}) {
       return json({ error: "Cosmos DB not configured" }, 503);
     }
 
+    // Resolve the row scope once, before any branch touches Cosmos, so no path
+    // can forget it. Fail closed: a contributor without a resolvable identity
+    // gets nothing rather than everything.
+    const scope = getContributorScope(req);
+    if (scope && !scope.email) {
+      context.log("[admin-companies-v2] contributor scope missing identity — refusing");
+      return json({ error: "Forbidden: unresolved contributor identity" }, 403);
+    }
+
     try {
       if (method === "GET") {
         const routeIdRaw =
@@ -1376,10 +1422,22 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         }
 
         if (routeId) {
+          // Scoping a contributor's single-company fetch in the QUERY rather
+          // than checking after the read is deliberate: a row they don't own
+          // simply isn't found, and falls through the existing 404. A 403 here
+          // would confirm the company exists, which is an existence oracle over
+          // the whole catalog.
+          const scopeClause = scope ? " AND IS_DEFINED(c.owner) AND c.owner = @scope_owner" : "";
+
           const querySpec = {
             query:
-              "SELECT TOP 1 * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control') ORDER BY c._ts DESC",
-            parameters: [{ name: "@id", value: routeId }],
+              "SELECT TOP 1 * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control')" +
+              scopeClause +
+              " ORDER BY c._ts DESC",
+            parameters: [
+              { name: "@id", value: routeId },
+              ...(scope ? [{ name: "@scope_owner", value: scope.email }] : []),
+            ],
           };
 
           const { resources } = await container.items
@@ -1496,15 +1554,25 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         // lowercase at import time so plain equality matches. The sentinel
         // "__none__" selects unattributed rows (field missing or null), the
         // bucket legacy pre-attribution docs live in.
-        for (const [param, field] of [["owner", "c.owner"], ["imported_by", "c.imported_by"]]) {
-          const raw = String(req.query?.[param] || "").trim().toLowerCase();
-          if (!raw) continue;
-          if (raw === "__none__") {
-            whereClauses.push(`(NOT IS_DEFINED(${field}) OR IS_NULL(${field}) OR ${field} = "")`);
-          } else {
-            const paramName = `@person_${param}`;
-            whereClauses.push(`IS_DEFINED(${field}) AND ${field} = ${paramName}`);
-            parameters.push({ name: paramName, value: raw });
+        //
+        // For a CONTRIBUTOR these are not filters at all — the owner clause is
+        // forced to their own identity and the query params are ignored rather
+        // than merged, so no combination of ?owner=/?imported_by= can widen
+        // what they see.
+        if (scope) {
+          whereClauses.push("IS_DEFINED(c.owner) AND c.owner = @scope_owner");
+          parameters.push({ name: "@scope_owner", value: scope.email });
+        } else {
+          for (const [param, field] of [["owner", "c.owner"], ["imported_by", "c.imported_by"]]) {
+            const raw = String(req.query?.[param] || "").trim().toLowerCase();
+            if (!raw) continue;
+            if (raw === "__none__") {
+              whereClauses.push(`(NOT IS_DEFINED(${field}) OR IS_NULL(${field}) OR ${field} = "")`);
+            } else {
+              const paramName = `@person_${param}`;
+              whereClauses.push(`IS_DEFINED(${field}) AND ${field} = ${paramName}`);
+              parameters.push({ name: paramName, value: raw });
+            }
           }
         }
 
@@ -1789,6 +1857,20 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           for (const k of META_KEYS) {
             if (Object.prototype.hasOwnProperty.call(incoming, k)) delete incoming[k];
           }
+
+          // Contributors edit every field of a company they own EXCEPT the ones
+          // that decide who owns it and whether it exists. Stripping here (before
+          // the doc is assembled) means no later merge can reintroduce them.
+          if (scope) {
+            const denied =
+              method === "POST"
+                ? [...CONTRIBUTOR_DENIED_FIELDS, ...CONTRIBUTOR_DENIED_CREATE_FIELDS]
+                : CONTRIBUTOR_DENIED_FIELDS;
+
+            for (const k of denied) {
+              if (Object.prototype.hasOwnProperty.call(incoming, k)) delete incoming[k];
+            }
+          }
         }
 
         const incomingName = String(incoming.company_name || incoming.name || "").trim();
@@ -1839,6 +1921,32 @@ async function adminCompaniesHandler(req, context, deps = {}) {
               id: String(id).trim(),
               error: e?.message,
             });
+          }
+        }
+
+        // Row-level authorization for contributors, re-read from Cosmos rather
+        // than trusted from the payload.
+        //
+        // Both failures answer 404, not 403: "you may not edit this" and "this
+        // does not exist" must be indistinguishable, or PUT becomes an
+        // existence oracle over the catalog.
+        // (POST is unaffected: `existingDoc` is only looked up for PUT, and a
+        // contributor's POST already had id/company_id stripped, so it always
+        // creates a fresh document owned by them.)
+        if (scope && method === "PUT") {
+          if (!existingDoc) {
+            // No create-via-PUT. A contributor creates through POST, where
+            // attribution is forced to them; letting PUT create would let them
+            // choose the document id.
+            return json({ ok: false, error: "not_found" }, 404);
+          }
+
+          const currentOwner = String(existingDoc.owner || "").trim().toLowerCase();
+          if (currentOwner !== scope.email) {
+            context.log("[admin-companies-v2] contributor write refused — not the owner", {
+              id: String(id).trim(),
+            });
+            return json({ ok: false, error: "not_found" }, 404);
           }
         }
 
@@ -2249,6 +2357,21 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             return json({ error: "Company not found", id: requestedId }, 404);
           }
 
+          // A contributor may retire only their own rows, and only softly —
+          // the hard-delete branch below stays admin-only. Same 404-not-403
+          // reasoning as the write path.
+          if (scope) {
+            const unowned = docs.some(
+              (d) => String(d?.owner || "").trim().toLowerCase() !== scope.email
+            );
+            if (unowned) {
+              context.log("[admin-companies-v2] contributor delete refused — not the owner", {
+                id: requestedId,
+              });
+              return json({ error: "Company not found", id: requestedId }, 404);
+            }
+          }
+
           const now = new Date().toISOString();
           const actor = (body && (body.actor || body.actor_email || body.actorEmail || body.actor_user_id || body.actorUserId)) || "admin_ui";
           const actor_email = String(body?.actor_email || body?.actorEmail || "").trim() || (typeof actor === "string" && actor.includes("@") ? actor : "");
@@ -2326,6 +2449,19 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             }
 
             if (deletedThisDoc) continue;
+
+            // What follows is a HARD delete — the fallback when the soft delete
+            // could not be written. It is irreversible, so a contributor never
+            // reaches it: their failed soft delete is reported as a failure and
+            // the row survives for an admin to look at.
+            if (scope) {
+              failures.push({
+                itemId: doc.id,
+                attemptedPartitionKeyCount: candidates.length,
+                reason: "soft_delete_failed",
+              });
+              continue;
+            }
 
             for (const partitionKeyValue of candidates) {
               if (deletedThisDoc) break;
@@ -2517,7 +2653,10 @@ app.http("adminCompanies", {
   route: "xadmin-api-companies/{id?}",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(adminCompaniesHandler),
+  // Contributor-guarded: this handler enforces its own row scope (see
+  // getContributorScope) on every branch — list, single fetch, write, delete.
+  // Admins are unscoped exactly as before.
+  handler: require("../_adminAuth").withContributorGuard(adminCompaniesHandler),
 });
 
 module.exports = {
