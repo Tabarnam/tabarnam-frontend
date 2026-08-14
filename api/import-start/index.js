@@ -1827,6 +1827,12 @@ const importStartHandlerInner = async (req, context) => {
               ...buildImportControlDocBase(sessionId),
               created_at: sessionCreatedAtIso,
               request_id: requestId,
+              // Who started this run. Import sessions previously carried no
+              // identity at all, which left the status/progress endpoints with
+              // nothing to scope a contributor to. Stamped for every caller so
+              // the field is uniformly present rather than only appearing on
+              // contributor runs.
+              initiated_by: importedBy || null,
               status: "running",
               stage_beacon: "create_session",
               request: {

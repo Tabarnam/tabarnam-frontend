@@ -5,6 +5,7 @@ try {
   app = { http() {} };
 }
 const { CosmosClient } = require("@azure/cosmos");
+const { assertCompanyAccess } = require("../_companyOwnership");
 
 function json(obj, status = 200) {
   return {
@@ -81,6 +82,13 @@ async function xadminApiLogosHandler(req, ctx) {
         500
       );
     }
+
+    // Contributors may only set the logo of a company they own.
+    const accessError = await assertCompanyAccess(req, companyId, {
+      container: cosmosContainer,
+      context: ctx,
+    });
+    if (accessError) return accessError;
 
     ctx.log(`[xadmin-api-logos] Updating logo_url for company: ${companyId}`);
 
@@ -159,7 +167,7 @@ app.http("xadmin-api-logos", {
   route: "xadmin-api-logos/{companyId}",
   methods: ["PUT", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(xadminApiLogosHandler),
+  handler: require("../_adminAuth").withContributorGuard(xadminApiLogosHandler),
 });
 
 module.exports = { handler: xadminApiLogosHandler };

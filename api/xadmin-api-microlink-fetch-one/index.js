@@ -5,6 +5,7 @@
 // the next bulk run would be friction.
 const { app } = require("../_app");
 const { CosmosClient } = require("@azure/cosmos");
+const { assertCompanyAccess } = require("../_companyOwnership");
 
 const { fetchAndPersistHomepageForCompany, fetchAndPersistLogoForCompany } = require("../_microlinkBackfill");
 
@@ -70,6 +71,13 @@ async function handler(req, context) {
   const companiesContainer = getCompaniesContainer();
   if (!companiesContainer) return json({ error: "Cosmos DB not configured" }, 500);
 
+  // Contributors may only fetch assets for a company they own.
+  const accessError = await assertCompanyAccess(req, companyId, {
+    container: companiesContainer,
+    context,
+  });
+  if (accessError) return accessError;
+
   const company = await findCompanyById(companiesContainer, companyId);
   if (!company) return json({ error: "company not found" }, 404);
   if (!company.website_url || !String(company.website_url).trim()) {
@@ -109,7 +117,7 @@ app.http("adminMicrolinkFetchOne", {
   route: "xadmin-api-microlink-fetch-one",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(handler),
+  handler: require("../_adminAuth").withContributorGuard(handler),
 });
 
 module.exports = { handler };

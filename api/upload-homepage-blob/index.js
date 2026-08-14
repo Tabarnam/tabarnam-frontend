@@ -6,6 +6,7 @@ try {
 }
 const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
+const { assertCompanyAccess } = require("../_companyOwnership");
 const { tryLoadSharp } = require("../_shared");
 const { v4: uuidv4 } = require("uuid");
 
@@ -109,6 +110,14 @@ async function uploadHomepageBlobHandler(req, ctx) {
     if (!file || !companyId) {
       return json({ ok: false, error: "Missing file or company_id" }, 400, req);
     }
+
+    // Contributors may only replace the homepage image of a company they own.
+    // Admins short-circuit without a lookup.
+    const accessError = await assertCompanyAccess(req, companyId, {
+      container: getCosmosContainer(ctx),
+      context: ctx,
+    });
+    if (accessError) return accessError;
 
     if (typeof file.size === "number" && file.size > MAX_INPUT_BYTES) {
       return json({ ok: false, error: `File too large (max ${Math.round(MAX_INPUT_BYTES / 1024 / 1024)}MB)` }, 400, req);
@@ -266,7 +275,7 @@ app.http("upload-homepage-blob", {
   route: "upload-homepage-blob",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(uploadHomepageBlobHandler),
+  handler: require("../_adminAuth").withContributorGuard(uploadHomepageBlobHandler),
 });
 
 module.exports = { handler: uploadHomepageBlobHandler };

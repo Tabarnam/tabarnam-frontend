@@ -5,12 +5,38 @@ import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_BASE, FUNCTIONS_BASE, apiFetch, ensureBuildId, join, readJsonOrText } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { isContributor } from "@/lib/azureAuth";
 
 const navLinkClass = ({ isActive }) =>
   cn(
     "inline-flex items-center rounded-md px-3 py-2 text-sm font-medium transition",
     isActive ? "bg-slate-800 text-white" : "text-slate-200 hover:bg-slate-800 hover:text-white"
   );
+
+// `contributor: true` means the page's endpoints are open to the scoped role.
+// Anything else is hidden from them — not as a security measure (the server
+// rejects them regardless) but so they get a workspace instead of a row of tabs
+// that answer 403.
+//
+// Keep this list honest: a tab marked contributor-visible whose page calls an
+// admin-only endpoint is worse than a hidden one, because it looks available
+// and then breaks halfway through a task.
+const NAV_ITEMS = [
+  { to: "/admin", label: "Companies", end: true, contributor: true },
+  { to: "/admin/import", label: "Import", contributor: true },
+  { to: "/admin/images", label: "Images", contributor: true },
+  { to: "/admin/logos", label: "Logos", contributor: true },
+  // Search & Edit stays staff-only: its batch-update endpoint acts on many
+  // companies at once and is not owner-scoped.
+  { to: "/admin/search-edit", label: "Search & Edit" },
+  { to: "/admin/backfill-scores", label: "Scores" },
+  { to: "/admin/review-queue", label: "Reviews" },
+  { to: "/admin/backfill-homepages", label: "Backfill Pages" },
+  { to: "/admin/backfill-logos", label: "Backfill Logos" },
+  { to: "/admin/extract-companies", label: "Extract Companies" },
+  { to: "/admin/audit-log", label: "Activity" },
+  { to: "/admin/diagnostics", label: "Diagnostics" },
+];
 
 function ApiStatusIndicator() {
   const [status, setStatus] = useState("checking");
@@ -126,8 +152,14 @@ function ApiStatusIndicator() {
 export default function AdminHeader() {
   const navigate = useNavigate();
 
+  // AdminRoute resolves the roster before it renders children, so the role is
+  // normally cached by the time this mounts. Re-read on mount anyway so a slow
+  // first fetch collapses the nav rather than flashing tabs that 403.
+  const [scoped, setScoped] = useState(() => isContributor());
+
   useEffect(() => {
     ensureBuildId();
+    setScoped(isContributor());
   }, []);
 
   const handleLogout = () => {
@@ -145,42 +177,16 @@ export default function AdminHeader() {
           </Link>
           <div className="flex flex-col">
             <nav className="flex flex-wrap items-center gap-1">
-              <NavLink to="/admin" end className={navLinkClass}>
-                Companies
-              </NavLink>
-              <NavLink to="/admin/import" className={navLinkClass}>
-                Import
-              </NavLink>
-              <NavLink to="/admin/images" className={navLinkClass}>
-                Images
-              </NavLink>
-              <NavLink to="/admin/logos" className={navLinkClass}>
-                Logos
-              </NavLink>
-              <NavLink to="/admin/search-edit" className={navLinkClass}>
-                Search & Edit
-              </NavLink>
-              <NavLink to="/admin/backfill-scores" className={navLinkClass}>
-                Scores
-              </NavLink>
-              <NavLink to="/admin/review-queue" className={navLinkClass}>
-                Reviews
-              </NavLink>
-              <NavLink to="/admin/backfill-homepages" className={navLinkClass}>
-                Backfill Pages
-              </NavLink>
-              <NavLink to="/admin/backfill-logos" className={navLinkClass}>
-                Backfill Logos
-              </NavLink>
-              <NavLink to="/admin/extract-companies" className={navLinkClass}>
-                Extract Companies
-              </NavLink>
-              <NavLink to="/admin/audit-log" className={navLinkClass}>
-                Activity
-              </NavLink>
-              <NavLink to="/admin/diagnostics" className={navLinkClass}>
-                Diagnostics
-              </NavLink>
+              {NAV_ITEMS.filter((item) => !scoped || item.contributor).map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={navLinkClass}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
             </nav>
           </div>
         </div>

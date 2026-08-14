@@ -6,6 +6,7 @@ try {
 }
 const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
+const { assertCompanyAccess } = require("../_companyOwnership");
 const { tryLoadSharp } = require("../_shared");
 const { v4: uuidv4 } = require("uuid");
 
@@ -139,6 +140,14 @@ async function uploadLogoBlobHandler(req, ctx) {
           req
         );
       }
+
+      // Contributors may only replace the logo of a company they own. Admins
+      // short-circuit without a lookup.
+      const accessError = await assertCompanyAccess(req, companyId, {
+        container: getCosmosContainer(ctx),
+        context: ctx,
+      });
+      if (accessError) return accessError;
 
       const MAX_BYTES = 300 * 1024;
       if (typeof file.size === "number" && file.size > MAX_BYTES) {
@@ -391,7 +400,7 @@ app.http("upload-logo-blob", {
   route: "upload-logo-blob",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(uploadLogoBlobHandler),
+  handler: require("../_adminAuth").withContributorGuard(uploadLogoBlobHandler),
 });
 
 module.exports = { handler: uploadLogoBlobHandler };

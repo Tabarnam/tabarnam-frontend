@@ -6,6 +6,7 @@ try {
 }
 const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
+const { assertCompanyAccess } = require("../_companyOwnership");
 
 const CONTAINER_NAME = "company-logos";
 
@@ -167,6 +168,20 @@ async function deleteLogoBlobHandler(req, ctx) {
         );
       }
 
+
+      // Ownership is checked BEFORE the blob is deleted — the company id is the
+      // first path segment of the blob name. Checking afterwards, where the
+      // Cosmos field is cleared, would be too late: the file would already be
+      // gone. A blob whose name carries no company id is refused rather than
+      // deleted unchecked.
+      {
+        const ownerCandidate = String(blobName).split("/")[0] || "";
+        const accessError = await assertCompanyAccess(req, ownerCandidate, {
+          container: getCosmosContainer(ctx),
+          context: ctx,
+        });
+        if (accessError) return accessError;
+      }
       // Delete the blob
       const blockBlobClient = containerClient.getBlockBlobClient(blobName);
       await blockBlobClient.delete();
@@ -285,7 +300,7 @@ app.http("delete-logo-blob", {
   route: "delete-logo-blob",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(deleteLogoBlobHandler),
+  handler: require("../_adminAuth").withContributorGuard(deleteLogoBlobHandler),
 });
 
 module.exports = { handler: deleteLogoBlobHandler };

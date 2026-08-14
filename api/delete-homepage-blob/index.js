@@ -6,6 +6,7 @@ try {
 }
 const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
+const { assertCompanyAccess } = require("../_companyOwnership");
 
 const CONTAINER_NAME = "company-homepages";
 
@@ -111,6 +112,18 @@ async function deleteHomepageBlobHandler(req, ctx) {
       return json({ ok: false, error: "Could not extract blob name from URL" }, 400, req);
     }
 
+    // Ownership is checked BEFORE the blob is deleted — the company id is the
+    // first path segment of the blob name. Checking later, where the Cosmos
+    // field is cleared, would be too late: the file would already be gone.
+    {
+      const ownerCandidate = String(blobName).split("/")[0] || "";
+      const accessError = await assertCompanyAccess(req, ownerCandidate, {
+        container: getCosmosContainer(ctx),
+        context: ctx,
+      });
+      if (accessError) return accessError;
+    }
+
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     await blockBlobClient.delete();
     ctx.log(`[delete-homepage-blob] Deleted blob: ${blobName}`);
@@ -168,7 +181,7 @@ app.http("delete-homepage-blob", {
   route: "delete-homepage-blob",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: require("../_adminAuth").withAdminGuard(deleteHomepageBlobHandler),
+  handler: require("../_adminAuth").withContributorGuard(deleteHomepageBlobHandler),
 });
 
 module.exports = { handler: deleteHomepageBlobHandler };
