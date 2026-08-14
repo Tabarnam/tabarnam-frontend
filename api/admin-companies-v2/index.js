@@ -1930,6 +1930,27 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };
 
+        // Attribution on create. This path never stamped owner/imported_by, so
+        // every company added through the editor landed unattributed — and an
+        // unattributed row is invisible to any owner-scoped view of the catalog.
+        // Mirrors save-companies: a caller-supplied value wins (so re-saves and
+        // deliberate owner reassignment through the editor are not clobbered),
+        // with the authenticated identity as the fallback.
+        //
+        // Updates are deliberately left alone. Stamping on update would
+        // misattribute the existing unattributed rows to whoever happens to
+        // edit them next, which is worse than leaving them blank.
+        if (!existingDoc) {
+          const importedBy =
+            String(base.imported_by || "").trim().toLowerCase() ||
+            String(authedActorEmail || "").trim().toLowerCase() ||
+            null;
+
+          doc.imported_by = importedBy;
+          doc.imported_by_at = importedBy ? base.imported_by_at || now : null;
+          doc.owner = String(base.owner || "").trim().toLowerCase() || importedBy;
+        }
+
         // Keep review_count consistent with curated reviews + public/private counts.
         const incomingHasCuratedReviews = isPlainObject(incoming) && Object.prototype.hasOwnProperty.call(incoming, "curated_reviews");
         const curatedCount = Array.isArray(doc.curated_reviews)
