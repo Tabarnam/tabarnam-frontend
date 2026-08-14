@@ -169,7 +169,7 @@ export default function AdminAuditLog() {
   );
 
   const buildParams = useCallback(
-    (nextCursor) => {
+    (paging = {}) => {
       const params = new URLSearchParams();
 
       if (customFrom || customTo) {
@@ -200,9 +200,14 @@ export default function AdminAuditLog() {
 
       params.set("sort", sortField);
       params.set("dir", sortDir);
-      params.set("limit", "100");
+      params.set("limit", String(paging.limit || 100));
 
-      if (nextCursor) params.set("cursor", nextCursor);
+      // Ordered results page by OFFSET; only the unordered export path uses a
+      // cursor. Cosmos returns no continuation token for a cross-partition
+      // ORDER BY, so a cursor on a sorted query silently ends after one page.
+      if (paging.unordered) params.set("unordered", "1");
+      if (paging.cursor) params.set("cursor", paging.cursor);
+      if (paging.offset) params.set("offset", String(paging.offset));
 
       return params.toString();
     },
@@ -234,13 +239,15 @@ export default function AdminAuditLog() {
   }, [needsConfirmation]);
 
   const load = useCallback(
-    async (nextCursor = null) => {
-      const append = Boolean(nextCursor);
+    async (nextOffset = null) => {
+      const append = Boolean(nextOffset);
       append ? setLoadingMore(true) : setLoading(true);
       setError("");
 
       try {
-        const res = await apiFetch(`/xadmin-api-audit-log?${buildParams(nextCursor)}`);
+        const res = await apiFetch(
+          `/xadmin-api-audit-log?${buildParams({ offset: nextOffset })}`
+        );
         const data = await res.json().catch(() => null);
 
         if (!res.ok || !data?.ok) {
@@ -250,7 +257,7 @@ export default function AdminAuditLog() {
         }
 
         setRows((prev) => (append ? [...prev, ...(data.items || [])] : data.items || []));
-        setCursor(data.next_cursor || null);
+        setCursor(data.next_offset ?? null);
         setMeta(data);
       } catch (e) {
         setError(e?.message || "Request failed");
@@ -344,11 +351,16 @@ export default function AdminAuditLog() {
   // an export that silently stops at 100 rows is worse than no export. Pages
   // through with the same cursor the table uses, capped so a "forever ever"
   // export cannot run unbounded.
-  // A backstop against unbounded growth, not a practical limit: the whole log
-  // is ~61k entries today, so a full-history export fits with headroom. The
-  // earlier 10k would have silently handed back a sixth of it.
-  const EXPORT_MAX = 100000;
-  const EXPORT_PAGE = 1000;
+  // A backstop against a runaway loop, not a capacity plan. The log is ~61k
+  // entries today and grows with every import, so 100k was barely 1.6x
+  // headroom — not the "quadruple" I claimed. 500k is genuinely generous and
+  // still well under Excel's own 1,048,576-row sheet limit.
+  //
+  // The real ceiling is browser memory while the spreadsheet is built, which
+  // this cap does not describe. If a full export ever struggles, the answer is
+  // a streaming CSV path, not a bigger number here.
+  const EXPORT_MAX = 500000;
+  const EXPORT_PAGE = 2000;
 
   const exportToExcel = useCallback(async () => {
     setExporting(true);
@@ -360,7 +372,7 @@ export default function AdminAuditLog() {
       // surprise discovered in Excel.
       let expected = null;
       try {
-        const cRes = await apiFetch(`/xadmin-api-audit-log?${buildParams(null)}&count=1`);
+        const cRes = await apiFetch(`/xadmin-api-audit-log?${buildParams({})}&count=1`);
         const cData = await cRes.json().catch(() => null);
         if (cRes.ok && cData?.ok && typeof cData.total === "number") expected = cData.total;
       } catch {
@@ -380,7 +392,7 @@ export default function AdminAuditLog() {
 
       do {
         const res = await apiFetch(
-          `/xadmin-api-audit-log?${buildParams(next)}&limit=${EXPORT_PAGE}`
+          `/xadmin-api-audit-log?${buildParams({ cursor: next, unordered: true, limit: EXPORT_PAGE })}`
         );
         const data = await res.json().catch(() => null);
         if (!res.ok || !data?.ok) break;
@@ -442,6 +454,34 @@ export default function AdminAuditLog() {
       setExporting(false);
     }
   }, [buildParams]);
+
+  // The header must say how many rows MATCH, not just how many are loaded.
+  // "100 entries loaded" reads as "there are 100" when it means "here is the
+  // first page of 60,801".
+  const [totalMatching, setTotalMatching] = useState(null);
+
+  useEffect(() => {
+    if (needsConfirmation) return undefined;
+
+    let cancelled = false;
+    setTotalMatching(null);
+
+    (async () => {
+      try {
+        const res = await apiFetch(`/xadmin-api-audit-log?${buildParams({})}&count=1`);
+        const data = await res.json().catch(() => null);
+        if (!cancelled && res.ok && data?.ok && typeof data.total === "number") {
+          setTotalMatching(data.total);
+        }
+      } catch {
+        // Non-fatal: the header falls back to the loaded count alone.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [buildParams, needsConfirmation]);
 
   const toggleSort = (field) => {
     if (field === sortField) {
@@ -632,7 +672,17 @@ export default function AdminAuditLog() {
             {meta?.window?.from && (
               <> · from {formatWhen(meta.window.from)} to {formatWhen(meta.window.to)} PT</>
             )}
-            {rows.length > 0 && <> · {rows.length} entries loaded</>}
+            {rows.length > 0 && (
+              <>
+                {" · "}
+                <strong className="text-foreground">
+                  {totalMatching === null
+                    ? `${rows.length.toLocaleString()} loaded`
+                    : `showing ${rows.length.toLocaleString()} of ${totalMatching.toLocaleString()}`}
+                </strong>
+                {" · sorted across all matches, not just this page"}
+              </>
+            )}
           </span>
         </div>
 
@@ -810,6 +860,8 @@ export default function AdminAuditLog() {
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Loading…
                   </>
+                ) : totalMatching !== null ? (
+                  `Load more (${(totalMatching - rows.length).toLocaleString()} remaining)`
                 ) : (
                   "Load more"
                 )}

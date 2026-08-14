@@ -135,10 +135,14 @@ function csvParam(req, name, lower = false) {
     .slice(0, 100);
 }
 
-function clampLimit(value) {
+// The table's ceiling is about what a person can read; an export's is about
+// round trips. Full history at 500/request was 98 calls and 46 seconds.
+const MAX_EXPORT_LIMIT = 2000;
+
+function clampLimit(value, ceiling = MAX_LIMIT) {
   const n = Number(value);
   if (!Number.isFinite(n)) return DEFAULT_LIMIT;
-  return Math.max(1, Math.min(MAX_LIMIT, Math.trunc(n)));
+  return Math.max(1, Math.min(ceiling, Math.trunc(n)));
 }
 
 function resolveSort(req) {
@@ -186,7 +190,7 @@ function projectRow(doc) {
  * index (migration 0003); when it is absent Cosmos rejects the request outright
  * with 400, so the caller retries single-field.
  */
-function buildQuery({ window: win, sort, limit, filters, multiField }) {
+function buildQuery({ window: win, sort, limit, filters, multiField, unordered = false, offset = null }) {
   const where = ["c.created_at >= @from", "c.created_at <= @to"];
   const parameters = [
     { name: "@from", value: win.from },
@@ -251,10 +255,33 @@ function buildQuery({ window: win, sort, limit, filters, multiField }) {
       ? `${column} ${direction}, c.created_at DESC`
       : `${column} ${direction}`;
 
+  // UNORDERED mode exists because Cosmos does NOT return a continuation token
+  // for a cross-partition ORDER BY query — the token comes back undefined while
+  // hasMoreResults is true, so token-based paging silently stops after one
+  // page. Dropping the ORDER BY restores tokens, which is what an export wants:
+  // it needs every row, and the spreadsheet does the sorting.
+  if (unordered) {
+    return {
+      query: `SELECT * FROM c WHERE ${where.join(" AND ")}`,
+      parameters,
+      limit,
+      paging: "token",
+    };
+  }
+
+  // ORDERED mode pages by OFFSET instead, which cross-partition ORDER BY does
+  // support. Deep offsets cost more RU, which is fine for a UI nobody pages
+  // through sixty times and wrong for an export — hence the split.
+  const offsetClause =
+    typeof offset === "number" && offset >= 0
+      ? ` OFFSET ${Math.trunc(offset)} LIMIT ${Math.trunc(limit)}`
+      : "";
+
   return {
-    query: `SELECT * FROM c WHERE ${where.join(" AND ")} ORDER BY ${orderBy}`,
+    query: `SELECT * FROM c WHERE ${where.join(" AND ")} ORDER BY ${orderBy}${offsetClause}`,
     parameters,
     limit,
+    paging: "offset",
   };
 }
 
@@ -327,7 +354,11 @@ async function handleGet(req, context, deps = {}) {
 
   const win = resolveWindow(req, deps.now);
   const sort = resolveSort(req);
-  const limit = clampLimit(getQueryParam(req, "limit") || DEFAULT_LIMIT);
+  const unorderedEarly = String(getQueryParam(req, "unordered") || "").trim() === "1";
+  const limit = clampLimit(
+    getQueryParam(req, "limit") || DEFAULT_LIMIT,
+    unorderedEarly ? MAX_EXPORT_LIMIT : MAX_LIMIT
+  );
   const cursor = String(getQueryParam(req, "cursor") || "").trim();
 
   const filters = {
@@ -387,19 +418,63 @@ async function handleGet(req, context, deps = {}) {
     }
   }
 
-  let ordering = "indexed";
-  let spec = buildQuery({ window: win, sort, limit, filters, multiField: true });
+  // Export mode: no ORDER BY, so continuation tokens work and every row can
+  // actually be reached. The table stays ordered and pages by offset.
+  const unordered = String(getQueryParam(req, "unordered") || "").trim() === "1";
+  const offsetRaw = Number(getQueryParam(req, "offset"));
+  const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.trunc(offsetRaw) : 0;
+
+  let ordering = unordered ? "unordered" : "indexed";
+  let spec = buildQuery({
+    window: win,
+    sort,
+    limit,
+    filters,
+    multiField: true,
+    unordered,
+    offset: unordered ? null : offset,
+  });
 
   async function run(querySpec) {
+    // ORDERED: the SQL carries OFFSET/LIMIT, so let it bound the result and
+    // take everything in one go. Setting maxItemCount here made the first
+    // fetchNext() return an EMPTY page while Cosmos was still skipping the
+    // offset — page 2 came back with zero rows and looked like the end.
+    if (!unordered) {
+      const { resources } = await container.items
+        .query(
+          { query: querySpec.query, parameters: querySpec.parameters },
+          { enableCrossPartitionQuery: true }
+        )
+        .fetchAll();
+
+      return { resources: resources || [], continuationToken: null };
+    }
+
+    // UNORDERED (export): Cosmos decides its own page size — asking for 1000
+    // yields ~400 — so drain several internally rather than making the client
+    // pay a round trip per 400 rows. A full-history export goes from ~145
+    // requests to a dozen.
     const iterator = container.items.query(
       { query: querySpec.query, parameters: querySpec.parameters },
       {
         enableCrossPartitionQuery: true,
-        maxItemCount: limit,
+        maxItemCount: Math.min(limit, 1000),
         ...(cursor ? { continuationToken: cursor } : {}),
       }
     );
-    return iterator.fetchNext();
+
+    const resources = [];
+    let token = null;
+
+    while (resources.length < limit && iterator.hasMoreResults()) {
+      const page = await iterator.fetchNext();
+      resources.push(...(page.resources || []));
+      token = page.continuationToken || null;
+      if (!page.resources?.length && !iterator.hasMoreResults()) break;
+    }
+
+    return { resources, continuationToken: iterator.hasMoreResults() ? token : null };
   }
 
   let page;
@@ -418,7 +493,15 @@ async function handleGet(req, context, deps = {}) {
     // looks identical to a correct one, which is how a wrong answer gets
     // trusted.
     ordering = "degraded_no_composite_index";
-    spec = buildQuery({ window: win, sort, limit, filters, multiField: false });
+    spec = buildQuery({
+      window: win,
+      sort,
+      limit,
+      filters,
+      multiField: false,
+      unordered,
+      offset: unordered ? null : offset,
+    });
     page = await run(spec);
   }
 
@@ -436,7 +519,13 @@ async function handleGet(req, context, deps = {}) {
     sort: { field: sort.field, dir: sort.dir, ...(sort.rejected ? { rejected: sort.rejected } : {}) },
     ordering,
     limit,
-    next_cursor: page?.continuationToken || null,
+    // Only ONE of these is meaningful, decided by the paging mode. Returning
+    // next_cursor for an ordered query is what made paging look available and
+    // then stop after one page.
+    next_cursor: unordered ? page?.continuationToken || null : null,
+    next_offset: unordered ? null : rows.length === limit ? offset + rows.length : null,
+    offset,
+    paging: unordered ? "token" : "offset",
     build_id: String(BUILD_INFO.build_id || ""),
   });
 }
@@ -474,5 +563,6 @@ module.exports = {
     SORTABLE,
     DEFAULT_WINDOW_HOURS,
     MAX_LIMIT,
+    MAX_EXPORT_LIMIT,
   },
 };
