@@ -643,6 +643,15 @@ try {
   console.error("[api] ❌ Failed to load xadmin-api-audit-log:", e?.message || e);
 }
 
+// Per-contributor assigned-company counts for the admin person filter.
+try {
+  console.log("[api] Registering: xadmin-api-contributor-counts");
+  require("./xadmin-api-contributor-counts/index.js");
+  console.log("[api] ✓ xadmin-api-contributor-counts registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-contributor-counts:", e?.message || e);
+}
+
 try {
   console.log("[api] Registering: xadmin-api-debug");
   require("./admin-debug/index.js");

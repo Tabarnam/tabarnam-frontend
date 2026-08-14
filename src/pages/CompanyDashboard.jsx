@@ -621,6 +621,11 @@ export default function CompanyDashboard() {
   // Person filter: "" = All, else "owner:<email>" / "imported_by:<email>" /
   // "owner:__none__" (unattributed). Split into axis+value when fetching.
   const [personFilter, setPersonFilter] = useState("");
+  // How many companies are assigned to each contributor, so an admin can see
+  // outstanding outside-help workload without filtering to find it. Staff are
+  // deliberately not counted — they own thousands of rows and the number
+  // carries no signal. {} until it loads; a failed fetch just means no badges.
+  const [contributorCounts, setContributorCounts] = useState({});
   // DB-wide count of companies with issues (issues_count > 0), returned by the
   // server each load. Powers the Incomplete button label across the whole DB.
   const [incompleteTotal, setIncompleteTotal] = useState(null);
@@ -990,6 +995,43 @@ export default function CompanyDashboard() {
       window.clearTimeout(timeout);
     };
   }, [loadCompanies, search, take, onlyIncomplete, personFilter]);
+
+  // "dana@x.com" for staff, "dana@x.com (3)" for a contributor. Membership in
+  // contributorCounts is the test: the endpoint returns contributors only, and
+  // seeds each at 0, so someone with nothing assigned reads "(0)" rather than
+  // silently looking like staff.
+  const ownerFilterLabel = useCallback(
+    (email) =>
+      Object.prototype.hasOwnProperty.call(contributorCounts, email)
+        ? `${email} (${contributorCounts[email]})`
+        : email,
+    [contributorCounts]
+  );
+
+  // Contributor workload badges. Refetched whenever the list reloads, so the
+  // numbers move as soon as an assignment lands rather than going stale until
+  // a page refresh. Contributors never see this control, and the endpoint is
+  // admin-only, so a 403 here is expected for them and simply yields no badges.
+  useEffect(() => {
+    if (isContributor()) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await apiFetch("/xadmin-api-contributor-counts");
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!cancelled && data?.ok && data.counts) setContributorCounts(data.counts);
+      } catch {
+        // Non-fatal: the dropdown renders without badges.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
 
   // Phase 2.13.A — auto-refetch the list when the tab becomes visible again
   // and on a 60-second interval while the tab is visible.
@@ -4428,6 +4470,10 @@ export default function CompanyDashboard() {
                 could only ever do nothing — picking another name and still
                 seeing your own companies reads as a bug. It also puts the staff
                 roster in front of an outside contractor for no purpose. */}
+            {/* Contributors carry a count of companies assigned to them; staff
+                do not. contributorCounts only ever contains contributors, so
+                membership in it IS the "is this outside help" test — derived
+                server-side rather than re-inferred here. */}
             {!isContributor() && (
             <select
               value={personFilter}
@@ -4444,7 +4490,9 @@ export default function CompanyDashboard() {
                 {getAssignableOwnerEmails()
                   .filter((email) => email !== (getAdminUser()?.email || "").toLowerCase())
                   .map((email) => (
-                    <option key={`owner:${email}`} value={`owner:${email}`}>{email}</option>
+                    <option key={`owner:${email}`} value={`owner:${email}`}>
+                      {ownerFilterLabel(email)}
+                    </option>
                   ))}
               </optgroup>
               <optgroup label="Imported by">
