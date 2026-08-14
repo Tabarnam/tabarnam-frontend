@@ -175,6 +175,14 @@ export function parseBulkPasteText(text) {
   // Normalize
   let raw = asStr(text).replace(/\r\n/g, "\n").replace(/\*\*/g, "");
 
+  // A "Reviews:" section label may sit inline with the first review's "Source:"
+  // field ("Reviews: Source: Wine Enthusiast"). Strip the inline label so the
+  // line starts at "Source:" and the block below is recognized as a review.
+  // Without this, that first review block is parsed as company header fields —
+  // and its "URL:" line becomes website_url, clobbering the real website on
+  // apply (regression: C.H. Berres, 2026-08-14).
+  raw = raw.replace(/^[ \t]*Reviews\s*:[ \t]*(?=Source\s*:)/gim, "");
+
   // Ensure each "Source:" line (review block start) is preceded by a blank
   // line.  This prevents header fields from being swallowed into a review
   // block when the paste has no blank line between headers and reviews.
