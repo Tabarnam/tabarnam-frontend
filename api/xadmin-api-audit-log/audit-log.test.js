@@ -351,3 +351,68 @@ test("a name search that matched nothing returns nothing, not everything", async
   assert.equal(body.no_company_match, true, "the page can say 'no company matched'");
   assert.equal(queried, false, "and it costs no query");
 });
+
+// ── Column filters (multi-select) ───────────────────────────────────
+// These back the Excel-style header dropdowns. Ticking three people must mean
+// three people IN THE QUERY — resolving it by filtering the fetched page would
+// narrow only what is on screen while looking like it narrowed the search.
+
+test("multiple people are filtered in SQL, not on the page", () => {
+  const spec = _test.buildQuery({
+    window: { from: "a", to: "b" },
+    sort: { field: "created_at", dir: "desc" },
+    limit: 100,
+    filters: { actor_emails: ["jon@tabarnam.com", "test@tabarnam.com"] },
+    multiField: true,
+  });
+
+  assert.match(spec.query, /LOWER\(c\.actor_email\) IN \(@actor0, @actor1\)/);
+  assert.equal(spec.parameters.find((p) => p.name === "@actor1").value, "test@tabarnam.com");
+  assert.ok(!spec.query.includes("tabarnam.com"), "values never reach the SQL string");
+});
+
+test("multiple actions and sources each become an IN clause", () => {
+  const spec = _test.buildQuery({
+    window: { from: "a", to: "b" },
+    sort: { field: "created_at", dir: "desc" },
+    limit: 100,
+    filters: { actions: ["create", "update"], sources: ["admin-ui"] },
+    multiField: true,
+  });
+
+  assert.match(spec.query, /c\.action IN \(@act0, @act1\)/);
+  assert.match(spec.query, /c\.source IN \(@src0\)/);
+});
+
+test("an empty multi-select is not a filter", () => {
+  const spec = _test.buildQuery({
+    window: { from: "a", to: "b" },
+    sort: { field: "created_at", dir: "desc" },
+    limit: 100,
+    filters: { actor_emails: [], actions: [], sources: [] },
+    multiField: true,
+  });
+
+  assert.ok(!spec.query.includes("IN ("), "no boxes ticked means no narrowing");
+});
+
+test("the multi-select takes precedence over the single-value filter", () => {
+  const spec = _test.buildQuery({
+    window: { from: "a", to: "b" },
+    sort: { field: "created_at", dir: "desc" },
+    limit: 100,
+    filters: { actor_email: "jon@tabarnam.com", actor_emails: ["kels@tabarnam.com"] },
+    multiField: true,
+  });
+
+  assert.match(spec.query, /IN \(@actor0\)/);
+  assert.ok(!spec.query.includes("@actor "), "the single-value clause is not also applied");
+});
+
+test("csvParam trims, lowercases when asked, and drops blanks", () => {
+  const req = makeReq({ actor_emails: " Jon@Tabarnam.com , ,test@tabarnam.com " });
+  assert.deepEqual(_test.csvParam(req, "actor_emails", true), [
+    "jon@tabarnam.com",
+    "test@tabarnam.com",
+  ]);
+});

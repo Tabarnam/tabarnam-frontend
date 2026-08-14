@@ -126,6 +126,15 @@ function resolveWindow(req, now = new Date()) {
   };
 }
 
+/** Comma-separated multi-select from a column dropdown. */
+function csvParam(req, name, lower = false) {
+  return String(getQueryParam(req, name) || "")
+    .split(",")
+    .map((v) => (lower ? v.trim().toLowerCase() : v.trim()))
+    .filter(Boolean)
+    .slice(0, 100);
+}
+
 function clampLimit(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return DEFAULT_LIMIT;
@@ -184,14 +193,36 @@ function buildQuery({ window: win, sort, limit, filters, multiField }) {
     { name: "@to", value: win.to },
   ];
 
-  if (filters.actor_email) {
+  // Multi-value filters back the Excel-style column dropdowns. Ticking three
+  // people means three people, and it is resolved in SQL rather than by
+  // filtering the fetched page — a client-side checkbox filter would silently
+  // narrow only the rows already on screen while looking like it narrowed the
+  // query.
+  const inClause = (values, column, prefix, lower = false) => {
+    const names = values.map((_, i) => `@${prefix}${i}`);
+    values.forEach((v, i) => parameters.push({ name: `@${prefix}${i}`, value: v }));
+    const col = lower ? `LOWER(${column})` : column;
+    where.push(`${col} IN (${names.join(", ")})`);
+  };
+
+  if (Array.isArray(filters.actor_emails) && filters.actor_emails.length > 0) {
+    where.push("IS_DEFINED(c.actor_email)");
+    inClause(filters.actor_emails, "c.actor_email", "actor", true);
+  } else if (filters.actor_email) {
     where.push("IS_DEFINED(c.actor_email) AND LOWER(c.actor_email) = @actor");
     parameters.push({ name: "@actor", value: filters.actor_email });
   }
 
-  if (filters.action) {
+  if (Array.isArray(filters.actions) && filters.actions.length > 0) {
+    inClause(filters.actions, "c.action", "act");
+  } else if (filters.action) {
     where.push("c.action = @action");
     parameters.push({ name: "@action", value: filters.action });
+  }
+
+  if (Array.isArray(filters.sources) && filters.sources.length > 0) {
+    where.push("IS_DEFINED(c.source)");
+    inClause(filters.sources, "c.source", "src");
   }
 
   if (filters.company_id) {
@@ -308,6 +339,9 @@ async function handleGet(req, context, deps = {}) {
       .map((v) => v.trim())
       .filter(Boolean)
       .slice(0, MAX_COMPANY_IDS),
+    actor_emails: csvParam(req, "actor_emails", true),
+    actions: csvParam(req, "actions"),
+    sources: csvParam(req, "sources"),
   };
 
   // A name search that matched nothing must return nothing. Without this the
@@ -414,6 +448,7 @@ module.exports = {
     clampLimit,
     isMissingCompositeIndexError,
     MAX_COMPANY_IDS,
+    csvParam,
     SORTABLE,
     DEFAULT_WINDOW_HOURS,
     MAX_LIMIT,
