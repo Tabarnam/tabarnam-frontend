@@ -51,11 +51,18 @@ const ROSTER_TTL_MS = 5 * 60 * 1000;
 /**
  * Two lists, deliberately separate.
  *
- *  admins       — staff. The ONLY source for owner/person dropdowns: companies
- *                 are assigned to staff, and a contributor must not be able to
- *                 hand work to themselves.
+ *  admins       — staff. Read this only where "staff" is genuinely what you
+ *                 mean; it is NOT the source for owner dropdowns.
  *  contributors — scoped outside help. May enter /admin, but sees only the
  *                 companies they own.
+ *
+ * Use getAssignableOwnerEmails() (the union) for anything that names a person
+ * work can belong to. Assigning companies to a contributor is the point of the
+ * role, and an earlier version of this file excluded them from those dropdowns
+ * on the theory that it stopped them handing work to themselves. It did not —
+ * it stopped ADMINS from assigning anything. What actually prevents a
+ * contributor reassigning ownership is the server-side deny list on `owner`
+ * (CONTRIBUTOR_DENIED_FIELDS in api/admin-companies-v2).
  *
  * `role` is the CALLER's own role. It exists so the UI can hide controls that
  * would only return 403 — it is a display hint, never an enforcement boundary.
@@ -181,7 +188,7 @@ export function getAuthorizedAdminEmails(): string[] {
   return FALLBACK_ADMIN_USERS;
 }
 
-/** Contributors only. Not a source for owner dropdowns — see the note above. */
+/** Contributors only. For assignment targets use getAssignableOwnerEmails(). */
 export function getContributorEmails(): string[] {
   if (contributorCache) return contributorCache;
   const stored = readStoredRoster();
@@ -200,6 +207,22 @@ export function getContributorEmails(): string[] {
  */
 export function getAdminPortalEmails(): string[] {
   return [...new Set([...getAuthorizedAdminEmails(), ...getContributorEmails()])];
+}
+
+/**
+ * Everyone work can be attributed to: owner dropdowns, bulk assign, batch
+ * owner on import, and the person filters.
+ *
+ * This MUST include contributors. Assigning companies to a contributor is the
+ * entire point of the role — leaving them out of these lists doesn't restrict
+ * the contributor, it stops an admin from giving them anything to do.
+ *
+ * What prevents a contributor reassigning ownership is the server-side deny
+ * list on `owner` (api/admin-companies-v2, CONTRIBUTOR_DENIED_FIELDS), not the
+ * contents of a <select>. A dropdown is not an access control.
+ */
+export function getAssignableOwnerEmails(): string[] {
+  return getAdminPortalEmails();
 }
 
 /**
