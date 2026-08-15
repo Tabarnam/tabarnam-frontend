@@ -1364,6 +1364,7 @@ export default function CompanyDashboard() {
       { key: "industries", label: "Industries" },
       { key: "keywords", label: "Products" },
       { key: "curated_reviews", label: "Reviews" },
+      { key: "addresses", label: "Address" },
       { key: "red_flag", label: "Red flag" },
       { key: "red_flag_reason", label: "Red flag reason" },
       { key: "location_confidence", label: "Location confidence" },
@@ -1423,6 +1424,21 @@ export default function CompanyDashboard() {
       case "red_flag": {
         return Boolean(value);
       }
+      case "addresses": {
+        // Identity = street|locality|postal_code (matches api/_addresses.js).
+        // Deliberately excludes type / is_public so admin edits to those
+        // don't register as diffs.
+        const list = Array.isArray(value) ? value : [];
+        return list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => [
+            asString(v.street).trim().toLowerCase(),
+            asString(v.locality).trim().toLowerCase(),
+            asString(v.postal_code).trim().toLowerCase(),
+          ].join("|"))
+          .filter((s) => s.replace(/\|/g, "").length > 0)
+          .sort();
+      }
       default:
         return asString(value).trim();
     }
@@ -1468,6 +1484,24 @@ export default function CompanyDashboard() {
           })
           .filter(Boolean);
         return lines.length ? lines.join("\n") : "(no reviews)";
+      }
+      case "addresses": {
+        // Non-mergeable fallback path — addresses is registered in
+        // MERGEABLE_ARRAY_FIELDS so this branch shouldn't be reached in
+        // practice, but include for safety so the diff panel is never blank.
+        const list = Array.isArray(value) ? value : [];
+        const lines = list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            const street = asString(v.street).trim();
+            const cityRegion = [asString(v.locality).trim(), asString(v.region).trim()].filter(Boolean).join(", ");
+            const postCountry = [asString(v.postal_code).trim(), asString(v.country).trim()].filter(Boolean).join(" ");
+            const type = asString(v.type).trim();
+            const line = [street, cityRegion, postCountry].filter(Boolean).join(", ");
+            return type ? `${line} (${type})` : line;
+          })
+          .filter(Boolean);
+        return lines.length ? lines.join("\n") : "(no addresses)";
       }
       case "red_flag": {
         return Boolean(value) ? "true" : "false";
@@ -1517,6 +1551,23 @@ export default function CompanyDashboard() {
               const author = asString(v.author || "").trim();
               const parts = [title || source, author ? `by ${author}` : "", url].filter(Boolean);
               return parts.join(" — ");
+            })
+            .filter(Boolean);
+          return lines.length ? lines.join("\n") : "";
+        }
+        case "addresses": {
+          // Non-mergeable fallback shape — same content as diffToDisplay
+          // above, without the "(no addresses)" placeholder.
+          const list = Array.isArray(value) ? value : [];
+          const lines = list
+            .filter((v) => v && typeof v === "object")
+            .map((v) => {
+              const street = asString(v.street).trim();
+              const cityRegion = [asString(v.locality).trim(), asString(v.region).trim()].filter(Boolean).join(", ");
+              const postCountry = [asString(v.postal_code).trim(), asString(v.country).trim()].filter(Boolean).join(" ");
+              const type = asString(v.type).trim();
+              const line = [street, cityRegion, postCountry].filter(Boolean).join(", ");
+              return type ? `${line} (${type})` : line;
             })
             .filter(Boolean);
           return lines.length ? lines.join("\n") : "";
@@ -1685,6 +1736,14 @@ export default function CompanyDashboard() {
           if (!trimmed) return "";
           const num = Number(trimmed);
           return Number.isFinite(num) ? num : trimmed;
+        }
+        case "addresses": {
+          // Safety fallback for the free-text edit path. Addresses is a
+          // MergeableArrayDiff field, so this branch is not reached in normal
+          // flow — MergeableArrayDiff writes the merged array back via
+          // onMergedChange rather than passing text through this parser.
+          // Keep prevValue when we can't confidently re-parse the text.
+          return Array.isArray(prevValue) ? prevValue : [];
         }
         default:
           return raw;
@@ -3661,7 +3720,7 @@ export default function CompanyDashboard() {
         cell: (row) => {
           const name = getCompanyName(row);
           const url = asString(row?.website_url || row?.url).trim();
-          const text = `For the Company:   ${name}  /  ${url || asString(row?.normalized_domain).trim()}\nFields to populate: tagline, industries, HQ, manufacturing, products, reviews`;
+          const text = `For the Company:   ${name}  /  ${url || asString(row?.normalized_domain).trim()}\nFields to populate: tagline, industries, HQ, mfg, address, products, reviews`;
           return (
             <button
               type="button"
@@ -5177,6 +5236,7 @@ export default function CompanyDashboard() {
                                     "location_sources",
                                     "red_flag_reason",
                                     "curated_reviews",
+                                    "addresses",
                                   ].includes(row.key);
 
                                   return (
@@ -6512,7 +6572,7 @@ export default function CompanyDashboard() {
                     handleBulkPaste();
                   }
                 }}
-                placeholder={"Company Name\nWebsite: https://example.com\nTagline: Your tagline here\nHQ: City, ST, Country\nManufacturing: City, ST, Country; City2, ST2, Country2\nIndustries: industry1, industry2, industry3\nProducts: product1, product2, product3\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
+                placeholder={"Company Name\nWebsite: https://example.com\nTagline: Your tagline here\nHQ: City, ST, Country\nMfg: City, ST, Country; City2, ST2, Country2\nHQ address: 957 West Arrow Highway, San Dimas, CA, 91773, USA\nMfg address: 100 Industrial Way, Detroit, MI, 48201, USA\nIndustries: industry1, industry2, industry3\nProducts: product1, product2, product3\n\nSource: YouTube\nAuthor: Channel Name\nURL: https://example.com/video\nTitle: Review Title\nDate: Jan 1, 2025\nText: Excerpt or summary of the review\u2026"}
                 className="min-h-[300px] font-mono text-xs leading-relaxed"
                 autoFocus
               />
