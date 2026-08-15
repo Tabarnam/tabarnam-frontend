@@ -1222,6 +1222,7 @@ export const MERGEABLE_ARRAY_FIELDS = new Set([
   "manufacturing_locations",
   "location_sources",
   "curated_reviews",
+  "addresses",
 ]);
 
 /**
@@ -1256,6 +1257,22 @@ export function getItemDisplayLabel(fieldKey, item) {
       const url = asString(item.source_url || item.url || "").trim();
       const author = asString(item.author || "").trim();
       return [title || source, author ? `by ${author}` : "", url].filter(Boolean).join(" \u2014 ");
+    }
+
+    case "addresses": {
+      if (typeof item !== "object") return asString(item).trim();
+      const street = asString(item.street).trim();
+      const locality = asString(item.locality).trim();
+      const region = asString(item.region).trim();
+      const postal = asString(item.postal_code).trim();
+      const country = asString(item.country).trim();
+      const type = asString(item.type).trim();
+      const line = [
+        street,
+        [locality, region].filter(Boolean).join(", "),
+        [postal, country].filter(Boolean).join(" "),
+      ].filter(Boolean).join(", ");
+      return type ? `${line} (${type})` : line;
     }
 
     default:
@@ -1310,6 +1327,17 @@ export function getItemDedupKey(fieldKey, item) {
       return "";
     }
 
+    case "addresses": {
+      // Must match api/_addresses.js:addressKey (street|locality|postal_code
+      // lowercased). type is deliberately NOT part of identity — admin can
+      // reclassify hq/manufacturing without creating a phantom "new" entry.
+      if (typeof item !== "object" || !item) return "";
+      const street = asString(item.street).trim().toLowerCase();
+      const locality = asString(item.locality).trim().toLowerCase();
+      const postal = asString(item.postal_code).trim().toLowerCase();
+      return [street, locality, postal].join("|");
+    }
+
     default:
       return typeof item === "string" ? item.trim().toLowerCase() : JSON.stringify(item);
   }
@@ -1335,6 +1363,9 @@ export function normalizeArrayFieldItems(fieldKey, value) {
       return value.filter((v) => v && typeof v === "object");
 
     case "curated_reviews":
+      return value.filter((v) => v && typeof v === "object");
+
+    case "addresses":
       return value.filter((v) => v && typeof v === "object");
 
     default:

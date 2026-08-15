@@ -138,6 +138,107 @@ Tagline: only-tagline`);
   });
 });
 
+describe("parseBulkPasteText — HQ address / Mfg address labels", () => {
+  it("HQ address: one entry populates proposed.addresses with type=hq", () => {
+    const { proposed } = parseBulkPasteText(`Show Sushi
+HQ address: 957 West Arrow Highway, San Dimas, CA, 91773, USA`);
+    expect(proposed.addresses).toHaveLength(1);
+    const a = proposed.addresses[0];
+    expect(a.street).toBe("957 West Arrow Highway");
+    expect(a.locality).toBe("San Dimas");
+    expect(a.region).toBe("CA");
+    expect(a.postal_code).toBe("91773");
+    expect(a.country).toBe("USA");
+    expect(a.type).toBe("hq");
+    expect(a.is_public).toBe(false);
+    expect(a.source_url).toBe("");
+    expect(typeof a.fetched_at).toBe("string");
+    expect(a.fetched_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("Mfg address: semicolon-separated entries populate with type=manufacturing", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+Mfg address: 100 Industrial Way, Detroit, MI, 48201, USA; 200 Factory Rd, Guangzhou, Guangdong, 510000, China`);
+    expect(proposed.addresses).toHaveLength(2);
+    expect(proposed.addresses[0].type).toBe("manufacturing");
+    expect(proposed.addresses[0].street).toBe("100 Industrial Way");
+    expect(proposed.addresses[0].country).toBe("USA");
+    expect(proposed.addresses[1].type).toBe("manufacturing");
+    expect(proposed.addresses[1].street).toBe("200 Factory Rd");
+    expect(proposed.addresses[1].country).toBe("China");
+  });
+
+  it("HQ address + Mfg address together merge into a single array with correct types", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+HQ address: 1 Corporate Plaza, San Francisco, CA, 94105, USA
+Mfg address: 100 Industrial Way, Detroit, MI, 48201, USA`);
+    expect(proposed.addresses).toHaveLength(2);
+    // hq entries come first (label parsing order)
+    expect(proposed.addresses[0].type).toBe("hq");
+    expect(proposed.addresses[0].street).toBe("1 Corporate Plaza");
+    expect(proposed.addresses[1].type).toBe("manufacturing");
+    expect(proposed.addresses[1].street).toBe("100 Industrial Way");
+  });
+
+  it("missing country defaults to 'US'", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+HQ address: 1 Main St, Portland, OR, 97201`);
+    expect(proposed.addresses).toHaveLength(1);
+    expect(proposed.addresses[0].country).toBe("US");
+  });
+
+  it("entry with empty street is dropped", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+HQ address: 1 Main St, Portland, OR, 97201, USA; , Chicago, IL, 60601, USA`);
+    // Both entries have text on both sides of the ; but the second has an
+    // empty street. Only the first survives.
+    expect(proposed.addresses).toHaveLength(1);
+    expect(proposed.addresses[0].locality).toBe("Portland");
+  });
+
+  it("alias 'HQ addresses' (plural) is treated as an alias of 'HQ address'", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+HQ addresses: 1 Main St, Portland, OR, 97201, USA`);
+    expect(proposed.addresses).toHaveLength(1);
+    expect(proposed.addresses[0].type).toBe("hq");
+  });
+
+  it("alias 'HQ street #s' is treated as an alias of 'HQ address'", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+HQ street #s: 1 Main St, Portland, OR, 97201, USA`);
+    expect(proposed.addresses).toHaveLength(1);
+    expect(proposed.addresses[0].type).toBe("hq");
+  });
+
+  it("alias 'Mfg street #s' is treated as an alias of 'Mfg address'", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+Mfg street #s: 100 Industrial Way, Detroit, MI, 48201, USA`);
+    expect(proposed.addresses).toHaveLength(1);
+    expect(proposed.addresses[0].type).toBe("manufacturing");
+  });
+
+  it("bare 'Street #s:' without HQ/Mfg prefix is NOT matched (guard against ambiguity)", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+Street #s: 1 Main St, Portland, OR, 97201, USA`);
+    // Line falls through to the "subsequent unlabeled lines are ignored" branch.
+    // No addresses field on the result.
+    expect(proposed.addresses).toBeUndefined();
+  });
+
+  it("absent HQ/Mfg address labels → no addresses field on proposed", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+Tagline: only-tagline`);
+    expect(proposed.addresses).toBeUndefined();
+  });
+
+  it("empty value after label (e.g. 'HQ address:') does not emit an addresses field", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+HQ address:
+Tagline: x`);
+    expect(proposed.addresses).toBeUndefined();
+  });
+});
+
 describe("parseBulkPasteText — review URLs must not become website_url", () => {
   // Regression (C.H. Berres, 2026-08-14): a paste with no Website: line but an
   // inline "Reviews: Source: …" first review had that review's URL: line parsed

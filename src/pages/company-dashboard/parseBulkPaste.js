@@ -26,14 +26,53 @@ function parseBulkLocations(text) {
     .filter(Boolean);
 }
 
+/**
+ * Parse a semicolon-separated street-address string into structured entries.
+ * Format per entry (5 comma-separated parts): street, locality, region,
+ * postal_code, country. Missing country defaults to "US". Entries with an
+ * empty street are dropped (city-only entries belong in HQ:/Mfg:, not here).
+ *
+ * Emitted entries match api/_addresses.js shape so the backend's normalizer
+ * accepts them unchanged. is_public defaults to false — admin flips per-entry
+ * in the AddressesEditor after apply. type comes from the caller (label).
+ */
+function parseBulkAddresses(text, type) {
+  if (!text || typeof text !== "string") return [];
+  const nowIso = new Date().toISOString();
+  return text
+    .split(";")
+    .map((chunk) => {
+      // Preserve positions — do NOT filter empty parts before destructuring,
+      // or `, Chicago, IL, ...` would silently shift Chicago into the street
+      // slot and pass the non-empty gate.
+      const parts = chunk.split(",").map((p) => p.trim());
+      const [street = "", locality = "", region = "", postal_code = "", country = ""] = parts;
+      if (!street) return null;
+      return {
+        street,
+        locality,
+        region,
+        postal_code,
+        country: country || "US",
+        type,
+        source_url: "",
+        fetched_at: nowIso,
+        is_public: false,
+      };
+    })
+    .filter(Boolean);
+}
+
 // ── field-label regex ────────────────────────────────────────────────
 
 const FIELD_LABEL_RE =
-  /^\s*(Tagline|Website|URL|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Industries|Products|Keywords|Reviews)\s*:\s*(.*)$/i;
+  /^\s*(Tagline|Website|URL|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Industries|Products|Keywords|Reviews|(?:HQ|Mfg)\s+(?:address(?:es)?|street\s*#?\s*s))\s*:\s*(.*)$/i;
 
 function normalizeFieldLabel(raw) {
   const l = raw.trim().toLowerCase().replace(/\s+/g, " ");
   if (l === "tagline") return "tagline";
+  if (/^hq\s+(?:address(?:es)?|street\s*#?\s*s)$/.test(l))  return "hq_addresses";
+  if (/^mfg\s+(?:address(?:es)?|street\s*#?\s*s)$/.test(l)) return "mfg_addresses";
   if (l === "hq" || l.startsWith("headquarters")) return "headquarters_locations";
   if (l.startsWith("manufacturing")) return "manufacturing_locations";
   if (l === "industries") return "industries";
@@ -285,6 +324,14 @@ export function parseBulkPasteText(text) {
     const list = fields.keywords.split(",").map((s) => s.trim()).filter(Boolean);
     if (list.length) proposed.keywords = list;
   }
+
+  // Structured addresses. Two labels (HQ address / Mfg address) map to
+  // type=hq / type=manufacturing and merge into a single addresses array so
+  // the downstream diff view + AddressesEditor see one field.
+  const hqAddrs = fields.hq_addresses ? parseBulkAddresses(fields.hq_addresses, "hq") : [];
+  const mfgAddrs = fields.mfg_addresses ? parseBulkAddresses(fields.mfg_addresses, "manufacturing") : [];
+  const addressesMerged = [...hqAddrs, ...mfgAddrs];
+  if (addressesMerged.length) proposed.addresses = addressesMerged;
 
   // ── pass 4: parse review blocks ──
 
