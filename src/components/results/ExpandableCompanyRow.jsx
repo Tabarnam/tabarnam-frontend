@@ -94,12 +94,19 @@ async function copyToClipboard(text) {
   }
 }
 
-// Filter addresses[] to only public entries matching a given type (hq | manufacturing).
+// Filter addresses[] to only public entries matching a given type (hq |
+// manufacturing) AND carrying a real street value. The pin indicator and
+// public address line are ONLY for exact street-level addresses — entries
+// that only have a city or postal code do not qualify, since the city-level
+// data is already surfaced by headquarters_location / manufacturing_locations
+// and a pin on those would falsely imply pin-point precision.
 function publicAddressesOfType(addresses, type) {
   if (!Array.isArray(addresses)) return [];
   return addresses.filter((a) => {
     if (!a || typeof a !== "object") return false;
     if (a.is_public !== true) return false;
+    const street = (a.street == null ? "" : String(a.street)).trim();
+    if (!street) return false;
     const t = (a.type === "manufacturing") ? "manufacturing" : "hq";
     return t === type;
   });
