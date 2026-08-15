@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Copy, Pencil, ExternalLink, Share2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, MapPin, Pencil, ExternalLink, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ShareButton from "@/components/ShareButton";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
@@ -94,39 +94,53 @@ async function copyToClipboard(text) {
   }
 }
 
-// Renders public structured addresses of a given type (hq or manufacturing)
-// as compact "address text + copy icon" rows. Filters strictly on
-// is_public === true — the admin editor is the source of truth for that
-// flag; the trusted-source rule stamps a default at import time (see
-// api/_addresses.js). Renders nothing when there are no public addresses of
-// the requested type, so it's safe to drop into any location block.
+// Filter addresses[] to only public entries matching a given type (hq | manufacturing).
+function publicAddressesOfType(addresses, type) {
+  if (!Array.isArray(addresses)) return [];
+  return addresses.filter((a) => {
+    if (!a || typeof a !== "object") return false;
+    if (a.is_public !== true) return false;
+    const t = (a.type === "manufacturing") ? "manufacturing" : "hq";
+    return t === type;
+  });
+}
+
+// True if at least one public address of the requested type is present.
+// Used to place a leading map-pin icon next to the city name, so at a glance
+// the reader knows a full street address exists for this row.
+function hasPublicAddressOfType(addresses, type) {
+  return publicAddressesOfType(addresses, type).length > 0;
+}
+
+// Format one address entry as a single copy-friendly line.
+function formatAddressLine(a) {
+  return [
+    (a?.street || "").toString().trim(),
+    [(a?.locality || "").toString().trim(), (a?.region || "").toString().trim()].filter(Boolean).join(", "),
+    [(a?.postal_code || "").toString().trim(), (a?.country || "").toString().trim()].filter(Boolean).join(" "),
+  ].filter(Boolean).join(", ");
+}
+
+// Compact street-address rows under an HQ/Mfg block. Each row shows a small
+// map-pin icon + the one-line address + a copy button. Slightly stronger
+// visual weight than plain muted-foreground so the eye finds it as the
+// answer to "does this row have a street I can use?".
 function PublicAddressList({ addresses, type }) {
-  const items = useMemo(() => {
-    if (!Array.isArray(addresses)) return [];
-    return addresses.filter((a) => {
-      if (!a || typeof a !== "object") return false;
-      if (a.is_public !== true) return false;
-      const t = (a.type === "manufacturing") ? "manufacturing" : "hq";
-      return t === type;
-    });
-  }, [addresses, type]);
+  const items = useMemo(() => publicAddressesOfType(addresses, type), [addresses, type]);
 
   if (items.length === 0) return null;
 
   return (
     <div className="mt-1 space-y-1">
       {items.map((a, idx) => {
-        const line = [
-          (a.street || "").toString().trim(),
-          [(a.locality || "").toString().trim(), (a.region || "").toString().trim()].filter(Boolean).join(", "),
-          [(a.postal_code || "").toString().trim(), (a.country || "").toString().trim()].filter(Boolean).join(" "),
-        ].filter(Boolean).join(", ");
+        const line = formatAddressLine(a);
         if (!line) return null;
         return (
           <div
             key={`${line}-${idx}`}
-            className="flex items-center gap-1 text-xs text-muted-foreground"
+            className="flex items-center gap-1.5 text-xs text-foreground/80"
           >
+            <MapPin className="h-3 w-3 shrink-0 text-primary/80" aria-hidden="true" />
             <span className="truncate">{line}</span>
             <button
               type="button"
@@ -663,6 +677,7 @@ export default function ExpandableCompanyRow({
     }
 
     if (colKey === "hq") {
+      const hasPublicHqStreet = hasPublicAddressOfType(company.addresses, "hq");
       return (
         <div className="space-y-2">
           {hqLocation.map((loc, idx) => (
@@ -671,6 +686,12 @@ export default function ExpandableCompanyRow({
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
+              )}
+              {hasPublicHqStreet && idx === 0 && (
+                <MapPin
+                  className="h-3 w-3 mt-1 shrink-0 text-primary/80"
+                  aria-hidden="true"
+                />
               )}
               {locationName(loc, "hq")}
             </div>
@@ -682,6 +703,7 @@ export default function ExpandableCompanyRow({
     }
 
     if (colKey === "manu-expanded") {
+      const hasPublicMfgStreet = hasPublicAddressOfType(company.addresses, "manufacturing");
       return (
         <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
@@ -694,6 +716,12 @@ export default function ExpandableCompanyRow({
                       ? "Limited Manufacturing"
                       : "Distance unavailable"}
                 </div>
+              )}
+              {hasPublicMfgStreet && idx === 0 && !loc.limitedMfg && !company?.unknown_manufacturing && (
+                <MapPin
+                  className="h-3 w-3 mt-1 shrink-0 text-primary/80"
+                  aria-hidden="true"
+                />
               )}
               {loc.limitedMfg || company?.unknown_manufacturing ? (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
