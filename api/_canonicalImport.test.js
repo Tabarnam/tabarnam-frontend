@@ -40,9 +40,62 @@ test("shapeEnrichedFromParsed returns canonical defaults for null/undefined inpu
     assert.equal(out.product_keywords, "");
     assert.deepEqual(out.reviews, []);
     assert.deepEqual(out.location_source_urls, { hq_source_urls: [], mfg_source_urls: [] });
+    assert.deepEqual(out.addresses, []);
     assert.equal(out.red_flag, false);
     assert.deepEqual(out.social, {});
   }
+});
+
+test("shapeEnrichedFromParsed preserves addresses array from xAI response", () => {
+  // Guards against silent regression of the whitelist that stripped
+  // `addresses` from the raw xAI response in prod on 2026-08-15 (Whispering
+  // Angel / Ultimate Provence / Tormaresca bulk import — all three landed
+  // with addresses=0 even though the prompt asked for them, because this
+  // helper did not include the key). If xAI returns addresses, they must
+  // survive to the flat enriched shape.
+  const parsed = {
+    addresses: [
+      { street: "61 9th Ave", locality: "New York", region: "NY", postal_code: "10011", country: "US", type: "hq", source_url: "https://example.com/contact" },
+      { street: "1 Factory Rd", locality: "Portland", type: "manufacturing", source_url: "https://example.com/plant" },
+    ],
+  };
+  const out = shapeEnrichedFromParsed(parsed);
+  assert.equal(Array.isArray(out.addresses), true);
+  assert.equal(out.addresses.length, 2);
+  assert.equal(out.addresses[0].street, "61 9th Ave");
+  assert.equal(out.addresses[1].type, "manufacturing");
+});
+
+test("shapeEnrichedFromParsed coerces non-array addresses to []", () => {
+  for (const bad of ["not an array", 42, null, undefined, { addresses: [] }]) {
+    const out = shapeEnrichedFromParsed({ addresses: bad });
+    assert.deepEqual(out.addresses, []);
+  }
+});
+
+test("shapeEnvelopeForApply passes addresses through as a bare array", () => {
+  // Downstream applyEnrichmentToCompany's addresses block accepts either the
+  // bare-array shape or an envelope. Passing the bare array keeps it simple.
+  const flat = {
+    tagline: "",
+    headquarters_location: "",
+    manufacturing_locations: [],
+    industries: [],
+    product_keywords: "",
+    reviews: [],
+    addresses: [
+      { street: "61 9th Ave", locality: "New York", type: "hq" },
+    ],
+  };
+  const env = shapeEnvelopeForApply(flat);
+  assert.equal(Array.isArray(env.addresses), true);
+  assert.equal(env.addresses.length, 1);
+  assert.equal(env.addresses[0].street, "61 9th Ave");
+});
+
+test("shapeEnvelopeForApply defaults addresses to [] when missing", () => {
+  const env = shapeEnvelopeForApply({});
+  assert.deepEqual(env.addresses, []);
 });
 
 test("shapeEnrichedFromParsed preserves valid full payload", () => {
