@@ -2379,13 +2379,22 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    - This allows us to display source attribution to users and verify data quality
    - Example: { "location": "Shanghai, China", "source_url": "https://company.com/facilities", "source_type": "official_website", "location_type": "manufacturing" }
 
-6. TAGLINE (Optional but valuable):
+6. STRUCTURED ADDRESSES (Optional, opportunistic capture — do NOT initiate extra searches):
+   - When a page you are ALREADY reading for other fields (contact, about, footer, facilities) contains a structured street address, include it in the "addresses" array.
+   - Do NOT launch additional web_search or browse_page calls specifically to find an address. If nothing structured surfaces from the pages you already read, return an empty array.
+   - Each entry describes ONE physical location and uses this shape:
+     { "street": "...", "locality": "...", "region": "...", "postal_code": "...", "country": "US", "type": "hq" | "manufacturing", "source_url": "https://..." }
+   - type: "hq" for headquarters/office/mailing address; "manufacturing" for factory/plant/production facility
+   - Only emit an entry when a street or postal code is genuinely present. Do NOT emit city-only entries — the normalized headquarters_location / manufacturing_locations fields already carry city-level data.
+   - Do NOT fabricate any part of the address. Absence is completely acceptable.
+
+7. TAGLINE (Optional but valuable):
    - Extract the company's official tagline, mission statement, or brand slogan if available
    - Check: Company website homepage, About page, marketing materials, "Tagline" or "Slogan" field
    - If no explicit tagline found, leave empty (do NOT fabricate)
    - Example: "Tagline": "Where Quality Meets Innovation" or empty string ""
 
-7. PRODUCT KEYWORDS (Required - MUST follow these rules strictly):
+8. PRODUCT KEYWORDS (Required - MUST follow these rules strictly):
    You are extracting structured product intelligence for a consumer-facing company.
    Your task is to generate a comprehensive, concrete list of the companyÃ¢â‚¬â„¢s actual products and product categories.
    Rules:

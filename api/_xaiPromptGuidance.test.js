@@ -515,24 +515,17 @@ test("Phase 4.16 — _xaiLiveSearch translates response_format → text.format o
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("Phase 4.38: PROMPT_GUIDANCE_VERSION is 9.12.0-mfg-customs-records-probe", () => {
-  // Phase 4.31 — Manufacturing rule augmented with three additions:
-  //   1. Category-level inference allowance for industries where overseas
-  //      production is the industry norm (hair extensions, hair tools, etc.)
-  //      Lets the model emit ["China"] when no specific city is found and
-  //      the category overwhelmingly comes from China.
-  //   2. Beauty/cosmetics parent-company shortcut paragraph with explicit
-  //      enumeration of L'Oréal, P&G, Estée Lauder, Unilever, Henkel, Coty,
-  //      Kao brand families + their public sustainability-report search
-  //      patterns. Surfaces specific cities for Matrix, Clairol, Pulp Riot,
-  //      etc. that previously emitted [].
-  //   3. "Other unknown locations" trailing-entry sentinel to signal
-  //      incompleteness when the model finds some cities but knows more
-  //      exist undisclosed.
+test("PROMPT_GUIDANCE_VERSION is 9.13.0-opportunistic-addresses", () => {
+  // 9.13.0 adds an opportunistic \`addresses\` field to the FIELD_SCHEMA and a
+  // new FIELD_GUIDANCE.addresses block instructing xAI to capture structured
+  // street addresses ONLY from pages it is already reading — no extra
+  // web_search / browse_page calls just to find an address. Absence is
+  // acceptable; the normalized headquarters_location / manufacturing_locations
+  // strings and the pins-index shape are unchanged.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.12\.1-mfg-hq-echo-guard/,
-    "PROMPT_GUIDANCE_VERSION must be 9.12.1-mfg-hq-echo-guard for Phase 4.38"
+    /^9\.13\.0-opportunistic-addresses/,
+    "PROMPT_GUIDANCE_VERSION must be 9.13.0-opportunistic-addresses"
   );
 });
 

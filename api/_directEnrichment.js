@@ -20,6 +20,7 @@ const { sanitizeIndustries, sanitizeKeywords, isRealValue } = require("./_requir
 const { geocodeLocationArray, pickPrimaryLatLng } = require("./_geocode");
 const { resolveReviewsStarState } = require("./_reviewsStarState");
 const { computeReputationQualityScores } = require("./_companyScoring");
+const { normalizeAddresses, mergeAddresses } = require("./_addresses");
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -475,6 +476,33 @@ async function applyEnrichmentToCompany(company, enrichmentResult) {
       } catch {}
 
       // Phase 2.19.D — MFG geocoding moved to the parallel block below.
+    }
+  }
+
+  // Opportunistic structured addresses. xAI returns either a bare array
+  // (enriched.addresses = [...]) or an envelope (enriched.addresses.addresses
+  // = [...]). An empty array is treated as "nothing new" — merging preserves
+  // existing entries so a re-import that surfaces nothing never wipes prior
+  // captures. Admin-edited fields (is_public, type) also survive re-imports.
+  {
+    const rawAddresses = Array.isArray(enriched.addresses)
+      ? enriched.addresses
+      : Array.isArray(enriched.addresses?.addresses)
+        ? enriched.addresses.addresses
+        : null;
+    if (rawAddresses !== null) {
+      const existing = Array.isArray(updated.addresses) ? updated.addresses : [];
+      const incoming = normalizeAddresses(rawAddresses);
+      updated.addresses = mergeAddresses(existing, incoming);
+      try {
+        console.log(`[applyEnrichmentToCompany] addresses_block`, {
+          company_id: company.id,
+          existing_count: existing.length,
+          incoming_raw_count: rawAddresses.length,
+          incoming_normalized_count: incoming.length,
+          merged_count: updated.addresses.length,
+        });
+      } catch {}
     }
   }
 

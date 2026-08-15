@@ -24,6 +24,7 @@ const {
 } = require("../_requiredFields");
 
 const { resolveReviewsStarState } = require("../_reviewsStarState");
+const { normalizeAddresses, mergeAddresses } = require("../_addresses");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { applyEnrichment } = require("../_applyEnrichment");
 const { applySortKeys, looksLikeCompanyDoc } = require("../_sortKeys");
@@ -1093,6 +1094,14 @@ async function saveCompaniesToCosmos({
               mfg_unknown: Boolean(company.mfg_unknown),
               mfg_unknown_reason: String(company.mfg_unknown_reason || "").trim(),
               manufacturing_geocodes: Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
+              // Opportunistic structured addresses. Merged with any addresses
+              // already stored on the doc so a re-import that surfaces nothing
+              // never wipes previously captured entries; admin-edited fields
+              // (is_public, type) survive re-imports.
+              addresses: mergeAddresses(
+                (existingDoc && Array.isArray(existingDoc.addresses)) ? existingDoc.addresses : [],
+                normalizeAddresses(company.addresses)
+              ),
               curated_reviews: curatedReviewsNormalized,
               review_count: reviewCountNormalized,
               reviews_last_updated_at: reviewsLastUpdatedAt,

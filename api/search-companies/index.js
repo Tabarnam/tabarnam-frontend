@@ -889,6 +889,10 @@ const SELECT_FIELDS = [
   // can confirm the parent link without opening the record editor.
   "c.parent_company_id",
 
+  // Structured address entries. Client filters to is_public === true for
+  // the public row; admin views see the full list. See api/_addresses.js.
+  "c.addresses",
+
   // Timestamps
   "c.created_at",
   "c.updated_at",
