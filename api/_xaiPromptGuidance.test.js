@@ -45,7 +45,7 @@ test("buildCanonicalImportPrompt explicitly forbids fabrication and requires per
     "string fields must be told to use empty string \"\" when unverified"
   );
   assert.ok(
-    /manufacturing_locations,\s*industries,\s*reviews\s*→\s*\[\]/.test(prompt),
+    /manufacturing_locations,\s*industries,\s*reviews(?:,\s*addresses)?\s*→\s*\[\]/.test(prompt),
     "array fields must be told to use empty array [] when unverified"
   );
   assert.ok(
@@ -370,6 +370,7 @@ test("CANONICAL_IMPORT_JSON_SCHEMA validates a minimal valid response", () => {
     ],
     location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
     red_flag: false,
+    addresses: [],
   };
   const ok = validate(minimal);
   assert.ok(ok, "minimal payload should validate. errors=" + JSON.stringify(validate.errors));
@@ -403,6 +404,7 @@ test("CANONICAL_IMPORT_JSON_SCHEMA rejects missing required fields", () => {
     reviews: [],
     location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
     red_flag: false,
+    addresses: [],
   };
   const ok = validate(bad);
   assert.equal(ok, false, "missing required field must be rejected");
@@ -419,9 +421,74 @@ test("CANONICAL_IMPORT_JSON_SCHEMA rejects review object missing required keys",
     reviews: [{ source: "X", author: "Y", url: "https://x.example.com", title: "T", date: "D" /* text missing */ }],
     location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
     red_flag: false,
+    addresses: [],
   };
   const ok = validate(bad);
   assert.equal(ok, false, "review missing 'text' must be rejected");
+});
+
+test("CANONICAL_IMPORT_JSON_SCHEMA declares an addresses array (regression: strict:true was silently forbidding it)", () => {
+  // Root cause of the "no addresses landed" bug: strict:true +
+  // additionalProperties:false with no `addresses` in properties meant xAI
+  // could not emit the field at all, regardless of what the prompt said.
+  // Guard both the property AND the required-list entry so a future edit
+  // that removes one but not the other trips this test.
+  assert.ok(CANONICAL_IMPORT_JSON_SCHEMA.properties?.addresses, "schema must declare 'addresses' in properties");
+  assert.equal(CANONICAL_IMPORT_JSON_SCHEMA.properties.addresses.type, "array");
+  assert.ok(
+    CANONICAL_IMPORT_JSON_SCHEMA.required?.includes("addresses"),
+    "schema must list 'addresses' in required (strict-mode quirk)"
+  );
+  const itemProps = CANONICAL_IMPORT_JSON_SCHEMA.properties.addresses.items?.properties || {};
+  for (const key of ["street", "locality", "region", "postal_code", "country", "type", "source_url"]) {
+    assert.ok(itemProps[key], `address item must declare '${key}'`);
+  }
+});
+
+test("CANONICAL_IMPORT_JSON_SCHEMA accepts addresses populated with a real entry", () => {
+  const validate = ajv.compile(CANONICAL_IMPORT_JSON_SCHEMA);
+  const payload = {
+    tagline: "",
+    headquarters_location: "Playa Del Rey, CA, USA",
+    manufacturing_locations: [],
+    industries: ["Coffee Shop"],
+    product_keywords: "espresso, cold brew, pastries",
+    reviews: [],
+    location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
+    red_flag: false,
+    addresses: [
+      {
+        street: "200 Culver Blvd",
+        locality: "Playa Del Rey",
+        region: "CA",
+        postal_code: "90293",
+        country: "US",
+        type: "hq",
+        source_url: "https://tanners.coffee/",
+      },
+    ],
+  };
+  const ok = validate(payload);
+  assert.ok(ok, "populated addresses entry must validate. errors=" + JSON.stringify(validate.errors));
+});
+
+test("CANONICAL_IMPORT_JSON_SCHEMA rejects address entry with invalid type value", () => {
+  const validate = ajv.compile(CANONICAL_IMPORT_JSON_SCHEMA);
+  const bad = {
+    tagline: "",
+    headquarters_location: "",
+    manufacturing_locations: [],
+    industries: [],
+    product_keywords: "",
+    reviews: [],
+    location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
+    red_flag: false,
+    addresses: [
+      { street: "x", locality: "x", region: "x", postal_code: "x", country: "x", type: "storefront", source_url: "https://x.example" },
+    ],
+  };
+  const ok = validate(bad);
+  assert.equal(ok, false, "address type must be 'hq' or 'manufacturing'");
 });
 
 test("CANONICAL_IMPORT_JSON_SCHEMA enforces product_keywords as string (not array)", () => {
@@ -435,6 +502,7 @@ test("CANONICAL_IMPORT_JSON_SCHEMA enforces product_keywords as string (not arra
     reviews: [],
     location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
     red_flag: false,
+    addresses: [],
   };
   const ok = validate(bad);
   assert.equal(ok, false, "product_keywords as array must be rejected");
@@ -515,18 +583,19 @@ test("Phase 4.16 — _xaiLiveSearch translates response_format → text.format o
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("PROMPT_GUIDANCE_VERSION is 9.13.1-addresses-accept-text", () => {
-  // 9.13.1 loosens the addresses guidance: xAI must extract a street address
-  // whether it appears as schema.org JSON-LD OR as plain HTML text on the
-  // page (e.g. a footer contact block). 9.13.0's "structured street address"
-  // language was interpreted too narrowly — Casa del Rey Mexican Restaurant
-  // published "345 West Bonita Avenue, San Dimas, CA 91773" as visible text
-  // in its footer and xAI returned addresses:[] because it did not match
-  // schema.org. The pipeline is unchanged; only the wording is loosened.
+test("PROMPT_GUIDANCE_VERSION is 9.13.2-addresses-in-schema", () => {
+  // 9.13.2 is what the earlier 9.13.0 + 9.13.1 attempts were supposed to do.
+  // Root cause found via Tanner's Coffee Co re-import: the strict JSON schema
+  // (CANONICAL_IMPORT_JSON_SCHEMA, sent to xAI with strict:true +
+  // additionalProperties:false) did not include an "addresses" property, so
+  // xAI could not emit it regardless of what the prompt said. This version
+  // adds addresses to the schema, adds it to the "Return ONLY..." lines in
+  // both the single-call canonical prompt and the multi-call Locations
+  // prompt, and adds addresses to the empty-value blocks.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.13\.1-addresses-accept-text/,
-    "PROMPT_GUIDANCE_VERSION must be 9.13.1-addresses-accept-text"
+    /^9\.13\.2-addresses-in-schema/,
+    "PROMPT_GUIDANCE_VERSION must be 9.13.2-addresses-in-schema"
   );
 });
 
