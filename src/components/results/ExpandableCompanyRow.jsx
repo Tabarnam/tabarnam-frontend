@@ -112,13 +112,6 @@ function publicAddressesOfType(addresses, type) {
   });
 }
 
-// True if at least one public address of the requested type is present.
-// Used to place a leading map-pin icon next to the city name, so at a glance
-// the reader knows a full street address exists for this row.
-function hasPublicAddressOfType(addresses, type) {
-  return publicAddressesOfType(addresses, type).length > 0;
-}
-
 // Format one address entry as a single copy-friendly line.
 function formatAddressLine(a) {
   return [
@@ -684,7 +677,8 @@ export default function ExpandableCompanyRow({
     }
 
     if (colKey === "hq") {
-      const hasPublicHqStreet = hasPublicAddressOfType(company.addresses, "hq");
+      const publicHqAddresses = publicAddressesOfType(company.addresses, "hq");
+      const firstHqLine = publicHqAddresses.length > 0 ? formatAddressLine(publicHqAddresses[0]) : "";
       return (
         <div className="space-y-2">
           {hqLocation.map((loc, idx) => (
@@ -694,11 +688,16 @@ export default function ExpandableCompanyRow({
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
-              {hasPublicHqStreet && idx === 0 && (
-                <MapPin
-                  className="h-3 w-3 mt-1 shrink-0 text-primary/80"
-                  aria-hidden="true"
-                />
+              {firstHqLine && idx === 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); copyToClipboard(firstHqLine); }}
+                  title="Street address available — click to copy"
+                  aria-label={`Copy street address: ${firstHqLine}`}
+                  className="mt-1 shrink-0 rounded p-0.5 text-primary/80 hover:text-primary hover:bg-foreground/5"
+                >
+                  <MapPin className="h-3 w-3" aria-hidden="true" />
+                </button>
               )}
               {locationName(loc, "hq")}
             </div>
@@ -710,7 +709,8 @@ export default function ExpandableCompanyRow({
     }
 
     if (colKey === "manu-expanded") {
-      const hasPublicMfgStreet = hasPublicAddressOfType(company.addresses, "manufacturing");
+      const publicMfgAddresses = publicAddressesOfType(company.addresses, "manufacturing");
+      const firstMfgLine = publicMfgAddresses.length > 0 ? formatAddressLine(publicMfgAddresses[0]) : "";
       return (
         <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
@@ -724,11 +724,16 @@ export default function ExpandableCompanyRow({
                       : "Distance unavailable"}
                 </div>
               )}
-              {hasPublicMfgStreet && idx === 0 && !loc.limitedMfg && !company?.unknown_manufacturing && (
-                <MapPin
-                  className="h-3 w-3 mt-1 shrink-0 text-primary/80"
-                  aria-hidden="true"
-                />
+              {firstMfgLine && idx === 0 && !loc.limitedMfg && !company?.unknown_manufacturing && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); copyToClipboard(firstMfgLine); }}
+                  title="Street address available — click to copy"
+                  aria-label={`Copy street address: ${firstMfgLine}`}
+                  className="mt-1 shrink-0 rounded p-0.5 text-primary/80 hover:text-primary hover:bg-foreground/5"
+                >
+                  <MapPin className="h-3 w-3" aria-hidden="true" />
+                </button>
               )}
               {loc.limitedMfg || company?.unknown_manufacturing ? (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
