@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "9.13.0-opportunistic-addresses";
+const PROMPT_GUIDANCE_VERSION = "9.13.1-addresses-accept-text";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -60,21 +60,21 @@ mfg_status: use "ok" when manufacturing locations were found, "not_applicable" w
   },
 
   addresses: {
-    rules: `OPPORTUNISTIC ONLY — do NOT initiate additional searches or browse extra pages to acquire an address. If a page you are ALREADY reading for other fields (contact, about, footer, headquarters, or manufacturing) contains a structured street address, extract it into the "addresses" array. If nothing structured surfaces from the pages you already read, return an empty array — absence is completely acceptable.
+    rules: `OPPORTUNISTIC ONLY — do NOT initiate additional searches or browse extra pages just to find an address. If a page you are ALREADY reading for other fields (contact, about, footer, locations, headquarters, or manufacturing) shows a street address, extract it into the "addresses" array. The address counts whether it appears as schema.org JSON-LD, plain HTML text like "345 West Bonita Avenue, San Dimas, CA 91773", contact-card layout, footer block, or any other visible form — if the street number + street name + city appear together on a page you already read, extract them. If none of the pages you read show a street address, return an empty array — absence is completely acceptable.
 
 Each entry describes ONE physical location and uses this shape:
   { "street": "...", "locality": "...", "region": "...", "postal_code": "...", "country": "US", "type": "hq" | "manufacturing", "source_url": "https://..." }
 
 Field notes:
-  - street: e.g. "61 9th Ave" or "Suite 500, 100 Main St"
+  - street: the street line as displayed, e.g. "345 West Bonita Avenue" or "Suite 500, 100 Main St"
   - locality: city name only
   - region: state/province initials (e.g. "NY", "ON")
-  - postal_code: as displayed (e.g. "10011", "M5V 3A8")
-  - country: ISO alpha-2 preferred (e.g. "US", "CA", "GB")
-  - type: "hq" for headquarters/office/mailing address; "manufacturing" for factory/plant/production facility
-  - source_url: the SPECIFIC page you read the address on (not the company homepage)
+  - postal_code: as displayed (e.g. "91773", "M5V 3A8"); include when present but not required
+  - country: ISO alpha-2 preferred (e.g. "US", "CA", "GB"); default "US" for US addresses
+  - type: "hq" for headquarters/office/mailing/storefront address; "manufacturing" for factory/plant/production facility
+  - source_url: the SPECIFIC page you read the address on (not the company homepage unless that is where it appears)
 
-Do NOT fabricate parts you did not see. If the source shows only city/state, do not include that entry — the normalized string field (headquarters_location / manufacturing_locations) already captures city-level data. Only emit an entry when a street or postal code is genuinely present.`,
+Do NOT fabricate parts you did not see. Only emit an entry when a real street name+number is present — do NOT emit city-only entries; the normalized string field (headquarters_location / manufacturing_locations) already captures city-level data.`,
     jsonSchema: `"addresses": [{ "street": "...", "locality": "...", "region": "...", "postal_code": "...", "country": "...", "type": "hq" | "manufacturing", "source_url": "https://..." }]`,
   },
 

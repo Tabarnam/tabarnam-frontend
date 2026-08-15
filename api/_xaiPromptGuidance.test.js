@@ -515,17 +515,18 @@ test("Phase 4.16 — _xaiLiveSearch translates response_format → text.format o
 // is unacceptable, AND require a minimum of 2 tool calls before deciding
 // the company has no findable data.
 
-test("PROMPT_GUIDANCE_VERSION is 9.13.0-opportunistic-addresses", () => {
-  // 9.13.0 adds an opportunistic \`addresses\` field to the FIELD_SCHEMA and a
-  // new FIELD_GUIDANCE.addresses block instructing xAI to capture structured
-  // street addresses ONLY from pages it is already reading — no extra
-  // web_search / browse_page calls just to find an address. Absence is
-  // acceptable; the normalized headquarters_location / manufacturing_locations
-  // strings and the pins-index shape are unchanged.
+test("PROMPT_GUIDANCE_VERSION is 9.13.1-addresses-accept-text", () => {
+  // 9.13.1 loosens the addresses guidance: xAI must extract a street address
+  // whether it appears as schema.org JSON-LD OR as plain HTML text on the
+  // page (e.g. a footer contact block). 9.13.0's "structured street address"
+  // language was interpreted too narrowly — Casa del Rey Mexican Restaurant
+  // published "345 West Bonita Avenue, San Dimas, CA 91773" as visible text
+  // in its footer and xAI returned addresses:[] because it did not match
+  // schema.org. The pipeline is unchanged; only the wording is loosened.
   assert.match(
     PROMPT_GUIDANCE_VERSION,
-    /^9\.13\.0-opportunistic-addresses/,
-    "PROMPT_GUIDANCE_VERSION must be 9.13.0-opportunistic-addresses"
+    /^9\.13\.1-addresses-accept-text/,
+    "PROMPT_GUIDANCE_VERSION must be 9.13.1-addresses-accept-text"
   );
 });
 
