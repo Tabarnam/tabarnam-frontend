@@ -25,6 +25,7 @@ const { foldDiacritics, parseQuery, normalizeQuery } = require("../_queryNormali
 const { isFuzzyNameMatch } = require("../_fuzzyMatch");
 const { simpleStem } = require("../_stemmer");
 const { applySortKeys } = require("../_sortKeys");
+const { normalizeAddresses } = require("../_addresses");
 // Contract enrichment-health computation now lives in a shared module so the
 // import/enrichment write path (resume-worker) computes issues_count the same
 // way this admin GET/save path does. Single source of truth — see _contractHealth.js.
@@ -2056,6 +2057,13 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           review_count: Math.max(0, Math.trunc(Number(reviewCountRaw) || 0)),
           public_review_count: Math.max(0, Math.trunc(Number(base.public_review_count) || 0)),
           private_review_count: Math.max(0, Math.trunc(Number(base.private_review_count) || 0)),
+          // Structured addresses. Sanitize whatever the admin submitted through
+          // the same normalizer the import path uses so junk rows and
+          // non-canonical keys get cleaned up before persisting. Absent
+          // incoming array is treated as "no change" — carry the existing.
+          addresses: Array.isArray(base.addresses)
+            ? normalizeAddresses(base.addresses)
+            : (Array.isArray(existingDoc?.addresses) ? existingDoc.addresses : []),
           updated_at: now,
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };

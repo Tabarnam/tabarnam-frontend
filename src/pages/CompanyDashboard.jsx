@@ -131,6 +131,7 @@ import RatingEditor from "./company-dashboard/RatingEditor";
 import ScoreHistoryViewer from "./company-dashboard/ScoreHistoryViewer";
 import CompanyNotesEditor from "./company-dashboard/CompanyNotesEditor";
 import StructuredLocationListEditor from "./company-dashboard/StructuredLocationListEditor";
+import AddressesEditor from "./company-dashboard/AddressesEditor";
 import { parseBulkPasteText } from "./company-dashboard/parseBulkPaste";
 
 // Collapsible section wrapper for sidebar and left column groups
@@ -766,6 +767,7 @@ export default function CompanyDashboard() {
     logo: true,
     homepage: true,
     locations: true,
+    addresses: true,
     categories: true,
     reviews: true,
   });
@@ -5704,6 +5706,15 @@ export default function CompanyDashboard() {
                           </label>
                           )}
                           </div>
+                          </div>
+                          </CollapsibleSection>
+
+                          <CollapsibleSection title="Addresses" isOpen={leftSections.addresses} onToggle={() => toggleLeftSection("addresses")}>
+                          <div className="px-1 pt-1">
+                          <AddressesEditor
+                            value={editorDraft.addresses}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), addresses: next }))}
+                          />
                           </div>
                           </CollapsibleSection>
 

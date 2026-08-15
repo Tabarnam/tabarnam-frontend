@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Copy, Pencil, ExternalLink, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ShareButton from "@/components/ShareButton";
@@ -92,6 +92,58 @@ async function copyToClipboard(text) {
       return false;
     }
   }
+}
+
+// Renders public structured addresses of a given type (hq or manufacturing)
+// as compact "address text + copy icon" rows. Filters strictly on
+// is_public === true — the admin editor is the source of truth for that
+// flag; the trusted-source rule stamps a default at import time (see
+// api/_addresses.js). Renders nothing when there are no public addresses of
+// the requested type, so it's safe to drop into any location block.
+function PublicAddressList({ addresses, type }) {
+  const items = useMemo(() => {
+    if (!Array.isArray(addresses)) return [];
+    return addresses.filter((a) => {
+      if (!a || typeof a !== "object") return false;
+      if (a.is_public !== true) return false;
+      const t = (a.type === "manufacturing") ? "manufacturing" : "hq";
+      return t === type;
+    });
+  }, [addresses, type]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mt-1 space-y-1">
+      {items.map((a, idx) => {
+        const line = [
+          (a.street || "").toString().trim(),
+          [(a.locality || "").toString().trim(), (a.region || "").toString().trim()].filter(Boolean).join(", "),
+          [(a.postal_code || "").toString().trim(), (a.country || "").toString().trim()].filter(Boolean).join(" "),
+        ].filter(Boolean).join(", ");
+        if (!line) return null;
+        return (
+          <div
+            key={`${line}-${idx}`}
+            className="flex items-center gap-1 text-xs text-muted-foreground"
+          >
+            <span className="truncate">{line}</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                copyToClipboard(line);
+              }}
+              title="Copy address"
+              className="shrink-0 rounded p-0.5 hover:bg-foreground/5 text-muted-foreground hover:text-foreground"
+            >
+              <Copy className="h-3 w-3" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // The logo links to the company's website in a new tab, but it lives inside a
@@ -624,6 +676,7 @@ export default function ExpandableCompanyRow({
             </div>
           ))}
           {hqLocation.length === 0 && <div className="text-sm text-muted-foreground">—</div>}
+          <PublicAddressList addresses={company.addresses} type="hq" />
         </div>
       );
     }
@@ -652,6 +705,7 @@ export default function ExpandableCompanyRow({
             </div>
           ))}
           {manuLocations.length === 0 && <div className="text-sm text-muted-foreground">—</div>}
+          <PublicAddressList addresses={company.addresses} type="manufacturing" />
         </div>
       );
     }
