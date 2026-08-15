@@ -541,6 +541,12 @@ function shapeEnrichedFromParsed(parsed) {
               : [],
           }
         : { hq_source_urls: [], mfg_source_urls: [] },
+    // Opportunistic structured addresses. Pass through as-is; the shape is
+    // normalized downstream by api/_addresses.js (both applyEnrichmentToCompany
+    // and _importStartSaveCompanies run every entry through normalizeAddresses
+    // before persisting). Empty array is safe — mergeAddresses treats it as
+    // "nothing new" and preserves any existing entries on the doc.
+    addresses: Array.isArray(parsed?.addresses) ? parsed.addresses : [],
     red_flag: Boolean(parsed?.red_flag),
     social: parsed?.social && typeof parsed.social === "object" ? parsed.social : {},
   };
@@ -614,6 +620,11 @@ function shapeEnvelopeForApply(flatEnriched) {
       reviews_status: "ok",
       searched_at: now,
     },
+    // Bare array — applyEnrichmentToCompany's addresses block accepts either
+    // this shape (Array.isArray(enriched.addresses)) or an envelope
+    // (enriched.addresses.addresses). Empty is fine; downstream merge treats
+    // it as "nothing new" so it never wipes existing.
+    addresses: Array.isArray(e.addresses) ? e.addresses : [],
   };
 }
 
