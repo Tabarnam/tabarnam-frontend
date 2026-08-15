@@ -2379,14 +2379,15 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    - This allows us to display source attribution to users and verify data quality
    - Example: { "location": "Shanghai, China", "source_url": "https://company.com/facilities", "source_type": "official_website", "location_type": "manufacturing" }
 
-6. STRUCTURED ADDRESSES (Optional, opportunistic capture — do NOT initiate extra searches):
-   - When a page you are ALREADY reading for other fields (contact, about, footer, facilities) contains a structured street address, include it in the "addresses" array.
-   - Do NOT launch additional web_search or browse_page calls specifically to find an address. If nothing structured surfaces from the pages you already read, return an empty array.
+6. ADDRESSES (Optional, opportunistic capture — do NOT initiate extra searches):
+   - When a page you are ALREADY reading for other fields (contact, about, footer, locations, facilities) shows a street address, include it in the "addresses" array.
+   - The address counts whether it appears as schema.org JSON-LD, plain HTML text like "345 West Bonita Avenue, San Dimas, CA 91773", contact-card layout, footer block, or any other visible form. If the street number + street name + city appear together on a page you already read, extract them.
+   - Do NOT launch additional web_search or browse_page calls specifically to find an address. If none of the pages you read show a street address, return an empty array — absence is completely acceptable.
    - Each entry describes ONE physical location and uses this shape:
      { "street": "...", "locality": "...", "region": "...", "postal_code": "...", "country": "US", "type": "hq" | "manufacturing", "source_url": "https://..." }
-   - type: "hq" for headquarters/office/mailing address; "manufacturing" for factory/plant/production facility
-   - Only emit an entry when a street or postal code is genuinely present. Do NOT emit city-only entries — the normalized headquarters_location / manufacturing_locations fields already carry city-level data.
-   - Do NOT fabricate any part of the address. Absence is completely acceptable.
+   - type: "hq" for headquarters/office/mailing/storefront address; "manufacturing" for factory/plant/production facility
+   - Only emit an entry when a real street number + street name are present. Do NOT emit city-only entries — the normalized headquarters_location / manufacturing_locations fields already carry city-level data.
+   - Do NOT fabricate any part of the address.
 
 7. TAGLINE (Optional but valuable):
    - Extract the company's official tagline, mission statement, or brand slogan if available
