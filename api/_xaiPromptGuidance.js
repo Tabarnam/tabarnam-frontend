@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "9.13.1-addresses-accept-text";
+const PROMPT_GUIDANCE_VERSION = "9.13.2-addresses-in-schema";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -558,7 +558,7 @@ ${sourceUrlsLine}
 
 Type-correct empty values (use these when a field can't be verified):
 - tagline, headquarters_location, product_keywords → ""
-- manufacturing_locations, industries, reviews → []
+- manufacturing_locations, industries, reviews, addresses → []
 - location_source_urls → {"hq_source_urls": [], "mfg_source_urls": []}
 - red_flag → false
 
@@ -566,7 +566,7 @@ Never use "" for an array field. Never omit any required field.
 
 Do NOT include field labels (e.g. "HQ:", "Tagline:") inside JSON values — emit only the clean content. Example: headquarters_location should be "Newport Beach, CA, USA", not "HQ: Newport Beach, CA, USA".
 
-Return ONLY a single JSON object with these property names: tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews, location_source_urls (with hq_source_urls and mfg_source_urls), red_flag, social. No prose, no markdown, no extra text.`;
+Return ONLY a single JSON object with these property names: tagline, headquarters_location, manufacturing_locations, industries, product_keywords, reviews, location_source_urls (with hq_source_urls and mfg_source_urls), red_flag, social, addresses (array of {street, locality, region, postal_code, country, type, source_url} — see the ADDRESSES field guidance above; emit [] when no street address is visible on any page you already read). No prose, no markdown, no extra text.`;
 }
 
 // ─── Phase 3.0 — Multi-call parallel canonical architecture ─────────────────
@@ -701,19 +701,22 @@ Manufacturing: List the company's known manufacturing locations. Many consumer b
   4. Before emitting [] — or when the brand's own site hedges with "overseas"/"globally sourced" without naming a country — run an OR-probe with explicit country names: "[Brand]" ("made in China" OR "made in USA" OR "manufactured in"). This surfaces customs/import databases (Panjiva, ImportYeti, Volza); a dominant shipment-origin country in those records is verifiable evidence — emit that country.
 Format each as City, State or Region, Country. Use initials for states or provinces. Use USA, not US. Country-level granularity IS ACCEPTABLE — "Vietnam" alone is valid if specific cities are not disclosed. Output as a JSON array of strings, e.g. ["Görlitz, Germany", "Vietnam"]. For retailer-curators (multi-supplier resellers), list the supplier countries. Only emit [] for pure marketplace platforms (Amazon, eBay).
 
-Also include location_source_urls with hq_source_urls and mfg_source_urls arrays containing the direct source URLs used for verification.`;
+Also include location_source_urls with hq_source_urls and mfg_source_urls arrays containing the direct source URLs used for verification.
+
+Addresses (OPPORTUNISTIC, do NOT initiate extra searches): if any page you ALREADY read for HQ or manufacturing contains a street address, include an entry in the "addresses" array. The address counts whether it appears as schema.org JSON-LD, plain HTML text like "345 West Bonita Avenue, San Dimas, CA 91773", contact-card layout, footer block, or any other visible form — if the street number + street name + city appear together on a page you already read, extract them. Emit [] when nothing surfaces. Each entry: { "street": "...", "locality": "...", "region": "...", "postal_code": "...", "country": "US", "type": "hq" | "manufacturing", "source_url": "https://..." }. Do NOT emit city-only entries and do NOT fabricate; leave unknown sub-fields as "".`;
 
   const emptyValueLines = `- headquarters_location → ""
 - manufacturing_locations → []
-- location_source_urls → {"hq_source_urls": [], "mfg_source_urls": []}`;
+- location_source_urls → {"hq_source_urls": [], "mfg_source_urls": []}
+- addresses → []`;
 
-  const returnKeysLine = `Return ONLY a single JSON object with EXACTLY these property names: headquarters_location (string), manufacturing_locations (array of strings), location_source_urls (object with hq_source_urls and mfg_source_urls arrays of strings). No prose, no markdown, no extra text.`;
+  const returnKeysLine = `Return ONLY a single JSON object with EXACTLY these property names: headquarters_location (string), manufacturing_locations (array of strings), location_source_urls (object with hq_source_urls and mfg_source_urls arrays of strings), addresses (array of {street, locality, region, postal_code, country, type, source_url} objects — emit [] when no street address is visible on any page you already read for HQ or manufacturing). No prose, no markdown, no extra text.`;
 
   return _buildMultiCallScaffold({
     name,
     url,
     homepageContext,
-    fieldsList: "headquarters_location, manufacturing_locations, location_source_urls",
+    fieldsList: "headquarters_location, manufacturing_locations, location_source_urls, addresses",
     perFieldRules,
     emptyValueLines,
     returnKeysLine,
@@ -805,6 +808,29 @@ const CANONICAL_IMPORT_JSON_SCHEMA = {
       },
       additionalProperties: false,
     },
+    // Opportunistic structured addresses — see FIELD_GUIDANCE.addresses.rules.
+    // strict:true + additionalProperties:false means xAI CANNOT emit addresses
+    // at all unless it appears here; that was the bug this schema entry fixes.
+    // Every sub-field is required (strict-mode quirk); the model fills
+    // unknowns with "" and the downstream normalizer (api/_addresses.js)
+    // drops entries that lack a street / locality / postal_code.
+    addresses: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          street: { type: "string" },
+          locality: { type: "string" },
+          region: { type: "string" },
+          postal_code: { type: "string" },
+          country: { type: "string" },
+          type: { type: "string", enum: ["hq", "manufacturing"] },
+          source_url: { type: "string" },
+        },
+        required: ["street", "locality", "region", "postal_code", "country", "type", "source_url"],
+        additionalProperties: false,
+      },
+    },
   },
   required: [
     "tagline",
@@ -815,6 +841,7 @@ const CANONICAL_IMPORT_JSON_SCHEMA = {
     "reviews",
     "location_source_urls",
     "red_flag",
+    "addresses",
   ],
   additionalProperties: false,
 };
