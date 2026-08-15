@@ -12,7 +12,7 @@
 
 "use strict";
 
-const PROMPT_GUIDANCE_VERSION = "9.12.1-mfg-hq-echo-guard";
+const PROMPT_GUIDANCE_VERSION = "9.13.0-opportunistic-addresses";
 
 // ---------------------------------------------------------------------------
 // QUALITY RULES — shared preamble for all XAI prompts
@@ -32,7 +32,7 @@ If data conflicts with the official company site, prioritize the browsed page co
 // FIELD SCHEMA — canonical field list from the import prompt.
 // Each entry describes the JSON key, its type hint, and example shape.
 // ---------------------------------------------------------------------------
-const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url (https://...), email_address, headquarters_location, manufacturing_locations[], amazon_url, red_flag (boolean), reviews[] (objects with { "text": "...", "link": "https://..." }), notes, company_contact_info { "contact_page_url": "https://...", "contact_email": "name@example.com" }`;
+const FIELD_SCHEMA = `company_name, industries[], product_keywords (string), url (https://...), email_address, headquarters_location, manufacturing_locations[], addresses[] (optional; structured address entries with street/locality/region/postal_code/country/type/source_url), amazon_url, red_flag (boolean), reviews[] (objects with { "text": "...", "link": "https://..." }), notes, company_contact_info { "contact_page_url": "https://...", "contact_email": "name@example.com" }`;
 
 // ---------------------------------------------------------------------------
 // FIELD GUIDANCE — per-field rules for research depth and formatting.
@@ -57,6 +57,25 @@ const FIELD_GUIDANCE = {
   "location_source_urls": { "mfg_source_urls": ["https://...", "https://..."] }
 }
 mfg_status: use "ok" when manufacturing locations were found, "not_applicable" when the company is a retailer/marketplace/reseller (not a manufacturer). Omit or use "ok" by default.`,
+  },
+
+  addresses: {
+    rules: `OPPORTUNISTIC ONLY — do NOT initiate additional searches or browse extra pages to acquire an address. If a page you are ALREADY reading for other fields (contact, about, footer, headquarters, or manufacturing) contains a structured street address, extract it into the "addresses" array. If nothing structured surfaces from the pages you already read, return an empty array — absence is completely acceptable.
+
+Each entry describes ONE physical location and uses this shape:
+  { "street": "...", "locality": "...", "region": "...", "postal_code": "...", "country": "US", "type": "hq" | "manufacturing", "source_url": "https://..." }
+
+Field notes:
+  - street: e.g. "61 9th Ave" or "Suite 500, 100 Main St"
+  - locality: city name only
+  - region: state/province initials (e.g. "NY", "ON")
+  - postal_code: as displayed (e.g. "10011", "M5V 3A8")
+  - country: ISO alpha-2 preferred (e.g. "US", "CA", "GB")
+  - type: "hq" for headquarters/office/mailing address; "manufacturing" for factory/plant/production facility
+  - source_url: the SPECIFIC page you read the address on (not the company homepage)
+
+Do NOT fabricate parts you did not see. If the source shows only city/state, do not include that entry — the normalized string field (headquarters_location / manufacturing_locations) already captures city-level data. Only emit an entry when a street or postal code is genuinely present.`,
+    jsonSchema: `"addresses": [{ "street": "...", "locality": "...", "region": "...", "postal_code": "...", "country": "...", "type": "hq" | "manufacturing", "source_url": "https://..." }]`,
   },
 
   industries: {
