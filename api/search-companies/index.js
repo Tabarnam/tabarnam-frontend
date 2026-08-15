@@ -1605,6 +1605,9 @@ function mapCompanyToPublic(doc) {
     location_sources: doc.location_sources,
     show_location_sources_to_users: doc.show_location_sources_to_users,
     visibility: doc.visibility,
+    // Structured addresses — full list ships; the public row filters by
+    // is_public. See api/_addresses.js for the entry shape.
+    addresses: Array.isArray(doc.addresses) ? doc.addresses : undefined,
 
     // Flags
     limited_manufacturing: doc.limited_manufacturing || undefined,
