@@ -390,6 +390,8 @@ async function loadSynonyms() {
     const connectionString = env("AZURE_STORAGE_CONNECTION_STRING", "");
     if (!connectionString) {
       console.warn("[searchSynonyms] No AZURE_STORAGE_CONNECTION_STRING configured");
+      synonymCache = {};
+      cacheExpiresAt = now + CACHE_TTL_MS;
       return {};
     }
 
@@ -399,7 +401,7 @@ async function loadSynonyms() {
 
     const downloadBlockBlobResponse = await blockBlobClient.download(0);
     const downloadedData = await streamToString(downloadBlockBlobResponse.readableStreamBody);
-    
+
     let synonyms = {};
     try {
       synonyms = JSON.parse(downloadedData);
@@ -417,8 +419,17 @@ async function loadSynonyms() {
 
     return synonyms;
   } catch (e) {
+    // Cache the empty result on failure too, so a missing blob (or transient
+    // Azure error) doesn't retrigger a blob download + error log on every
+    // search-companies call. Without this the "blob does not exist" line
+    // fires once per request. With this it fires at most once per
+    // CACHE_TTL_MS per worker. Synonyms are optional — search still works.
+    // A downgrade to `info` would silence the log entirely; keep it at
+    // `warn` because a missing config blob is still worth surfacing when
+    // an admin next checks App Insights.
     console.warn("[searchSynonyms] Failed to load synonyms from Azure Storage:", e.message);
-    // Return empty synonyms but don't fail the search
+    synonymCache = {};
+    cacheExpiresAt = now + CACHE_TTL_MS;
     return {};
   }
 }
