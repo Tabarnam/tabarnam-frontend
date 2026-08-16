@@ -237,7 +237,15 @@ function buildSecondLookPrompt({ companyName, websiteUrl, fields } = {}) {
   const ordered = [...requested].sort(
     (a, b) => SECOND_LOOK_FIELDS.indexOf(a) - SECOND_LOOK_FIELDS.indexOf(b)
   );
-  const fieldList = ordered.map((f) => FIELD_PROMPT_NAMES[f]).join(", ");
+  // Phase — addresses piggyback (2026-08-16, follow-up). The address rider
+  // block goes into the prompt body BELOW, but xAI's model tends to obey
+  // the "Fields to populate:" summary line as the authoritative list. In
+  // the first prod batch (67 companies) the block was appended but the
+  // model skipped it — one second-look call, labels_found had no
+  // 'addresses'. Announcing "addresses" in this header line makes the
+  // model treat the rider as a real requested field and emit the label
+  // whether the value is a real entry OR the "none" sentinel.
+  const fieldList = ordered.map((f) => FIELD_PROMPT_NAMES[f]).concat(["addresses"]).join(", ");
 
   const lines = [
     `For the Company: ${asString(companyName).trim()} / ${asString(websiteUrl).trim()}`,

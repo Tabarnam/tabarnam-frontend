@@ -41,6 +41,19 @@ test("buildSecondLookPrompt always appends the addresses block, regardless of re
   assert.match(p, /Addresses: none/, "prompt must document the 'none' sentinel");
 });
 
+test("buildSecondLookPrompt announces 'addresses' in the 'Fields to populate:' header line", () => {
+  // Real-batch regression 2026-08-16: the address block WAS in the prompt
+  // body but the model skipped it because addresses wasn't listed in the
+  // authoritative "Fields to populate:" summary at the top. Announcing
+  // it makes the model treat the rider as a first-class request.
+  const p = buildSecondLookPrompt({
+    companyName: "X",
+    websiteUrl: "https://x.com",
+    fields: ["reviews"],
+  });
+  assert.match(p, /Fields to populate:[^\n]*addresses/, "header line must include 'addresses'");
+});
+
 test("buildSecondLookPrompt includes addresses even when reviews is the only trigger (real second-look shape)", () => {
   const p = buildSecondLookPrompt({
     companyName: "X",
