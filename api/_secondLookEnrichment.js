@@ -197,6 +197,22 @@ const FIELD_BLOCKS = {
   product_keywords:
     "Keywords: Exhaustive, complete list of all products, separated by commas. " +
     "Format: Keywords: product1, product2, product3",
+  // Phase — addresses piggyback (2026-08-16). Plain-text pipe-delimited
+  // shape so the parser reads it deterministically. "none" (or an empty
+  // "Addresses:" line) means the model saw no street on any page it
+  // browsed — the empty result is safe: mergeAddresses preserves existing
+  // entries, so a "none" answer never wipes a prior capture.
+  addresses:
+    "Addresses: On pages you already browsed for HQ/manufacturing (contact, about, footer, " +
+    "storefront, or facility pages), extract any real street addresses. A real address requires " +
+    "BOTH a street number and a street name visible together (e.g. \"3131 S. Dixie Highway\"); " +
+    "city-only entries do NOT count — those already live in HQ/Manufacturing. Do NOT invent " +
+    "parts you did not see, and do NOT initiate additional searches just to find an address. " +
+    "One entry per physical location. Emit each on its own line as:\n" +
+    "  Address: <street> | <city> | <state or region initials> | <postal code> | <country> | type=hq|manufacturing | source=<url>\n" +
+    "Use \"USA\" not \"US\" for country. Leave blank slots empty (still emit the pipes). Every " +
+    "entry MUST start with the literal label \"Address:\". If no street addresses are visible " +
+    "on the pages you browsed, output exactly one line: Addresses: none",
   reviews:
     "Reviews: Find 3 unique, legitimate third-party reviews with working URLs. Use 1-2 " +
     "YouTube reviews focused solely on the current company or its products; do not include " +
@@ -237,6 +253,15 @@ function buildSecondLookPrompt({ companyName, websiteUrl, fields } = {}) {
   for (const f of ordered) {
     lines.push(FIELD_BLOCKS[f]);
   }
+  // Phase — addresses piggyback (2026-08-16). Unconditionally appended
+  // after the ordered request blocks: no caller ever puts "addresses" in
+  // requested (it's not a SECOND_LOOK_FIELDS member), but every call to
+  // the second-look already burns an xAI budget for the requested
+  // fields, so we ride along and ask for addresses too. The parser
+  // reads them into parsed.addresses regardless of what was requested;
+  // runSecondLookCall then merges them onto the doc via the existing
+  // applyEnrichmentToCompany addresses_block path.
+  lines.push(FIELD_BLOCKS.addresses);
   return lines.join("\n");
 }
 
@@ -256,6 +281,11 @@ const TOP_LABELS = {
   keywords: "product_keywords",
   products: "product_keywords",
   reviews: "reviews",
+  // Phase — addresses piggyback rider (2026-08-16). Not part of
+  // SECOND_LOOK_FIELDS by intent: addresses ride along on every
+  // second-look call for free, and their capture never gates the
+  // "field completed" validation for the six real fields.
+  addresses: "addresses",
 };
 
 const REVIEW_LABELS = new Set(["source", "author", "url", "title", "date", "text"]);
@@ -271,7 +301,7 @@ function stripMarkdownLine(line) {
 
 function matchTopLabel(line) {
   const m = stripMarkdownLine(line).match(
-    /^\s*(tagline|hq|headquarters|manufacturing|industries|keywords|products|reviews)\s*:\s*(.*)$/i
+    /^\s*(tagline|hq|headquarters|manufacturing|industries|keywords|products|reviews|addresses)\s*:\s*(.*)$/i
   );
   if (!m) return null;
   return { field: TOP_LABELS[m[1].toLowerCase()], rest: m[2] || "" };
@@ -295,6 +325,62 @@ function splitCommasToArray(value) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+// Phase — addresses piggyback (2026-08-16). Each entry line inside the
+// Addresses section is expected as:
+//   Address: street | locality | region | postal | country | type=hq|manufacturing | source=<url>
+// Empty slots are still emitted as adjacent pipes. An "Addresses: none"
+// header collapses to zero entries. Anything the model shapes that
+// doesn't yield a real street (per api/_addresses.js:normalizeAddressEntry)
+// is dropped downstream, so a partial or garbled entry safely collapses
+// to nothing rather than polluting the doc.
+function parseAddressBlocks(lines) {
+  const entries = [];
+  for (const raw of lines) {
+    const line = stripMarkdownLine(raw).trim();
+    if (!line) continue;
+    // "none" (from the "Addresses: none" sentinel) — the header line lands
+    // in sections.addresses as "none" per the top-label handler; treat it
+    // as the explicit no-entries signal and skip.
+    if (/^none$/i.test(line)) continue;
+
+    // Only entry lines that carry the per-entry "Address:" label. Lines
+    // without the label are narrative or filler and get ignored — the
+    // model may prepend a summary sentence before the first Address:.
+    const m = line.match(/^\s*(?:-\s*)?address\s*:\s*(.*)$/i);
+    if (!m) continue;
+    const body = m[1].trim();
+    if (!body) continue;
+
+    const parts = body.split("|").map((s) => s.trim());
+    // Minimum shape: street + city. Everything past position 5 (kv-pairs
+    // for type/source) is optional; we scan any remaining part for
+    // type=... / source=... regardless of position, since the model
+    // occasionally rearranges tail fields.
+    if (parts.length < 2) continue;
+    const [street = "", locality = "", region = "", postal_code = "", country = "", ...tail] = parts;
+    let type = "";
+    let source_url = "";
+    for (const t of tail) {
+      const kv = t.match(/^(type|source|source_url)\s*=\s*(.*)$/i);
+      if (!kv) continue;
+      const key = kv[1].toLowerCase();
+      const val = kv[2].trim();
+      if (key === "type") type = val.toLowerCase();
+      else source_url = val;
+    }
+    entries.push({
+      street,
+      locality,
+      region,
+      postal_code,
+      country,
+      type,
+      source_url,
+    });
+  }
+  return entries;
 }
 
 function parseReviewBlocks(lines) {
@@ -408,6 +494,10 @@ function parseSecondLookOutput(rawText) {
     industries: splitCommasToArray(joined("industries")),
     product_keywords: splitCommasToArray(joined("product_keywords")).join(", "),
     reviews: sections.reviews ? parseReviewBlocks(sections.reviews) : [],
+    // Phase — addresses piggyback (2026-08-16). parseAddressBlocks handles
+    // both the "Addresses: none" sentinel (returns []) and the per-entry
+    // "Address: ..." lines that fall inside the section.
+    addresses: sections.addresses ? parseAddressBlocks(sections.addresses) : [],
     location_source_urls: { hq_source_urls: [], mfg_source_urls: [] },
     red_flag: false,
     social: {},
@@ -621,6 +711,17 @@ async function runSecondLookCall({ company, fields, budgetMs, signal, modelOverr
   for (const f of requested) {
     if (fullEnvelope[f]) enriched[f] = fullEnvelope[f];
   }
+  // Phase — addresses piggyback (2026-08-16). Ride-along output: always
+  // pass through if the model returned any (even one) parsed entries,
+  // regardless of what was requested. applyEnrichmentToCompany's
+  // addresses_block runs mergeAddresses which preserves existing entries
+  // AND admin-edited flags (is_public, type) on collision — so a
+  // partial or misclassified return is safe. An empty array is skipped
+  // explicitly so we don't overwrite a good primary-pass capture with
+  // "the model didn't answer this time".
+  if (Array.isArray(fullEnvelope.addresses) && fullEnvelope.addresses.length > 0) {
+    enriched.addresses = fullEnvelope.addresses;
+  }
 
   console.log(`[secondLook] call_end`, {
     company_id: company?.id || null,
@@ -669,6 +770,7 @@ module.exports = {
   decideSecondLook,
   buildSecondLookPrompt,
   parseSecondLookOutput,
+  parseAddressBlocks,
   unionKeywordStrings,
   unionLocationArrays,
   runSecondLookCall,
