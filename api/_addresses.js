@@ -109,18 +109,31 @@ function normalizeAddresses(rawArray, opts) {
 }
 
 // Two entries are "the same address" if their street + locality + postal_code
-// match case-insensitively (blank fields still have to match blank). This is
-// intentionally strict — merging distinct entries by anything looser would
-// silently collapse siblings that just happen to share a city.
+// AND type match case-insensitively (blank fields still have to match blank).
+// This is intentionally strict — merging distinct entries by anything looser
+// would silently collapse siblings that just happen to share a city.
 //
-// `type` is deliberately NOT part of the identity: it's an editable field
-// (admin corrects an extractor's misclassification) so on a re-import we
-// must be able to find the existing entry regardless of the incoming type.
+// 2026-08-16 — `type` IS now part of the identity. Small wineries and single-
+// facility producers routinely have IDENTICAL HQ and Manufacturing addresses
+// (one building, both roles). Before this change, dedupeAddresses collapsed
+// them first-wins to a single hq entry — the Henri Giraud paste (71 Boulevard
+// Charles de Gaulle, both roles) landed only the hq entry with no way to
+// represent the manufacturing side. Including type keeps them as two
+// coexisting entries so the admin editor and public projection can show them
+// as distinct rows.
+//
+// Trade-off (accepted): mergeAddresses used to preserve an admin-corrected
+// type on re-import via the without-type key match. With type in the key, a
+// re-import that says type=hq for an entry the admin previously flipped to
+// type=manufacturing produces a duplicate (both stored) rather than silently
+// keeping the admin's correction. Admin can delete the duplicate — a small
+// UX cost for the more common gain of same-address dual-type support.
 function addressKey(entry) {
   return [
     trimOrEmpty(entry.street).toLowerCase(),
     trimOrEmpty(entry.locality).toLowerCase(),
     trimOrEmpty(entry.postal_code).toLowerCase(),
+    trimOrEmpty(entry.type).toLowerCase(),
   ].join("|");
 }
 

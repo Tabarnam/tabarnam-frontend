@@ -66,6 +66,26 @@ Manufacturing: Charlotte, NC, USA; Portland, OR, USA`);
     expect(proposed.manufacturing_locations[1].region).toBe("OR");
   });
 
+  it("Mfg: abbreviated label populates proposed.manufacturing_locations (regression: Henri Giraud paste 2026-08-16)", () => {
+    // The bulk-paste dialog placeholder AND the second-look prompt both
+    // use "mfg" (Phase 4.38.G rename); the parser must accept the same
+    // shortened label. Before the fix, "Mfg: Aÿ-Champagne, France" fell
+    // through the FIELD_LABEL_RE and manufacturing_locations was silently
+    // undefined, leaving the row's "Still adding manufacturing_locations..."
+    // pill stuck.
+    const { proposed } = parseBulkPasteText(`Henri Giraud
+Mfg: Aÿ-Champagne, France`);
+    expect(proposed.manufacturing_locations).toHaveLength(1);
+    expect(proposed.manufacturing_locations[0].city).toBe("Aÿ-Champagne");
+    expect(proposed.manufacturing_locations[0].region).toBe("France");
+  });
+
+  it("Mfg locations: (with 'locations' suffix on abbreviation) also populates the field", () => {
+    const { proposed } = parseBulkPasteText(`Acme
+Mfg locations: Charlotte, NC, USA; Portland, OR, USA`);
+    expect(proposed.manufacturing_locations).toHaveLength(2);
+  });
+
   it("Industries: comma list populates proposed.industries", () => {
     const { proposed } = parseBulkPasteText(`Acme
 Industries: Snack Foods, Beef Jerky, Dried Meats`);
@@ -292,5 +312,47 @@ Text: Lovely.`;
     expect((proposed.curated_reviews || [])[0]?.url).toBe(
       "https://www.wineenthusiast.com/buying-guide/ch-berres-2011/"
     );
+  });
+});
+
+describe("parseBulkPasteText — Henri Giraud paste (regression 2026-08-16)", () => {
+  // Real admin paste 2026-08-16: HQ+Mfg both at the same physical address
+  // (small champagne house, single-facility). Before the fix, "Mfg: ..."
+  // fell through the field regex AND the two identical-street addresses
+  // collapsed via first-wins to a single hq entry. Post-fix, both
+  // manufacturing_locations AND both address entries (hq + manufacturing)
+  // must survive parse.
+  it("populates HQ + Mfg locations AND both address entries at the same street", () => {
+    const paste = `Henri Giraud
+Tagline: Preclude nothing, be bound by nothing, make good wine naturally
+Industries: Champagne production, wine production, viticulture, négociant-manipulant
+HQ: Aÿ-Champagne, France
+Mfg: Aÿ-Champagne, France
+HQ address: 71 Boulevard Charles de Gaulle, Aÿ-Champagne, Marne, 51160, France
+Mfg address: 71 Boulevard Charles de Gaulle, Aÿ-Champagne, Marne, 51160, France
+Keywords: Argonne, Dame-Jane, Blanc de Craie`;
+
+    const { proposed, warnings } = parseBulkPasteText(paste);
+
+    expect(proposed.company_name).toBe("Henri Giraud");
+    expect(proposed.headquarters_locations).toHaveLength(1);
+    expect(proposed.headquarters_locations[0].city).toBe("Aÿ-Champagne");
+
+    // Bug 1 fix: Mfg: label now recognized.
+    expect(proposed.manufacturing_locations).toHaveLength(1);
+    expect(proposed.manufacturing_locations[0].city).toBe("Aÿ-Champagne");
+
+    // Frontend parser emits both. Backend addressKey (now includes type)
+    // preserves both. This test guards the frontend half; the address-side
+    // dedupe contract is covered in api/_addresses.test.js.
+    expect(proposed.addresses).toHaveLength(2);
+    const byType = Object.fromEntries((proposed.addresses || []).map((a) => [a.type, a]));
+    expect(byType.hq).toBeTruthy();
+    expect(byType.manufacturing).toBeTruthy();
+    expect(byType.hq.street).toBe("71 Boulevard Charles de Gaulle");
+    expect(byType.manufacturing.street).toBe("71 Boulevard Charles de Gaulle");
+    expect(byType.hq.postal_code).toBe("51160");
+
+    expect(warnings).not.toContain("No manufacturing locations found");
   });
 });

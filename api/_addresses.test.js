@@ -128,10 +128,26 @@ test("normalizeAddresses: deduplicates entries by (street, locality, postal_code
   assert.equal(arr.length, 2);
 });
 
-test("normalizeAddresses: same street DEDUPES regardless of type (type is editable, not identity)", () => {
+test("normalizeAddresses: same street with DIFFERENT type KEEPS both (2026-08-16 — HQ+Mfg at one location)", () => {
+  // Small wineries and single-facility producers routinely have the same
+  // physical address for HQ and Manufacturing. Both roles must survive
+  // dedup so the admin editor and public projection can show them as two
+  // distinct rows. Regression: Henri Giraud paste (71 Boulevard Charles
+  // de Gaulle for both HQ and Mfg) landed only the hq entry before this.
   const arr = normalizeAddresses([
     { street: "1 Test St", locality: "Portland", type: "hq" },
     { street: "1 Test St", locality: "Portland", type: "manufacturing" },
+  ]);
+  assert.equal(arr.length, 2);
+  const types = arr.map((a) => a.type).sort();
+  assert.deepEqual(types, ["hq", "manufacturing"]);
+});
+
+test("normalizeAddresses: same street AND same type DEDUPES to one (defensive against dup source scrapes)", () => {
+  // Type is part of identity; SAME type at SAME address is still one entry.
+  const arr = normalizeAddresses([
+    { street: "1 Test St", locality: "Portland", type: "hq", source_url: "https://a" },
+    { street: "1 Test St", locality: "Portland", type: "hq", source_url: "https://b" },
   ]);
   assert.equal(arr.length, 1);
 });
@@ -170,10 +186,13 @@ test("mergeAddresses: NEVER wipes existing when re-import returns null/undefined
   assert.equal(mergeAddresses(existing, undefined).length, 1);
 });
 
-test("mergeAddresses: on key match, existing is_public and type WIN (admin edits protected)", () => {
+test("mergeAddresses: SAME street + SAME type — existing is_public WINS, fact fields refresh (admin edits protected)", () => {
+  // 2026-08-16 — type is now part of the identity key. Collision means
+  // same street+locality+postal AND same type. is_public still stays
+  // (admin-editable); source_url + fetched_at refresh from the new import.
   const existing = [
     { street: "1 Test St", locality: "Portland", postal_code: "97201",
-      type: "manufacturing", source_url: "https://old.example.com",
+      type: "hq", source_url: "https://old.example.com",
       fetched_at: "2026-01-01T00:00:00.000Z", is_public: true },
   ];
   const incoming = [
@@ -183,10 +202,30 @@ test("mergeAddresses: on key match, existing is_public and type WIN (admin edits
   ];
   const merged = mergeAddresses(existing, incoming);
   assert.equal(merged.length, 1);
-  assert.equal(merged[0].type, "manufacturing", "admin's type stays");
   assert.equal(merged[0].is_public, true, "admin's is_public stays");
   assert.equal(merged[0].source_url, "https://new.example.com", "fact fields refresh");
   assert.equal(merged[0].fetched_at, "2026-08-06T00:00:00.000Z");
+});
+
+test("mergeAddresses: SAME street + DIFFERENT type — BOTH entries coexist (2026-08-16 contract change)", () => {
+  // Documents the trade-off: if admin previously changed type on an
+  // existing entry, a re-import that comes back with the ORIGINAL type
+  // now produces a duplicate (both stored) rather than silently keeping
+  // the admin's correction. Acceptable cost for enabling HQ+Mfg-at-one-
+  // location — admin can delete the duplicate from the editor.
+  const existing = [
+    { street: "1 Test St", locality: "Portland", postal_code: "97201",
+      type: "manufacturing", is_public: true },
+  ];
+  const incoming = [
+    { street: "1 Test St", locality: "Portland", postal_code: "97201",
+      type: "hq", is_public: false },
+  ];
+  const merged = mergeAddresses(existing, incoming);
+  assert.equal(merged.length, 2, "different types at same address are now distinct entries");
+  const byType = Object.fromEntries(merged.map((m) => [m.type, m]));
+  assert.equal(byType.manufacturing.is_public, true, "existing admin fields preserved on its own entry");
+  assert.equal(byType.hq.is_public, false);
 });
 
 test("mergeAddresses: new distinct entries are appended", () => {

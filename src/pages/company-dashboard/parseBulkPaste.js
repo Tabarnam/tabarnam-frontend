@@ -65,8 +65,14 @@ function parseBulkAddresses(text, type) {
 
 // ── field-label regex ────────────────────────────────────────────────
 
+// 2026-08-16 — accept "Mfg" as an abbreviated Manufacturing label alongside
+// the full word (paired with the "mfg" the bulk-paste dialog placeholder
+// hints at, and matched by admins pasting Grok output that shortened it).
+// The address-branch (HQ|Mfg)\s+(address...) already accepted both forms;
+// only the location branch was full-word-only, so "Mfg: Aÿ-Champagne,
+// France" fell through and the field silently didn't populate.
 const FIELD_LABEL_RE =
-  /^\s*(Tagline|Website|URL|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Industries|Products|Keywords|Reviews|(?:HQ|Mfg)\s+(?:address(?:es)?|street\s*#?\s*s))\s*:\s*(.*)$/i;
+  /^\s*(Tagline|Website|URL|HQ|Headquarters(?:\s+locations?)?|Manufacturing(?:\s+locations?)?|Mfg(?:\s+locations?)?|Industries|Products|Keywords|Reviews|(?:HQ|Mfg)\s+(?:address(?:es)?|street\s*#?\s*s))\s*:\s*(.*)$/i;
 
 function normalizeFieldLabel(raw) {
   const l = raw.trim().toLowerCase().replace(/\s+/g, " ");
@@ -74,7 +80,7 @@ function normalizeFieldLabel(raw) {
   if (/^hq\s+(?:address(?:es)?|street\s*#?\s*s)$/.test(l))  return "hq_addresses";
   if (/^mfg\s+(?:address(?:es)?|street\s*#?\s*s)$/.test(l)) return "mfg_addresses";
   if (l === "hq" || l.startsWith("headquarters")) return "headquarters_locations";
-  if (l.startsWith("manufacturing")) return "manufacturing_locations";
+  if (l.startsWith("manufacturing") || l === "mfg" || l.startsWith("mfg location")) return "manufacturing_locations";
   if (l === "industries") return "industries";
   if (l === "keywords" || l === "products") return "keywords";
   if (l === "website" || l === "url") return "website_url";
