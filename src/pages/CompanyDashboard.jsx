@@ -1287,8 +1287,11 @@ export default function CompanyDashboard() {
     const draft = buildCompanyDraft(company);
 
     setEditorOriginalId(id || null);
-    draft.logo_approved = false;
-    draft.homepage_approved = false;
+    // NOTE: earlier revisions reset draft.logo_approved and draft.homepage_approved
+    // to false here on every editor open. That silently un-approved any
+    // previously-approved logo/homepage every session — the admin's checkbox
+    // never persisted across reopens because this line clobbered the Cosmos
+    // value before the checkbox rendered. Removed.
     // (Amazon URL pre-fill now lives in buildCompanyDraft so it applies to every
     // editor-open path, including the import-review flow.)
     editorHistory.resetHistory(draft);

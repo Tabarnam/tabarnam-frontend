@@ -2061,9 +2061,34 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           // the same normalizer the import path uses so junk rows and
           // non-canonical keys get cleaned up before persisting. Absent
           // incoming array is treated as "no change" — carry the existing.
-          addresses: Array.isArray(base.addresses)
-            ? normalizeAddresses(base.addresses)
-            : (Array.isArray(existingDoc?.addresses) ? existingDoc.addresses : []),
+          //
+          // Diagnostic (2026-08-15): admin reports the "Public" checkbox on
+          // addresses is not persisting. Log the incoming vs normalized
+          // is_public flags so we can see whether the frontend is sending true
+          // or false. Also logs amazon_url_approved / logo_approved /
+          // homepage_approved for the same reason. Cheap; small payload.
+          addresses: (() => {
+            const incomingAddresses = Array.isArray(base.addresses) ? base.addresses : null;
+            const existingAddresses = Array.isArray(existingDoc?.addresses) ? existingDoc.addresses : [];
+            const result = incomingAddresses ? normalizeAddresses(incomingAddresses) : existingAddresses;
+            try {
+              context.log("[admin-companies-v2] approval_flags_snapshot", {
+                company_id: String(id || "").trim(),
+                had_incoming_addresses: !!incomingAddresses,
+                incoming_addresses_is_public: incomingAddresses
+                  ? incomingAddresses.map((a) => (a && typeof a === "object" ? a.is_public : "(non-object)"))
+                  : null,
+                persisted_addresses_is_public: result.map((a) => a?.is_public),
+                incoming_amazon_url_approved: incoming?.amazon_url_approved,
+                existing_amazon_url_approved: existingDoc?.amazon_url_approved,
+                incoming_logo_approved: incoming?.logo_approved,
+                existing_logo_approved: existingDoc?.logo_approved,
+                incoming_homepage_approved: incoming?.homepage_approved,
+                existing_homepage_approved: existingDoc?.homepage_approved,
+              });
+            } catch {}
+            return result;
+          })(),
           updated_at: now,
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };
