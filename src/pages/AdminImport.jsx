@@ -200,6 +200,43 @@ function clearQueueFromStorage(storage, key) {
   }
 }
 
+// 2026-08-16 — match the target company for an Apply Industries/Products row
+// when the fast paths (cached doc / verified id) both miss. URL is the reliable
+// identity signal in this dataset (names collide across brands — "Ridge" alone
+// hits Ridge Vineyards / Ridgeview / Blue Ridge Farms). Pure so unit tests
+// don't need the whole component.
+//
+// Contract:
+//   - row.companyUrl present → require EXACT normalized_domain match; no name
+//     fallback. A URL row that doesn't find its domain stays a miss (drifting
+//     to a same-word-different-company doc is worse than "not applied").
+//   - row.companyUrl absent → require EXACT case-insensitive company_name
+//     match. No fuzzy substring in either direction (used to accept
+//     name.includes(row.name) || row.name.includes(name), which turned every
+//     one-word brand into a wildcard).
+//   - Return null when nothing qualifies.
+export function findApplyTarget({ domain, name, items } = {}) {
+  const list = Array.isArray(items) ? items : [];
+  const d = (domain || "").trim().toLowerCase();
+  const n = (name || "").trim().toLowerCase();
+  if (list.length === 0) return null;
+  if (d) {
+    for (const c of list) {
+      const cd = String(c?.normalized_domain || "").toLowerCase().replace(/^www\./, "");
+      if (cd && cd === d) return c;
+    }
+    return null;
+  }
+  if (n) {
+    for (const c of list) {
+      const cn = String(c?.company_name || "").trim().toLowerCase();
+      if (cn && cn === n) return c;
+    }
+    return null;
+  }
+  return null;
+}
+
 // Phase 4.38.H — collapse succession rows that resolve to the same target
 // (companyName + companyUrl, case-insensitive) so an accidental duplicate
 // paste doesn't cause two backend requests for the same company. Without
@@ -4058,26 +4095,19 @@ export default function AdminImport() {
         // Slow path — search by domain, then by name. Each /search call
         // is ~35s against the 9663-company catalog (cross-partition fuzzy);
         // we should rarely reach this branch after the import flow stashes
-        // saved_companies on every row's run.
+        // saved_companies on every row's run. Matcher is the pure helper
+        // findApplyTarget (see below the component) so it can be unit-tested
+        // without spinning up the whole page.
         if (!existing) {
-          let items = [];
-          for (const q of [domain, name].filter(Boolean)) {
+          const q = domain || name;
+          if (q) {
             const { res: searchRes } = await apiFetchWithFallback([`/xadmin-api-companies?search=${encodeURIComponent(q)}&take=20`]);
-            if (!searchRes.ok) continue;
-            const data = await searchRes.json().catch(() => ({}));
-            items = data?.items || [];
-            if (items.length > 0) break;
+            if (searchRes.ok) {
+              const data = await searchRes.json().catch(() => ({}));
+              existing = findApplyTarget({ domain, name, items: data?.items || [] });
+              if (existing) pathCounts.search += 1;
+            }
           }
-          existing = items.find((c) => {
-            const d = String(c.normalized_domain || "").toLowerCase().replace(/^www\./, "");
-            if (domain && d === domain) return true;
-            const n = String(c.company_name || "").toLowerCase();
-            if (name && n === name.toLowerCase()) return true;
-            // Fuzzy: name contains or is contained
-            if (name && (n.includes(name.toLowerCase()) || name.toLowerCase().includes(n))) return true;
-            return false;
-          });
-          if (existing) pathCounts.search += 1;
         }
 
         if (!existing) {
