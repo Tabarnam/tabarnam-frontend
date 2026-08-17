@@ -93,6 +93,27 @@ test("expandProductSynonyms: contact lens solution ↔ contact solution", () => 
   assert.ok(expandProductSynonyms("contact solution").includes("contact lens solution"), "contact solution → contact lens solution");
 });
 
+test("expandProductSynonyms: flying-insect control terms cross-expand", () => {
+  const fromZapper = expandProductSynonyms("bug zapper");
+  assert.ok(fromZapper.includes("flying insect trap"), "bug zapper → flying insect trap");
+  assert.ok(fromZapper.includes("mosquito control"), "bug zapper → mosquito control");
+  assert.ok(fromZapper.includes("pest control"), "bug zapper → pest control");
+  assert.ok(expandProductSynonyms("mosquito control").includes("bug zapper"), "mosquito control → bug zapper");
+  assert.ok(
+    expandProductSynonyms("electric insect killer").includes("flying insect trap"),
+    "electric insect killer → flying insect trap"
+  );
+});
+
+test("expandProductSynonyms: the insect group needs the full phrase, no bare-word leak", () => {
+  // "bug" and "control" alone must not trigger the group.
+  assert.deepEqual(expandProductSynonyms("bug"), []);
+  assert.ok(
+    !expandProductSynonyms("remote control").some((v) => /zapper|mosquito|insect|pest/.test(v)),
+    "'remote control' must not pull in insect-control synonyms"
+  );
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });

@@ -205,6 +205,14 @@ const PRODUCT_SYNONYM_GROUPS = [
   ["umbrella", "parasol"],
   ["wallet", "billfold"],
   ["wallets", "billfolds"],
+  // Flying-insect control — one buying intent under many names (device + goal).
+  // Measured on the catalog, the same makers (Zevo, Dynatrap, Black Flag,
+  // Victor, Terro, Wondercide) recur across all of these, so a search for any
+  // one should reach the rest. Every term is a distinctive multi-word phrase,
+  // so this only fires on the full phrase — no bare-word ("bug"/"control")
+  // leakage. Adjacent terms "fly trap" / "insect killer" are strong too; add on
+  // request.
+  ["flying insect trap", "bug zapper", "electric insect killer", "mosquito control", "pest control"],
 ];
 
 // Build a fast lookup: word → [synonym1, synonym2, ...]
