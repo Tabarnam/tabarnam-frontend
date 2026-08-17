@@ -173,10 +173,19 @@ export default function SearchCard({
   // by the state→top-city helper. Reset after the submit and on city onChange.
   const cityClearedByUserRef = useRef(false);
 
+  // On the home page the box auto-focuses so it's ready to type immediately
+  // (like google.com). But that programmatic focus fires the same onFocus that
+  // opens the recent-searches panel — which we do NOT want on load; the user
+  // should see an empty box, not their history. This one-shot guard suppresses
+  // recents for exactly that mount focus. Seeded from autoFocus so the shared
+  // results-page SearchCard (autoFocus=false) is unaffected, and cleared on the
+  // first focus so any genuine user focus afterward behaves normally.
+  const suppressRecentsOnMountFocusRef = useRef(autoFocus);
   useEffect(() => {
     if (!autoFocus) return;
 
     const t = setTimeout(() => {
+      suppressRecentsOnMountFocusRef.current = true;
       inputRef.current?.focus();
     }, 0);
 
@@ -654,6 +663,12 @@ export default function SearchCard({
 
   // Show recent searches when input focused and empty (Feature E)
   const handleInputFocus = () => {
+    // The initial autofocus on the home page should leave the box empty and
+    // waiting, not open the recents panel. Consume the one-shot guard here.
+    if (suppressRecentsOnMountFocusRef.current) {
+      suppressRecentsOnMountFocusRef.current = false;
+      return;
+    }
     if (q.trim().length < 2) {
       const cached = getCachedSearches();
       if (cached.length > 0) {
@@ -786,7 +801,6 @@ export default function SearchCard({
           )}
           <Input
             ref={inputRef}
-            autoFocus={autoFocus}
             value={q}
             onChange={(e)=>setQ(e.target.value)}
             onKeyDown={onKeyDown}
