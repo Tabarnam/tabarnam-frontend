@@ -14,10 +14,11 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
-import { RefreshCcw } from "lucide-react";
+import { RefreshCcw, Search, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 function asString(v) {
@@ -147,6 +148,10 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
   // (the underlying query is TOP-N with a 4x over-fetch for filtering,
   // so cost stays bounded).
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
+  // Client-side search over the already-loaded feed (matches summary text
+  // and actor email). Typing a query auto-expands the fetch to the full
+  // EXPANDED_LIMIT so the search covers as much history as the API allows.
+  const [query, setQuery] = useState("");
   const mountedRef = useRef(true);
   const limitRef = useRef(DEFAULT_LIMIT);
   limitRef.current = limit;
@@ -205,6 +210,31 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
   // limit — if we're already seeing < 25 items, there's nothing more.
   const couldHaveMore = !isExpanded && items.length >= DEFAULT_LIMIT;
 
+  // When the user starts searching, pull the full EXPANDED_LIMIT set (once)
+  // so results aren't limited to the first 25 fetched on mount.
+  const onQueryChange = useCallback(
+    (value) => {
+      setQuery(value);
+      if (value.trim() && !isExpanded && items.length >= DEFAULT_LIMIT) {
+        setLimit(EXPANDED_LIMIT);
+        load(EXPANDED_LIMIT);
+      }
+    },
+    [isExpanded, items.length, load]
+  );
+
+  // Filter the loaded feed by matching the query against the rendered
+  // summary line plus the actor email. Case-insensitive, whitespace-tolerant.
+  const trimmedQuery = query.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!trimmedQuery) return items;
+    return items.filter((row) => {
+      const haystack = `${describeRow(row)} ${asString(row.actor_email)}`.toLowerCase();
+      return haystack.includes(trimmedQuery);
+    });
+  }, [items, trimmedQuery]);
+  const isSearching = trimmedQuery.length > 0;
+
   return (
     <details open className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
       <summary className="cursor-pointer select-none text-sm font-medium text-slate-800 dark:text-foreground flex items-center justify-between gap-2">
@@ -212,7 +242,7 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
           Recent activity
           {items.length > 0 ? (
             <span className="ml-2 text-xs font-normal text-slate-500 dark:text-muted-foreground">
-              ({items.length})
+              ({isSearching ? `${filtered.length} of ${items.length}` : items.length})
             </span>
           ) : null}
         </span>
@@ -234,6 +264,32 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
       </summary>
 
       <div className="mt-3 space-y-1">
+        {/* Search box — filters the loaded feed by company/term or actor. */}
+        {!error && items.length > 0 ? (
+          <div className="relative mb-2">
+            <Search className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 dark:text-muted-foreground" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => onQueryChange(e.target.value)}
+              placeholder="Search a company or term…"
+              aria-label="Search recent activity"
+              className="w-full rounded border border-slate-300 dark:border-border bg-white dark:bg-card pl-7 pr-7 py-1 text-xs text-slate-800 dark:text-foreground placeholder:text-slate-400 dark:placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-muted-foreground hover:text-slate-700 dark:hover:text-foreground"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
         {error ? (
           <div className="text-xs text-red-700 dark:text-red-400">
             Failed to load recent activity: {error}
@@ -244,9 +300,13 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
           <div className="text-xs text-slate-500 dark:text-muted-foreground">
             No recent activity yet. Imports, edits, and batch applies will appear here as you make them.
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-xs text-slate-500 dark:text-muted-foreground">
+            No activity matches “{query.trim()}”.
+          </div>
         ) : (
           <ul className="divide-y divide-slate-200 dark:divide-border">
-            {items.map((row) => {
+            {filtered.map((row) => {
               const summary = describeRow(row);
               const actor = asString(row.actor_email).trim();
               const relative = formatRelativeTime(row.created_at);
@@ -279,8 +339,9 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
         {!error && items.length > 0 && (couldHaveMore || isExpanded) ? (
           <div className="mt-2 pt-2 border-t border-slate-200 dark:border-border flex items-center justify-between text-[11px]">
             <span className="text-slate-500 dark:text-muted-foreground">
-              Showing {items.length} {items.length === 1 ? "item" : "items"}
-              {isExpanded ? ` (up to ${EXPANDED_LIMIT})` : ""}
+              {isSearching
+                ? `${filtered.length} of ${items.length} ${items.length === 1 ? "item" : "items"} match`
+                : `Showing ${items.length} ${items.length === 1 ? "item" : "items"}${isExpanded ? ` (up to ${EXPANDED_LIMIT})` : ""}`}
             </span>
             {isExpanded ? (
               <button
