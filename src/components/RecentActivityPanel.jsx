@@ -20,6 +20,7 @@ import React, {
 } from "react";
 import { RefreshCcw, Search, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { filterActivity } from "@/lib/fuzzyActivityMatch";
 
 function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
@@ -223,17 +224,19 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
     [isExpanded, items.length, load]
   );
 
-  // Filter the loaded feed by matching the query against the rendered
-  // summary line plus the actor email. Case-insensitive, whitespace-tolerant.
-  const trimmedQuery = query.trim().toLowerCase();
-  const filtered = useMemo(() => {
-    if (!trimmedQuery) return items;
-    return items.filter((row) => {
-      const haystack = `${describeRow(row)} ${asString(row.actor_email)}`.toLowerCase();
-      return haystack.includes(trimmedQuery);
-    });
-  }, [items, trimmedQuery]);
-  const isSearching = trimmedQuery.length > 0;
+  // Filter the loaded feed by matching the query against the rendered summary
+  // line plus the actor email. Reuses the app's search normalization
+  // (case/diacritic/punctuation/spacing/plural-insensitive) and adds an
+  // edit-distance fallback so typos ("aspctek" → "Aspectek") still match.
+  const isSearching = query.trim().length > 0;
+  const { rows: filtered, fuzzy: isFuzzyMatch } = useMemo(() => {
+    if (!isSearching) return { rows: items, fuzzy: false };
+    return filterActivity(
+      query,
+      items,
+      (row) => `${describeRow(row)} ${asString(row.actor_email)}`
+    );
+  }, [items, query, isSearching]);
 
   return (
     <details open className="rounded border border-slate-200 dark:border-border bg-slate-50 dark:bg-muted px-4 py-3">
@@ -287,6 +290,13 @@ const RecentActivityPanel = forwardRef(function RecentActivityPanel(props, ref) 
                 <X className="h-3.5 w-3.5" />
               </button>
             ) : null}
+          </div>
+        ) : null}
+
+        {/* Typo tolerance kicked in — no exact match, showing close ones. */}
+        {isSearching && isFuzzyMatch ? (
+          <div className="mb-1 text-[11px] text-amber-700 dark:text-amber-400">
+            No exact match for “{query.trim()}” — showing close matches.
           </div>
         ) : null}
 
