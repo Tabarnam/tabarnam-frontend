@@ -97,7 +97,7 @@ test("expandProductSynonyms: flying-insect control terms cross-expand", () => {
   const fromZapper = expandProductSynonyms("bug zapper");
   assert.ok(fromZapper.includes("flying insect trap"), "bug zapper → flying insect trap");
   assert.ok(fromZapper.includes("mosquito control"), "bug zapper → mosquito control");
-  assert.ok(fromZapper.includes("pest control"), "bug zapper → pest control");
+  assert.ok(!fromZapper.includes("pest control"), "pest control was intentionally excluded (too broad)");
   assert.ok(expandProductSynonyms("mosquito control").includes("bug zapper"), "mosquito control → bug zapper");
   assert.ok(
     expandProductSynonyms("electric insect killer").includes("flying insect trap"),
