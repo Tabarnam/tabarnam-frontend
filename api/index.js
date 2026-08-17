@@ -305,6 +305,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: second-look-watchdog-timer");
+  require("./second-look-watchdog-timer/index.js");
+} catch (e) {
+  console.error("[api] Failed to load second-look-watchdog-timer:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: search-companies");
   require("./search-companies/index.js");
 } catch (e) {
