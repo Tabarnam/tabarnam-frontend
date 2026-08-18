@@ -5032,10 +5032,19 @@ export default function AdminImport() {
   // trust the server. The grace period keeps the instant-red override
   // working at the start of a genuine import (before its session doc
   // exists).
+  // 2026-08-17 — shadow slot state was NOT part of localRunning, so a
+  // batch where primary went idle briefly (or shadow was solo-running
+  // near the end) could flip the traffic light green while shadow was
+  // still dispatching. Also count as running when there are queued
+  // rows the dispatcher hasn't touched yet (stall-recovery cases where
+  // both slots are momentarily -1 but pending rows remain and the
+  // re-engagement effect below will re-arm them).
   const localRunning =
     activeStatus === "running" ||
     activeStatus === "stopping" ||
-    (successionIndex >= 0 && successionIndex < successionQueue.length);
+    (successionIndex >= 0 && successionIndex < successionQueue.length) ||
+    (successionShadowIndex >= 0 && successionShadowIndex < successionQueue.length) ||
+    (successionQueue.length > 0 && nextDispatchIndexRef.current < successionQueue.length);
   const localRunStartedAtRef = useRef(null);
   const idleStreakRef = useRef(0);
   const [localStateStale, setLocalStateStale] = useState(false);
@@ -5372,6 +5381,18 @@ export default function AdminImport() {
     if (nextIdx >= successionQueue.length) {
       // No more companies to dispatch — primary slot goes idle.
       // Sentinel: -1 marks the slot as exhausted.
+      // 2026-08-17 — log the state at idle so a stalled batch (shadow
+      // went idle mid-run for a race we don't understand yet) is
+      // diagnosable in DevTools instead of vanishing silently.
+      try {
+        console.info("[succession] primary_idle", {
+          reason: "queue_exhausted",
+          nextDispatchIndex: nextIdx,
+          queueLength: successionQueue.length,
+          shadowIndex: successionShadowIndex,
+          resultsCount: successionResults.length,
+        });
+      } catch { /* console may be missing */ }
       setSuccessionIndex(-1);
       return;
     }
@@ -5387,7 +5408,7 @@ export default function AdminImport() {
     currentPrimarySetAsParentOfRef.current = String(next.set_as_parent_of || "").trim();
     setSuccessionIndex(nextIdx);
     successionTriggerRef.current = true;
-  }, [activeStatus, successionIndex, successionQueue, activeSessionId, verifyEnrichment, isRunStrictlyComplete]);
+  }, [activeStatus, successionIndex, successionQueue, activeSessionId, verifyEnrichment, isRunStrictlyComplete, successionShadowIndex, successionResults]);
 
   // Shadow slot advance — symmetric to primary. Fires when shadowStatus
   // transitions to done/error. Records, claims next, re-starts via
@@ -5442,6 +5463,20 @@ export default function AdminImport() {
     const nextIdx = nextDispatchIndexRef.current;
     if (nextIdx >= successionQueue.length) {
       // Queue exhausted — shadow slot goes idle.
+      // 2026-08-17 — log the state so a premature shadow idle (the
+      // root cause of the 187-row batch dropping to 1-slot throughput)
+      // is diagnosable. If queueLength here is smaller than the paste
+      // size, the queue got rebuilt out from under us; if primaryIndex
+      // is well below queueLength, the counter got ahead of itself.
+      try {
+        console.info("[succession] shadow_idle", {
+          reason: "queue_exhausted",
+          nextDispatchIndex: nextIdx,
+          queueLength: successionQueue.length,
+          primaryIndex: successionIndex,
+          resultsCount: successionResults.length,
+        });
+      } catch { /* console may be missing */ }
       setSuccessionShadowIndex(-1);
       setShadowStatus("idle");
       return;
@@ -5453,7 +5488,7 @@ export default function AdminImport() {
     setShadowStatus("idle"); // briefly idle to allow next status flip
     // Phase 4.38 — forward the row's sub-brand / force-new / set-as-parent flags.
     setTimeout(() => beginImportShadow(next.companyName, next.companyUrl, next.parent_company_id || "", Boolean(next.force_new), next.set_as_parent_of || ""), 1000);
-  }, [shadowStatus, successionShadowIndex, successionQueue, shadowSessionId, beginImportShadow, stopShadowPolling, verifyEnrichment, isRunStrictlyComplete]);
+  }, [shadowStatus, successionShadowIndex, successionQueue, shadowSessionId, beginImportShadow, stopShadowPolling, verifyEnrichment, isRunStrictlyComplete, successionIndex, successionResults]);
 
   // Phase 4.9 — slot-startedAt tracker. When a slot transitions to "running"
   // OR its session id changes while still "running", record Date.now() so
@@ -5688,6 +5723,142 @@ export default function AdminImport() {
       successionToastFiredRef.current = false;
     }
   }, [successionIndex, successionResults.length]);
+
+  // 2026-08-17 — Shadow re-engagement guard (Phase 4.38.I).
+  //
+  // Observed regression 2026-08-17: a 187-row batch degraded to 1-slot
+  // throughput mid-run. The shadow slot's advance handler set
+  // successionShadowIndex to -1 (via the "queue exhausted" branch) even
+  // though roughly ~80 rows were still pending below the currently
+  // dispatched primary row. Root cause is still under investigation
+  // (see [succession] shadow_idle diagnostic log) but the symptom is
+  // recoverable: as long as nextDispatchIndexRef is still below
+  // successionQueue.length and the primary slot is doing real work,
+  // the shadow slot can be safely re-armed on the next queue row.
+  //
+  // This effect ticks every 15s while a batch is in flight. It ONLY
+  // re-engages a slot when the OTHER slot is still active (i.e. this
+  // is a stall-recovery, not a batch-restart — both-slots-idle plus
+  // queue-non-exhausted is out of scope; the user needs to hit Start
+  // again to kick off a fresh batch).
+  useEffect(() => {
+    // No queue at all → no batch to guard.
+    if (successionQueue.length === 0) return;
+    // Both slots -1 AND queue exhausted AND all rows accounted for →
+    // legitimate end-of-batch (the completion detector's terminal check).
+    // Nothing to do.
+    if (
+      successionIndex < 0 &&
+      successionShadowIndex < 0 &&
+      nextDispatchIndexRef.current >= successionQueue.length
+    ) {
+      return;
+    }
+    const tick = setInterval(() => {
+      const next = nextDispatchIndexRef.current;
+      const qLen = successionQueue.length;
+      if (next >= qLen) return; // queue truly exhausted — nothing to do
+
+      // BOTH slots idle but rows remain — accidentally stuck. Re-arm
+      // primary first so it runs the trigger effect for the current row,
+      // then shadow will re-arm on its own tick (or via its own branch
+      // below on the same call). This is the terminal-looking-but-not-
+      // terminal case where the completion detector correctly refuses to
+      // fire (nextDispatch < queue.length) but neither slot is dispatching.
+      if (successionIndex < 0 && successionShadowIndex < 0) {
+        const claimed = nextDispatchIndexRef.current;
+        if (claimed >= qLen) return;
+        const nextRow = successionQueue[claimed];
+        if (!nextRow) return;
+        nextDispatchIndexRef.current = claimed + 1;
+        try {
+          console.warn("[succession] both_slots_re_engaged", {
+            claimed_index: claimed,
+            queue_length: qLen,
+            company_name: nextRow?.companyName || null,
+            reason: "both_slots_prematurely_idle_recovery",
+          });
+        } catch { /* console may be missing */ }
+        setQuery(nextRow.companyName);
+        setCompanyUrl(nextRow.companyUrl);
+        currentPrimaryParentIdRef.current = String(nextRow.parent_company_id || "").trim();
+        currentPrimaryForceNewRef.current = Boolean(nextRow.force_new);
+        currentPrimarySetAsParentOfRef.current = String(nextRow.set_as_parent_of || "").trim();
+        setSuccessionIndex(claimed);
+        successionTriggerRef.current = true;
+        return;
+      }
+
+      // Shadow slot went idle but primary is still working AND pending rows
+      // remain. Claim the next index for shadow and dispatch. Log the
+      // recovery so the operator sees this fired.
+      if (successionShadowIndex < 0 && successionIndex >= 0 && SUCCESSION_CONCURRENCY >= 2) {
+        const claimed = nextDispatchIndexRef.current;
+        if (claimed >= qLen) return;
+        const nextRow = successionQueue[claimed];
+        if (!nextRow) return;
+        nextDispatchIndexRef.current = claimed + 1;
+        try {
+          console.warn("[succession] shadow_re_engaged", {
+            claimed_index: claimed,
+            queue_length: qLen,
+            primary_index: successionIndex,
+            company_name: nextRow?.companyName || null,
+            reason: "premature_shadow_idle_recovery",
+          });
+        } catch { /* console may be missing */ }
+        setSuccessionShadowIndex(claimed);
+        setShadowStatus("idle");
+        setTimeout(
+          () =>
+            beginImportShadow(
+              nextRow.companyName,
+              nextRow.companyUrl,
+              nextRow.parent_company_id || "",
+              Boolean(nextRow.force_new),
+              nextRow.set_as_parent_of || "",
+            ),
+          1000,
+        );
+        return;
+      }
+
+      // Primary slot went idle but shadow is still working. Same recovery
+      // shape; primary re-engagement re-uses the trigger effect via
+      // successionTriggerRef, since the trigger effect is the only path
+      // that knows how to fire beginImport with the right refs.
+      if (successionIndex < 0 && successionShadowIndex >= 0) {
+        const claimed = nextDispatchIndexRef.current;
+        if (claimed >= qLen) return;
+        const nextRow = successionQueue[claimed];
+        if (!nextRow) return;
+        nextDispatchIndexRef.current = claimed + 1;
+        try {
+          console.warn("[succession] primary_re_engaged", {
+            claimed_index: claimed,
+            queue_length: qLen,
+            shadow_index: successionShadowIndex,
+            company_name: nextRow?.companyName || null,
+            reason: "premature_primary_idle_recovery",
+          });
+        } catch { /* console may be missing */ }
+        setQuery(nextRow.companyName);
+        setCompanyUrl(nextRow.companyUrl);
+        currentPrimaryParentIdRef.current = String(nextRow.parent_company_id || "").trim();
+        currentPrimaryForceNewRef.current = Boolean(nextRow.force_new);
+        currentPrimarySetAsParentOfRef.current = String(nextRow.set_as_parent_of || "").trim();
+        setSuccessionIndex(claimed);
+        successionTriggerRef.current = true;
+      }
+    }, 15_000);
+    return () => clearInterval(tick);
+  }, [
+    successionQueue,
+    successionIndex,
+    successionShadowIndex,
+    beginImportShadow,
+    SUCCESSION_CONCURRENCY,
+  ]);
 
   // Bulk import handlers
   const bulkUrlCount = useMemo(() => {
