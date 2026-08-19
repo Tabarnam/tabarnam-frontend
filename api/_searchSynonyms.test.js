@@ -135,6 +135,13 @@ test("expandProductSynonyms: the artificial-plant group needs the full phrase", 
   );
 });
 
+test("expandProductSynonyms: preworkout ↔ pre workout bridge (one-word vs two-word)", () => {
+  assert.ok(expandProductSynonyms("preworkout").includes("pre workout"), "preworkout → pre workout");
+  assert.ok(expandProductSynonyms("pre workout").includes("preworkout"), "pre workout → preworkout");
+  // "pre" alone must NOT map to preworkout (it's audio-preamp territory).
+  assert.deepEqual(expandProductSynonyms("pre"), []);
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });

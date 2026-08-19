@@ -224,6 +224,12 @@ const PRODUCT_SYNONYM_GROUPS = [
   // florists tagged only "flowers" are never pulled in. Plural + singular.
   ["fake plants", "synthetic plants", "artificial plants", "faux plants", "silk plants", "fake flowers", "synthetic flowers", "artificial flowers", "faux flowers", "silk flowers"],
   ["fake plant", "synthetic plant", "artificial plant", "faux plant", "silk plant", "fake flower", "synthetic flower", "artificial flower", "faux flower", "silk flower"],
+  // Pre-workout: the corpus tags "pre workout" (and "pre-workout", which
+  // normalizes to it) — 53 companies — but the one-word spelling "preworkout"
+  // hits only 2. Bridge them so either spelling reaches the whole cluster.
+  // "pre" alone is deliberately excluded: it's a different domain (audio
+  // preamps — Aphex, API — dominate a bare "pre" search), so it would pollute.
+  ["preworkout", "pre workout"],
 ];
 
 // Build a fast lookup: word → [synonym1, synonym2, ...]
