@@ -214,6 +214,16 @@ const PRODUCT_SYNONYM_GROUPS = [
   // leakage. Adjacent terms "fly trap" / "insect killer" are strong too; add on
   // request.
   ["flying insect trap", "bug zapper", "electric insect killer", "mosquito control"],
+  // Artificial plants/flowers (home decor) — modifier (fake/synthetic/
+  // artificial/faux/silk) and noun (plants/flowers) are interchangeable here;
+  // the same makers (Nearly Natural, Der Rose, Silk Plants Direct, Vickerman,
+  // National Tree) recur across all of them, so any one should reach the rest.
+  // "faux" and "silk" are the dominant retail terms and are included even though
+  // not originally requested. Every term is a distinctive multi-word phrase, so
+  // it only fires on the full phrase — the modifier token gates it, so fresh-cut
+  // florists tagged only "flowers" are never pulled in. Plural + singular.
+  ["fake plants", "synthetic plants", "artificial plants", "faux plants", "silk plants", "fake flowers", "synthetic flowers", "artificial flowers", "faux flowers", "silk flowers"],
+  ["fake plant", "synthetic plant", "artificial plant", "faux plant", "silk plant", "fake flower", "synthetic flower", "artificial flower", "faux flower", "silk flower"],
 ];
 
 // Build a fast lookup: word → [synonym1, synonym2, ...]

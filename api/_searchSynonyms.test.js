@@ -114,6 +114,27 @@ test("expandProductSynonyms: the insect group needs the full phrase, no bare-wor
   );
 });
 
+test("expandProductSynonyms: artificial plants/flowers cross-expand (modifier + noun)", () => {
+  const fromFake = expandProductSynonyms("fake plants");
+  assert.ok(fromFake.includes("artificial plants"), "fake plants → artificial plants");
+  assert.ok(fromFake.includes("faux plants"), "fake plants → faux plants");
+  assert.ok(fromFake.includes("silk plants"), "fake plants → silk plants");
+  assert.ok(fromFake.includes("artificial flowers"), "fake plants → artificial flowers (cross-noun)");
+  assert.ok(expandProductSynonyms("silk flowers").includes("faux flowers"), "silk flowers → faux flowers");
+  // Singular queries bridge too.
+  assert.ok(expandProductSynonyms("artificial flower").includes("faux flower"), "artificial flower → faux flower");
+});
+
+test("expandProductSynonyms: the artificial-plant group needs the full phrase", () => {
+  // Bare nouns/modifiers must not trigger it.
+  assert.deepEqual(expandProductSynonyms("plants"), []);
+  assert.deepEqual(expandProductSynonyms("flowers"), []);
+  assert.ok(
+    !expandProductSynonyms("fresh flowers").some((v) => /faux|silk|artificial|fake|synthetic/.test(v)),
+    "'fresh flowers' must not pull in the artificial cluster"
+  );
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });
