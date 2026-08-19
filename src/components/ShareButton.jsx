@@ -4,7 +4,7 @@ import ShareDialog from "@/components/ShareDialog";
 import { buildShareMessage, canNativeShare, nativeShare } from "@/lib/share";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 
-export default function ShareButton({ company, title: titleProp, text: textProp, url: urlProp, label: labelProp, dialogTitle: dialogTitleProp, className = "" }) {
+export default function ShareButton({ company, title: titleProp, text: textProp, url: urlProp, label: labelProp, dialogTitle: dialogTitleProp, className = "", showLabel = false }) {
   const [modalOpen, setModalOpen] = useState(false);
 
   // Derive share data from company (legacy) or explicit props
@@ -49,11 +49,16 @@ export default function ShareButton({ company, title: titleProp, text: textProp,
       <button
         type="button"
         onClick={handleShare}
-        className={`inline-flex items-center justify-center w-11 h-11 min-w-[44px] min-h-[44px] rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-[#3F97A2] focus:ring-offset-1 ${className}`}
+        className={`${
+          showLabel
+            ? "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-sm font-medium text-[#3F97A2]"
+            : "inline-flex items-center justify-center w-11 h-11 min-w-[44px] min-h-[44px] rounded-full"
+        } hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-[#3F97A2] focus:ring-offset-1 ${className}`}
         aria-label={buttonLabel}
         title={buttonTitle}
       >
         <Share className="w-[18px] h-[18px] text-[#3F97A2]" aria-hidden="true" />
+        {showLabel && <span>Share</span>}
       </button>
 
       <ShareDialog

@@ -1882,34 +1882,40 @@ export default function ResultsPage() {
                     divider. Self-labeled so it's clear without the tooltip
                     (which never fires on touch); tooltip adds context. Hidden
                     for 0 / location-only (directCount null). */}
-                {directCount != null && directCount > 0 && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="whitespace-nowrap cursor-default">
-                          · {directCount >= 500 ? "500+" : directCount} direct{" "}
-                          {directCount === 1 ? "result" : "results"}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-[280px] text-xs">
-                        <p className="m-0">
-                          {directCount >= 500 ? "500+" : directCount} companies directly match "{qParam}".
-                          {totalMatchCount > directCount
-                            ? " More loosely-related companies appear further down."
-                            : ""}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-                <ShareButton
-                  title={`Search results for "${qParam}" on Tabarnam`}
-                  text={`Search results for "${qParam}" on Tabarnam`}
-                  url={window.location.href}
-                  label="Share these search results"
-                  dialogTitle="Share search results"
-                  className="w-8 h-8 min-w-[32px] min-h-[32px]"
-                />
+                {/* Result count + Share, kept as ONE non-wrapping unit so Share
+                    always travels with "…direct results" and never orphans next
+                    to the List/Map view toggle (a different kind of control). */}
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  {directCount != null && directCount > 0 && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="whitespace-nowrap cursor-default">
+                            · {directCount >= 500 ? "500+" : directCount} direct{" "}
+                            {directCount === 1 ? "result" : "results"}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[280px] text-xs">
+                          <p className="m-0">
+                            {directCount >= 500 ? "500+" : directCount} companies directly match "{qParam}".
+                            {totalMatchCount > directCount
+                              ? " More loosely-related companies appear further down."
+                              : ""}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                  <span className="text-muted-foreground/60" aria-hidden="true">·</span>
+                  <ShareButton
+                    title={`Search results for "${qParam}" on Tabarnam`}
+                    text={`Search results for "${qParam}" on Tabarnam`}
+                    url={window.location.href}
+                    label="Share these search results"
+                    dialogTitle="Share search results"
+                    showLabel
+                  />
+                </span>
               </>
             )}
             {/* Location-only searches got NO header line at all, which left
@@ -1988,14 +1994,16 @@ export default function ResultsPage() {
                   url={window.location.href}
                   label="Share these search results"
                   dialogTitle="Share search results"
-                  className="w-8 h-8 min-w-[32px] min-h-[32px]"
+                  showLabel
                 />
               </>
             )}
-            {/* List | Map view toggle. Hidden in bookmark-list mode (mapOpen
-                is forced off there and a toggle that can't open would lie). */}
+            {/* List | Map view toggle — a VIEW control, not a search action, so
+                push it to the right edge so it reads as separate from the
+                count + Share group on the left. Hidden in bookmark-list mode
+                (mapOpen is forced off there and a toggle that can't open lies). */}
             {!listParam && (
-              <div className="flex gap-1 bg-muted rounded-lg p-0.5" role="group" aria-label="Results view">
+              <div className="flex gap-1 bg-muted rounded-lg p-0.5 ml-auto" role="group" aria-label="Results view">
                 <button
                   type="button"
                   onClick={() => mapOpen && toggleMapView(false)}
