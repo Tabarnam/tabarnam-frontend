@@ -124,8 +124,15 @@ describe("AddressesEditor", () => {
 
   it("renders nothing alarming for a company with no addresses at all", () => {
     render(<Harness initial={[]} hqLocation="Sanford, NC, USA" />);
-    expect(screen.getByText("none captured")).toBeInTheDocument();
     expect(screen.getByText(/No headquarters address captured/i)).toBeInTheDocument();
     expect(screen.getByText(/No manufacturing address captured/i)).toBeInTheDocument();
+  });
+
+  it("does not repeat the section's own title or tally inside the panel", () => {
+    // Both live on the CollapsibleSection header in CompanyDashboard, so
+    // seeing either here means the heading is being rendered twice.
+    render(<Harness initial={WHIRLWIND} hqLocation="Sanford, NC, USA" />);
+    expect(screen.queryByText("Addresses")).toBeNull();
+    expect(screen.queryByText(/captured ·/)).toBeNull();
   });
 });

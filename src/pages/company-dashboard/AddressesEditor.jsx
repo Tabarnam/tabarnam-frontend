@@ -238,7 +238,6 @@ export default function AddressesEditor({
     return new Set([...byPlace.entries()].filter(([, t]) => t.size > 1).map(([p]) => p));
   }, [entries]);
 
-  const publicCount = entries.filter((e) => e.is_public).length;
 
   const renderCard = (entry, idx) => {
     const k = rowKey(entry);
@@ -460,16 +459,10 @@ export default function AddressesEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-baseline gap-2">
-        <div className="text-sm font-medium text-slate-800 dark:text-foreground">Addresses</div>
-        <div className="text-xs text-slate-500 dark:text-muted-foreground">
-          {entries.length === 0
-            ? "none captured"
-            : `${entries.length} captured · ${publicCount} public`}
-        </div>
-      </div>
-
-      <p className="text-xs text-slate-500 dark:text-muted-foreground -mt-1">
+      {/* No title or tally here — both live on the CollapsibleSection header
+          that wraps this panel, where they read once instead of twice and
+          stay visible whether the section is open or closed. */}
+      <p className="text-xs text-slate-500 dark:text-muted-foreground">
         Street addresses captured from sources. They sit alongside the HQ / Manufacturing
         location fields above and never replace them. Users never see an address unless it is
         marked Public.
