@@ -1858,8 +1858,8 @@ export default function ResultsPage() {
           toggle out of the column-header grid lets it reach the true right edge
           instead of bunching against the narrow first column. */}
       {results.length > 0 && (
-        <div className="mb-4 px-2">
-          <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-2 mb-2">
+        <div className="mb-2 px-2">
+          <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-2 mb-1">
             {qParam && (
               <>
                 {/* Compact page navigator sits in this row, to the left of
@@ -2061,7 +2061,7 @@ export default function ResultsPage() {
               <button
                 onClick={() => clickSort(colKey)}
                 className={cn(
-                  "font-semibold rounded transition-colors text-[15px] px-2.5 py-1.5 border",
+                  "font-semibold rounded transition-colors text-[13px] px-2.5 py-1 border",
                   isSelected
                     ? "bg-tabarnam-blue text-gray-800 dark:text-gray-900 border-tabarnam-blue"
                     : // tabarnam-blue-dark in light mode: -bold (#649BA0) is only

@@ -729,8 +729,10 @@ export default function SearchCard({
   return (
     <div
       className={cn(
-        "w-full bg-card border border-border rounded-2xl shadow",
-        compact ? "p-3 md:p-4" : "p-5 md:p-6",
+        "w-full bg-card border border-border",
+        // Results: tighter padding, smaller radius, lighter shadow — an app
+        // toolbar, not the home hero card.
+        compact ? "rounded-xl shadow-sm p-2.5" : "rounded-2xl shadow p-5 md:p-6",
         containerClassName || "max-w-5xl"
       )}
     >
