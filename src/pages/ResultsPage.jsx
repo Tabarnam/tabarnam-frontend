@@ -354,8 +354,9 @@ export default function ResultsPage() {
   // Industries/Products link-lists for denser scanning). A personal display
   // preference, persisted in localStorage — not the URL.
   const [density, setDensity] = useState(() => {
-    try { return localStorage.getItem("tabarnam_density") === "compact" ? "compact" : "comfortable"; }
-    catch { return "comfortable"; }
+    // Compact is the default; only an explicit stored "comfortable" overrides it.
+    try { return localStorage.getItem("tabarnam_density") === "comfortable" ? "comfortable" : "compact"; }
+    catch { return "compact"; }
   });
   const selectDensity = (next) => setDensity(() => {
     try { localStorage.setItem("tabarnam_density", next); } catch { /* ignore */ }
