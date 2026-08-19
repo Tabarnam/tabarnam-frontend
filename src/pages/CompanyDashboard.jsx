@@ -5772,7 +5772,28 @@ export default function CompanyDashboard() {
                           </div>
                           </CollapsibleSection>
 
-                          <CollapsibleSection title="Addresses" isOpen={leftSections.addresses} onToggle={() => toggleLeftSection("addresses")}>
+                          <CollapsibleSection
+                            // Tally rides in the title so it shows whether the
+                            // section is open or closed. The `badge` prop is
+                            // deliberately not used here: it hides itself while
+                            // the section is expanded, which is exactly when an
+                            // admin is working through the addresses.
+                            title={
+                              <>
+                                Addresses{" "}
+                                <span className="text-xs font-normal text-slate-500 dark:text-muted-foreground">
+                                  {(() => {
+                                    const list = Array.isArray(editorDraft.addresses) ? editorDraft.addresses : [];
+                                    if (list.length === 0) return "none captured";
+                                    const pub = list.filter((a) => a && a.is_public === true).length;
+                                    return `${list.length} captured · ${pub} public`;
+                                  })()}
+                                </span>
+                              </>
+                            }
+                            isOpen={leftSections.addresses}
+                            onToggle={() => toggleLeftSection("addresses")}
+                          >
                           <div className="px-1 pt-1">
                           <AddressesEditor
                             value={editorDraft.addresses}
