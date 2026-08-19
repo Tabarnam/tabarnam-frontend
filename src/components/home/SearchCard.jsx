@@ -122,6 +122,8 @@ export default function SearchCard({
   // Compact (results) only: the filter row starts collapsed to a one-line
   // summary and expands on demand, so results dominate the page.
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  // One knob for field/button height — shorter on results, full on home.
+  const fieldH = compact ? "h-9" : "h-11";
   const [amazonOnly, setAmazonOnly] = useState(false);
   const [hqInCountry, setHqInCountry] = useState(false);
   const [mfgInCountry, setMfgInCountry] = useState(false);
@@ -815,7 +817,7 @@ export default function SearchCard({
             // Persistent accessible name — the rotating placeholder empties
             // once the user types, leaving the field unlabeled (WCAG 4.1.2).
             aria-label="Search products and companies"
-            className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
+            className={cn("pl-10 pr-9 bg-background border-input text-foreground", fieldH)}
             autoComplete="off"
             data-tour-step="search-input"
           />
@@ -933,7 +935,7 @@ export default function SearchCard({
         <Button
           onClick={() => handleSubmit()}
           disabled={loading}
-          className="h-11 bg-tabarnam-blue text-slate-900 font-bold hover:bg-tabarnam-blue/80 transition-colors"
+          className={cn("bg-tabarnam-blue text-slate-900 font-bold hover:bg-tabarnam-blue/80 transition-colors", fieldH)}
         >
           {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
           <span className="ml-2">Search</span>
@@ -942,7 +944,7 @@ export default function SearchCard({
         <Button
           onClick={handleClear}
           variant="ghost"
-          className="h-11 px-3 text-sm text-muted-foreground hover:text-foreground hover:bg-accent"
+          className={cn("px-3 text-sm text-muted-foreground hover:text-foreground hover:bg-accent", fieldH)}
           aria-label="Clear search and filters"
         >
           Clear
@@ -988,7 +990,7 @@ export default function SearchCard({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex items-center h-11 px-3 rounded-md border border-input bg-background text-foreground text-sm hover:bg-accent transition-colors"
+              className={cn("flex items-center px-3 rounded-md border border-input bg-background text-foreground text-sm hover:bg-accent transition-colors", fieldH)}
               data-tour-step="filter-trigger"
             >
               <ListFilter className="text-muted-foreground mr-2 shrink-0" size={18} />
@@ -1096,7 +1098,7 @@ export default function SearchCard({
                 }}
                 onKeyDown={onKeyDown}
                 placeholder="City / Postal Code"
-                className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
+                className={cn("pl-10 pr-9 bg-background border-input text-foreground", fieldH)}
                 autoComplete="off"
                 data-tour-step="location-input"
               />
@@ -1155,7 +1157,7 @@ export default function SearchCard({
                 }}
                 onKeyDown={onKeyDown}
                 placeholder="State / Province"
-                className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
+                className={cn("pl-10 pr-9 bg-background border-input text-foreground", fieldH)}
                 autoComplete="off"
               />
               {stateCode && (
@@ -1214,7 +1216,7 @@ export default function SearchCard({
             }}
             onKeyDown={onKeyDown}
             placeholder="Country"
-            className="pl-10 pr-9 h-11 bg-background border-input text-foreground"
+            className={cn("pl-10 pr-9 bg-background border-input text-foreground", fieldH)}
             autoComplete="off"
           />
           {(country || countrySearch) && (
