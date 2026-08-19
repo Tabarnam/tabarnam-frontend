@@ -410,6 +410,15 @@ export default function ExpandableCompanyRow({
     return typeof dist === "number" ? `${dist.toFixed(1)} ${unitLabel}` : "—";
   };
 
+  // A manufacturing location with no comma is a single administrative unit —
+  // almost always a bare country ("United States", "China"). Its geocode is a
+  // country centroid, so a to-the-tenth-of-a-mile distance is false precision.
+  // Show just the place, no distance.
+  const isCountryOnlyLocation = (loc) => {
+    const f = typeof loc?.formatted === "string" ? loc.formatted.trim() : "";
+    return !!f && f !== "—" && !f.includes(",");
+  };
+
   const formatLocationDisplayName = (loc) => {
     if (typeof loc === "string") {
       const s = loc.trim();
@@ -650,7 +659,7 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {visible.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {loc.formatted !== "—" && !loc.limitedMfg && !company?.unknown_manufacturing && (
+              {loc.formatted !== "—" && !loc.limitedMfg && !company?.unknown_manufacturing && !isCountryOnlyLocation(loc) && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
                   {typeof loc.distance === "number"
                     ? formatDistance(loc.distance, unit)
@@ -683,7 +692,7 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {hqLocation.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {loc.formatted !== "—" && (
+              {loc.formatted !== "—" && !isCountryOnlyLocation(loc) && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
@@ -715,7 +724,7 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {loc.formatted !== "—" && !loc.limitedMfg && !company?.unknown_manufacturing && (
+              {loc.formatted !== "—" && !loc.limitedMfg && !company?.unknown_manufacturing && !isCountryOnlyLocation(loc) && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)] dark:text-[hsl(187,47%,65%)]">
                   {typeof loc.distance === "number"
                     ? formatDistance(loc.distance, unit)
