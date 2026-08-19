@@ -5777,6 +5777,12 @@ export default function CompanyDashboard() {
                           <AddressesEditor
                             value={editorDraft.addresses}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), addresses: next }))}
+                            // Cross-check targets: the normalized fields that
+                            // actually feed the pins index. A street address
+                            // that lands in a different town than these claim
+                            // is the thing worth an admin's attention.
+                            hqLocation={editorDraft.headquarters_location}
+                            manufacturingLocations={editorDraft.manufacturing_locations}
                           />
                           </div>
                           </CollapsibleSection>
