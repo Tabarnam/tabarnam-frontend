@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "@/components/DocumentHead";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, X, List as ListIcon, Map as MapIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, List as ListIcon, Map as MapIcon, Rows, AlignJustify } from "lucide-react";
 import { geocode, resolveLocation } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
@@ -350,6 +350,18 @@ export default function ResultsPage() {
   // "Did you mean …?" suggestion — the non-destructive fallback, used when we
   // did NOT auto-apply (nocorrect=1, or the corrected query was junk too).
   const [didYouMean, setDidYouMean] = useState(null);
+  // Results density: "comfortable" (full cards) or "compact" (hide the
+  // Industries/Products link-lists for denser scanning). A personal display
+  // preference, persisted in localStorage — not the URL.
+  const [density, setDensity] = useState(() => {
+    try { return localStorage.getItem("tabarnam_density") === "compact" ? "compact" : "comfortable"; }
+    catch { return "comfortable"; }
+  });
+  const toggleDensity = () => setDensity((d) => {
+    const next = d === "compact" ? "comfortable" : "compact";
+    try { localStorage.setItem("tabarnam_density", next); } catch { /* ignore */ }
+    return next;
+  });
 
   // Pasted-URL (domain) search state. Populated only when the current search
   // carried a ?domain= param. Drives BOTH the opt-in "Explore related" strip
@@ -2009,12 +2021,27 @@ export default function ResultsPage() {
                 />
               </>
             )}
-            {/* List | Map view toggle — a VIEW control, not a search action, so
-                push it to the right edge so it reads as separate from the
-                count + Share group on the left. Hidden in bookmark-list mode
-                (mapOpen is forced off there and a toggle that can't open lies). */}
+            {/* Density toggle — comfortable (full cards) vs compact (hide the
+                Industries/Products lists for denser scanning). Personal pref,
+                persisted in localStorage. Pushed to the right, ahead of the
+                List/Map view toggle. */}
+            <button
+              type="button"
+              onClick={toggleDensity}
+              aria-pressed={density === "compact"}
+              title={density === "compact" ? "Comfortable view" : "Compact view"}
+              aria-label={density === "compact" ? "Switch to comfortable view" : "Switch to compact view"}
+              className="ml-auto inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              {density === "compact" ? <AlignJustify size={14} aria-hidden="true" /> : <Rows size={14} aria-hidden="true" />}
+              {density === "compact" ? "Compact" : "Comfortable"}
+            </button>
+
+            {/* List | Map view toggle — a VIEW control, not a search action.
+                Hidden in bookmark-list mode (mapOpen is forced off there and a
+                toggle that can't open lies). */}
             {!listParam && (
-              <div className="flex gap-1 bg-muted rounded-lg p-0.5 ml-auto" role="group" aria-label="Results view">
+              <div className="flex gap-1 bg-muted rounded-lg p-0.5" role="group" aria-label="Results view">
                 <button
                   type="button"
                   onClick={() => mapOpen && toggleMapView(false)}
@@ -2280,6 +2307,7 @@ export default function ResultsPage() {
                       company={company}
                       sortBy={sortBy}
                       unit={unit}
+                      density={density}
                       onKeywordSearch={handleKeywordSearch}
                       rightColsOrder={rightColsOrder}
                       debugScores={debugScores}

@@ -317,6 +317,10 @@ export default function ExpandableCompanyRow({
   onKeywordSearch,
   rightColsOrder,
   debugScores = false,
+  // "comfortable" (default) shows the full collapsed card; "compact" hides the
+  // Industries and Products link-lists for denser scanning. Expanding a row
+  // always shows everything regardless of density.
+  density = "comfortable",
   // Phase 4.28 — fires once the row enters the viewport (with 1000px
   // rootMargin pre-fetch buffer). ResultsPage uses this signal to
   // lazy-fetch the row's reviews instead of bulk-fetching all rows at
@@ -1088,7 +1092,7 @@ export default function ExpandableCompanyRow({
           </div>
         </div>
 
-        {Array.isArray(company.industries) && company.industries.length > 0 && (
+        {(density !== "compact" || isExpanded) && Array.isArray(company.industries) && company.industries.length > 0 && (
           <div className="mt-2 px-2 sm:px-4 keywordsRow">
             <div className="text-sm font-semibold text-foreground">Industries</div>
             <div className="mt-2 text-sm text-muted-foreground">
@@ -1113,6 +1117,7 @@ export default function ExpandableCompanyRow({
           </div>
         )}
 
+        {(density !== "compact" || isExpanded) && (
         <div className="mt-2 px-2 sm:px-4 keywordsRow">
           <div className="text-sm font-semibold text-foreground">Products</div>
           <div className="mt-2 text-sm text-muted-foreground">
@@ -1139,6 +1144,7 @@ export default function ExpandableCompanyRow({
             )}
           </div>
         </div>
+        )}
 
         <div className="mt-6 px-2 sm:px-4 space-y-4 reviews-widget">
           {Array.isArray(company?.notes_entries) && company.notes_entries.some((n) => n?.is_public) && (
