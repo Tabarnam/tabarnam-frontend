@@ -1,7 +1,7 @@
 // src/components/home/SearchCard.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, MapPin, ListFilter, Loader2, X, Clock, ChevronLeft, ChevronRight, ChevronDown, Check } from 'lucide-react';
+import { Search, MapPin, ListFilter, Loader2, X, Clock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { useSearchCache } from '@/hooks/useSearchCache';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -119,6 +119,9 @@ export default function SearchCard({
   const [stateCode, setStateCode] = useState('');
   const [city, setCity] = useState('');
   const [sortBy, setSortBy] = useState('manu'); // default: Nearest manufacturing
+  // Compact (results) only: the filter row starts collapsed to a one-line
+  // summary and expands on demand, so results dominate the page.
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [amazonOnly, setAmazonOnly] = useState(false);
   const [hqInCountry, setHqInCountry] = useState(false);
   const [mfgInCountry, setMfgInCountry] = useState(false);
@@ -946,7 +949,35 @@ export default function SearchCard({
         </Button>
       </div>
 
-      {/* Row 2: Sort/Filter, City/Postal Code, State/Province, Country */}
+      {/* Row 2: Sort/Filter, City/Postal Code, State/Province, Country.
+          On results (compact) this is collapsed to a one-line summary with a
+          Filters toggle so the results dominate; expanded or on the home page
+          it's the full field row. */}
+      {compact && !filtersExpanded ? (
+        <div className="flex items-center gap-2 text-sm">
+          <button
+            type="button"
+            onClick={() => setFiltersExpanded(true)}
+            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-background text-foreground hover:bg-accent transition-colors min-w-0 max-w-full"
+            data-tour-step="filter-trigger"
+            aria-expanded={false}
+          >
+            <ListFilter className="text-muted-foreground shrink-0" size={16} />
+            <span className="shrink-0 font-medium">Filters</span>
+            <span className="text-muted-foreground truncate">
+              {SORTS.find((s) => s.value === sortBy)?.label}
+              {[city, stateCode, country ? selectedCountryName : ""].filter(Boolean).length > 0
+                ? " · " + [city, stateCode, country ? selectedCountryName : ""].filter(Boolean).join(", ")
+                : ""}
+            </span>
+            {(amazonOnly || hqInCountry || mfgInCountry) && (
+              <span className="ml-0.5 w-2 h-2 rounded-full bg-[#3F97A2] shrink-0" />
+            )}
+            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+          </button>
+          {filtersRightSlot && <div className="ml-auto shrink-0">{filtersRightSlot}</div>}
+        </div>
+      ) : (
       <div
         className={filtersRightSlot
           ? "grid grid-cols-1 md:grid-cols-[auto_1fr_1fr_1fr_auto] gap-3"
@@ -1210,6 +1241,16 @@ export default function SearchCard({
           </div>
         )}
       </div>
+      )}
+      {compact && filtersExpanded && (
+        <button
+          type="button"
+          onClick={() => setFiltersExpanded(false)}
+          className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronUp size={14} /> Hide filters
+        </button>
+      )}
     </div>
   );
 }
