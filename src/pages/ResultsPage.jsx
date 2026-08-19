@@ -1870,6 +1870,7 @@ export default function ResultsPage() {
           toggle out of the column-header grid lets it reach the true right edge
           instead of bunching against the narrow first column. */}
       {results.length > 0 && (
+        <>
         <div className="mb-2 px-2">
           <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-2 mb-1">
             {qParam && (
@@ -2073,11 +2074,14 @@ export default function ResultsPage() {
               </div>
             )}
           </div>
+        </div>
           {/* Column headers — a separate grid aligned to the data columns of the
               rows below. STICKY so the sort controls (and column labels) stay
-              reachable while scrolling the results; a "Sorted by" label frames
-              the three as sort options, not just headers. */}
-          <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 items-center sticky top-0 z-30 bg-background/95 backdrop-blur py-1.5 -mx-2 px-2 border-b border-border/50">
+              reachable while scrolling the results. Sits OUTSIDE the toolbar
+              wrapper (as a direct child of the page container) so its sticky
+              parent spans the whole results list — otherwise it unsticks the
+              moment the short toolbar wrapper scrolls off. */}
+          <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 items-center sticky top-0 z-30 bg-background/95 backdrop-blur py-1.5 px-2 mb-2 border-b border-border/50">
             <div className="hidden lg:flex lg:col-span-2 items-center justify-end pr-2 text-xs font-medium text-muted-foreground">Sorted by</div>
             {rightColsOrder.map((colKey, idx) => {
             const colLabel =
@@ -2128,7 +2132,7 @@ export default function ResultsPage() {
             );
           })}
           </div>
-        </div>
+        </>
       )}
 
       {/* Results List.

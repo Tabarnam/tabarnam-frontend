@@ -1282,7 +1282,7 @@ export default function ExpandableCompanyRow({
         )}
 
         {/* Industries - inline in column 1, up to 3 lines then ellipsis */}
-        {Array.isArray(company.industries) && company.industries.length > 0 && (
+        {(density !== "compact" || isExpanded) && Array.isArray(company.industries) && company.industries.length > 0 && (
           <div className="mt-2">
             <div className="text-xs font-semibold text-muted-foreground mb-1">Industries</div>
             <div className="text-xs line-clamp-3">
@@ -1356,8 +1356,9 @@ export default function ExpandableCompanyRow({
         </div>
       ))}
 
-      {/* Keywords Row - spans full width, 2 lines max */}
-      {(() => {
+      {/* Keywords Row - spans full width, 2 lines max. Hidden in compact density
+          (collapsed) for denser scanning. */}
+      {(density !== "compact" || isExpanded) && (() => {
         const allKw = Array.isArray(company.keywords) && company.keywords.length > 0
           ? company.keywords
           : String(company.product_keywords || "").split(",").map((kw) => kw.trim()).filter(Boolean);
