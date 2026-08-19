@@ -34,6 +34,18 @@ try {
 
 const DB_ID = process.env.COSMOS_DB_DATABASE || "tabarnam-db";
 
+// A "second_look_pending" flag is only treated as ACTIVE work (i.e. shown in
+// the enriching banner) when its enqueue timestamp is within this window.
+// Any real second-look finishes in seconds to a couple of minutes; the
+// worker's longest self-requeue (circuit breaker) is 120s. 5 min is a
+// comfortable margin over that. A flag older than this either succeeded and
+// forgot to clear itself, or the worker crashed between the enrichment write
+// and the bookkeeping upsert — in either case no worker is running now, so
+// the banner shouldn't wait on it. Docs older than this stay flagged until
+// the 30-min watchdog sweeps them (see api/second-look-watchdog-timer); the
+// banner is decoupled from that horizon.
+const SECOND_LOOK_ACTIVE_WINDOW_SEC = 5 * 60;
+
 const cors = () => ({
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
@@ -129,12 +141,33 @@ async function handler(req, context) {
   const companies = getCosmosClient().database(DB_ID).container(process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies");
   const nowSec = Math.floor(Date.now() / 1000);
 
-  const [queueSnapshot, pendingRes, sessionsRes] = await Promise.all([
+  const secondLookActiveCutIso = new Date((nowSec - SECOND_LOOK_ACTIVE_WINDOW_SEC) * 1000).toISOString();
+
+  const [queueSnapshot, pendingRes, pendingStrandedRes, sessionsRes] = await Promise.all([
     getQueueSnapshot(),
+    // Runnable-now second-looks: pending AND enqueued within the active
+    // window. Docs missing second_look_enqueued_at are treated as stranded
+    // (matches the watchdog's treatment in api/second-look-watchdog-timer).
     companies.items
-      .query("SELECT c.company_name FROM c WHERE c.second_look_pending = true AND NOT STARTSWITH(c.id, '_import_')")
+      .query({
+        query:
+          "SELECT c.company_name FROM c WHERE c.second_look_pending = true AND IS_DEFINED(c.second_look_enqueued_at) AND c.second_look_enqueued_at >= @slCut AND NOT STARTSWITH(c.id, '_import_')",
+        parameters: [{ name: "@slCut", value: secondLookActiveCutIso }],
+      })
       .fetchAll()
       .catch(() => ({ resources: [] })),
+    // Stranded diagnostic — pending but outside the active window OR missing
+    // the enqueue stamp entirely. Not counted toward the banner; surfaced in
+    // the response so operators can see stuck flags accumulating and so we
+    // can spot regressions where the worker starts leaving stragglers.
+    companies.items
+      .query({
+        query:
+          "SELECT VALUE COUNT(1) FROM c WHERE c.second_look_pending = true AND (NOT IS_DEFINED(c.second_look_enqueued_at) OR c.second_look_enqueued_at < @slCut) AND NOT STARTSWITH(c.id, '_import_')",
+        parameters: [{ name: "@slCut", value: secondLookActiveCutIso }],
+      })
+      .fetchAll()
+      .catch(() => ({ resources: [0] })),
     companies.items
       .query({
         // Single-partition query against the control partition — cheap.
@@ -170,6 +203,8 @@ async function handler(req, context) {
   const enriching = runnableQueued > 0 || pendingNames.length > 0;
   const verdict = importing ? "importing" : enriching ? "enriching" : "idle";
 
+  const strandedCount = Number((pendingStrandedRes.resources || [])[0] || 0);
+
   return json({
     ok: true,
     verdict,
@@ -185,6 +220,11 @@ async function handler(req, context) {
     queued_items_truncated: queueSnapshot.items.length >= 32,
     second_look_pending_count: pendingNames.length,
     second_look_pending_names: pendingNames.slice(0, 10),
+    // Stranded pending flags — outside the active window (or missing enqueue
+    // stamp). Not counted toward "enriching"; exposed so operators can see
+    // stuck flags accumulating and so the watchdog's job is visible.
+    second_look_stranded_count: strandedCount,
+    second_look_active_window_sec: SECOND_LOOK_ACTIVE_WINDOW_SEC,
     recent_sessions_15m: sessions.length,
     freshest_session_age_sec: freshestSessionAgeSec,
     checked_at: new Date().toISOString(),
