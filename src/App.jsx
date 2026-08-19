@@ -22,7 +22,6 @@ import AboutPage from "@pages/AboutPage";
 import HelpPage from "@pages/HelpPage";
 
 import SiteHeader from "@/components/SiteHeader";
-import ContactFormDialog from "@/components/ContactFormDialog";
 import Footer from "@/components/Footer";
 import AdminRoute from "@/components/AdminRoute";
 import AuthKeepAlive from "@/components/AuthKeepAlive";
@@ -103,7 +102,8 @@ function Layout({ children }) {
       <main id="main-content" tabIndex={-1} className="flex-grow outline-none">
         {children}
       </main>
-      {showLayout && <ContactFormDialog />}
+      {/* Contact now lives in the footer (as an inline link), not a floating
+          top-right pill. */}
       <ThemeToggle />
       {showLayout && <PrivacyBadge />}
       {showLayout && <Footer />}

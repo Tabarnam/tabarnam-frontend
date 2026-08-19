@@ -4,13 +4,46 @@ import BookmarkHeaderIcon from "@/components/bookmarks/BookmarkHeaderIcon";
 
 const SiteHeader = () => {
   const { pathname } = useLocation();
-  const hideOnHome = pathname === "/";
+  const isHome = pathname === "/";
+  const isResults = pathname === "/results";
 
-  if (hideOnHome) {
+  // Bookmark now sits in the true top-right corner. It used to be offset
+  // (right-40) to clear the fixed "Contact Us" pill — that has moved to the
+  // footer, so the corner is free.
+
+  // Home drops the banner entirely (searching IS the task there) — just the
+  // corner bookmark.
+  if (isHome) {
     return (
-      <div className="fixed top-2 right-40 z-40">
+      <div className="fixed top-2 right-3 z-40">
         <BookmarkHeaderIcon />
       </div>
+    );
+  }
+
+  // Results also drops the full-width banner so it costs no vertical space
+  // above the fold: the logo/home link is pinned to the top-left corner and the
+  // bookmark to the top-right. Both get a faint backdrop chip so they stay
+  // legible as result cards scroll under them. They sit in the page's side
+  // gutters, so they don't overlap the content at normal zoom.
+  if (isResults) {
+    return (
+      <>
+        <Link
+          to="/"
+          aria-label="Tabarnam home"
+          className="fixed top-2 left-3 z-40 inline-block rounded-md bg-background/70 backdrop-blur px-1"
+        >
+          <img
+            src="/tabarnam.png"
+            alt="Tabarnam"
+            className="h-9 transition-transform duration-150 ease-out hover:scale-[1.04] dark:brightness-110"
+          />
+        </Link>
+        <div className="fixed top-2 right-3 z-40 rounded-md bg-background/70 backdrop-blur">
+          <BookmarkHeaderIcon />
+        </div>
+      </>
     );
   }
 
@@ -30,7 +63,7 @@ const SiteHeader = () => {
           </Link>
         </div>
       </header>
-      <div className="fixed top-2 right-40 z-40">
+      <div className="fixed top-2 right-3 z-40">
         <BookmarkHeaderIcon />
       </div>
     </>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import ContactFormDialog from '@/components/ContactFormDialog';
 
 // Crawlable entry points for the /made-in SEO pages. Static so the footer has
 // no data dependency; slugs must match src/lib/madeIn.js registry output.
@@ -54,6 +55,9 @@ const Footer = () => {
           >
             Privacy
           </Link>
+          <span className="text-muted-foreground/50" aria-hidden="true">·</span>
+          {/* Contact moved here from the floating top-right pill. */}
+          <ContactFormDialog variant="footer" />
         </nav>
         <nav
           aria-label="Browse by manufacturing country"

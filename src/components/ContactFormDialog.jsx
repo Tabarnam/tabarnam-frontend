@@ -34,7 +34,7 @@ const SUBJECT_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
-export default function ContactFormDialog() {
+export default function ContactFormDialog({ variant = "floating" }) {
   const [open, setOpen] = useState(false);
 
   const {
@@ -88,10 +88,20 @@ export default function ContactFormDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="fixed top-3 right-3 z-50 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 shadow flex items-center gap-2 hover:bg-accent transition-colors">
-          <Mail size={16} className="text-primary" />
-          <span className="text-sm font-medium text-foreground">Contact Us</span>
-        </button>
+        {variant === "footer" ? (
+          // Inline footer link — sits in the footer nav strip and matches the
+          // other footer links' styling.
+          <button className="inline-flex items-center gap-1 text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors">
+            <Mail size={12} aria-hidden="true" />
+            Contact
+          </button>
+        ) : (
+          // Floating pill (default) — used anywhere the footer isn't the home.
+          <button className="fixed top-3 right-3 z-50 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 shadow flex items-center gap-2 hover:bg-accent transition-colors">
+            <Mail size={16} className="text-primary" />
+            <span className="text-sm font-medium text-foreground">Contact Us</span>
+          </button>
+        )}
       </DialogTrigger>
 
       <DialogContent className="max-w-lg">
