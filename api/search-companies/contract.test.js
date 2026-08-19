@@ -2582,6 +2582,12 @@ function domainQueryResponder(overrides = {}) {
         ? [coveDomainDoc]
         : [];
     }
+    // Registrable-domain fallback (runs only after an exact miss). Must be
+    // matched BEFORE the c.keywords branch below — the fallback's SELECT_FIELDS
+    // also contains c.keywords. A true miss returns nothing here too.
+    if (q.includes("ENDSWITH(c.normalized_domain, @domDot)")) {
+      return overrides.subdomainDoc ? [overrides.subdomainDoc] : [];
+    }
     // Match-case peer alternatives (industry EXISTS, excluding the family).
     // Returned in LOW-overlap-first order so the handler's tag-overlap ranking
     // has to reorder them: `low_overlap` shares 1 tag, `high_overlap` shares 3.
@@ -3160,5 +3166,81 @@ test("auto-correct: the reported 'oilve oil' shape — broaden junk triggers the
   assert.ok(
     !body.items.some((i) => i.normalized_domain === "valvoline.com"),
     "the motor-oil junk must be gone"
+  );
+});
+
+// ── pasted-URL domain search: registrable-domain fallback ────────────────────
+// A user pastes "synthesizers.com" but the company is stored on the subdomain
+// "shop.synthesizers.com". Exact match misses; a same-registrable-domain
+// fallback must still find it. (Boundary safety — that "notsynthesizers.com"
+// does not match — is enforced by the SQL ENDSWITH label boundary and can't be
+// exercised through the mock, which only decides which query returns rows.)
+
+test("domain search: falls back to the same registrable domain on an exact miss", async () => {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+  const shopCo = {
+    id: "s1", company_id: "s1", company_name: "Synthesizers.com",
+    normalized_domain: "shop.synthesizers.com", website_url: "https://shop.synthesizers.com/",
+    keywords: ["synthesizers"], industries: ["Synthesizers"], _ts: 1700000000,
+  };
+  const issued = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    const sql = String(spec?.query || "");
+    issued.push(sql);
+    // Exact-domain query misses; the ENDSWITH fallback finds the subdomain co.
+    if (sql.includes("c.normalized_domain = @dom")) return [];
+    if (sql.includes("ENDSWITH(c.normalized_domain, @domDot)")) return [shopCo];
+    return [];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?domain=synthesizers.com&q=synthesizers.com&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  // On a match the meta carries matched_by (the pinned company IS the answer),
+  // not domain_search — so this no longer dead-ends in the "no company" state.
+  assert.equal(body.meta?.matched_by?.type, "website", "the subdomain company should count as a domain match");
+  assert.equal(body.meta?.matched_by?.company_id, "s1");
+  assert.ok(!body.meta?.domain_search, "a match must not also emit the miss state");
+  assert.equal(body.items[0]?.normalized_domain, "shop.synthesizers.com");
+  // The fallback ran with the dotted suffix so it can't match a bare label.
+  assert.ok(
+    issued.some((s) => s.includes("ENDSWITH(@dom, CONCAT('.', c.normalized_domain))")),
+    "the bidirectional registrable-domain fallback query should have been issued"
+  );
+});
+
+test("domain search: an exact hit does NOT run the suffix fallback", async () => {
+  resetTypoCorrectionCache();
+  resetIndustryAffinityCache();
+  const exactCo = {
+    id: "e1", company_id: "e1", company_name: "Acme",
+    normalized_domain: "acme.com", website_url: "https://acme.com/",
+    keywords: ["widgets"], industries: ["Widgets"], _ts: 1700000000,
+  };
+  const issued = [];
+  const companiesContainer = makeContainer(async (spec) => {
+    const sql = String(spec?.query || "");
+    issued.push(sql);
+    if (sql.includes("c.normalized_domain = @dom")) return [exactCo];
+    if (sql.includes("ENDSWITH")) return [{ ...exactCo, id: "wrong", normalized_domain: "notacme.com" }];
+    return [];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?domain=acme.com&q=acme.com&take=10"),
+    { log() {} },
+    { companiesContainer, useFTS: false }
+  );
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.items[0]?.normalized_domain, "acme.com");
+  assert.ok(
+    !issued.some((s) => s.includes("ENDSWITH(c.normalized_domain, @domDot)")),
+    "the suffix fallback must be skipped when the exact lookup already hit"
   );
 });

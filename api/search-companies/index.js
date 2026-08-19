@@ -2227,6 +2227,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       // domain isn't in the DB, items stays empty → the frontend shows the
       // opt-in "did you mean / explore" state; alternatives ride in meta only.
       if (domainParam) {
+        // Exact match first — normalized_domain is the partition key, so this is
+        // the cheapest possible single-partition point lookup.
         const domRes = await container.items
           .query(
             {
@@ -2236,7 +2238,29 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             { enableCrossPartitionQuery: true }
           )
           .fetchAll();
-        items = (domRes.resources || []).map((r) => ({ ...r, _domainExactMatch: true }));
+        let rows = domRes.resources || [];
+        if (rows.length === 0) {
+          // No exact hit — fall back to the same REGISTRABLE domain, so a bare
+          // "synthesizers.com" still finds a company stored on
+          // "shop.synthesizers.com" (and the reverse). The dotted-suffix
+          // comparison runs both directions and respects label boundaries, so
+          // "notsynthesizers.com" never matches "synthesizers.com". Only on a
+          // miss, and TOP 5, so the extra cross-partition scan stays rare/bounded.
+          const suffixRes = await container.items
+            .query(
+              {
+                query: `SELECT TOP 5 ${SELECT_FIELDS} FROM c WHERE (ENDSWITH(c.normalized_domain, @domDot) OR ENDSWITH(@dom, CONCAT('.', c.normalized_domain))) AND ${softDeleteFilter}`,
+                parameters: [
+                  { name: "@dom", value: domainParam },
+                  { name: "@domDot", value: "." + domainParam },
+                ],
+              },
+              { enableCrossPartitionQuery: true }
+            )
+            .fetchAll();
+          rows = suffixRes.resources || [];
+        }
+        items = rows.map((r) => ({ ...r, _domainExactMatch: true }));
       }
 
       // Expand query into phrase variants using synonyms + business abbreviations.

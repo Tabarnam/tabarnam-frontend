@@ -1569,15 +1569,35 @@ export default function ResultsPage() {
 
   // Run a search for a specific brand/company NAME, dropping any domain lock —
   // used by the opt-in "like brand" suggestion chips after a domain search.
-  function searchForBrand(brandName) {
-    const name = (brandName ?? "").toString().trim();
-    if (!name) return;
+  function searchForBrand(brand) {
     const next = new URLSearchParams(searchParams);
-    next.set("q", name);
-    next.delete("domain");
     next.delete("page");
     next.delete("nocorrect");
     next.delete("expand");
+    // A "like brand" chip passes the whole company object. Go straight to THAT
+    // company via its own stored domain (an exact match), so a brand literally
+    // named like a URL ("Synthesizers.com") can't loop back into the domain-miss
+    // state by having its name re-parsed as a domain.
+    if (brand && typeof brand === "object") {
+      const dom = (brand.normalized_domain || "").toString().trim().toLowerCase();
+      const name = (brand.company_name || "").toString().trim();
+      if (dom) {
+        next.set("q", name || dom);
+        next.set("domain", dom);
+        setSearchParams(next);
+        return;
+      }
+      if (!name) return;
+      next.set("q", name);
+      next.delete("domain");
+      setSearchParams(next);
+      return;
+    }
+    // String form — the "Search for X instead" broaden link. Plain text search.
+    const name = (brand ?? "").toString().trim();
+    if (!name) return;
+    next.set("q", name);
+    next.delete("domain");
     setSearchParams(next);
   }
 
@@ -2531,7 +2551,7 @@ function DomainAlternativesStrip({ heading, alternatives, onBrand, onIndustry, c
                 key={b.company_id || b.company_name}
                 type="button"
                 className={chip}
-                onClick={() => onBrand(b.company_name)}
+                onClick={() => onBrand(b)}
               >
                 {b.company_name}
               </button>
