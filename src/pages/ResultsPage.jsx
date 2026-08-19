@@ -1690,9 +1690,9 @@ export default function ResultsPage() {
 
   const activeFilters = useMemo(() => {
     const chips = [];
-    if (countryParam) chips.push({ key: "country", label: countryParam });
-    if (stateParam) chips.push({ key: "state", label: stateParam });
-    if (cityParam) chips.push({ key: "city", label: cityParam });
+    // Location (country/state/city) intentionally NOT chipped here — the search
+    // card's own pills already show each with an × to clear it, so a second row
+    // would just duplicate them.
     // Show the sort chip only when the sort DEVIATES from the default (manu) —
     // the highlighted Manufacturing column already signals the default, so a
     // non-actionable "Sort: Nearest Manufacturing" pin would just be clutter.
@@ -1775,9 +1775,11 @@ export default function ResultsPage() {
         <meta property="og:image" content="/tabarnam.png" />
         <meta property="og:type" content="website" />
       </Helmet>
-      {/* Two-row search under the site header */}
-      <div className="mt-6 mb-4">
+      {/* Two-row search under the site header. Tighter margins on results than
+          on the home page, where the card is the hero. */}
+      <div className="mt-3 mb-3">
         <SearchCard
+          compact
           onSubmitParams={handleInlineSearch}
           onAutoSearch={handleAutoSearch}
           filtersRightSlot={results.length > 0 ? languageSelector : null}
@@ -1810,7 +1812,11 @@ export default function ResultsPage() {
         </div>
       )}
 
-      {/* Filter chips */}
+      {/* Filter chips. Location chips (country/state/city) were dropped — they
+          duplicated the search-card pills, which already show each filter with
+          its own × to clear it. Only the non-default sort chip and the
+          promoted-company "Viewing:" chip remain (no pill equivalent), so this
+          row is now absent for a normal search and reclaims a row. */}
       {activeFilters.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-3 px-1">
           {activeFilters.map(({ key, label }) => (
@@ -1832,8 +1838,10 @@ export default function ResultsPage() {
         </div>
       )}
 
-      <div className="text-sm mb-3">
-        {status && (
+      {/* Status banner — only mounted when there's a message, so an empty
+          status no longer reserves a blank row. */}
+      {status && (
+        <div className="text-sm mb-3">
           <div className={`px-4 py-2 rounded ${
             status.includes("❌") ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" :
             status.includes("⚠️") ? "bg-yellow-50 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" :
@@ -1842,8 +1850,8 @@ export default function ResultsPage() {
           }`}>
             {status}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Toolbar (page nav + query + count + Share, with the List/Map VIEW
           toggle at the far right) sits ABOVE the column headers. Keeping the

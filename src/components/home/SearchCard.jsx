@@ -108,6 +108,7 @@ export default function SearchCard({
   onAutoSearch,
   userCountryCode = "",
   fallbackLocation = "",
+  compact = false,
 }) {
   const nav = useNavigate();
   const { search } = useLocation();
@@ -723,12 +724,13 @@ export default function SearchCard({
   return (
     <div
       className={cn(
-        "w-full bg-card border border-border rounded-2xl p-5 md:p-6 shadow",
+        "w-full bg-card border border-border rounded-2xl shadow",
+        compact ? "p-3 md:p-4" : "p-5 md:p-6",
         containerClassName || "max-w-5xl"
       )}
     >
       {/* Row 1: Search field and button spanning full width */}
-      <div className={cn("grid grid-cols-1 gap-3 mb-3", searchHistory.length > 0 ? "md:grid-cols-[auto_1fr_auto_auto]" : "md:grid-cols-[1fr_auto_auto]")}>
+      <div className={cn("grid grid-cols-1", compact ? "gap-2 mb-2" : "gap-3 mb-3", searchHistory.length > 0 ? "md:grid-cols-[auto_1fr_auto_auto]" : "md:grid-cols-[1fr_auto_auto]")}>
         {/* Back / dropdown / forward nav */}
         {searchHistory.length > 0 && (
           <div className="hidden md:flex items-center gap-0.5 relative" ref={historyDropdownRef}>
