@@ -735,7 +735,12 @@ export default function SearchCard({
       )}
     >
       {/* Row 1: Search field and button spanning full width */}
-      <div className={cn("grid grid-cols-1", compact ? "gap-2 mb-2" : "gap-3 mb-3", searchHistory.length > 0 ? "md:grid-cols-[auto_1fr_auto_auto]" : "md:grid-cols-[1fr_auto_auto]")}>
+      <div className={cn(
+        compact
+          // Results: search + the collapsed Filters summary share ONE flex row.
+          ? "flex flex-wrap items-center gap-2 mb-2"
+          : cn("grid grid-cols-1 gap-3 mb-3", searchHistory.length > 0 ? "md:grid-cols-[auto_1fr_auto_auto]" : "md:grid-cols-[1fr_auto_auto]")
+      )}>
         {/* Back / dropdown / forward nav */}
         {searchHistory.length > 0 && (
           <div className="hidden md:flex items-center gap-0.5 relative" ref={historyDropdownRef}>
@@ -794,7 +799,7 @@ export default function SearchCard({
             )}
           </div>
         )}
-        <div className="relative">
+        <div className={cn("relative", compact && "flex-1 min-w-0")}>
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground z-10" size={18} />
           {q && (
             <button
@@ -949,37 +954,42 @@ export default function SearchCard({
         >
           Clear
         </Button>
+
+        {/* Collapsed Filters summary lives on the SAME row as the search field
+            (compact/results only). Clicking it expands the full field grid
+            below. The location/sort detail hides on very small screens so the
+            row stays tidy. */}
+        {compact && !filtersExpanded && (
+          <>
+            <button
+              type="button"
+              onClick={() => setFiltersExpanded(true)}
+              className={cn("inline-flex items-center gap-2 px-3 rounded-md border border-input bg-background text-foreground hover:bg-accent transition-colors min-w-0 text-sm", fieldH)}
+              data-tour-step="filter-trigger"
+              aria-expanded={false}
+            >
+              <ListFilter className="text-muted-foreground shrink-0" size={16} />
+              <span className="shrink-0 font-medium">Filters</span>
+              <span className="text-muted-foreground truncate hidden sm:inline">
+                {SORTS.find((s) => s.value === sortBy)?.label}
+                {[city, stateCode, country ? selectedCountryName : ""].filter(Boolean).length > 0
+                  ? " · " + [city, stateCode, country ? selectedCountryName : ""].filter(Boolean).join(", ")
+                  : ""}
+              </span>
+              {(amazonOnly || hqInCountry || mfgInCountry) && (
+                <span className="ml-0.5 w-2 h-2 rounded-full bg-[#3F97A2] shrink-0" />
+              )}
+              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+            </button>
+            {filtersRightSlot && <div className="shrink-0">{filtersRightSlot}</div>}
+          </>
+        )}
       </div>
 
-      {/* Row 2: Sort/Filter, City/Postal Code, State/Province, Country.
-          On results (compact) this is collapsed to a one-line summary with a
-          Filters toggle so the results dominate; expanded or on the home page
-          it's the full field row. */}
-      {compact && !filtersExpanded ? (
-        <div className="flex items-center gap-2 text-sm">
-          <button
-            type="button"
-            onClick={() => setFiltersExpanded(true)}
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-background text-foreground hover:bg-accent transition-colors min-w-0 max-w-full"
-            data-tour-step="filter-trigger"
-            aria-expanded={false}
-          >
-            <ListFilter className="text-muted-foreground shrink-0" size={16} />
-            <span className="shrink-0 font-medium">Filters</span>
-            <span className="text-muted-foreground truncate">
-              {SORTS.find((s) => s.value === sortBy)?.label}
-              {[city, stateCode, country ? selectedCountryName : ""].filter(Boolean).length > 0
-                ? " · " + [city, stateCode, country ? selectedCountryName : ""].filter(Boolean).join(", ")
-                : ""}
-            </span>
-            {(amazonOnly || hqInCountry || mfgInCountry) && (
-              <span className="ml-0.5 w-2 h-2 rounded-full bg-[#3F97A2] shrink-0" />
-            )}
-            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-          </button>
-          {filtersRightSlot && <div className="ml-auto shrink-0">{filtersRightSlot}</div>}
-        </div>
-      ) : (
+      {/* Row 2: the full field grid — Sort/Filter, City, State, Country. Shown
+          on the home page always, and on results only when Filters is expanded
+          (collapsed, it's the one-line summary that rides Row 1 above). */}
+      {(!compact || filtersExpanded) && (
       <div
         className={filtersRightSlot
           ? "grid grid-cols-1 md:grid-cols-[auto_1fr_1fr_1fr_auto] gap-3"
