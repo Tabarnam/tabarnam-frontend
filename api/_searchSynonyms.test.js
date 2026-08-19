@@ -135,10 +135,13 @@ test("expandProductSynonyms: the artificial-plant group needs the full phrase", 
   );
 });
 
-test("expandProductSynonyms: preworkout ↔ pre workout bridge (one-word vs two-word)", () => {
-  assert.ok(expandProductSynonyms("preworkout").includes("pre workout"), "preworkout → pre workout");
-  assert.ok(expandProductSynonyms("pre workout").includes("preworkout"), "pre workout → preworkout");
-  // "pre" alone must NOT map to preworkout (it's audio-preamp territory).
+test("splitCompoundQuery: preworkout splits to 'pre workout' (direct, not synonym)", () => {
+  // Uses the compound-split path (COMPOUND_SPLITS), which scores as a DIRECT
+  // match — NOT the synonym-group path, which would penalize it below the
+  // "loosely related" divider.
+  assert.equal(splitCompoundQuery("preworkout"), "pre workout");
+  // "pre" alone must NOT split/map to preworkout (audio-preamp territory).
+  assert.equal(splitCompoundQuery("pre"), null);
   assert.deepEqual(expandProductSynonyms("pre"), []);
 });
 

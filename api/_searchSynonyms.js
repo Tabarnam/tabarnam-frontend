@@ -224,12 +224,6 @@ const PRODUCT_SYNONYM_GROUPS = [
   // florists tagged only "flowers" are never pulled in. Plural + singular.
   ["fake plants", "synthetic plants", "artificial plants", "faux plants", "silk plants", "fake flowers", "synthetic flowers", "artificial flowers", "faux flowers", "silk flowers"],
   ["fake plant", "synthetic plant", "artificial plant", "faux plant", "silk plant", "fake flower", "synthetic flower", "artificial flower", "faux flower", "silk flower"],
-  // Pre-workout: the corpus tags "pre workout" (and "pre-workout", which
-  // normalizes to it) — 53 companies — but the one-word spelling "preworkout"
-  // hits only 2. Bridge them so either spelling reaches the whole cluster.
-  // "pre" alone is deliberately excluded: it's a different domain (audio
-  // preamps — Aphex, API — dominate a bare "pre" search), so it would pollute.
-  ["preworkout", "pre workout"],
 ];
 
 // Build a fast lookup: word → [synonym1, synonym2, ...]
@@ -658,6 +652,12 @@ const COMPOUND_SPLITS = {
   lipbalm: "lip balm", lipliner: "lip liner",
   icemaker: "ice maker", icemakers: "ice makers",
   icemachine: "ice machine", icemachines: "ice machines",
+  // The corpus tags "pre workout" (53 companies); the one-word spelling
+  // "preworkout" must reach it as a DIRECT match, which the split path gives
+  // (a synonym group would penalize it below the "loosely related" divider).
+  // "pre-workout" already normalizes to "pre workout". "pre" alone is NOT
+  // split-mapped — a bare "pre" search is audio-preamp territory (Aphex, API).
+  preworkout: "pre workout",
 };
 
 /**
