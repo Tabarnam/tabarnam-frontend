@@ -155,6 +155,10 @@ const PRODUCT_SYNONYM_GROUPS = [
   // stemming bridges wine↔wines and winery↔wineries on top of these.
   ["wine", "winery"],
   ["wines", "wineries"],
+  // Aquarium ↔ fish tank — the same product under a formal vs. everyday name;
+  // "fishbowl" is the small bowl variant people also search for. Plurals paired.
+  ["aquarium", "fish tank", "fishbowl", "fish bowl"],
+  ["aquariums", "fish tanks", "fishbowls", "fish bowls"],
   // Materials
   ["cloth", "fabric", "textile"],
   ["leather", "hide"],

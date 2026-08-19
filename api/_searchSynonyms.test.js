@@ -145,6 +145,14 @@ test("splitCompoundQuery: preworkout splits to 'pre workout' (direct, not synony
   assert.deepEqual(expandProductSynonyms("pre"), []);
 });
 
+test("expandProductSynonyms: aquarium ↔ fish tank / fishbowl cross-expand", () => {
+  const fromAquarium = expandProductSynonyms("aquarium");
+  assert.ok(fromAquarium.includes("fish tank"), "aquarium → fish tank");
+  assert.ok(fromAquarium.includes("fishbowl"), "aquarium → fishbowl");
+  assert.ok(expandProductSynonyms("fish tank").includes("aquarium"), "fish tank → aquarium");
+  assert.ok(expandProductSynonyms("fish tanks").includes("aquariums"), "fish tanks → aquariums (plural)");
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });
