@@ -2047,9 +2047,11 @@ export default function ResultsPage() {
             )}
           </div>
           {/* Column headers — a separate grid aligned to the data columns of the
-              rows below (the empty span keeps them under Manufacturing/HQ/QQ). */}
-          <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 items-center">
-            <div className="hidden lg:block lg:col-span-2" aria-hidden="true" />
+              rows below. STICKY so the sort controls (and column labels) stay
+              reachable while scrolling the results; a "Sorted by" label frames
+              the three as sort options, not just headers. */}
+          <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 items-center sticky top-0 z-30 bg-background/95 backdrop-blur py-1.5 -mx-2 px-2 border-b border-border/50">
+            <div className="hidden lg:flex lg:col-span-2 items-center justify-end pr-2 text-xs font-medium text-muted-foreground">Sorted by</div>
             {rightColsOrder.map((colKey, idx) => {
             const colLabel =
               colKey === "manu" ? "Manufacturing" :
@@ -2060,6 +2062,12 @@ export default function ResultsPage() {
             const button = (
               <button
                 onClick={() => clickSort(colKey)}
+                aria-pressed={isSelected}
+                aria-label={
+                  colKey === "manu" ? "Sort by nearest manufacturing" :
+                  colKey === "hq" ? "Sort by nearest headquarters" :
+                  "Sort by info quantity and quality"
+                }
                 className={cn(
                   "font-semibold rounded transition-colors text-[13px] px-2.5 py-1 border",
                   isSelected
@@ -2067,7 +2075,7 @@ export default function ResultsPage() {
                     : // tabarnam-blue-dark in light mode: -bold (#649BA0) is only
                       // 3.11:1 on white (WCAG AA needs 4.5). Dark mode keeps
                       // -bold, which passes (5.4:1) on the dark background.
-                      "bg-transparent text-tabarnam-blue-dark dark:text-tabarnam-blue-bold border-tabarnam-blue-bold"
+                      "bg-transparent text-tabarnam-blue-dark dark:text-tabarnam-blue-bold border-tabarnam-blue-bold hover:bg-tabarnam-blue/10"
                 )}
                 data-tour-step={colKey === "stars" ? "sort-header-qq" : undefined}
               >
