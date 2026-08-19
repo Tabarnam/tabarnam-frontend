@@ -357,8 +357,7 @@ export default function ResultsPage() {
     try { return localStorage.getItem("tabarnam_density") === "compact" ? "compact" : "comfortable"; }
     catch { return "comfortable"; }
   });
-  const toggleDensity = () => setDensity((d) => {
-    const next = d === "compact" ? "comfortable" : "compact";
+  const selectDensity = (next) => setDensity(() => {
     try { localStorage.setItem("tabarnam_density", next); } catch { /* ignore */ }
     return next;
   });
@@ -2023,20 +2022,41 @@ export default function ResultsPage() {
               </>
             )}
             {/* Density toggle — comfortable (full cards) vs compact (hide the
-                Industries/Products lists for denser scanning). Personal pref,
-                persisted in localStorage. Pushed to the right, ahead of the
-                List/Map view toggle. */}
-            <button
-              type="button"
-              onClick={toggleDensity}
-              aria-pressed={density === "compact"}
-              title={density === "compact" ? "Comfortable view" : "Compact view"}
-              aria-label={density === "compact" ? "Switch to comfortable view" : "Switch to compact view"}
-              className="ml-auto inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              {density === "compact" ? <AlignJustify size={14} aria-hidden="true" /> : <Rows size={14} aria-hidden="true" />}
-              {density === "compact" ? "Compact" : "Comfortable"}
-            </button>
+                Industries/Products lists + review snippets for denser scanning).
+                Personal pref, persisted in localStorage. A segmented control
+                (matching the List/Map grammar), pushed to the right. */}
+            <div className="ml-auto flex gap-1 bg-muted rounded-lg p-0.5" role="group" aria-label="Results density">
+              <button
+                type="button"
+                onClick={() => density !== "comfortable" && selectDensity("comfortable")}
+                aria-pressed={density === "comfortable"}
+                aria-label="Comfortable view"
+                className={cn(
+                  "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors",
+                  density === "comfortable"
+                    ? "bg-card shadow-sm font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Rows size={14} aria-hidden="true" />
+                Comfortable
+              </button>
+              <button
+                type="button"
+                onClick={() => density !== "compact" && selectDensity("compact")}
+                aria-pressed={density === "compact"}
+                aria-label="Compact view"
+                className={cn(
+                  "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors",
+                  density === "compact"
+                    ? "bg-card shadow-sm font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <AlignJustify size={14} aria-hidden="true" />
+                Compact
+              </button>
+            </div>
 
             {/* List | Map view toggle — a VIEW control, not a search action.
                 Hidden in bookmark-list mode (mapOpen is forced off there and a
