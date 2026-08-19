@@ -81,9 +81,46 @@ describe("AddressesEditor", () => {
     expect(screen.getByText(/agrees with Headquarters location/i)).toBeInTheDocument();
   });
 
-  it("warns when the street address lands somewhere the normalized field doesn't claim", () => {
+  // Severity is tiered because the differences mean different things. Measured
+  // across the catalog: ~20% of addresses sit in a different town from the
+  // normalized field and nearly all are correct (a winery registered in one
+  // commune with its cellar in the next). Amber on those trains admins to
+  // ignore amber.
+  it("treats a different town in the same region as a neutral note, not a warning", () => {
     render(<Harness initial={WHIRLWIND} hqLocation="Raleigh, NC, USA" />);
-    expect(screen.getByText(/Headquarters location says “Raleigh, NC, USA”/i)).toBeInTheDocument();
+    expect(screen.getByText(/different town from the Headquarters location “Raleigh, NC, USA”/i)).toBeInTheDocument();
+    expect(screen.queryByText(/does not match/i)).toBeNull();
+  });
+
+  it("warns only when nothing lines up at all", () => {
+    render(<Harness initial={WHIRLWIND} hqLocation="Lyon, Rhône, France" />);
+    expect(screen.getByText(/does not match the Headquarters location “Lyon, Rhône, France”/i)).toBeInTheDocument();
+  });
+
+  it("does not warn on punctuation, accents or Saint abbreviations", () => {
+    const cases = [
+      ["Le Mesnil sur Oger", "Le Mesnil-sur-Oger, France"],
+      ["S. Stefano di Valdobbiadene", "Santo Stefano di Valdobbiadene, Veneto, Italy"],
+      ["Sant Sadurní d’Anoia", "Sant Sadurní d'Anoia, Barcelona, Spain"],
+      ["Stourport on Severn", "Stourport-on-Severn, Worcestershire, UK"],
+    ];
+    for (const [locality, hq] of cases) {
+      const { unmount } = render(
+        <Harness initial={[{ ...WHIRLWIND[0], locality, region: "", country: "" }]} hqLocation={hq} />
+      );
+      expect(screen.getByText(/agrees with Headquarters location/i)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("treats USA and United States as the same country for the note tier", () => {
+    render(
+      <Harness
+        initial={[{ ...WHIRLWIND[0], locality: "Cary", region: "", country: "United States" }]}
+        hqLocation="Raleigh, NC, USA"
+      />
+    );
+    expect(screen.getByText(/different town from the Headquarters location/i)).toBeInTheDocument();
   });
 
   it("warns when there is no normalized field to check against", () => {
