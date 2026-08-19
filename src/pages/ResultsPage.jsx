@@ -1845,10 +1845,13 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {/* Column Headers + page info — same grid as ExpandableCompanyRow */}
+      {/* Toolbar (page nav + query + count + Share, with the List/Map VIEW
+          toggle at the far right) sits ABOVE the column headers. Keeping the
+          toggle out of the column-header grid lets it reach the true right edge
+          instead of bunching against the narrow first column. */}
       {results.length > 0 && (
-        <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 mb-4 px-2 items-center">
-          <div className="col-span-6 lg:col-span-2 text-sm text-muted-foreground flex flex-wrap items-center gap-2">
+        <div className="mb-4 px-2">
+          <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-2 mb-2">
             {qParam && (
               <>
                 {/* Compact page navigator sits in this row, to the left of
@@ -2035,7 +2038,11 @@ export default function ResultsPage() {
               </div>
             )}
           </div>
-          {rightColsOrder.map((colKey, idx) => {
+          {/* Column headers — a separate grid aligned to the data columns of the
+              rows below (the empty span keeps them under Manufacturing/HQ/QQ). */}
+          <div className="grid grid-cols-6 lg:grid-cols-5 gap-x-3 items-center">
+            <div className="hidden lg:block lg:col-span-2" aria-hidden="true" />
+            {rightColsOrder.map((colKey, idx) => {
             const colLabel =
               colKey === "manu" ? "Manufacturing" :
               colKey === "hq" ? "Home/HQ" :
@@ -2077,6 +2084,7 @@ export default function ResultsPage() {
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
