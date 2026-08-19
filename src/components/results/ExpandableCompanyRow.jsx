@@ -764,7 +764,10 @@ export default function ExpandableCompanyRow({
     }
 
     if (colKey === "stars") {
-      const showReviewPreview = !isExpanded;
+      // Compact density hides the Features & Reviews snippet stack (keeping the
+      // QQ dots + Review button) — it's the tallest thing in the right column
+      // and the main reason compact rows weren't getting shorter.
+      const showReviewPreview = !isExpanded && density !== "compact";
       const reviews = showReviewPreview
         ? getReviewsPreviews().map(normalizeReview).filter(Boolean)
         : [];
@@ -1313,11 +1316,11 @@ export default function ExpandableCompanyRow({
               websiteUrl={websiteUrl}
               logoUrl={logoUrl}
               displayName={displayName}
-              imgClassName="w-full max-h-60 h-auto object-contain"
+              imgClassName={density === "compact" ? "w-full max-h-16 h-auto object-contain" : "w-full max-h-60 h-auto object-contain"}
               onError={() => setLogoFailed(true)}
             />
           ) : (
-            <div className="w-full h-48 bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg">
+            <div className={`w-full ${density === "compact" ? "h-16" : "h-48"} bg-muted rounded flex items-center justify-center text-foreground font-bold text-lg`}>
               {logoStatus === "not_found_on_site" ? (
                 <span className="text-xs font-semibold text-muted-foreground">No logo found on company website</span>
               ) : logoStatus === "not_found" ? (
