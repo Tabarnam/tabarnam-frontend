@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { AlertTriangle, Check, Copy, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, MapPin, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -147,15 +147,89 @@ function normalizedCandidates(type, hqLocation, manufacturingLocations) {
 }
 
 /**
- * Does this street address sit in the place the normalized field claims?
- * Compared on locality, which is the part both sides always carry.
+ * Fold a place name so two spellings of the same town stop reading as a
+ * disagreement: accents, apostrophes, hyphens and the Saint/St abbreviation
+ * all vary between a street address and the normalized field.
+ * "Le Mesnil sur Oger" and "Le Mesnil-sur-Oger" are one place.
+ */
+function foldPlace(s) {
+  return trim(s)
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    // Expand the abbreviations BEFORE punctuation is stripped, or "S." has
+    // already become a bare "s" and no longer looks like Santo/Saint.
+    .replace(/\bst\.?\s+(?=[a-z])/g, "saint ")
+    .replace(/\bs\.\s+(?=[a-z])/g, "santo ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
+ * Is `term` present in `candidate` as a whole word or phrase?
+ *
+ * Substring matching is not good enough here and fails in both directions:
+ * the region "NC" appears inside "France", and the country "US" inside
+ * "Russia" — each of which would silently downgrade a real mismatch to a
+ * harmless-looking note.
+ */
+function containsPlace(candidate, term) {
+  const c = foldPlace(candidate);
+  const t = foldPlace(term);
+  if (!c || !t) return false;
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^| )${escaped}( |$)`).test(c);
+}
+
+// "USA" and "United States" are the same country; so are UK and its nations.
+// Only the groups that actually collide in this corpus.
+const COUNTRY_SYNONYMS = [
+  ["usa", "us", "united states", "united states of america", "america"],
+  ["uk", "united kingdom", "great britain", "britain", "england", "scotland", "wales", "northern ireland"],
+];
+
+function sameCountryish(country, candidate) {
+  const fa = foldPlace(country);
+  if (!fa) return false;
+  if (containsPlace(candidate, fa)) return true;
+  return COUNTRY_SYNONYMS.some(
+    (group) => group.includes(fa) && group.some((g) => containsPlace(candidate, g))
+  );
+}
+
+/**
+ * How well does this street address match the normalized location field?
+ *
+ * Three outcomes, because the differences mean different things — measured
+ * across the catalog, ~20% of addresses sit in a different town from the city
+ * on the normalized field, and almost all of them are correct: a winery
+ * registered in Saumur with its cellar in the next commune, a brand with a
+ * London office and a Tenterden vineyard. Flagging those amber taught nobody
+ * anything and would have taught admins to ignore the colour.
+ *
+ *   ok    — same town. Green.
+ *   note  — different town, same region or country. Neutral: extremely common
+ *           and usually right, but worth stating so nobody assumes they match.
+ *   warn  — nothing lines up, or there is no field to check. Amber: this is
+ *           the shape a mis-parse or a wrong record actually takes.
  */
 function agreement(entry, candidates) {
-  const loc = trim(entry.locality).toLowerCase();
+  const loc = trim(entry.locality);
   if (!loc) return null; // nothing comparable — stay quiet rather than guess
   if (!candidates.length) return { state: "missing" };
-  const hit = candidates.find((c) => c.toLowerCase().includes(loc));
-  return hit ? { state: "ok", text: hit } : { state: "differs", text: candidates.join("; ") };
+
+  const hit = candidates.find((c) => containsPlace(c, loc));
+  if (hit) return { state: "ok", text: hit };
+
+  // Different town. Does anything larger still agree?
+  const region = trim(entry.region);
+  const country = trim(entry.country);
+  const near = candidates.find(
+    (c) => (region && containsPlace(c, region)) || (country && sameCountryish(country, c))
+  );
+  if (near) return { state: "note", text: near };
+
+  return { state: "differs", text: candidates.join("; ") };
 }
 
 export default function AddressesEditor({
@@ -312,13 +386,22 @@ export default function AddressesEditor({
                   agrees with {labelFor(entry.type)} location “{agree.text}”
                 </span>
               </>
+            ) : agree.state === "note" ? (
+              // Different town, same region or country. Stated plainly and in
+              // neutral grey: usually correct, never worth an alarm colour.
+              <>
+                <MapPin className="h-3 w-3 mt-0.5 shrink-0 text-slate-400 dark:text-muted-foreground" />
+                <span className="text-slate-500 dark:text-muted-foreground">
+                  different town from the {labelFor(entry.type)} location “{agree.text}”
+                </span>
+              </>
             ) : (
               <>
                 <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
                 <span className="text-amber-700 dark:text-amber-400">
                   {agree.state === "missing"
                     ? `no ${labelFor(entry.type)} location on file to check against`
-                    : `${labelFor(entry.type)} location says “${agree.text}”`}
+                    : `does not match the ${labelFor(entry.type)} location “${agree.text}”`}
                 </span>
               </>
             )}
