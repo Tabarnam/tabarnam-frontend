@@ -133,6 +133,7 @@ import CompanyNotesEditor from "./company-dashboard/CompanyNotesEditor";
 import StructuredLocationListEditor from "./company-dashboard/StructuredLocationListEditor";
 import AddressesEditor from "./company-dashboard/AddressesEditor";
 import { parseBulkPasteText } from "./company-dashboard/parseBulkPaste";
+import { deselectEditedFields } from "./company-dashboard/deselectEditedFields";
 
 // Collapsible section wrapper for sidebar and left column groups
 function CollapsibleSection({ title, isOpen, onToggle, badge, headerExtra, children, className = "" }) {
@@ -667,6 +668,10 @@ export default function CompanyDashboard() {
   const [proposedDraft, setProposedDraft] = useState(null);
   const [proposedDraftText, setProposedDraftText] = useState({});
   const [refreshSelection, setRefreshSelection] = useState({});
+  // Snapshot of the editor draft taken when a proposal arrived. Anything that
+  // differs from this has been edited by hand since, and the admin's version
+  // wins — see deselectEditedFields.
+  const refreshBaselineRef = useRef(null);
   const [refreshApplied, setRefreshApplied] = useState(false);
   const [pendingSaveAfterApply, setPendingSaveAfterApply] = useState(false);
   // Set when curated_reviews were among the diffs just applied; the post-apply
@@ -1784,6 +1789,23 @@ export default function CompanyDashboard() {
     return rows;
   }, [diffToDisplay, editorDraft, normalizeForDiff, refreshDiffFields, refreshProposed]);
 
+  // A hand edit beats a pending suggestion. Editing a field that still has its
+  // proposed row ticked used to be silently undone at save — the proposal was
+  // written over the draft — so an admin could delete a stale HQ location,
+  // save, and watch it return. Untick the row instead: the conflict becomes
+  // visible, and re-ticking it is how you take the suggestion after all.
+  useEffect(() => {
+    if (!refreshProposed || !editorDraft) return;
+    const patch = deselectEditedFields({
+      fields: refreshDiffFields,
+      selection: refreshSelection,
+      draft: editorDraft,
+      baseline: refreshBaselineRef.current,
+      normalize: normalizeForDiff,
+    });
+    if (patch) setRefreshSelection((prev) => ({ ...prev, ...patch }));
+  }, [editorDraft, refreshProposed, refreshSelection, refreshDiffFields, normalizeForDiff]);
+
   const selectedDiffCount = useMemo(() => {
     return diffRows.reduce((sum, row) => sum + (refreshSelection[row.key] ? 1 : 0), 0);
   }, [diffRows, refreshSelection]);
@@ -1883,6 +1905,12 @@ export default function CompanyDashboard() {
       const draft = deepClone(proposed);
       setRefreshProposed(proposed);
       setProposedDraft(draft);
+      // Mark where the draft stood when this proposal landed, so a later hand
+      // edit to any of these fields can be told apart from "untouched".
+      setEditorDraft((d) => {
+        refreshBaselineRef.current = d ? deepClone(d) : null;
+        return d;
+      });
 
       const nextTaglineMeta =
         jsonBody?.tagline_meta && typeof jsonBody.tagline_meta === "object" ? jsonBody.tagline_meta : null;
