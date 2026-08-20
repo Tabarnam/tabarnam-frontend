@@ -61,6 +61,16 @@
       "statusCode": 301
     },
     {
+      "route": "/made-in",
+      "allowedRoles": ["anonymous"],
+      "rewrite": "/api/made-in-page"
+    },
+    {
+      "route": "/made-in/*",
+      "allowedRoles": ["anonymous"],
+      "rewrite": "/api/made-in-page/{*path}"
+    },
+    {
       "route": "/admin",
       "allowedRoles": ["anonymous"],
       "headers": { "X-Robots-Tag": "noindex, nofollow" }
