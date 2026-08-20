@@ -91,6 +91,9 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
   const openDrawer = () => { try { drawerRef.current?.(true); } catch {} };
   const closeDrawer = () => { try { drawerRef.current?.(false); } catch {} };
   const go = (path) => { try { navigateRef.current?.(path); } catch {} };
+  const setMap = (open) => {
+    try { window.dispatchEvent(new CustomEvent('tour:set-map', { detail: { open } })); } catch {}
+  };
 
   return [
     {
@@ -119,16 +122,35 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
       ],
     },
     {
-      id: 'map',
-      title: 'See it on a map',
-      text: 'Switch to <strong>Map</strong> to see where each company operates — headquarters, factories, and how far they are from your search.',
-      attachTo: { element: '[data-tour-step="map-toggle"]', on: 'bottom' },
+      id: 'density',
+      title: 'Comfortable or Compact',
+      text: 'Want denser rows? Flip to <strong>Compact</strong> to fit more results on screen — your choice sticks between visits.',
+      attachTo: { element: '[data-tour-step="density-toggle"]', on: 'bottom-end' },
       scrollTo: { behavior: 'smooth', block: 'nearest' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         { text: 'Back', action: () => tour.back(), secondary: true },
-        learnMore('#map'),
         { text: 'Next', action: () => tour.next() },
+      ],
+    },
+    {
+      id: 'map',
+      title: 'See it on a map',
+      text: 'Every result also has a place on the map. Pins mark headquarters and factories; the red teardrop is your search origin. Hover a pin to preview a company; click to focus it.',
+      attachTo: { element: '[data-tour-step="results-map-panel"]', on: 'left' },
+      scrollTo: { behavior: 'smooth', block: 'center' },
+      beforeShowPromise: async () => {
+        setMap(true);
+        // Wait for the map panel to mount, then give Leaflet a beat to render
+        // its tiles + pins before Shepherd measures the popover.
+        await waitForElement('[data-tour-step="results-map-panel"]');
+        await new Promise((r) => setTimeout(r, 800));
+      },
+      buttons: [
+        { text: 'Skip tour', action: () => { setMap(false); tour.cancel(); }, secondary: true },
+        { text: 'Back', action: () => { setMap(false); tour.back(); }, secondary: true },
+        learnMore('#map'),
+        { text: 'Next', action: () => { setMap(false); tour.next(); } },
       ],
     },
     {
@@ -247,14 +269,23 @@ export default function TourController() {
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
 
+  // Only re-decide the tour when the route or the tour force-flag changes.
+  // The results-leg's map step toggles ?map=1 on and off — including all of
+  // `search` in the deps would tear down and restart the tour every time.
+  const forceTourParam = new URLSearchParams(search || '').get('tour') === '1' ? '1' : '';
+
   useEffect(() => {
     // Landing here via an explicit "Clear" (or any nav that asks to skip the
     // tour) should not auto-launch onboarding. Transient router state only —
     // a later organic visit still gets the tour.
     if (state?.skipTour) return;
+    // Read search fresh so an in-flight ?map=1 flip doesn't affect the
+    // decision (decideTourMode only cares about the tour flag itself, which
+    // is captured in forceTourParam above and drives the effect deps).
+    const currentSearch = window.location.search;
     const mode = decideTourMode({
       pathname,
-      search,
+      search: currentSearch,
       seen: safeRead(TOUR_SEEN_KEY),
       progress: safeRead(TOUR_PROGRESS_KEY),
     });
@@ -348,7 +379,7 @@ export default function TourController() {
         .querySelectorAll('.shepherd-element, .shepherd-modal-overlay-container')
         .forEach((el) => el.remove());
     };
-  }, [pathname, search, state, navigate]);
+  }, [pathname, forceTourParam, state, navigate]);
 
   return null;
 }

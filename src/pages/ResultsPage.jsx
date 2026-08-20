@@ -1442,6 +1442,18 @@ export default function ResultsPage() {
     setSearchParams(next);
   }
 
+  // Tour bridge: the results-leg's "See it on a map" step needs to open the
+  // map view before spotlighting the panel, and close it again on Next/Back/
+  // Skip. Dispatching a CustomEvent keeps TourController decoupled from this
+  // page's URL-driven state.
+  const toggleMapViewRef = useRef(toggleMapView);
+  toggleMapViewRef.current = toggleMapView;
+  useEffect(() => {
+    const handler = (e) => toggleMapViewRef.current?.(!!e.detail?.open);
+    window.addEventListener("tour:set-map", handler);
+    return () => window.removeEventListener("tour:set-map", handler);
+  }, []);
+
   // Written by the panel's HQ/MFG/Both segmented control; "both" is the
   // default and never appears in the URL.
   function handlePinFilterChange(val) {
@@ -2039,7 +2051,12 @@ export default function ResultsPage() {
                 Industries/Products lists + review snippets for denser scanning).
                 Personal pref, persisted in localStorage. A segmented control
                 (matching the List/Map grammar), pushed to the right. */}
-            <div className="ml-auto flex gap-1 bg-muted rounded-lg p-0.5" role="group" aria-label="Results density">
+            <div
+              className="ml-auto flex gap-1 bg-muted rounded-lg p-0.5"
+              role="group"
+              aria-label="Results density"
+              data-tour-step="density-toggle"
+            >
               <button
                 type="button"
                 onClick={() => density !== "comfortable" && selectDensity("comfortable")}
@@ -2491,6 +2508,7 @@ export default function ResultsPage() {
           it out of the grid entirely. */}
       {mapOpen && (
         <aside
+          data-tour-step="results-map-panel"
           className={cn(
             "relative overflow-hidden border border-border bg-card",
             mapFullscreen &&
