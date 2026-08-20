@@ -30,10 +30,12 @@ const PLACES = require("./_madeInPlaces.json");
 
 const ORIGIN = "https://tabarnam.com";
 const SHELL_URL = `${ORIGIN}/index.html`;
-// Long enough that a busy worker isn't re-fetching constantly, short enough
-// that a frontend deploy's new asset hashes are picked up within the hour.
-const SHELL_TTL_MS = 15 * 60 * 1000;
+// Written by scripts/write-build-id.mjs on every frontend build, and excluded
+// from the SPA navigation fallback, so it is a 41-byte source of truth for
+// "which asset hashes are live right now".
+const BUILD_ID_URL = `${ORIGIN}/__build_id.txt`;
 const SHELL_TIMEOUT_MS = 8000;
+const BUILD_ID_TIMEOUT_MS = 4000;
 
 // How many companies to name in the page text. The full set stays on the map;
 // this is the crawlable, readable slice. 250 keeps the largest page (USA,
@@ -72,38 +74,62 @@ const nf = new Intl.NumberFormat("en-US");
 
 // ── shell ───────────────────────────────────────────────────────────────────
 
-let _shell = { html: "", fetchedAt: 0, inflight: null };
+let _shell = { html: "", buildId: "", inflight: null };
 
-async function fetchShell() {
+async function fetchText(url, timeoutMs, accept) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), SHELL_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(SHELL_URL, {
-      headers: { accept: "text/html" },
-      signal: ctrl.signal,
-    });
-    if (!res.ok) throw new Error(`index.html responded ${res.status}`);
-    const html = await res.text();
-    if (!html.includes('id="root"')) throw new Error("index.html has no #root mount");
-    return html;
+    const res = await fetch(url, { headers: { accept }, signal: ctrl.signal });
+    if (!res.ok) throw new Error(`${url} responded ${res.status}`);
+    return await res.text();
   } finally {
     clearTimeout(timer);
   }
 }
 
+async function fetchShell() {
+  const html = await fetchText(SHELL_URL, SHELL_TIMEOUT_MS, "text/html");
+  if (!html.includes('id="root"')) throw new Error("index.html has no #root mount");
+  return html;
+}
+
 /**
- * Cached app shell. On failure we keep serving the last good copy rather than
- * failing the page — a stale shell still boots the app; no shell does not.
- * Returns "" only if we have never successfully fetched one.
+ * The app shell, cached per FRONTEND BUILD rather than on a timer.
+ *
+ * A time-based cache is actively wrong here and shipped broken once: the shell
+ * names hashed asset files, a frontend deploy replaces them and deletes the
+ * old ones, so a shell cached even a minute too long tells browsers to fetch
+ * /assets/index-<oldhash>.js — which 404s, leaving React unable to boot and
+ * the visitor staring at the server-rendered text forever. Observed in
+ * production on 2026-08-20: the pages served index-DOqXNMDJ.js after the
+ * deploy had moved to index-C6jRf-mO.js.
+ *
+ * __build_id.txt changes exactly when those hashes change and costs 41 bytes,
+ * so it is checked on every render. That is one tiny round trip in the steady
+ * state — strictly cheaper than re-fetching index.html each time, with no
+ * staleness window at all.
+ *
+ * Returns "" only if we have never successfully fetched a shell.
  */
 async function getShell(log = console) {
-  const fresh = _shell.html && Date.now() - _shell.fetchedAt < SHELL_TTL_MS;
-  if (fresh) return _shell.html;
+  let buildId = "";
+  try {
+    buildId = (await fetchText(BUILD_ID_URL, BUILD_ID_TIMEOUT_MS, "text/plain")).trim();
+  } catch (err) {
+    // Can't confirm freshness. A shell we already hold is still the best
+    // available answer — it was correct when fetched, and the alternative is
+    // no app at all.
+    (log.warn || console.warn)(`[made-in] build id check failed: ${err?.message || err}`);
+    if (_shell.html) return _shell.html;
+  }
+
+  if (buildId && _shell.html && _shell.buildId === buildId) return _shell.html;
   if (_shell.inflight) return _shell.inflight;
 
   _shell.inflight = fetchShell()
     .then((html) => {
-      _shell = { html, fetchedAt: Date.now(), inflight: null };
+      _shell = { html, buildId, inflight: null };
       return html;
     })
     .catch((err) => {
@@ -115,6 +141,11 @@ async function getShell(log = console) {
     });
 
   return _shell.inflight;
+}
+
+/** Test seam: drop the cached shell so a test starts from a cold worker. */
+function _resetShellCache() {
+  _shell = { html: "", buildId: "", inflight: null };
 }
 
 // ── aggregation ─────────────────────────────────────────────────────────────
@@ -526,6 +557,7 @@ module.exports = {
   renderMadeIn,
   getShell,
   // exported for tests
+  _resetShellCache,
   resolvePath,
   aggregate,
   injectIntoShell,

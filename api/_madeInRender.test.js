@@ -8,8 +8,33 @@ const {
   countryPage,
   regionPage,
   indexPage,
+  getShell,
+  _resetShellCache,
   LIST_LIMIT,
 } = require("./_madeInRender");
+
+const QUIET = { warn() {} };
+
+/**
+ * Stubs the two URLs getShell fetches. `state` is mutated by the test to
+ * simulate a frontend deploy landing between requests.
+ */
+function stubFetch(state) {
+  const original = globalThis.fetch;
+  const calls = { buildId: 0, shell: 0 };
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.endsWith("__build_id.txt")) {
+      calls.buildId += 1;
+      if (state.buildIdFails) throw new Error("network down");
+      return { ok: true, text: async () => state.buildId };
+    }
+    calls.shell += 1;
+    if (state.shellFails) throw new Error("network down");
+    return { ok: true, text: async () => `<div id="root"></div><script src="/assets/index-${state.buildId}.js"></script>` };
+  };
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
 
 // A compact v5 pins row: [id, name, tagline, domain, hqLat, hqLng, mfg[],
 // hqCC, mfgCCs[], hqRegion, mfgRegions[], hqLabel] where each mfg pin is
@@ -277,6 +302,90 @@ test("injectIntoShell de-duplicates every head tag it restates, across line brea
   assert.doesNotMatch(html, /static fallback/);
   // Site-wide and still correct — left alone.
   assert.equal((html.match(/property="og:site_name"/g) || []).length, 1);
+});
+
+// ── shell caching ───────────────────────────────────────────────────────────
+// Regression: the shell was cached on a 15-minute timer. It names hashed asset
+// files that a frontend deploy replaces and DELETES, so a shell cached even a
+// little too long pointed browsers at /assets/index-<oldhash>.js, which 404'd
+// and left React unable to boot. Shipped broken on 2026-08-20.
+
+test("a frontend deploy invalidates the cached shell immediately", async () => {
+  _resetShellCache();
+  const state = { buildId: "aaaa1111" };
+  const { calls, restore } = stubFetch(state);
+  try {
+    const first = await getShell(QUIET);
+    assert.match(first, /index-aaaa1111\.js/);
+    assert.equal(calls.shell, 1);
+
+    // Same build: served from cache, no second shell fetch.
+    await getShell(QUIET);
+    assert.equal(calls.shell, 1);
+
+    // Deploy lands. The very next render must see the new hashes — no window.
+    state.buildId = "bbbb2222";
+    const after = await getShell(QUIET);
+    assert.match(after, /index-bbbb2222\.js/);
+    assert.doesNotMatch(after, /index-aaaa1111\.js/);
+    assert.equal(calls.shell, 2);
+  } finally {
+    restore();
+  }
+});
+
+test("the build id is checked on every render, not memoized", async () => {
+  _resetShellCache();
+  const state = { buildId: "cccc3333" };
+  const { calls, restore } = stubFetch(state);
+  try {
+    await getShell(QUIET);
+    await getShell(QUIET);
+    await getShell(QUIET);
+    assert.equal(calls.buildId, 3);
+    assert.equal(calls.shell, 1); // but the 3.4KB shell is fetched once
+  } finally {
+    restore();
+  }
+});
+
+test("an unreachable build id keeps serving the last good shell", async () => {
+  _resetShellCache();
+  const state = { buildId: "dddd4444" };
+  const { restore } = stubFetch(state);
+  try {
+    await getShell(QUIET);
+    state.buildIdFails = true;
+    const stale = await getShell(QUIET);
+    // Correct when fetched, and the alternative is no app at all.
+    assert.match(stale, /index-dddd4444\.js/);
+  } finally {
+    restore();
+  }
+});
+
+test("a cold worker that cannot reach anything returns empty, not a broken page", async () => {
+  _resetShellCache();
+  const { restore } = stubFetch({ buildId: "e", buildIdFails: true, shellFails: true });
+  try {
+    assert.equal(await getShell(QUIET), "");
+  } finally {
+    restore();
+  }
+});
+
+test("a shell without a #root mount is rejected rather than cached", async () => {
+  _resetShellCache();
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) =>
+    String(url).endsWith("__build_id.txt")
+      ? { ok: true, text: async () => "ffff6666" }
+      : { ok: true, text: async () => "<html><body>maintenance</body></html>" };
+  try {
+    assert.equal(await getShell(QUIET), "");
+  } finally {
+    globalThis.fetch = original;
+  }
 });
 
 test("injectIntoShell refuses a shell it cannot splice, so we never ship a gutted page", () => {
