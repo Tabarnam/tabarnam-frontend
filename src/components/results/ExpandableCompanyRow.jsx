@@ -1231,7 +1231,7 @@ export default function ExpandableCompanyRow({
           </span>
         </h2>
         {company.tagline && (
-          <div className="text-sm text-primary mt-2">&ldquo;{highlightExactPhrase(company.tagline, query)}&rdquo;</div>
+          <div className={`text-sm text-primary mt-2${density === "compact" ? " line-clamp-2" : ""}`}>&ldquo;{highlightExactPhrase(company.tagline, query)}&rdquo;</div>
         )}
 
         {debugScores && (

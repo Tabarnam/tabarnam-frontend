@@ -2581,7 +2581,7 @@ function PerPageControl({ pageSize, onChange }) {
           onBlur={commitCustom}
           placeholder="Custom"
           aria-label="Custom results per page"
-          className={`w-[72px] h-8 px-2 rounded border bg-background text-sm text-foreground ${
+          className={`w-[76px] h-8 px-2 rounded border bg-background text-sm text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
             !isPreset ? "border-primary text-primary" : "border-border"
           }`}
         />
