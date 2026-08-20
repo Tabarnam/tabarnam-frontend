@@ -942,10 +942,14 @@ export default function SearchCard({
         <Button
           onClick={() => handleSubmit()}
           disabled={loading}
-          className={cn("bg-tabarnam-blue text-slate-900 font-bold hover:bg-tabarnam-blue/80 transition-colors", fieldH)}
+          aria-label="Search"
+          title="Search"
+          className={cn("bg-tabarnam-blue text-slate-900 font-bold hover:bg-tabarnam-blue/80 transition-colors", compact && "px-3", fieldH)}
         >
           {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
-          <span className="ml-2">Search</span>
+          {/* On results (compact) the field already reads as a search box, so
+              the button goes icon-only to save horizontal room. */}
+          {!compact && <span className="ml-2">Search</span>}
         </Button>
 
         <Button

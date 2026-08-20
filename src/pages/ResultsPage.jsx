@@ -1757,7 +1757,7 @@ export default function ResultsPage() {
 
   const languageSelector = (
     <select
-      className="h-11 text-sm border border-input rounded-md px-3 bg-background text-foreground font-medium hover:border-muted-foreground transition-colors"
+      className="h-11 text-sm border border-input rounded-md pl-2 pr-1 bg-background text-foreground hover:border-muted-foreground transition-colors"
       defaultValue="en"
       aria-label="Language"
     >
