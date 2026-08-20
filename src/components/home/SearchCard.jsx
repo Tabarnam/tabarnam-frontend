@@ -748,32 +748,32 @@ export default function SearchCard({
       )}>
         {/* Back / dropdown / forward nav */}
         {searchHistory.length > 0 && (
-          <div className="hidden md:flex items-center gap-0.5 relative" ref={historyDropdownRef}>
+          <div className="hidden md:flex items-center relative" ref={historyDropdownRef}>
             <button
               type="button"
               disabled={!canGoBack}
               onClick={onGoBack}
-              className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none transition-colors"
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none transition-colors"
               aria-label="Previous search"
             >
-              <ChevronLeft size={20} />
+              <ChevronLeft size={16} />
             </button>
             <button
               type="button"
               onClick={() => setShowHistoryDropdown((v) => !v)}
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               aria-label="Search history"
             >
-              <ChevronDown size={16} />
+              <ChevronDown size={14} />
             </button>
             <button
               type="button"
               disabled={!canGoForward}
               onClick={onGoForward}
-              className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none transition-colors"
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none transition-colors"
               aria-label="Next search"
             >
-              <ChevronRight size={20} />
+              <ChevronRight size={16} />
             </button>
             {/* History dropdown */}
             {showHistoryDropdown && (
