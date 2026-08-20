@@ -54,8 +54,8 @@ function getCompaniesContainer() {
 /**
  * The path the visitor actually asked for.
  *
- * SWA rewrites carry the original path in x-ms-original-url; the {*path}
- * route param is the fallback for local dev and for direct calls to
+ * SWA rewrites carry the original path in x-ms-original-url; the {slug} and
+ * {state} route params are the fallback for local dev and for direct calls to
  * /api/made-in-page/<slug>.
  */
 function originalPath(req) {
@@ -64,13 +64,19 @@ function originalPath(req) {
     : req?.headers?.["x-ms-original-url"];
   if (header) {
     try {
-      return new URL(header, "https://tabarnam.com").pathname;
+      const { pathname } = new URL(header, "https://tabarnam.com");
+      // Only trust it if it names a page we serve. `new URL` does NOT throw on
+      // junk — it resolves it against the base, so "::::" yields "/::::",
+      // which would 404 instead of falling back to the route params.
+      if (/^\/made-in(\/|$)/i.test(pathname)) return pathname;
     } catch {
-      // fall through to the route param
+      // fall through to the route params
     }
   }
-  const tail = String(req?.params?.path || "").replace(/^\/+/, "");
-  return tail ? `/made-in/${tail}` : "/made-in";
+  const parts = [req?.params?.slug, req?.params?.state]
+    .map((p) => String(p || "").replace(/^\/+|\/+$/g, ""))
+    .filter(Boolean);
+  return parts.length ? `/made-in/${parts.join("/")}` : "/made-in";
 }
 
 /**
@@ -115,12 +121,29 @@ async function handleMadeInPage(req, context) {
   }
 }
 
-app.http("made-in-page", {
-  route: "made-in-page/{*path}",
-  methods: ["GET"],
-  authLevel: "anonymous",
-  handler: handleMadeInPage,
-});
+// Three explicit routes rather than one `made-in-page/{*path}` catch-all.
+// The catch-all form shipped in 07685d46 and 404'd in production: it showed up
+// in /api/diag (which reports what app.http was CALLED with) but the Functions
+// host never bound it — the same registered-locally/dead-in-prod signature as
+// the admin* routes that forced the xadmin-api-* naming. Explicit params are
+// the shape already proven on this app by xadmin-api-companies/{id?}.
+//
+// The path depth mirrors the site: /made-in, /made-in/<country>,
+// /made-in/usa/<state>. Anything deeper is not a page we publish.
+const MADE_IN_ROUTES = [
+  ["made-in-page", "made-in-page"],
+  ["made-in-page-country", "made-in-page/{slug}"],
+  ["made-in-page-region", "made-in-page/{slug}/{state}"],
+];
+
+for (const [name, route] of MADE_IN_ROUTES) {
+  app.http(name, {
+    route,
+    methods: ["GET"],
+    authLevel: "anonymous",
+    handler: handleMadeInPage,
+  });
+}
 
 module.exports = app;
 module.exports.handleMadeInPage = handleMadeInPage;
