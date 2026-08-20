@@ -223,7 +223,7 @@ function waitForElements(selectors, timeoutMs) {
 }
 
 export default function TourController() {
-  const { pathname, search } = useLocation();
+  const { pathname, search, state } = useLocation();
   const navigate = useNavigate();
   const tourRef = useRef(null);
   // Bridge: stash the latest setDrawerOpen in a ref so step callbacks
@@ -235,6 +235,10 @@ export default function TourController() {
   navigateRef.current = navigate;
 
   useEffect(() => {
+    // Landing here via an explicit "Clear" (or any nav that asks to skip the
+    // tour) should not auto-launch onboarding. Transient router state only —
+    // a later organic visit still gets the tour.
+    if (state?.skipTour) return;
     const mode = decideTourMode({
       pathname,
       search,
@@ -331,7 +335,7 @@ export default function TourController() {
         .querySelectorAll('.shepherd-element, .shepherd-modal-overlay-container')
         .forEach((el) => el.remove());
     };
-  }, [pathname, search, navigate]);
+  }, [pathname, search, state, navigate]);
 
   return null;
 }

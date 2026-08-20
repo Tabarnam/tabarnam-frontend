@@ -664,7 +664,10 @@ export default function SearchCard({
     setShowRecent(false);
     cityClearedByUserRef.current = false;
     lastSearchedQRef.current = '';
-    nav('/');
+    // Clear takes the user back to the top; they've clearly engaged with the
+    // app, so don't launch the first-visit tour on that landing. Suppress it
+    // for this navigation only (router state — no persisted flag, no URL param).
+    nav('/', { state: { skipTour: true } });
   };
 
   // Show recent searches when input focused and empty (Feature E)
