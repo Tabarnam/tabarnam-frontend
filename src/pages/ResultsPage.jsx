@@ -2095,6 +2095,7 @@ export default function ResultsPage() {
                   type="button"
                   onClick={() => !mapOpen && toggleMapView(true)}
                   aria-pressed={mapOpen}
+                  data-tour-step="map-toggle"
                   className={cn(
                     "inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors",
                     mapOpen

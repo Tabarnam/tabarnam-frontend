@@ -119,6 +119,19 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
       ],
     },
     {
+      id: 'map',
+      title: 'See it on a map',
+      text: 'Switch to <strong>Map</strong> to see where each company operates — headquarters, factories, and how far they are from your search.',
+      attachTo: { element: '[data-tour-step="map-toggle"]', on: 'bottom' },
+      scrollTo: { behavior: 'smooth', block: 'nearest' },
+      buttons: [
+        { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
+        { text: 'Back', action: () => tour.back(), secondary: true },
+        learnMore('#map'),
+        { text: 'Next', action: () => tour.next() },
+      ],
+    },
+    {
       id: 'bookmark-save',
       title: 'Save it for later',
       text: 'Tap the bookmark icon to save any company. Tap it again to file it under a custom list.',
