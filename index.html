@@ -20,7 +20,17 @@
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tabarnam</title>
+    <!-- Fallback head for every route. Per-page <Helmet>/useDocumentHead
+         overwrite title/description/og once React mounts; these are what a
+         non-rendering crawler and a cold social-preview fetch see, so they
+         have to stand on their own. Deliberately NO <link rel="canonical">
+         here: a static canonical would claim every URL on the site is the
+         homepage until React replaced it. -->
+    <title>Tabarnam – Find Out Where Products Are Actually Made</title>
+    <meta
+      name="description"
+      content="Search thousands of brands to see where they manufacture and where they are headquartered. Find products made in the USA — or anywhere else — with locations verified by Tabarnam."
+    />
     <meta name="theme-color" content="#07141B" />
 
     <!-- Favicons -->
@@ -28,11 +38,26 @@
     <link rel="apple-touch-icon" href="/tabarnam-icon.png" />
     <link rel="manifest" href="/manifest.json" />
 
-    <!-- Social preview (Open Graph/Twitter) -->
-    <meta property="og:title" content="Tabarnam" />
-    <meta property="og:description" content="...but where was it made?" />
-    <meta property="og:image" content="/tabarnam.png" />
+    <!-- Social preview (Open Graph/Twitter).
+         og:image MUST be an absolute URL — Facebook, LinkedIn, Slack and X
+         fetch it out of band with no page origin to resolve against, so the
+         old "/tabarnam.png" resolved to nothing and every share outside
+         /share rendered a card with no image. -->
+    <meta property="og:site_name" content="Tabarnam" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Tabarnam – Find Out Where Products Are Actually Made" />
+    <meta
+      property="og:description"
+      content="Search thousands of brands to see where they manufacture and where they are headquartered."
+    />
+    <meta property="og:image" content="https://tabarnam.com/tabarnam.png" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Tabarnam – Find Out Where Products Are Actually Made" />
+    <meta
+      name="twitter:description"
+      content="Search thousands of brands to see where they manufacture and where they are headquartered."
+    />
+    <meta name="twitter:image" content="https://tabarnam.com/tabarnam.png" />
   </head>
   <body>
     <div id="root"></div>

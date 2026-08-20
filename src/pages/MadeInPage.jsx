@@ -14,6 +14,7 @@ import {
   aggregateByRegion,
   companiesForMode,
   flagEmoji,
+  MADE_IN_LIST_LIMIT as LIST_LIMIT,
 } from "@/lib/madeIn";
 import { fetchPinsIndex } from "@/components/results/map/pinsIndexClient";
 import { buildPlaceMarkers } from "@/components/results/map/markerData";
@@ -107,11 +108,29 @@ export default function MadeInPage() {
     ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${display}, with headquarters and manufacturing locations verified by Tabarnam. Find products actually made in ${display}.`
     : "";
 
+  // Location label per company for the text list — the plant in THIS place,
+  // taken from the same markers the map plots, so a company that also
+  // manufactures elsewhere doesn't show a foreign city here.
+  const labelById = useMemo(() => {
+    const m = new Map();
+    for (const marker of markers) {
+      if (marker.kind === "mfg" && marker.label && !m.has(marker.companyId)) {
+        m.set(marker.companyId, marker.label);
+      }
+    }
+    return m;
+  }, [markers]);
+
+  // Named companies as visible text. Mirrors api/_madeInRender.js, which
+  // renders the same slice server-side — the two must agree or the page
+  // visibly rewrites itself when React takes over.
+  const listed = useMemo(() => companies.slice(0, LIST_LIMIT), [companies]);
+
   // Structured data describes the canonical manufacturing view, not the
   // currently-toggled one, so the three modes never disagree with the
-  // canonical URL they all point at. Individual companies are deliberately
-  // NOT enumerated: the page shows them on a map rather than as visible text,
-  // and structured data must describe content the visitor can actually see.
+  // canonical URL they all point at. Only the companies actually NAMED on the
+  // page are enumerated: structured data must describe content the visitor can
+  // see, and the list is capped at LIST_LIMIT.
   const itemListSchema = useMemo(() => {
     const mfgList = data?.companies || [];
     if (!country || mfgList.length === 0) return null;
@@ -124,6 +143,11 @@ export default function MadeInPage() {
       mainEntity: {
         "@type": "ItemList",
         numberOfItems: mfgList.length,
+        itemListElement: mfgList.slice(0, LIST_LIMIT).map((e, i) => ({
+          "@type": "ListItem",
+          position: i + 1,
+          name: e.name,
+        })),
       },
     };
   }, [country, display, canonical, data]);
@@ -175,8 +199,8 @@ export default function MadeInPage() {
                 {mode === "hq"
                   ? <>{count === 1 ? "is" : "are"} headquartered in {display}</>
                   : mode === "both"
-                    ? <>manufacture in or are headquartered in {display}</>
-                    : <>manufacture in {display}</>}
+                    ? <>{count === 1 ? "manufactures" : "manufacture"} in or {count === 1 ? "is" : "are"} headquartered in {display}</>
+                    : <>{count === 1 ? "manufactures" : "manufacture"} in {display}</>}
                 {mode === "mfg" && data?.hqCount ? (
                   <> · {data.hqCount.toLocaleString()} {data.hqCount === 1 ? "is" : "are"} headquartered here</>
                 ) : null}
@@ -224,6 +248,34 @@ export default function MadeInPage() {
                 Hover a pin for the company; click through to open its profile in a new tab.
               </p>
             </div>
+          )}
+
+          {/* Named companies as text. Before this, the only unique content on
+              the page was one number and a canvas map — nothing a crawler or a
+              reader-without-JS could read, and nothing for the page to rank
+              on. api/_madeInRender.js renders this same slice server-side. */}
+          {listed.length > 0 && (
+            <section className="mt-10 border-t border-border pt-6">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                {mode === "hq" ? `Headquartered in ${display}` : `Companies manufacturing in ${display}`}
+              </h2>
+              <ul className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1 list-none p-0">
+                {listed.map((c) => (
+                  <li key={c.id} className="text-sm text-foreground truncate">
+                    {c.name}
+                    {labelById.get(c.id) && (
+                      <span className="text-muted-foreground"> · {labelById.get(c.id)}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {count > listed.length && (
+                <p className="text-xs text-muted-foreground mt-3">
+                  Showing {listed.length.toLocaleString()} of {count.toLocaleString()} companies. The
+                  full set is on the map above.
+                </p>
+              )}
+            </section>
           )}
 
           {stateRows.length > 0 && (

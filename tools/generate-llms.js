@@ -169,7 +169,21 @@ function main() {
 
   const llmsTxtContent = generateLlmsTxt(pages);
   const outputPath = path.join(process.cwd(), 'public', 'llms.txt');
-  
+
+  // public/llms.txt is hand-maintained as of 2026-08-20 and this scraper must
+  // not clobber it. It reads <Helmet> blocks with regexes that blank string
+  // literals first, so it emitted entries like `[Search Results for ""](/results):
+  // No description available` — worse than nothing for a file whose whole job is
+  // telling an answer engine what the site is. Kept for reference, not wired
+  // into any npm script. Delete both this tool and this guard, or fix the
+  // extraction, before re-enabling.
+  if (fs.existsSync(outputPath) && !process.argv.includes('--force')) {
+    console.error(
+      `❌ Refusing to overwrite hand-maintained ${outputPath}. Re-run with --force if you really mean it.`
+    );
+    process.exit(1);
+  }
+
   ensureDirectoryExists(path.dirname(outputPath));
   fs.writeFileSync(outputPath, llmsTxtContent, 'utf8');
 }

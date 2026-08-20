@@ -13,6 +13,7 @@ export default function HelpPage() {
           name="description"
           content="A quick guide to searching Tabarnam, targeting a location, sorting results, browsing on a map, reading a company profile, adding reviews, saving bookmarks, sharing, and giving feedback."
         />
+        <link rel="canonical" href="https://tabarnam.com/how-it-works" />
       </Helmet>
 
       {/* Plain div (not <main>) because App.jsx's Layout wraps every route

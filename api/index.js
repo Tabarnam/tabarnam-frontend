@@ -239,6 +239,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: made-in-page");
+  require("./made-in-page/index.js");
+} catch (e) {
+  console.error("[api] Failed to load made-in-page:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-rebuild-map-pins");
   require("./xadmin-api-rebuild-map-pins/index.js");
 } catch (e) {

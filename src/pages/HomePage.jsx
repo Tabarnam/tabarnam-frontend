@@ -7,10 +7,22 @@ import SearchCard from '@/components/home/SearchCard';
 export default function HomePage() {
   return (
     <>
+      {/* The homepage competes for "where is X made" / "made in USA" intent, so
+          the title carries those words rather than the brand alone, and the
+          description reads as a description instead of the tagline (a 7-word
+          meta gets rewritten by Google from page text, usually badly). */}
       <Helmet>
-        <title>Tabarnam – Discover products with transparent origins</title>
-        <meta name="description" content="...but where was it made?" />
-        <meta property="og:description" content="...but where was it made?" />
+        <title>Tabarnam – Find Out Where Products Are Actually Made</title>
+        <meta
+          name="description"
+          content="Search thousands of brands to see where they manufacture and where they are headquartered. Find products made in the USA — or anywhere else — with locations verified by Tabarnam."
+        />
+        <meta property="og:title" content="Tabarnam – Find Out Where Products Are Actually Made" />
+        <meta
+          property="og:description"
+          content="Search thousands of brands to see where they manufacture and where they are headquartered. Find products made in the USA — or anywhere else — with locations verified by Tabarnam."
+        />
+        <link rel="canonical" href="https://tabarnam.com/" />
       </Helmet>
 
       <main className="min-h-[calc(100vh-2rem)] flex flex-col items-center pt-12 pb-16 px-4">

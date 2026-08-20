@@ -4,47 +4,25 @@
 // per-country counts or complete lists; the pins index can.
 import { fetchPinsIndex } from "@/components/results/map/pinsIndexClient";
 import { getCountries, normalizeCountryDisplay } from "@/lib/location";
+// Slug vocabulary lives in a dependency-free module so scripts/generate-sitemap.mjs
+// can import the SAME rules under Node — the sitemap must advertise exactly the
+// URLs this app links to.
+import {
+  countrySlug,
+  kebab,
+  NAME_OVERRIDES,
+  regionSlug,
+  SLUG_ALIASES,
+  US_REGIONS,
+} from "@/lib/madeInSlugs";
 
-// SEO-friendly slug overrides where the kebab-cased ISO name isn't the term
-// people search for. Everything else: kebab-case of the countries.json name.
-const SLUG_OVERRIDES = {
-  US: "usa",
-  GB: "uk",
-  KR: "south-korea",
-  RU: "russia",
-  TW: "taiwan",
-  VN: "vietnam",
-  CZ: "czech-republic",
-};
+export { kebab, US_REGIONS };
 
-// H1/display overrides where the formal ISO name reads poorly on a page.
-const NAME_OVERRIDES = {
-  KR: "South Korea",
-  TW: "Taiwan",
-  VN: "Vietnam",
-  CZ: "Czech Republic",
-  RU: "Russia",
-};
-
-// Legacy/alias slugs that should still resolve (canonical points elsewhere).
-const SLUG_ALIASES = {
-  "united-states": "usa",
-  "united-states-of-america": "usa",
-  "america": "usa",
-  "united-kingdom": "uk",
-  "great-britain": "uk",
-  "korea": "south-korea",
-  "czechia": "czech-republic",
-};
-
-export function kebab(name) {
-  return String(name || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
+// How many companies a /made-in page names as visible text (the rest stay on
+// the map). Keep in sync with LIST_LIMIT in api/_madeInRender.js, which
+// renders the same slice server-side — the same cross-runtime constant pairing
+// as PINS_PAYLOAD_VERSION in pinsIndexClient.js.
+export const MADE_IN_LIST_LIMIT = 250;
 
 export function flagEmoji(cc) {
   const code = String(cc || "").toUpperCase();
@@ -66,7 +44,7 @@ export function getCountryRegistry() {
     for (const { code, name } of countries || []) {
       const cc = String(code || "").toUpperCase();
       if (!/^[A-Z]{2}$/.test(cc) || !name) continue;
-      const slug = SLUG_OVERRIDES[cc] || kebab(name);
+      const slug = countrySlug(cc, name);
       const displayName = NAME_OVERRIDES[cc] || normalizeCountryDisplay(name);
       const entry = { cc, name, displayName, slug };
       bySlug.set(slug, entry);
@@ -81,40 +59,13 @@ export function getCountryRegistry() {
   return _registryPromise;
 }
 
-// US states, DC, and inhabited territories. Slug = kebab of the name; these
-// are the only subdivisions with published pages today (the resolver also
-// emits CA-/AU- codes, which aggregate fine but have no page yet).
-export const US_REGIONS = [
-  ["US-AL", "Alabama"], ["US-AK", "Alaska"], ["US-AZ", "Arizona"], ["US-AR", "Arkansas"],
-  ["US-CA", "California"], ["US-CO", "Colorado"], ["US-CT", "Connecticut"], ["US-DE", "Delaware"],
-  ["US-FL", "Florida"], ["US-GA", "Georgia"], ["US-HI", "Hawaii"], ["US-ID", "Idaho"],
-  ["US-IL", "Illinois"], ["US-IN", "Indiana"], ["US-IA", "Iowa"], ["US-KS", "Kansas"],
-  ["US-KY", "Kentucky"], ["US-LA", "Louisiana"], ["US-ME", "Maine"], ["US-MD", "Maryland"],
-  ["US-MA", "Massachusetts"], ["US-MI", "Michigan"], ["US-MN", "Minnesota"], ["US-MS", "Mississippi"],
-  ["US-MO", "Missouri"], ["US-MT", "Montana"], ["US-NE", "Nebraska"], ["US-NV", "Nevada"],
-  ["US-NH", "New Hampshire"], ["US-NJ", "New Jersey"], ["US-NM", "New Mexico"], ["US-NY", "New York"],
-  ["US-NC", "North Carolina"], ["US-ND", "North Dakota"], ["US-OH", "Ohio"], ["US-OK", "Oklahoma"],
-  ["US-OR", "Oregon"], ["US-PA", "Pennsylvania"], ["US-RI", "Rhode Island"], ["US-SC", "South Carolina"],
-  ["US-SD", "South Dakota"], ["US-TN", "Tennessee"], ["US-TX", "Texas"], ["US-UT", "Utah"],
-  ["US-VT", "Vermont"], ["US-VA", "Virginia"], ["US-WA", "Washington"], ["US-WV", "West Virginia"],
-  ["US-WI", "Wisconsin"], ["US-WY", "Wyoming"],
-  ["US-DC", "District of Columbia"],
-  ["US-PR", "Puerto Rico"], ["US-GU", "Guam"], ["US-VI", "U.S. Virgin Islands"],
-  ["US-AS", "American Samoa"], ["US-MP", "Northern Mariana Islands"],
-];
-
-const REGION_SLUG_OVERRIDES = {
-  "US-DC": "washington-dc",
-  "US-VI": "us-virgin-islands",
-};
-
 /** Region registry for a country: Map(slug → {code, name, slug}) + code→entry. */
 export function getRegionRegistry(cc = "US") {
   const bySlug = new Map();
   const byCode = new Map();
   if (cc !== "US") return { bySlug, byCode };
   for (const [code, name] of US_REGIONS) {
-    const slug = REGION_SLUG_OVERRIDES[code] || kebab(name);
+    const slug = regionSlug(code, name);
     const entry = { code, name, slug };
     bySlug.set(slug, entry);
     byCode.set(code, entry);

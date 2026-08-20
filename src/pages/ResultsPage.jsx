@@ -9,7 +9,7 @@ import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchCompanies, getSearchCount } from "@/lib/searchCompanies";
-import { getCountries, getCountryCentroid, countryTokensFor, isLocationInCountry } from "@/lib/location";
+import { getCountries, getCountryCentroid, countryTokensFor, isLocationInCountry, resolveCountryText } from "@/lib/location";
 import { API_BASE } from "@/lib/api";
 import { getQQScore } from "@/lib/stars/qqRating";
 import { cn } from "@/lib/utils";
@@ -710,11 +710,24 @@ export default function ResultsPage() {
           // Country-only searches (no city/state): use country centroid as the
           // user's specified region. Faking proximity for unresolved city/state
           // would produce misleading distances, so we don't centroid those.
+          //
+          // countryParam arrives as free text: the /made-in "Search within X"
+          // links — and every shared or indexed URL — carry a display name
+          // ("United States"), not an ISO code, while getCountryCentroid is a
+          // strict code lookup. Resolve the text first. Without this the
+          // centroid missed, `loc` stayed null, and since doSearch blanks
+          // country/state/city into scope-only params, searchCompanies saw no
+          // query, no filter and no coords and threw "Please enter a search
+          // term…" on a link the user had just clicked. The resolved code also
+          // feeds scope grouping and the mi/km unit, both of which silently
+          // mismatched on a display name.
           if (!loc && countryParam && !cityParam && !stateParam) {
-            const centroid = getCountryCentroid(countryParam);
+            const resolved = await resolveCountryText(countryParam);
+            if (resolved?.code) resolvedFromGeo.country = resolved.code;
+            const centroid = getCountryCentroid(resolved?.code || countryParam);
             if (centroid) {
               loc = centroid;
-              resolvedCC = countryParam;
+              resolvedCC = resolved?.code || countryParam;
             }
           }
 

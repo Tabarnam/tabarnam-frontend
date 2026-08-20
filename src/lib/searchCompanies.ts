@@ -85,12 +85,29 @@ export interface Company {
   reviews_count?: number | null;
 }
 
-export async function searchCompanies(opts: SearchOptions) {
-  const q = asStr(opts.q).trim();
+/**
+ * Does this search name a place at all — as a filter, as coordinates, or as
+ * scope? Scope has to count: ResultsPage deliberately blanks
+ * country/state/city into scope-only params (they rank, they never exclude),
+ * so a place-only search arrives with the place named ONLY in scope. Treating
+ * scope as "no location" rejected those searches outright whenever the
+ * centroid lookup also missed — which is how a "Search within USA" link landed
+ * on "Please enter a search term".
+ */
+function hasPlaceInput(opts: Partial<SearchOptions>): boolean {
   const latNum = Number(asStr(opts.lat));
   const lngNum = Number(asStr(opts.lng));
   const hasCoords = Number.isFinite(latNum) && Number.isFinite(lngNum) && (latNum !== 0 || lngNum !== 0);
-  const hasLocation = !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim()) || hasCoords;
+  return (
+    hasCoords ||
+    !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim()) ||
+    !!(asStr(opts.scopeCountry).trim() || asStr(opts.scopeRegion).trim() || asStr(opts.scopeCity).trim())
+  );
+}
+
+export async function searchCompanies(opts: SearchOptions) {
+  const q = asStr(opts.q).trim();
+  const hasLocation = hasPlaceInput(opts);
   // A domain identifies one company exactly, so it is a complete search with
   // no query and no location — the same guard that protects an empty search
   // box was rejecting it.
@@ -405,10 +422,7 @@ export async function getStateSuggestions(q: unknown, country?: string): Promise
  */
 export async function getSearchCount(opts: Pick<SearchOptions, "q" | "sort" | "country" | "state" | "city" | "lat" | "lng" | "amazon" | "hqCountry" | "mfgCountry" | "noCorrect" | "scopeCity" | "scopeRegion" | "scopeCountry" | "unit"> & { take?: number }): Promise<{ totalCount: number; totalPages: number; directCount: number | null } | null> {
   const q = asStr(opts.q).trim();
-  const latNum = Number(asStr(opts.lat));
-  const lngNum = Number(asStr(opts.lng));
-  const hasCoords = Number.isFinite(latNum) && Number.isFinite(lngNum) && (latNum !== 0 || lngNum !== 0);
-  const hasLocation = !!(asStr(opts.country).trim() || asStr(opts.state).trim() || asStr(opts.city).trim()) || hasCoords;
+  const hasLocation = hasPlaceInput(opts);
   if (!q && !hasLocation) return null;
 
   const sort = normalizeSort(opts.sort);

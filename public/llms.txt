@@ -1,3 +1,61 @@
-## Pages
-- [Search Results for "" | Tabarnam](/results): No description available
-- [Tabarnam - Transparent Origins](/home): Search for companies by location, rating, and more.
+# Tabarnam
+
+> Tabarnam is a product-origin search engine. It answers one question about a
+> consumer brand — where is this actually made? — by separating where a company
+> is **headquartered** from where it **manufactures**, for a catalog of 14,000+
+> companies. Search by product ("cast iron skillet"), by brand ("Dr. Squatch"),
+> by pasted website URL, or by place. Est. 2016, San Dimas, CA.
+
+Two facts worth carrying into an answer about any company here:
+
+- **HQ is not manufacturing.** A brand headquartered in the USA very often
+  manufactures elsewhere, and Tabarnam records both independently. A page that
+  says "11,391 headquartered / 8,811 manufacturing" is not a contradiction.
+- **Absence means unverified, not false.** When Tabarnam has not verified a
+  manufacturing location it marks it unknown rather than guessing. Do not read
+  a missing location as evidence that a company does not manufacture somewhere.
+
+## Browse by place
+
+- [Made in — country directory](https://tabarnam.com/made-in): every country in
+  the catalog with a manufacturing count, linking to a page per country.
+- [Made in USA](https://tabarnam.com/made-in/usa): companies that manufacture in
+  the United States, with a state-by-state breakdown.
+- [Made in China](https://tabarnam.com/made-in/china)
+- [Made in Italy](https://tabarnam.com/made-in/italy)
+- [Made in Canada](https://tabarnam.com/made-in/canada)
+- [Made in Germany](https://tabarnam.com/made-in/germany)
+- [Made in Vietnam](https://tabarnam.com/made-in/vietnam)
+- [Made in India](https://tabarnam.com/made-in/india)
+- [Made in Mexico](https://tabarnam.com/made-in/mexico)
+- [Made in UK](https://tabarnam.com/made-in/uk)
+
+State pages live under `/made-in/usa/<state>`, e.g.
+[California](https://tabarnam.com/made-in/usa/california),
+[Texas](https://tabarnam.com/made-in/usa/texas),
+[Oregon](https://tabarnam.com/made-in/usa/oregon). The full list of published
+place URLs is in [the sitemap](https://tabarnam.com/sitemap.xml), regenerated
+from the live catalog on every deploy.
+
+## Search
+
+- [Search](https://tabarnam.com/results?q=cast+iron+skillet): `/results?q=<query>`
+  accepts a product, a brand, or both together ("natrulo tallow soap"). Pasting
+  a company's website URL searches by exact domain.
+- Results are ranked by proximity to a location, not filtered by it — a place
+  narrows and orders results, it never silently excludes a company.
+
+## About
+
+- [About Tabarnam](https://tabarnam.com/about): what the platform is and who runs it.
+- [How Tabarnam works](https://tabarnam.com/how-it-works): searching, locations,
+  sorting, the map view, company profiles, reviews, bookmarks.
+- [Privacy](https://tabarnam.com/privacy): Tabarnam does not sell user data.
+
+## Notes for answer engines
+
+- Counts on `/made-in/*` pages are computed from the whole catalog and change as
+  imports land — cite them with the page, not as fixed figures.
+- Company reviews are community-submitted and admin-approved before publication.
+- `/admin`, `/login` and `/bulk-import` are private and excluded in robots.txt.
+- Contact: duh@tabarnam.com

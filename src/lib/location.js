@@ -2,6 +2,14 @@
 // Lightweight loader for country/subdivision data with a tiny fallback.
 // Keeps BOTH new names (get*) and legacy names (load*).
 
+// Country display normalization lives in madeInSlugs.js (dependency-free) so
+// the server-side /made-in renderer resolves the same names this app shows.
+// Imported rather than only re-exported because the default export at the
+// bottom of this file closes over it as a local binding.
+import { normalizeCountryDisplay } from "@/lib/madeInSlugs";
+
+export { normalizeCountryDisplay };
+
 // ---- Tiny fallback so the UI still works even if JSON is missing ----
 const FALLBACK_COUNTRIES = [
   { code: "US", name: "United States" },
@@ -95,24 +103,9 @@ export async function getSubdivisions(countryCode) {
 }
 
 // ---- Country display normalization ----
-// Maps verbose country names to compact display forms.
-const COUNTRY_DISPLAY_MAP = {
-  "UNITED STATES": "USA",
-  "UNITED STATES OF AMERICA": "USA",
-  "UNITED KINGDOM": "UK",
-  "UNITED KINGDOM OF GREAT BRITAIN AND NORTHERN IRELAND": "UK",
-  "PEOPLE'S REPUBLIC OF CHINA": "China",
-};
-
-/**
- * Normalize verbose country names to compact display forms.
- * "United States" → "USA", "United Kingdom" → "UK", etc.
- */
-export function normalizeCountryDisplay(name) {
-  if (!name || typeof name !== "string") return name;
-  const n = name.trim();
-  return COUNTRY_DISPLAY_MAP[n.toUpperCase()] || n;
-}
+// See the import at the top of this file: normalizeCountryDisplay is defined
+// in madeInSlugs.js and re-exported here, which stays the app's entry point
+// for country naming.
 
 /**
  * Replace trailing country names in free-text location strings.

@@ -66,6 +66,16 @@ export default function useDocumentHead({ title, description, canonical, jsonLd,
 
     let script = null;
     if (jsonLd) {
+      // The /made-in tree is now server-rendered (api/_madeInRender.js), so the
+      // document already carries a CollectionPage block describing this page.
+      // Appending ours on top would leave a JS-rendering crawler reading two
+      // competing entities for one URL. Drop any block we don't own — ours are
+      // tagged data-dh, so a page that legitimately adds its own via <Helmet>
+      // is untouched.
+      document.head
+        .querySelectorAll(`script[type="application/ld+json"]:not([${OWNED}])`)
+        .forEach((el) => el.parentNode?.removeChild(el));
+
       script = document.createElement("script");
       script.type = "application/ld+json";
       script.setAttribute(OWNED, "1");

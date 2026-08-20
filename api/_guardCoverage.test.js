@@ -83,6 +83,11 @@ const PUBLIC_ROUTES = new Set([
   "contact-send",
   // Public HTML metadata endpoint used by Messages and social link crawlers.
   "share-company",
+  // Server-rendered HTML for the public /made-in tree (staticwebapp.config.json
+  // rewrites /made-in and /made-in/* here). It is a public web PAGE — guarding
+  // it would 401 every visitor and every crawler. Reads only the same pins
+  // index that map-pins already serves publicly; writes nothing.
+  "made-in-page/{*path}",
   // Google API proxies — called from the public site (client-side geocoding /
   // location lookup), so they are necessarily anonymous.
   "google/geocode",

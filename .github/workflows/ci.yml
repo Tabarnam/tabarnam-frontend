@@ -26,6 +26,13 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # api/_madeInPlaces.json is generated from public/geo/countries.json +
+      # src/lib/madeInSlugs.js but committed, because the API deploys separately
+      # and never runs the frontend build. If it drifts, the server renders
+      # canonical URLs the client router redirects away from.
+      - name: Check generated /made-in place table
+        run: node scripts/generate-made-in-places.mjs --check
+
       - name: Test (API contracts)
         run: npm test
 
