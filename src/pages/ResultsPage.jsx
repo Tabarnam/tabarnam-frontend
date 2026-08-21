@@ -2545,14 +2545,15 @@ export default function ResultsPage() {
           same add-a-company Contact flow as the empty state. */}
       {displayList.length > 0 && (
         <div className="mt-6 pt-4 border-t border-border/50 text-center text-sm">
-          <span className="text-muted-foreground">Don&rsquo;t see the company you&rsquo;re looking for? </span>
+          <span className="text-muted-foreground">Don&rsquo;t see it here? Get Tabarnam to </span>
           <button
             type="button"
             onClick={() => setAddCompanyOpen(true)}
             className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
           >
-            Add it to Tabarnam
+            {qParam ? <>add &ldquo;{qParam}&rdquo; or any company</> : "add any company"}
           </button>
+          <span className="text-muted-foreground">.</span>
         </div>
       )}
       </div>
