@@ -15,12 +15,12 @@ export default function HomePage() {
         <title>Tabarnam – Find Out Where Products Are Actually Made</title>
         <meta
           name="description"
-          content="Search thousands of brands to see where they manufacture and where they are headquartered. Find products made in the USA — or anywhere else — with locations verified by Tabarnam."
+          content="Search thousands of brands to see where they manufacture and where they are headquartered. Find products made in the USA — or anywhere else."
         />
         <meta property="og:title" content="Tabarnam – Find Out Where Products Are Actually Made" />
         <meta
           property="og:description"
-          content="Search thousands of brands to see where they manufacture and where they are headquartered. Find products made in the USA — or anywhere else — with locations verified by Tabarnam."
+          content="Search thousands of brands to see where they manufacture and where they are headquartered. Find products made in the USA — or anywhere else."
         />
         <link rel="canonical" href="https://tabarnam.com/" />
       </Helmet>

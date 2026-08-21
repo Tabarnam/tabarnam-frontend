@@ -105,7 +105,7 @@ export default function MadeInPage() {
     ? `Made in ${display} — ${mfgCount > 0 ? `${mfgCount.toLocaleString()} ` : ""}Companies That Manufacture in ${display} | Tabarnam`
     : "Made in… | Tabarnam";
   const description = country
-    ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${display}, with headquarters and manufacturing locations verified by Tabarnam. Find products actually made in ${display}.`
+    ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${display}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`
     : "";
 
   // Location label per company for the text list — the plant in THIS place,
@@ -210,7 +210,7 @@ export default function MadeInPage() {
               <>
                 {mode === "hq"
                   ? <>No companies in the catalog are headquartered in {display} yet</>
-                  : <>We haven't verified any manufacturers in {display} yet</>}
+                  : <>The catalog doesn't list any manufacturers in {display} yet</>}
                 {" "}— the catalog grows daily.
               </>
             )}

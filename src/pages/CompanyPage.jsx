@@ -67,7 +67,7 @@ export default function CompanyPage() {
     : `Where Is ${name} Made? Headquarters and Manufacturing | Tabarnam`;
   const description = `${
     hqPlace ? `${name} is headquartered in ${hqPlace}` : name
-  }${mfgNames.length ? `${hqPlace ? " and manufactures" : " manufactures"} in ${joinProse(mfgNames)}` : ""}. Headquarters and manufacturing locations verified by Tabarnam.`;
+  }${mfgNames.length ? `${hqPlace ? " and manufactures" : " manufactures"} in ${joinProse(mfgNames)}` : ""}. Headquarters and manufacturing locations from the Tabarnam catalog.`;
 
   const jsonLd = useMemo(() => {
     if (!entry) return null;
@@ -141,7 +141,7 @@ export default function CompanyPage() {
                 {joinProse(mfgNames)}
               </>
             ) : (
-              <>Tabarnam has not yet verified where {name} manufactures</>
+              <>The Tabarnam catalog doesn't list a manufacturing location for {name} yet</>
             )}
             {hqPlace && <>, and is headquartered in {hqPlace}</>}.
           </p>
@@ -227,8 +227,8 @@ export default function CompanyPage() {
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground mt-3">
-                Tabarnam hasn't verified where {name} manufactures yet. Absence here means
-                unverified, not that the company manufactures nowhere.
+                The catalog doesn't list a manufacturing location for {name} yet. That means we
+                don't have one, not that the company manufactures nowhere.
               </p>
             )}
           </section>
@@ -253,8 +253,8 @@ export default function CompanyPage() {
             <p className="text-sm text-muted-foreground mt-3">
               Headquarters and manufacturing are recorded separately, because they are often
               different places: a brand headquartered in one country frequently manufactures in
-              another. Tabarnam records both where they have been verified, and marks them unknown
-              where they have not.
+              another. Tabarnam lists what the catalog holds and marks the rest unknown. Entries
+              come from public sources and may be incomplete or out of date — production moves.
             </p>
             <div className="flex flex-wrap gap-3 mt-5">
               <Link

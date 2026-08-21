@@ -183,7 +183,7 @@ function companyPage(row, facets = null) {
     );
   }
   const description =
-    `${descParts.join(" ")}. Headquarters and manufacturing locations verified by Tabarnam.`.replace(
+    `${descParts.join(" ")}. Headquarters and manufacturing locations from the Tabarnam catalog.`.replace(
       /\s+/g,
       " "
     );
@@ -253,7 +253,7 @@ function companyPage(row, facets = null) {
       .join("");
     mfgSection = `<h2>Manufacturing locations</h2><ul class="mi-list">${items}</ul>`;
   } else {
-    mfgSection = `<h2>Manufacturing locations</h2><p>Tabarnam hasn't verified where ${esc(name)} manufactures yet. Absence here means unverified, not that the company manufactures nowhere.</p>`;
+    mfgSection = `<h2>Manufacturing locations</h2><p>The catalog doesn't list a manufacturing location for ${esc(name)} yet. That means we don't have one, not that the company manufactures nowhere.</p>`;
   }
 
   // Organization describes the company; @id and url are OUR page, with the
@@ -307,7 +307,7 @@ ${tagline ? `<p class="mi-lead">${esc(tagline)}</p>` : ""}
 <p class="mi-lead">${
     mfgNames.length
       ? `${esc(name)} manufactures in ${joinProse(countryLinks(mfgCCs)) || esc(joinProse(mfgNames))}`
-      : `Tabarnam has not yet verified where ${esc(name)} manufactures`
+      : `The Tabarnam catalog doesn't list a manufacturing location for ${esc(name)} yet`
   }${hqLabel || hqName ? `, and is headquartered in ${esc(hqLabel || hqName)}` : ""}.</p>
 ${facts.length ? `<dl class="mi-facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
 ${mfgSection}
@@ -315,8 +315,9 @@ ${productsSection}
 <h2>About this listing</h2>
 <p>Headquarters and manufacturing are recorded separately, because they are
 often different places: a brand headquartered in one country frequently
-manufactures in another. Tabarnam records both where they have been verified,
-and marks them unknown where they have not.</p>
+manufactures in another. Tabarnam lists what the catalog holds and marks the
+rest unknown. Entries come from public sources and may be incomplete or out of
+date — production moves.</p>
 <p><a href="/results?q=${encodeURIComponent(name)}">Search ${esc(name)} on Tabarnam</a> · <a href="/made-in">Browse companies by country</a></p>`;
 
   return { title, description, canonical, jsonLd, body };

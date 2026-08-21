@@ -90,7 +90,7 @@ export default function MadeInStatePage() {
     ? `Made in ${name} — ${mfgCount > 0 ? `${mfgCount.toLocaleString()} ` : ""}Companies That Manufacture in ${name} | Tabarnam`
     : "Made in the USA | Tabarnam";
   const description = region
-    ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${name}, with headquarters and manufacturing locations verified by Tabarnam. Find products actually made in ${name}.`
+    ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${name}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`
     : "";
 
   // Location label per company for the text list — the plant in THIS state,
@@ -183,7 +183,7 @@ export default function MadeInStatePage() {
               <>
                 {mode === "hq"
                   ? <>No companies in the catalog are headquartered in {name} yet</>
-                  : <>We haven't verified any manufacturers in {name} yet</>}
+                  : <>The catalog doesn't list any manufacturers in {name} yet</>}
                 {" "}— the catalog grows daily.
               </>
             )}

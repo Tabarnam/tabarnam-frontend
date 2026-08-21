@@ -89,11 +89,11 @@ test("the title targets the question people type", () => {
   assert.match(page.body, /<h1>Where is Dr\. Squatch made\?<\/h1>/);
 });
 
-test("a company with no verified manufacturing says so instead of implying none", () => {
+test("a company with no known manufacturing says so instead of implying none", () => {
   const page = companyPage(row({ name: "Quiet Co", slug: "quiet-co", mfg: [] }));
   assert.match(page.title, /^Where Is Quiet Co Made\? Headquarters and Manufacturing/);
-  assert.match(page.body, /hasn't verified where Quiet Co manufactures yet/);
-  assert.match(page.body, /Absence here means unverified/);
+  assert.match(page.body, /doesn't list a manufacturing location for Quiet Co yet/);
+  assert.match(page.body, /not that the company manufactures nowhere/);
 });
 
 test("the description states HQ and manufacturing as separate facts", () => {
@@ -107,6 +107,9 @@ test("the description states HQ and manufacturing as separate facts", () => {
   );
   assert.match(page.description, /headquartered in Newton, MA/);
   assert.match(page.description, /manufactures in China and Vietnam/);
+  // Attributed to the catalog, never asserted as verified fact.
+  assert.match(page.description, /from the Tabarnam catalog\.$/);
+  assert.doesNotMatch(page.description, /verified/i);
 });
 
 test("every manufacturing place links back to its /made-in pages", () => {

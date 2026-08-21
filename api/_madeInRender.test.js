@@ -157,7 +157,9 @@ test("country page carries the count in the title, description and canonical", (
   const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, agg);
 
   assert.match(page.title, /^Made in USA — 2 Companies That Manufacture in USA \| Tabarnam$/);
-  assert.match(page.description, /^2 companies that manufacture in USA/);
+  assert.match(page.description, /^2 companies that manufacture in USA\. Browse the Tabarnam catalog/);
+  // No accuracy claim: locations change, and the catalog is not a warranty.
+  assert.doesNotMatch(page.description, /verified/i);
   assert.equal(page.canonical, "https://tabarnam.com/made-in/usa");
   // Both HQ and manufacturing counts are stated, because they differ.
   assert.match(page.body, /<strong>2<\/strong> companies in the Tabarnam catalog manufacture in USA/);
@@ -231,7 +233,7 @@ test("structured data never claims more items than the page shows", () => {
 test("an empty place says so instead of rendering a bare zero", () => {
   const page = countryPage({ cc: "IS", slug: "iceland", name: "Iceland" }, aggregate(PAYLOAD));
   assert.match(page.title, /^Made in Iceland — Companies That Manufacture in Iceland/);
-  assert.match(page.body, /haven't verified any manufacturers in Iceland yet/);
+  assert.match(page.body, /doesn't list any manufacturers in Iceland yet/);
   assert.equal(page.jsonLd, null);
 });
 

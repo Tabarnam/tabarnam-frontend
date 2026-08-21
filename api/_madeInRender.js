@@ -192,12 +192,15 @@ function countryPage(country, agg) {
   const canonical = `${ORIGIN}/made-in/${country.slug}`;
 
   const title = `Made in ${display} — ${count > 0 ? `${nf.format(count)} ` : ""}Companies That Manufacture in ${display} | Tabarnam`;
-  const description = `${count > 0 ? `${nf.format(count)} companies` : "Companies"} that manufacture in ${display}, with headquarters and manufacturing locations verified by Tabarnam. Find products actually made in ${display}.`;
+  // Copy deliberately makes no accuracy claim. Locations come from imports and
+  // change over time, so the page describes what the catalog LISTS rather than
+  // asserting anything has been verified.
+  const description = `${count > 0 ? `${nf.format(count)} companies` : "Companies"} that manufacture in ${display}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`;
 
   const lead =
     count > 0
       ? `<p class="mi-lead"><strong>${nf.format(count)}</strong> ${count === 1 ? "company" : "companies"} in the Tabarnam catalog ${count === 1 ? "manufactures" : "manufacture"} in ${esc(display)}${b.hqCount ? ` · ${nf.format(b.hqCount)} ${b.hqCount === 1 ? "is" : "are"} headquartered here` : ""}.</p>`
-      : `<p class="mi-lead">We haven't verified any manufacturers in ${esc(display)} yet — the catalog grows daily.</p>`;
+      : `<p class="mi-lead">The catalog doesn't list any manufacturers in ${esc(display)} yet — it grows daily.</p>`;
 
   // US state breakdown, biggest first.
   let states = "";
@@ -261,12 +264,12 @@ function regionPage(region, agg) {
   const canonical = `${ORIGIN}/made-in/usa/${region.slug}`;
 
   const title = `Made in ${name} — ${count > 0 ? `${nf.format(count)} ` : ""}Companies That Manufacture in ${name} | Tabarnam`;
-  const description = `${count > 0 ? `${nf.format(count)} companies` : "Companies"} that manufacture in ${name}, with headquarters and manufacturing locations verified by Tabarnam. Find products made in ${name}.`;
+  const description = `${count > 0 ? `${nf.format(count)} companies` : "Companies"} that manufacture in ${name}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`;
 
   const lead =
     count > 0
       ? `<p class="mi-lead"><strong>${nf.format(count)}</strong> ${count === 1 ? "company" : "companies"} in the Tabarnam catalog ${count === 1 ? "manufactures" : "manufacture"} in ${esc(name)}${b.hqCount ? ` · ${nf.format(b.hqCount)} ${b.hqCount === 1 ? "is" : "are"} headquartered here` : ""}.</p>`
-      : `<p class="mi-lead">We haven't verified any manufacturers in ${esc(name)} yet — the catalog grows daily.</p>`;
+      : `<p class="mi-lead">The catalog doesn't list any manufacturers in ${esc(name)} yet — it grows daily.</p>`;
 
   const siblings = PLACES.usRegions
     .map((r) => ({ ...r, count: (agg.regions.get(r.code)?.mfg || []).length }))
@@ -314,7 +317,7 @@ function indexPage(agg) {
 
   const total = rows.reduce((n, r) => n + r.count, 0);
   const title = "Made in… — Browse Companies by Manufacturing Country | Tabarnam";
-  const description = `Browse ${nf.format(rows.length)} countries where companies in the Tabarnam catalog manufacture. See who makes what, and where, with locations verified by Tabarnam.`;
+  const description = `Browse ${nf.format(rows.length)} countries where companies in the Tabarnam catalog manufacture. See who makes what, and where.`;
 
   const body = `
 <h1>Made in…</h1>
