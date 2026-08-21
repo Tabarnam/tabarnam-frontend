@@ -106,6 +106,16 @@ const COUNTRY_NAME_TO_ISO = {
   "fiji": "FJ",
   "luxembourg": "LU", "malta": "MT", "cyprus": "CY", "monaco": "MC", "liechtenstein": "LI", "andorra": "AD",
   "bosnia and herzegovina": "BA", "north macedonia": "MK", "albania": "AL", "montenegro": "ME", "moldova": "MD", "belarus": "BY",
+  // Added 2026-08-21 after auditing the live pins index: these appeared as the
+  // trailing segment of real manufacturing addresses ("Hope Creek, Belize",
+  // "Herat, Afghanistan", "Tahiti, French Polynesia") and resolved to nothing,
+  // so those companies carried a map pin but appeared on no /made-in page.
+  "afghanistan": "AF",
+  "belize": "BZ",
+  "botswana": "BW",
+  "mauritius": "MU",
+  "zimbabwe": "ZW",
+  "french polynesia": "PF", "tahiti": "PF",
 };
 
 // Subdivision names that appear as a bare trailing segment (state-centroid

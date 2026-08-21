@@ -17,6 +17,34 @@ test("resolveTextCountry: country names, aliases, and casing", () => {
   assert.equal(resolveTextCountry("Atlantis"), null);
 });
 
+test("resolveTextCountry: countries added after the 2026-08-21 pins audit", () => {
+  // Each of these appeared as the trailing segment of a real manufacturing
+  // address in the live index and resolved to nothing, leaving the company
+  // with a map pin but no /made-in page.
+  assert.equal(resolveTextCountry("Afghanistan"), "AF");
+  assert.equal(resolveTextCountry("Belize"), "BZ");
+  assert.equal(resolveTextCountry("Botswana"), "BW");
+  assert.equal(resolveTextCountry("Mauritius"), "MU");
+  assert.equal(resolveTextCountry("Zimbabwe"), "ZW");
+  assert.equal(resolveTextCountry("French Polynesia"), "PF");
+  assert.equal(resolveTextCountry("Tahiti"), "PF");
+});
+
+test("resolveTextCountry: the real address tails that prompted the additions", () => {
+  assert.equal(resolveLocationCountry({ formatted: "Hope Creek, Belize" }), "BZ");
+  assert.equal(resolveLocationCountry({ formatted: "Herat, Afghanistan" }), "AF");
+  assert.equal(resolveLocationCountry({ formatted: "Tahiti, French Polynesia" }), "PF");
+});
+
+test("resolveTextCountry: continents stay unresolved", () => {
+  // "Europe" / "Asia" / "Americas" are the most common unattributed labels in
+  // the catalog. Refusing them is CORRECT — a continent is not a country, and
+  // guessing one would put a company on a place page it has no claim to.
+  for (const region of ["Europe", "Asia", "Americas", "Far East", "Africa"]) {
+    assert.equal(resolveTextCountry(region), null, region);
+  }
+});
+
 test("resolveTextCountry: bare subdivisions resolve to their country", () => {
   assert.equal(resolveTextCountry("Oregon"), "US");
   assert.equal(resolveTextCountry("California"), "US");
