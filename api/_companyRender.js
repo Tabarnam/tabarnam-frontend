@@ -206,13 +206,10 @@ function companyPage(row, facets = null) {
       `<a href="https://${esc(domain)}" rel="noopener nofollow">${esc(domain)}</a>`,
     ]);
   }
-  const industries = facets?.industries || [];
+  // facets.industries is deliberately NOT rendered — it is a search retrieval
+  // lever an admin edits to make a company match a query, not a description of
+  // the company. See api/_companyFacets.js.
   const products = facets?.products || [];
-  if (industries.length) {
-    // "Categories", not "Industry": the stored list mixes sectors with product
-    // types, and the honest label is the general one.
-    facts.push(["Categories", industries.map((i) => esc(i)).join(", ")]);
-  }
   // Only cite a rating that reviews actually back. A bare star count with no
   // reviews behind it is a number the page can't justify.
   if (facets?.stars != null && facets.reviews > 0) {
@@ -271,12 +268,14 @@ function companyPage(row, facets = null) {
     ...(tagline ? { description: tagline } : {}),
     ...(domain ? { sameAs: [`https://${domain}`] } : {}),
     // knowsAbout is the honest property for "what this organisation deals in".
-    // Deliberately NOT makesOffer/Product: we hold category and keyword terms,
-    // not offers with prices and availability, and asserting Product entities
-    // we can't back would be structured data that misrepresents the page.
-    ...(industries.length || products.length
-      ? { knowsAbout: [...industries, ...products].slice(0, 24) }
-      : {}),
+    // Deliberately NOT makesOffer/Product: we hold keyword terms, not offers
+    // with prices and availability, and asserting Product entities we can't
+    // back would be structured data that misrepresents the page.
+    //
+    // Products only — never the industries lever. Structured data is a machine
+    // -readable assertion about the company, so publishing retrieval tuning
+    // there is worse than printing it, not better.
+    ...(products.length ? { knowsAbout: products.slice(0, 24) } : {}),
     // aggregateRating only where reviews exist to support it — Google requires
     // the rating to be visible on the page, which it is, in the facts list.
     ...(facets?.stars != null && facets.reviews > 0

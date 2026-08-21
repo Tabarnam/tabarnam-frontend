@@ -180,30 +180,41 @@ test("facets are enrichment — the page is complete without them", () => {
   const page = companyPage(row({ name: "Acme" }), null);
   assert.match(page.body, /<h1>Where is Acme made\?<\/h1>/);
   assert.doesNotMatch(page.body, /What Acme makes/);
-  assert.doesNotMatch(page.body, /Categories/);
   assert.equal(page.jsonLd.knowsAbout, undefined);
   assert.equal(page.jsonLd.aggregateRating, undefined);
 });
 
-test("industries and products render when facets are present", () => {
+test("products render when facets are present", () => {
   const page = companyPage(row({ name: "Acme" }), FACETS);
-  // Labelled "Categories": the stored list mixes sectors with product types.
-  assert.match(page.body, /<dt>Categories<\/dt><dd>Skincare, Personal Care<\/dd>/);
   assert.match(page.body, /<h2>What Acme makes<\/h2><p>bar soap, deodorant, shaving cream\.<\/p>/);
 });
 
-test("knowsAbout carries the terms — never Product entities we can't back", () => {
+// `industries` is a search RETRIEVAL lever — an admin adds a term to make a
+// company match a query ("electric kettle" onto Capresso). Publishing it would
+// couple search tuning to public copy nobody reviewed, and a page built to rank
+// must not print a keyword-targeting list verbatim. This is a product decision,
+// not an oversight; the tests say so in both directions.
+test("the industries lever never reaches the page", () => {
+  const page = companyPage(row({ name: "Acme" }), FACETS);
+  for (const term of FACETS.industries) {
+    assert.doesNotMatch(page.body, new RegExp(term), `"${term}" must not be published`);
+  }
+  assert.doesNotMatch(page.body, /Categories|Industry/);
+});
+
+test("the industries lever never reaches the structured data either", () => {
   const page = companyPage(row(), FACETS);
-  assert.deepEqual(page.jsonLd.knowsAbout, [
-    "Skincare", "Personal Care", "bar soap", "deodorant", "shaving cream",
-  ]);
+  assert.deepEqual(page.jsonLd.knowsAbout, ["bar soap", "deodorant", "shaving cream"]);
+  for (const term of FACETS.industries) {
+    assert.ok(!page.jsonLd.knowsAbout.includes(term), `"${term}" must not be asserted`);
+  }
   assert.equal(page.jsonLd.makesOffer, undefined);
 });
 
 test("knowsAbout is capped so structured data can't become a term dump", () => {
   const page = companyPage(row(), {
-    industries: Array.from({ length: 12 }, (_, i) => `Ind${i}`),
-    products: Array.from({ length: 20 }, (_, i) => `Prod${i}`),
+    industries: [],
+    products: Array.from({ length: 40 }, (_, i) => `Prod${i}`),
     stars: null,
     reviews: 0,
   });
@@ -230,12 +241,13 @@ test("one review reads as singular", () => {
 
 test("facet terms are escaped like everything else", () => {
   const page = companyPage(row(), {
-    industries: ['<img src=x onerror=1>'],
-    products: ['"><script>alert(1)</script>'],
+    industries: [],
+    products: ['<img src=x onerror=1>', '"><script>alert(1)</script>'],
     stars: null,
     reviews: 0,
   });
   assert.doesNotMatch(page.body, /<img src=x/);
   assert.doesNotMatch(page.body, /<script>alert/);
   assert.match(page.body, /&lt;img src=x/);
+  assert.match(page.body, /&lt;script&gt;alert/);
 });

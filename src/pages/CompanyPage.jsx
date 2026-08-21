@@ -172,14 +172,9 @@ export default function CompanyPage() {
                 </dd>
               </>
             )}
-            {/* "Categories", not "Industry" — the stored list mixes sectors
-                with product types, so the honest label is the general one. */}
-            {facets?.industries?.length > 0 && (
-              <>
-                <dt className="text-muted-foreground">Categories</dt>
-                <dd className="text-foreground">{facets.industries.join(", ")}</dd>
-              </>
-            )}
+            {/* facets.industries is deliberately not rendered: it is a search
+                retrieval lever an admin edits to make a company match a query,
+                not a description of the company. See api/_companyFacets.js. */}
             {/* Only a rating reviews actually back — a bare star count with
                 nothing behind it is a number the page can't justify. */}
             {facets?.stars != null && facets.reviews > 0 && (

@@ -26,7 +26,10 @@ const { BlobServiceClient } = require("@azure/storage-blob");
 const BLOB_CONTAINER = "config";
 const BLOB_NAME = "company_facets.json";
 // v2: brand-bearing terms dropped, products deduped against categories.
-const PAYLOAD_VERSION = 2;
+// v3: industries are no longer published (see below), so products are no
+//     longer deduped against them — otherwise a term appearing in both would
+//     vanish from the page entirely.
+const PAYLOAD_VERSION = 3;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 // A week, not a day: facets move only when an import rewrites a company's
 // keywords, and every age-out costs a full scan.
@@ -121,21 +124,33 @@ function buildFacetEntry(company) {
   if (company.type === "import_control") return null;
 
   const name = String(company.display_name || company.company_name || company.name || "").trim();
-  // Called "categories" downstream rather than "industries": the stored field
-  // mixes genuine sectors ("Skincare", "Personal Care") with product types
-  // ("bar soap", "soap dish"), and labelling that list "Industry" on the page
-  // would misdescribe it.
+
+  // NOT PUBLISHED — kept for internal use only. `industries` is a search
+  // RETRIEVAL lever, not a taxonomy: an admin adds a term to make a company
+  // match a query ("electric kettle" onto Capresso so it surfaces for that
+  // search). Two consequences follow. Rendering it would couple a tuning
+  // action to published claims — adjusting search would silently rewrite
+  // public copy nobody reviewed. And a field whose purpose is "make this match
+  // this query" is by construction a keyword-targeting list, which is exactly
+  // what a page built to rank must not print verbatim.
+  //
+  // Still collected because it costs little and re-enabling it (or deriving a
+  // genuine public category from it) is then a render change, not a rescan.
   const industries = cleanTerms(company.industries, INDUSTRY_MAX, name);
-  // `keywords` and `product_keywords` are the same list on current documents;
-  // read either so an older record still contributes. Terms already shown as
-  // categories are excluded so "deodorant" doesn't appear on both lines.
+
+  // PUBLISHED. Unlike industries, product_keywords is derived by the xAI
+  // import enrichment from what the company actually makes, so it describes
+  // the company rather than steering a query.
+  //
+  // Deliberately NOT deduped against industries: now that industries aren't
+  // rendered, excluding them would silently delete a real product term from
+  // the page whenever an admin had also used it as a retrieval lever.
   const products = cleanTerms(
     Array.isArray(company.product_keywords) && company.product_keywords.length
       ? company.product_keywords
       : company.keywords,
     PRODUCT_MAX,
-    name,
-    new Set(industries.map(foldTerm))
+    name
   );
 
   const stars = toFiniteNumber(company.stars ?? company.star_rating);

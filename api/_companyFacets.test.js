@@ -78,17 +78,18 @@ test("a facet row carries industries, products, stars and visible reviews", () =
   ]);
 });
 
-test("products never repeat a term already listed as a category", () => {
-  // The live Dr. Squatch record: `industries` mixes real sectors with product
-  // types, and the keyword list restates several of them.
+test("products are NOT deduped against industries", () => {
+  // industries is a retrieval lever and isn't published, so excluding its terms
+  // would silently delete a real product from the page whenever an admin had
+  // also used that word to steer search. "deodorant" must survive.
   const entry = buildFacetEntry(
     doc({
       industries: ["Skincare", "Personal Care", "bar soap", "deodorant"],
-      product_keywords: ["soap", "deodorant", "Bar Soap", "Pine Tar Soap"],
+      product_keywords: ["soap", "deodorant", "Pine Tar Soap"],
     })
   );
   assert.deepEqual(entry[1], ["Skincare", "Personal Care", "bar soap", "deodorant"]);
-  assert.deepEqual(entry[2], ["soap", "Pine Tar Soap"]);
+  assert.deepEqual(entry[2], ["soap", "deodorant", "Pine Tar Soap"]);
 });
 
 test("product keywords are capped so a page can't become a keyword dump", () => {
