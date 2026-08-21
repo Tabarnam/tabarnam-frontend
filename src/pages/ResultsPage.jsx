@@ -2477,14 +2477,15 @@ export default function ResultsPage() {
               {/* Turn a dead end into a lead: invite the user to add the missing
                   company, opening Contact pre-set to the add-a-company subject. */}
               <div className="mt-6 text-sm">
-                <span className="text-muted-foreground">Know of a company we&rsquo;re missing? </span>
+                <span className="text-muted-foreground">Get Tabarnam to </span>
                 <button
                   type="button"
                   onClick={() => setAddCompanyOpen(true)}
                   className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
                 >
-                  Add it to Tabarnam
+                  {qParam ? <>add &ldquo;{qParam}&rdquo; or any company</> : "add any company"}
                 </button>
+                <span className="text-muted-foreground">.</span>
               </div>
             </div>
           )
