@@ -4,6 +4,7 @@ import {
   decideTourMode,
   TOUR_SEEN_KEY,
   TOUR_PROGRESS_KEY,
+  TOUR_STEP_HINT_KEY,
   CANNED_QUERY,
   RESULTS_PATH,
 } from './decideTourMode';
@@ -243,7 +244,24 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
       },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
-        { text: 'Back', action: () => tour.back(), secondary: true },
+        {
+          text: 'Back',
+          action: () => {
+            // The Back button on this step needs to walk BOTH the tour and
+            // the page back. tour.back() alone would rewind the step index
+            // while leaving the visitor stranded on /bookmarks, and the
+            // subsequent route change (whenever they finally make one) would
+            // fire the useEffect and restart the tour from step 1.
+            //
+            // Instead: leave a step-hint so the new tour instance can jump
+            // straight to bookmark-drawer once /results re-mounts, then
+            // route back with the tour flag preserved so decideTourMode
+            // still returns 'results'.
+            safeWrite(TOUR_STEP_HINT_KEY, 'bookmark-drawer');
+            go(`${RESULTS_PATH}?q=${encodeURIComponent(CANNED_QUERY)}&country=US&tour=1`);
+          },
+          secondary: true,
+        },
         learnMore('#bookmarks'),
         { text: 'Done', action: () => tour.complete() },
       ],
@@ -324,6 +342,9 @@ export default function TourController() {
       if (!isUnmounting) {
         safeWrite(TOUR_SEEN_KEY, '1');
         safeRemove(TOUR_PROGRESS_KEY);
+        // Any pending step hint dies with the tour — it's only meant to
+        // survive a single intra-tour route change.
+        safeRemove(TOUR_STEP_HINT_KEY);
       }
       // If a step left the bookmark drawer open (e.g. cancelled during the
       // last results step), close it so the user lands back on the page.
@@ -351,6 +372,13 @@ export default function TourController() {
 
     const startResults = async (Shepherd) => {
       if (cancelled || tourRef.current) return;
+      // Purge any shepherd DOM left over from a prior tour instance (e.g. the
+      // cover-image step's popover when the visitor hit Back). The route-change
+      // useEffect cleanup runs .cancel() + remove(), but Shepherd sometimes
+      // holds onto step DOM across cancels — this is the belt to that suspenders.
+      document
+        .querySelectorAll('.shepherd-element, .shepherd-modal-overlay-container')
+        .forEach((el) => el.remove());
       const ready = await waitForElements(
         ['[data-tour-step="sort-header-qq"]', '[data-tour-step="expandable-row"]'],
         3000,
@@ -367,6 +395,14 @@ export default function TourController() {
       tour.on('complete', finalize);
       tour.on('cancel', finalize);
       tourRef.current = tour;
+      // A previous step (e.g. bookmark-folder-cover's Back button) can hint
+      // which step this fresh instance should jump to, so navigation-triggered
+      // remounts don't reset the visitor to step 1.
+      const stepHint = safeRead(TOUR_STEP_HINT_KEY);
+      safeRemove(TOUR_STEP_HINT_KEY);
+      if (stepHint) {
+        try { tour.show(stepHint); return; } catch { /* fall through to start */ }
+      }
       tour.start();
     };
 

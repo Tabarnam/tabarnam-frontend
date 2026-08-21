@@ -3,6 +3,10 @@
 
 export const TOUR_SEEN_KEY = 'tabarnam_tour_v1_seen';
 export const TOUR_PROGRESS_KEY = 'tabarnam_tour_v1_progress';
+// Optional single-use hint written by a step's Back action before it triggers
+// a route change. The new results-leg tour reads and clears it, and jumps
+// straight to the hinted step id instead of restarting from step 1.
+export const TOUR_STEP_HINT_KEY = 'tabarnam_tour_v1_step_hint';
 export const CANNED_QUERY = 'organic soap';
 export const HOME_PATH = '/';
 export const RESULTS_PATH = '/results';
