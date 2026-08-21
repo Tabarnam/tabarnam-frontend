@@ -143,10 +143,11 @@ export function buildMarkers(companies, pinFilter = "both") {
 }
 
 // ── Pins-index (whole-catalog) support ──────────────────────────────────────
-// /api/map-pins serves compact array entries (v5):
+// /api/map-pins serves compact array entries (v6):
 //   [id, name, tagline, domain, hqLat|null, hqLng|null,
 //    [[mLat, mLng, lowPrec01, cc|null, region|null, label|null], ...],
-//    hqCC|null, [mfgCC, ...], hqRegion|null, [mfgRegion, ...], hqLabel|null]
+//    hqCC|null, [mfgCC, ...], hqRegion|null, [mfgRegion, ...], hqLabel|null,
+//    slug|null]
 // hqCC/mfgCCs are ISO country attributions and hqRegion/mfgRegions are ISO
 // 3166-2 subdivisions ("US-CA") — both absent on older payloads, which decode
 // tolerates. decodePinsPayload turns the payload into an id-keyed Map;
@@ -159,7 +160,7 @@ export function decodePinsPayload(payload) {
   const rows = Array.isArray(payload?.companies) ? payload.companies : [];
   for (const row of rows) {
     if (!Array.isArray(row) || row.length < 7) continue;
-    const [id, name, tagline, domain, hqLat, hqLng, mfg, hqCC, mfgCCs, hqRegion, mfgRegions, hqLabel] =
+    const [id, name, tagline, domain, hqLat, hqLng, mfg, hqCC, mfgCCs, hqRegion, mfgRegions, hqLabel, slug] =
       row;
     const key = String(id ?? "").trim();
     if (!key) continue;
@@ -176,6 +177,10 @@ export function decodePinsPayload(payload) {
       hqRegion: typeof hqRegion === "string" && hqRegion ? hqRegion : null,
       mfgRegions: Array.isArray(mfgRegions) ? mfgRegions.filter((r) => typeof r === "string" && r) : [],
       hqLabel: typeof hqLabel === "string" && hqLabel ? hqLabel : null,
+      // Canonical /company/<slug>. Absent on pre-v6 payloads, so every consumer
+      // must treat a null slug as "no company page yet" rather than linking to
+      // /company/null.
+      slug: typeof slug === "string" && slug ? slug : null,
     });
   }
   return byId;

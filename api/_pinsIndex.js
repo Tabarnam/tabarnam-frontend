@@ -26,6 +26,7 @@
 const { BlobServiceClient } = require("@azure/storage-blob");
 const { resolveLocationCountry } = require("./_countryResolve");
 const { resolveLocationRegion } = require("./_regionResolve");
+const { assignSlugs } = require("./_companySlug");
 
 const BLOB_CONTAINER = "config";
 const BLOB_NAME = "map_pins.json";
@@ -36,7 +37,11 @@ const BLOB_NAME = "map_pins.json";
 //     California and Italy must not drop an Italy pin on the California page).
 // v5: short place labels (hqLabel + a label per mfg pin) so hover cards can
 //     name the location instead of showing a bare "Manufacturing".
-const PAYLOAD_VERSION = 5;
+// v6: canonical company-page slug per row. Assigned here, not derived at
+//     request time, because uniqueness is a global property of the whole
+//     catalog — see _companySlug.js. Both the server renderer and the React
+//     route read it, so there is no derivation to keep in sync.
+const PAYLOAD_VERSION = 6;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const BLOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const TAGLINE_MAX = 80;
@@ -211,7 +216,10 @@ function packPayload(entries) {
     version: PAYLOAD_VERSION,
     generated_at: new Date().toISOString(),
     count: entries.length,
-    companies: entries,
+    // Slugs are assigned over the WHOLE set — a name is only free if no other
+    // company claims it — so this has to happen here rather than inside
+    // buildCompanyEntry, which sees one company at a time.
+    companies: assignSlugs(entries),
   };
 }
 
@@ -428,7 +436,11 @@ async function upsertPinsForCompanies(companies, { logger = console } = {}) {
       const entry = buildCompanyEntry(company);
       if (entry) {
         const prev = byId.get(id);
-        if (!prev || JSON.stringify(prev) !== JSON.stringify(entry)) {
+        // Compare only the fields buildCompanyEntry produces. The stored row
+        // carries a slug at index 12 that it does not, so comparing the whole
+        // array would report a difference on every save and rewrite the blob
+        // each time.
+        if (!prev || JSON.stringify(prev.slice(0, entry.length)) !== JSON.stringify(entry)) {
           byId.set(id, entry);
           changed++;
         }
@@ -440,9 +452,13 @@ async function upsertPinsForCompanies(companies, { logger = console } = {}) {
 
     const payload = {
       ...fromBlob.payload,
+      version: PAYLOAD_VERSION,
       generated_at: new Date().toISOString(),
       count: byId.size,
-      companies: [...byId.values()],
+      // Re-run over the whole set: a renamed company needs a new slug, and a
+      // newly added one needs any slug at all. Assignment is deterministic and
+      // preserves incumbents, so this converges with a full rebuild.
+      companies: assignSlugs([...byId.values()]),
     };
     const written = await writePinsBlob(payload, {
       log,
