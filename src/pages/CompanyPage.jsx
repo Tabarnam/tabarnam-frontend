@@ -8,13 +8,19 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { ExternalLink, Search } from "lucide-react";
 import useDocumentHead from "@/hooks/useDocumentHead";
-import { getCompanyRegistry, joinProse, manufacturingPlaces } from "@/lib/companyPages";
+import {
+  fetchCompanyFacets,
+  getCompanyRegistry,
+  joinProse,
+  manufacturingPlaces,
+} from "@/lib/companyPages";
 import { getCountryRegistry, getRegionRegistry, flagEmoji } from "@/lib/madeIn";
 
 export default function CompanyPage() {
   const { slug } = useParams();
   const [registry, setRegistry] = useState(null);
   const [countries, setCountries] = useState(null);
+  const [facets, setFacets] = useState(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -29,6 +35,18 @@ export default function CompanyPage() {
   const key = String(slug || "").toLowerCase();
   const entry = registry?.bySlug.get(key) || null;
   const domainMatch = !entry && registry ? registry.byDomain.get(key) : null;
+
+  // Enrichment, fetched once the company is known. Never sets `failed`: the
+  // page is complete without industries and products, and the server-rendered
+  // version has already shown them.
+  useEffect(() => {
+    if (!entry?.id) return undefined;
+    let dead = false;
+    fetchCompanyFacets(entry.id).then((f) => !dead && setFacets(f));
+    return () => {
+      dead = true;
+    };
+  }, [entry?.id]);
 
   const regions = useMemo(() => getRegionRegistry("US"), []);
   const places = useMemo(() => (entry ? manufacturingPlaces(entry) : []), [entry]);
@@ -154,6 +172,25 @@ export default function CompanyPage() {
                 </dd>
               </>
             )}
+            {facets?.industries?.length > 0 && (
+              <>
+                <dt className="text-muted-foreground">Industry</dt>
+                <dd className="text-foreground">{facets.industries.join(", ")}</dd>
+              </>
+            )}
+            {/* Only a rating reviews actually back — a bare star count with
+                nothing behind it is a number the page can't justify. */}
+            {facets?.stars != null && facets.reviews > 0 && (
+              <>
+                <dt className="text-muted-foreground">Tabarnam rating</dt>
+                <dd className="text-foreground">
+                  {facets.stars} / 5{" "}
+                  <span className="text-muted-foreground">
+                    from {facets.reviews} {facets.reviews === 1 ? "review" : "reviews"}
+                  </span>
+                </dd>
+              </>
+            )}
           </dl>
 
           <section className="mt-10 border-t border-border pt-6">
@@ -198,6 +235,19 @@ export default function CompanyPage() {
               </p>
             )}
           </section>
+
+          {/* Product terms are what "<product> made in <place>" searches match
+              on. Prose, not a chip wall, and capped upstream at 20 of a
+              possible ~90 so the page reads as a description rather than a
+              keyword dump. Mirrors api/_companyRender.js. */}
+          {facets?.products?.length > 0 && (
+            <section className="mt-10 border-t border-border pt-6">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                What {name} makes
+              </h2>
+              <p className="text-sm text-foreground mt-3">{facets.products.join(", ")}.</p>
+            </section>
+          )}
 
           <section className="mt-10 border-t border-border pt-6">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">

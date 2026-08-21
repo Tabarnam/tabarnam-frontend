@@ -5,6 +5,7 @@
 // The client just reads it, so there is no derivation here to drift from the
 // server's.
 import { fetchPinsIndex } from "@/components/results/map/pinsIndexClient";
+import { API_BASE } from "@/lib/api";
 
 let _promise = null;
 
@@ -52,6 +53,29 @@ export function manufacturingPlaces(entry) {
     out.push({ label, cc, region });
   }
   return out;
+}
+
+/**
+ * Industries, product terms and rating for one company.
+ *
+ * The server-rendered page already prints these; this fetch exists so React
+ * renders the same sections instead of dropping them on mount. One company at
+ * a time, because the facets blob is several megabytes across the catalog.
+ * Resolves to null rather than throwing — facets are enrichment, and a company
+ * page is complete without them.
+ */
+export async function fetchCompanyFacets(companyId) {
+  if (!companyId) return null;
+  try {
+    const res = await fetch(`${API_BASE}/company-facets?id=${encodeURIComponent(companyId)}`, {
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.facets || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Prose list: "A", "A and B", "A, B and C". */
