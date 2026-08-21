@@ -90,6 +90,11 @@ const PUBLIC_ROUTES = new Set([
   "made-in-page",
   "made-in-page/{slug}",
   "made-in-page/{slug}/{state}",
+  // Server-rendered HTML for the public /company tree, on the same footing:
+  // public web pages, reading only the pins index that map-pins already serves
+  // publicly, writing nothing.
+  "company-page",
+  "company-page/{slug}",
   // Google API proxies — called from the public site (client-side geocoding /
   // location lookup), so they are necessarily anonymous.
   "google/geocode",

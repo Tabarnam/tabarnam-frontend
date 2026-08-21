@@ -246,6 +246,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: company-page");
+  require("./company-page/index.js");
+} catch (e) {
+  console.error("[api] Failed to load company-page:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-rebuild-map-pins");
   require("./xadmin-api-rebuild-map-pins/index.js");
 } catch (e) {
