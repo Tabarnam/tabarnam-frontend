@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { ChevronDown, ChevronUp, Copy, MapPin, Pencil, ExternalLink, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ShareButton from "@/components/ShareButton";
@@ -952,6 +953,21 @@ export default function ExpandableCompanyRow({
                 </CompanyNameWithUrlTooltip>
               ) : (
                 <span className="text-[1.2em] text-foreground">{highlightExactPhrase(displayName, query)}</span>
+              )}
+              {/* The company's own indexable page. Search results were the
+                  only place a company appeared, with no route to the page
+                  built for "where is X made" — this is that route. The slug
+                  rides on the search response when the pins cache is warm, so
+                  treat its absence as "no link", never as an error. */}
+              {company.company_slug && (
+                <Link
+                  to={`/company/${company.company_slug}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs font-normal text-primary hover:underline whitespace-nowrap"
+                  title={`Where ${displayName} is made`}
+                >
+                  Where it&rsquo;s made
+                </Link>
               )}
               <span className="inline-flex items-center gap-0 share-button-container">
                 <ShareButton company={company} />

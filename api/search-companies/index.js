@@ -3279,6 +3279,23 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       }
 
+      // Canonical company-page slug on each result, so /results can link a row
+      // to /company/<slug>. Read from the pins index's WARM cache only — see
+      // peekSlugById; it never triggers a blob read or a scan, because this is
+      // the search hot path. Absent slug simply means no link on that row.
+      try {
+        const { peekSlugById } = require("../_pinsIndex");
+        const slugs = peekSlugById();
+        if (slugs) {
+          for (const c of paged) {
+            const slug = slugs.get(String(c?.company_id || c?.id || ""));
+            if (slug) c.company_slug = slug;
+          }
+        }
+      } catch (slugErr) {
+        context.log("[search-companies] slug enrichment skipped:", slugErr?.message);
+      }
+
       return json(
         {
           ok: true,

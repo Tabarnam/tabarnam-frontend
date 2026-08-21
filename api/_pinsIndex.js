@@ -477,6 +477,32 @@ async function upsertPinsForCompanies(companies, { logger = console } = {}) {
   return { ok: false, error: "etag conflict twice — leaving to the periodic rebuild" };
 }
 
+let _slugCache = { generatedAt: "", byId: null };
+
+/**
+ * Company id → canonical company-page slug, from the WARM worker cache only.
+ *
+ * Deliberately never triggers a blob read or a scan: the caller is
+ * search-companies, and putting a possibly-scanning call in the search hot path
+ * is the exact shape of the all-endpoint 500 storms this app has had before.
+ * Returns null when the pins index isn't already in memory, and the caller
+ * treats that as "no company link on this result" — enrichment, not a feature
+ * anything depends on.
+ */
+function peekSlugById() {
+  if (!_cache || !_cache.payload) return null;
+  if (_slugCache.generatedAt !== _cache.generatedAt || !_slugCache.byId) {
+    const byId = new Map();
+    for (const row of _cache.payload.companies || []) {
+      if (Array.isArray(row) && row[0] && typeof row[12] === "string" && row[12]) {
+        byId.set(row[0], row[12]);
+      }
+    }
+    _slugCache = { generatedAt: _cache.generatedAt, byId };
+  }
+  return _slugCache.byId;
+}
+
 function getCacheInfo() {
   return {
     cached: !!_cache,
@@ -492,6 +518,7 @@ module.exports = {
   getPins,
   rebuildAndPersistPins,
   upsertPinsForCompanies,
+  peekSlugById,
   getPinsBlobAgeMs,
   buildCompanyEntry,
   getCacheInfo,
