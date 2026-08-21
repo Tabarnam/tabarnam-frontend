@@ -145,12 +145,39 @@
   background: hsl(var(--card));
 }
 
+/* Push the dim from 0.55 -> 0.7 so the highlighted target reads clearly
+   against the everything-else backdrop. */
 .shepherd-modal-overlay-container.shepherd-modal-is-visible {
-  opacity: 0.55;
+  opacity: 0.70;
 }
 
-/* Highlighted target — subtle ring using Tabarnam --ring token. */
+/* Highlighted target — solid teal ring plus a gently pulsing halo, so
+   the visitor's eye lands on the tool the step is describing. The inner
+   4px ring stays constant for a stable anchor; the outer ring breathes
+   from 0px @ full alpha to 14px @ transparent on a 1.6s cycle. */
 .shepherd-target.shepherd-enabled {
-  box-shadow: 0 0 0 4px hsl(var(--ring) / 0.35);
   border-radius: var(--radius);
+  animation: shepherd-halo-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes shepherd-halo-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 4px hsl(var(--ring) / 0.75),
+      0 0 0 8px hsl(var(--ring) / 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px hsl(var(--ring) / 0.6),
+      0 0 0 14px hsl(var(--ring) / 0);
+  }
+}
+
+/* Kill the animation for visitors who've asked the OS to reduce motion —
+   the solid inner ring still marks the target. */
+@media (prefers-reduced-motion: reduce) {
+  .shepherd-target.shepherd-enabled {
+    animation: none;
+    box-shadow: 0 0 0 4px hsl(var(--ring) / 0.75);
+  }
 }
