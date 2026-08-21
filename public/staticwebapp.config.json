@@ -29,6 +29,8 @@
       "/*.woff2",
       "/__build_id.txt",
       "/sitemap.xml",
+      "/sitemap-places.xml",
+      "/sitemap-companies.xml",
       "/robots.txt",
       "/llms.txt",
       "/sounds/*"
@@ -69,6 +71,16 @@
       "route": "/made-in/*",
       "allowedRoles": ["anonymous"],
       "rewrite": "/api/made-in-page/{*path}"
+    },
+    {
+      "route": "/company",
+      "allowedRoles": ["anonymous"],
+      "rewrite": "/api/company-page"
+    },
+    {
+      "route": "/company/*",
+      "allowedRoles": ["anonymous"],
+      "rewrite": "/api/company-page/{*path}"
     },
     {
       "route": "/admin",

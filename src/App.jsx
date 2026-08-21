@@ -54,6 +54,7 @@ const BookmarksPage = lazy(() => import("@/pages/BookmarksPage"));
 const MadeInPage = lazy(() => import("@pages/MadeInPage"));
 const MadeInIndexPage = lazy(() => import("@pages/MadeInIndexPage"));
 const MadeInStatePage = lazy(() => import("@pages/MadeInStatePage"));
+const CompanyPage = lazy(() => import("@pages/CompanyPage"));
 
 // Main application component with routing, layout management, and error handling
 // Simple error boundary
@@ -180,6 +181,11 @@ export default function App() {
                   /made-in/usa/california doesn't fall through. */}
               <Route path="/made-in/usa/:state" element={<MadeInStatePage />} />
               <Route path="/made-in/:slug" element={<MadeInPage />} />
+              {/* Server-rendered by api/company-page; this route is what React
+                  mounts once it takes over. Without it the catch-all below
+                  would bounce every company URL to "/" a moment after the
+                  server-rendered page painted. */}
+              <Route path="/company/:slug" element={<CompanyPage />} />
               <Route path="/bookmarks" element={<Suspense fallback={null}><BookmarksPage /></Suspense>} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/about" element={<AboutPage />} />

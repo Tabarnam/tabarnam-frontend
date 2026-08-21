@@ -23,12 +23,21 @@ import { fileURLToPath } from "node:url";
 import { countrySlug, regionSlug, US_REGIONS } from "../src/lib/madeInSlugs.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = path.join(ROOT, "public", "sitemap.xml");
-const COUNTRIES = path.join(ROOT, "public", "geo", "countries.json");
+const PUBLIC = path.join(ROOT, "public");
+const OUT = path.join(PUBLIC, "sitemap.xml");
+const OUT_PLACES = path.join(PUBLIC, "sitemap-places.xml");
+const OUT_COMPANIES = path.join(PUBLIC, "sitemap-companies.xml");
+const COUNTRIES = path.join(PUBLIC, "geo", "countries.json");
+
+// The spec caps a sitemap at 50,000 URLs; well under that, a smaller file is
+// still easier for Search Console to report on, and splitting means a company
+// churn doesn't invalidate the places file.
+const MAX_PER_FILE = 25_000;
 
 const ORIGIN = "https://tabarnam.com";
 // Keep in sync with PINS_PAYLOAD_VERSION in src/components/results/map/pinsIndexClient.js.
-const PINS_VERSION = 5;
+// v6 carries the company slugs this sitemap advertises.
+const PINS_VERSION = 6;
 const PINS_URL = process.env.SITEMAP_PINS_URL || `${ORIGIN}/api/map-pins?v=${PINS_VERSION}`;
 const REQUIRE_LIVE = process.argv.includes("--require-live");
 const FETCH_TIMEOUT_MS = 120_000;
@@ -55,10 +64,10 @@ function log(msg) {
 /**
  * Count distinct companies per manufacturing country and per US subdivision.
  *
- * Reads the compact v5 row format directly — [id, name, tagline, domain,
- * hqLat, hqLng, mfg[], hqCC, mfgCCs[], hqRegion, mfgRegions[], hqLabel] — as
- * documented in src/components/results/map/markerData.js. Only positions 8 and
- * 10 matter here, so this stays a plain read rather than pulling the app's
+ * Reads the compact v6 row format directly — [id, name, tagline, domain,
+ * hqLat, hqLng, mfg[], hqCC, mfgCCs[], hqRegion, mfgRegions[], hqLabel, slug] —
+ * as documented in src/components/results/map/markerData.js. Only positions 8
+ * and 10 matter here, so this stays a plain read rather than pulling the app's
  * decoder (which builds a full Map of marker-shaped objects for 14k rows).
  */
 function countByPlace(payload) {
@@ -85,6 +94,30 @@ function isoDate(value) {
 
 function urlEntry(loc, lastmod, priority) {
   return `  <url><loc>${ORIGIN}${loc}</loc><lastmod>${lastmod}</lastmod><priority>${priority}</priority></url>`;
+}
+
+function urlset(lines) {
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...lines,
+    "</urlset>",
+    "",
+  ].join("\n");
+}
+
+/** Canonical company-page URLs, from the slugs the pins index assigns. */
+function companyUrls(payload, lastmod) {
+  const rows = Array.isArray(payload?.companies) ? payload.companies : [];
+  const seen = new Set();
+  const lines = [];
+  for (const row of rows) {
+    const slug = Array.isArray(row) ? row[12] : null;
+    if (typeof slug !== "string" || !slug || seen.has(slug)) continue;
+    seen.add(slug);
+    lines.push(urlEntry(`/company/${slug}`, lastmod, "0.5"));
+  }
+  return lines;
 }
 
 async function fetchPins() {
@@ -156,20 +189,40 @@ async function main() {
     lines.push(urlEntry(`/made-in/usa/${regionSlug(code, name)}`, lastmod, priority));
   }
 
-  const xml = [
+  const companyLines = companyUrls(payload, lastmod);
+
+  // sitemap.xml stays the URL already submitted to Search Console, so it
+  // becomes the INDEX and the actual URLs move into two files. Splitting keeps
+  // company churn from invalidating the (much more valuable) place pages, and
+  // lets Search Console report indexing separately for each.
+  fs.writeFileSync(OUT_PLACES, urlset(lines), "utf8");
+  log(
+    `wrote ${lines.length} URLs → public/sitemap-places.xml ` +
+      `(${STATIC_ROUTES.length} static, ${countryRows.length} countries, ${regionRows.length} US regions; ` +
+      `min ${MIN_COMPANIES} companies)`
+  );
+
+  if (companyLines.length > MAX_PER_FILE) {
+    // Not silently truncated — say so, because a capped sitemap that reports
+    // success reads as "everything is submitted" when it isn't.
+    log(
+      `WARNING: ${companyLines.length} company URLs exceeds ${MAX_PER_FILE} per file; ` +
+        `only the first ${MAX_PER_FILE} are listed. Split sitemap-companies.xml before this matters.`
+    );
+  }
+  fs.writeFileSync(OUT_COMPANIES, urlset(companyLines.slice(0, MAX_PER_FILE)), "utf8");
+  log(`wrote ${Math.min(companyLines.length, MAX_PER_FILE)} URLs → public/sitemap-companies.xml`);
+
+  const index = [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-    ...lines,
-    "</urlset>",
+    '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    `  <sitemap><loc>${ORIGIN}/sitemap-places.xml</loc><lastmod>${lastmod}</lastmod></sitemap>`,
+    `  <sitemap><loc>${ORIGIN}/sitemap-companies.xml</loc><lastmod>${lastmod}</lastmod></sitemap>`,
+    "</sitemapindex>",
     "",
   ].join("\n");
-
-  fs.writeFileSync(OUT, xml, "utf8");
-  log(
-    `wrote ${lines.length} URLs → public/sitemap.xml ` +
-      `(${STATIC_ROUTES.length} static, ${countryRows.length} countries, ${regionRows.length} US regions; ` +
-      `min ${MIN_COMPANIES} companies, lastmod ${lastmod})`
-  );
+  fs.writeFileSync(OUT, index, "utf8");
+  log(`wrote sitemap index → public/sitemap.xml (lastmod ${lastmod})`);
 
   const skippedCountries = byCC.size - countryRows.length;
   if (skippedCountries > 0) {
