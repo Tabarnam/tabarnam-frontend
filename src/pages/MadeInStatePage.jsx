@@ -11,6 +11,7 @@ import {
   getRegionRegistry,
   getMadeInRegionAggregation,
   companiesForMode,
+  MADE_IN_LIST_LIMIT as LIST_LIMIT,
 } from "@/lib/madeIn";
 
 // Lazy so leaflet + markercluster stay out of the main bundle.
@@ -92,11 +93,27 @@ export default function MadeInStatePage() {
     ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${name}, with headquarters and manufacturing locations verified by Tabarnam. Find products actually made in ${name}.`
     : "";
 
+  // Location label per company for the text list — the plant in THIS state,
+  // from the same markers the map plots.
+  const labelById = useMemo(() => {
+    const m = new Map();
+    for (const marker of markers) {
+      if (marker.kind === "mfg" && marker.label && !m.has(marker.companyId)) {
+        m.set(marker.companyId, marker.label);
+      }
+    }
+    return m;
+  }, [markers]);
+
+  // Named companies as visible text. api/_madeInRender.js renders this same
+  // slice server-side for state pages; without it here the list vanished the
+  // moment React took over.
+  const listed = useMemo(() => companies.slice(0, LIST_LIMIT), [companies]);
+
   // Structured data describes the canonical manufacturing view, not the
   // currently-toggled one, so the three modes never disagree with the
-  // canonical URL they all point at. Individual companies are deliberately
-  // NOT enumerated: the page shows them on a map rather than as visible text,
-  // and structured data must describe content the visitor can actually see.
+  // canonical URL they all point at. Only the companies actually NAMED on the
+  // page are enumerated — structured data must describe visible content.
   const jsonLd = useMemo(() => {
     const mfgList = data?.companies || [];
     if (!region || mfgList.length === 0) return null;
@@ -109,6 +126,11 @@ export default function MadeInStatePage() {
       mainEntity: {
         "@type": "ItemList",
         numberOfItems: mfgList.length,
+        itemListElement: mfgList.slice(0, LIST_LIMIT).map((e, i) => ({
+          "@type": "ListItem",
+          position: i + 1,
+          name: e.name,
+        })),
       },
     };
   }, [region, name, canonical, data]);
@@ -198,6 +220,39 @@ export default function MadeInStatePage() {
                 Hover a pin for the company; click through to open its profile in a new tab.
               </p>
             </div>
+          )}
+
+          {/* Named companies as text, each linking to its own page. Mirrors
+              api/_madeInRender.js, which renders this same slice server-side —
+              the two must agree or the list visibly changes on mount. */}
+          {listed.length > 0 && (
+            <section className="mt-10 border-t border-border pt-6">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                {mode === "hq" ? `Headquartered in ${name}` : `Companies manufacturing in ${name}`}
+              </h2>
+              <ul className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1 list-none p-0">
+                {listed.map((c) => (
+                  <li key={c.id} className="text-sm text-foreground truncate">
+                    {c.slug ? (
+                      <Link to={`/company/${c.slug}`} className="hover:text-primary transition-colors">
+                        {c.name}
+                      </Link>
+                    ) : (
+                      c.name
+                    )}
+                    {labelById.get(c.id) && (
+                      <span className="text-muted-foreground"> · {labelById.get(c.id)}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {count > listed.length && (
+                <p className="text-xs text-muted-foreground mt-3">
+                  Showing {listed.length.toLocaleString()} of {count.toLocaleString()} companies. The
+                  full set is on the map above.
+                </p>
+              )}
+            </section>
           )}
 
           {siblings.length > 0 && (

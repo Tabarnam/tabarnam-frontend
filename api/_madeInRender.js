@@ -88,11 +88,15 @@ function aggregate(payload) {
       return pin && typeof pin[5] === "string" ? pin[5] : "";
     };
 
+    // Carried so the list can link each company to its own page. Absent on a
+    // pre-v6 payload, which renders as plain text rather than /company/null.
+    const slug = typeof row[12] === "string" && row[12] ? row[12] : "";
+
     for (const cc of new Set((row[8] || []).filter(Boolean))) {
-      bucket(countries, cc).mfg.push({ name, label: labelFor(cc, 3) });
+      bucket(countries, cc).mfg.push({ name, slug, label: labelFor(cc, 3) });
     }
     for (const r of new Set((row[10] || []).filter(Boolean))) {
-      bucket(regions, r).mfg.push({ name, label: labelFor(r, 4) });
+      bucket(regions, r).mfg.push({ name, slug, label: labelFor(r, 4) });
     }
     if (row[7]) bucket(countries, row[7]).hqCount += 1;
     if (row[9]) bucket(regions, row[9]).hqCount += 1;
@@ -156,10 +160,16 @@ function companyList(entries, placeName) {
   const items = shown
     .map((e) => {
       const label = e.label ? ` <span class="mi-loc">${esc(e.label)}</span>` : "";
-      // Names are plain text for now. They become links to /company/<slug>
-      // when those pages exist — pointing 250 links per page at /results
-      // search URLs would spend crawl budget on thin, JS-rendered pages.
-      return `<li>${esc(e.name)}${label}</li>`;
+      // Each name links to its own company page. These were plain text until
+      // /company/<slug> existed — the alternative then was pointing 250 links
+      // per page at /results search URLs, which would have spent crawl budget
+      // on thin, JS-rendered pages. Now the links land on real ones, which is
+      // how the company pages get discovered and valued rather than merely
+      // listed in a sitemap.
+      const name = e.slug
+        ? `<a href="/company/${esc(e.slug)}">${esc(e.name)}</a>`
+        : esc(e.name);
+      return `<li>${name}${label}</li>`;
     })
     .join("");
   const more =

@@ -262,7 +262,16 @@ export default function MadeInPage() {
               <ul className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1 list-none p-0">
                 {listed.map((c) => (
                   <li key={c.id} className="text-sm text-foreground truncate">
-                    {c.name}
+                    {/* Links to the company's own page. A pre-v6 pins payload
+                        has no slug, so fall back to plain text rather than
+                        linking to /company/null. */}
+                    {c.slug ? (
+                      <Link to={`/company/${c.slug}`} className="hover:text-primary transition-colors">
+                        {c.name}
+                      </Link>
+                    ) : (
+                      c.name
+                    )}
                     {labelById.get(c.id) && (
                       <span className="text-muted-foreground"> · {labelById.get(c.id)}</span>
                     )}

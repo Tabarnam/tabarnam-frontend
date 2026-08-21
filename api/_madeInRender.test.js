@@ -39,7 +39,7 @@ function stubFetch(state) {
 // A compact v5 pins row: [id, name, tagline, domain, hqLat, hqLng, mfg[],
 // hqCC, mfgCCs[], hqRegion, mfgRegions[], hqLabel] where each mfg pin is
 // [lat, lng, lowPrec01, cc, region, label].
-function row(name, { hqCC = null, hqRegion = null, mfg = [] } = {}) {
+function row(name, { hqCC = null, hqRegion = null, mfg = [], slug = undefined } = {}) {
   return [
     `id_${name}`,
     name,
@@ -53,6 +53,7 @@ function row(name, { hqCC = null, hqRegion = null, mfg = [] } = {}) {
     hqRegion,
     [...new Set(mfg.map((m) => m.region).filter(Boolean))],
     "HQ City",
+    slug === undefined ? name.toLowerCase().replace(/[^a-z0-9]+/g, "-") : slug,
   ];
 }
 
@@ -170,12 +171,42 @@ test("the lead sentence agrees in number for a single company", () => {
   assert.match(page.body, /1 is headquartered here/);
 });
 
+test("every named company links to its own page", () => {
+  // This is how /company/<slug> gets discovered and VALUED, rather than merely
+  // listed in a sitemap: ~250 links per place page into the company tree.
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(PAYLOAD));
+  assert.match(page.body, /<li><a href="\/company\/acme">Acme<\/a>/);
+  assert.match(page.body, /<li><a href="\/company\/borealis">Borealis<\/a>/);
+});
+
+test("state pages link their companies too", () => {
+  const page = regionPage({ code: "US-OH", slug: "ohio", name: "Ohio" }, aggregate(PAYLOAD));
+  assert.match(page.body, /<a href="\/company\/acme">Acme<\/a>/);
+  assert.match(page.body, /<a href="\/company\/borealis">Borealis<\/a>/);
+});
+
+test("a company without a slug stays plain text — never /company/null", () => {
+  // Pre-v6 pins payloads carry no slug.
+  const legacy = { companies: [row("Slugless", { mfg: [{ cc: "US" }], slug: "" })] };
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(legacy));
+  assert.match(page.body, /<li>Slugless<\/li>/);
+  assert.doesNotMatch(page.body, /\/company\//);
+});
+
+test("the company link carries the name, and the place label stays outside it", () => {
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(PAYLOAD));
+  assert.match(
+    page.body,
+    /<li><a href="\/company\/acme">Acme<\/a> <span class="mi-loc">Akron, OH<\/span><\/li>/
+  );
+});
+
 test("country page names companies as body text and mirrors them in the ItemList", () => {
   const agg = aggregate(PAYLOAD);
   const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, agg);
 
-  assert.match(page.body, /<li>Acme/);
-  assert.match(page.body, /<li>Borealis/);
+  assert.match(page.body, /<li><a href="\/company\/acme">Acme</);
+  assert.match(page.body, /<li><a href="\/company\/borealis">Borealis</);
   assert.doesNotMatch(page.body, /Cyclo/); // manufactures in Vietnam only
 
   const items = page.jsonLd.mainEntity.itemListElement.map((i) => i.name);
@@ -192,7 +223,7 @@ test("structured data never claims more items than the page shows", () => {
 
   assert.equal(page.jsonLd.mainEntity.numberOfItems, LIST_LIMIT + 25);
   assert.equal(page.jsonLd.mainEntity.itemListElement.length, LIST_LIMIT);
-  const listed = (page.body.match(/<li>Co\d{4}/g) || []).length;
+  const listed = (page.body.match(/<li><a href="\/company\/co\d{4}">Co\d{4}<\/a>/g) || []).length;
   assert.equal(listed, LIST_LIMIT);
   assert.match(page.body, /Showing 250 of 275 companies/);
 });
@@ -214,8 +245,8 @@ test("state page renders its own canonical and breadcrumb", () => {
   const page = regionPage({ code: "US-OH", slug: "ohio", name: "Ohio" }, aggregate(PAYLOAD));
   assert.equal(page.canonical, "https://tabarnam.com/made-in/usa/ohio");
   assert.match(page.body, /href="\/made-in\/usa"/);
-  assert.match(page.body, /<li>Acme/);
-  assert.match(page.body, /<li>Borealis/);
+  assert.match(page.body, /<li><a href="\/company\/acme">Acme</);
+  assert.match(page.body, /<li><a href="\/company\/borealis">Borealis</);
 });
 
 test("index page lists countries with manufacturing, biggest first", () => {
@@ -275,7 +306,7 @@ test("injectIntoShell keeps the app's own script and style tags so React still b
   assert.match(html, /<title>Made in USA — 2 Companies/);
   assert.match(html, /<link rel="canonical" href="https:\/\/tabarnam\.com\/made-in\/usa"/);
   assert.match(html, /<div id="root"><div class="mi-seo">/);
-  assert.match(html, /<li>Acme/);
+  assert.match(html, /<li><a href="\/company\/acme">Acme</);
 });
 
 test("injectIntoShell replaces the shell's fallback description rather than duplicating it", () => {
