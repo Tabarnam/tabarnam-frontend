@@ -26,7 +26,7 @@ const json = (obj, status = 200, req) => ({
 });
 
 const SUBJECT_LABELS = {
-  "propose-company": "Propose a company",
+  "propose-company": "Add a company",
   "site-improvement": "Site improvement idea",
   "report-issue": "Report an issue / Bug",
   "general-inquiry": "General inquiry",

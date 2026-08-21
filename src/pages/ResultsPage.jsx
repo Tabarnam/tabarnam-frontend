@@ -19,6 +19,7 @@ import { useBookmarks } from "@/hooks/useBookmarks";
 import useSplitRatio from "@/hooks/useSplitRatio";
 import SplitHandle from "@/components/results/map/SplitHandle";
 import { promoteExpanded } from "@/components/results/map/promoteExpanded";
+import ContactFormDialog from "@/components/ContactFormDialog";
 
 // Map view is opt-in and Leaflet is heavy (~150 KB min) — lazy-load the whole
 // panel so the vendor-leaflet chunk is fetched on first toggle, never on the
@@ -362,6 +363,11 @@ export default function ResultsPage() {
     try { localStorage.setItem("tabarnam_density", next); } catch { /* ignore */ }
     return next;
   });
+
+  // "Add a company" prompt — offered when a search comes up empty, opening the
+  // Contact dialog pre-set to the add-a-company subject with the missing query
+  // seeded into the message.
+  const [addCompanyOpen, setAddCompanyOpen] = useState(false);
 
   // Pasted-URL (domain) search state. Populated only when the current search
   // carried a ?domain= param. Drives BOTH the opt-in "Explore related" strip
@@ -1827,6 +1833,18 @@ export default function ResultsPage() {
         <meta property="og:image" content="/tabarnam.png" />
         <meta property="og:type" content="website" />
       </Helmet>
+
+      {/* Parent-driven Contact dialog for the empty-state "Add it to Tabarnam"
+          prompt — pre-set to the add-a-company subject with the missing query
+          seeded into the message. */}
+      <ContactFormDialog
+        open={addCompanyOpen}
+        onOpenChange={setAddCompanyOpen}
+        prefill={{
+          subject: "propose-company",
+          message: `Company name: ${qParam || ""}\nWebsite: \nWhere it's made (if known): \n\n(No results found for "${qParam || ""}" on Tabarnam.)`,
+        }}
+      />
       {/* Two-row search under the site header. Tighter margins on results than
           on the home page, where the card is the hero. */}
       <div className="mt-3 mb-3">
@@ -2453,6 +2471,18 @@ export default function ResultsPage() {
                 ) : (
                   <p className="text-sm">Try adjusting your search terms or filters</p>
                 )}
+              </div>
+              {/* Turn a dead end into a lead: invite the user to add the missing
+                  company, opening Contact pre-set to the add-a-company subject. */}
+              <div className="mt-5 text-sm">
+                <span className="text-muted-foreground">Know a company we&rsquo;re missing? </span>
+                <button
+                  type="button"
+                  onClick={() => setAddCompanyOpen(true)}
+                  className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                >
+                  Add it to Tabarnam
+                </button>
               </div>
             </div>
           )

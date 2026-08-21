@@ -1,5 +1,5 @@
 // src/components/ContactFormDialog.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "sonner";
 import { Mail, Loader2, Copy, ExternalLink } from "lucide-react";
@@ -27,15 +27,25 @@ import { Label } from "@/components/ui/label";
 import { API_BASE, join } from "@/lib/api";
 
 const SUBJECT_OPTIONS = [
-  { value: "propose-company", label: "Propose a company" },
+  { value: "propose-company", label: "Add a company" },
   { value: "site-improvement", label: "Site improvement idea" },
   { value: "report-issue", label: "Report an issue / Bug" },
   { value: "general-inquiry", label: "General inquiry" },
   { value: "other", label: "Other" },
 ];
 
-export default function ContactFormDialog({ variant = "floating" }) {
-  const [open, setOpen] = useState(false);
+// `open`/`onOpenChange` let a parent drive the dialog programmatically (e.g. the
+// "Add this company" prompt on an empty results page); when omitted the dialog
+// manages its own open state and renders its own trigger. `prefill` seeds the
+// subject/message when the dialog is opened by the parent.
+export default function ContactFormDialog({ variant = "floating", open: openProp, onOpenChange, prefill }) {
+  const isControlled = openProp !== undefined;
+  const [openState, setOpenState] = useState(false);
+  const open = isControlled ? openProp : openState;
+  const setOpen = (v) => {
+    if (isControlled) onOpenChange?.(v);
+    else setOpenState(v);
+  };
 
   const {
     register,
@@ -57,6 +67,24 @@ export default function ContactFormDialog({ variant = "floating" }) {
 
 
   const selectedSubject = watch("subject");
+
+  // Seed the form from `prefill` on the open transition (false→true) only, so a
+  // parent-driven open lands on the right subject + a starter message without
+  // clobbering anything the user types after.
+  const prevOpenRef = useRef(false);
+  useEffect(() => {
+    if (open && !prevOpenRef.current && prefill) {
+      reset({
+        name: "",
+        email: "",
+        subject: prefill.subject ?? "",
+        customSubject: "",
+        message: prefill.message ?? "",
+        _phone: "",
+      });
+    }
+    prevOpenRef.current = open;
+  }, [open, prefill, reset]);
 
   const onSubmit = async (data) => {
     try {
@@ -87,22 +115,26 @@ export default function ContactFormDialog({ variant = "floating" }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {variant === "footer" ? (
-          // Inline footer link — sits in the footer nav strip and matches the
-          // other footer links' styling.
-          <button className="inline-flex items-center gap-1 text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors">
-            <Mail size={12} aria-hidden="true" />
-            Contact
-          </button>
-        ) : (
-          // Floating pill (default) — used anywhere the footer isn't the home.
-          <button className="fixed top-3 right-3 z-50 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 shadow flex items-center gap-2 hover:bg-accent transition-colors">
-            <Mail size={16} className="text-primary" />
-            <span className="text-sm font-medium text-foreground">Contact Us</span>
-          </button>
-        )}
-      </DialogTrigger>
+      {/* Controlled (parent-driven) mode supplies its own trigger, so skip the
+          built-in one. */}
+      {!isControlled && (
+        <DialogTrigger asChild>
+          {variant === "footer" ? (
+            // Inline footer link — sits in the footer nav strip and matches the
+            // other footer links' styling.
+            <button className="inline-flex items-center gap-1 text-slate-600 dark:text-muted-foreground hover:text-foreground transition-colors">
+              <Mail size={12} aria-hidden="true" />
+              Contact
+            </button>
+          ) : (
+            // Floating pill (default) — used anywhere the footer isn't the home.
+            <button className="fixed top-3 right-3 z-50 bg-card/90 backdrop-blur border border-border rounded-full px-3 py-1.5 shadow flex items-center gap-2 hover:bg-accent transition-colors">
+              <Mail size={16} className="text-primary" />
+              <span className="text-sm font-medium text-foreground">Contact Us</span>
+            </button>
+          )}
+        </DialogTrigger>
+      )}
 
       <DialogContent className="max-w-lg">
         <DialogHeader>
