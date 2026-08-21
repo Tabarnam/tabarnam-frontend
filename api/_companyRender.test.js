@@ -118,6 +118,18 @@ test("every manufacturing place links back to its /made-in pages", () => {
   assert.match(page.body, /href="\/made-in\/usa"/);
 });
 
+test("a country-precision plant reads 'China', never 'China (China)'", () => {
+  const page = companyPage(row({ mfg: [{ cc: "CN", label: "China" }] }));
+  assert.doesNotMatch(page.body, /China <span class="mi-loc">/);
+  // The label still has to be reachable, so it becomes the link itself.
+  assert.match(page.body, /<li><a href="\/made-in\/china">China<\/a><\/li>/);
+});
+
+test("a city-precision plant keeps both place links alongside its label", () => {
+  const page = companyPage(row({ mfg: [{ cc: "US", region: "US-OH", label: "Akron, OH" }] }));
+  assert.match(page.body, /Akron, OH <span class="mi-loc">\(<a href="\/made-in\/usa\/ohio">Ohio<\/a> · <a href="\/made-in\/usa">USA<\/a>\)<\/span>/);
+});
+
 test("canonical is the slug URL and JSON-LD claims our page, not theirs", () => {
   const page = companyPage(row({ name: "Acme", slug: "acme", domain: "acme.com" }));
   assert.equal(page.canonical, "https://tabarnam.com/company/acme");

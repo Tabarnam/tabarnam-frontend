@@ -85,12 +85,15 @@ export default function CompanyPage() {
     );
   }
 
-  const placeLinks = (cc, region) => {
+  // Mirrors api/_companyRender.js: a link whose text just repeats the label is
+  // dropped, so a country-precision plant reads "China" rather than
+  // "China (China)".
+  const placeLinks = (cc, region, label) => {
     const out = [];
     const r = region ? regions.byCode.get(region) : null;
     const c = cc ? countries?.byCC.get(cc) : null;
-    if (r) out.push(<Link key="r" to={`/made-in/usa/${r.slug}`} className="hover:text-foreground transition-colors">{r.name}</Link>);
-    if (c) out.push(<Link key="c" to={`/made-in/${c.slug}`} className="hover:text-foreground transition-colors">{c.displayName}</Link>);
+    if (r && r.name !== label) out.push(<Link key="r" to={`/made-in/usa/${r.slug}`} className="hover:text-foreground transition-colors">{r.name}</Link>);
+    if (c && c.displayName !== label) out.push(<Link key="c" to={`/made-in/${c.slug}`} className="hover:text-foreground transition-colors">{c.displayName}</Link>);
     return out;
   };
 
@@ -160,12 +163,18 @@ export default function CompanyPage() {
             {places.length ? (
               <ul className="mt-3 list-none p-0 flex flex-col gap-2">
                 {places.map((p, i) => {
-                  const links = placeLinks(p.cc, p.region);
+                  const country = p.cc ? countries?.byCC.get(p.cc) : null;
+                  const label = p.label || country?.displayName || "Location not specified";
+                  const links = placeLinks(p.cc, p.region, label);
                   return (
                     <li key={`${p.label}-${p.cc}-${p.region}-${i}`} className="text-sm">
-                      <span className="text-foreground">
-                        {p.label || countries?.byCC.get(p.cc)?.displayName || "Location not specified"}
-                      </span>
+                      {links.length === 0 && country ? (
+                        <Link to={`/made-in/${country.slug}`} className="text-foreground hover:text-primary transition-colors">
+                          {label}
+                        </Link>
+                      ) : (
+                        <span className="text-foreground">{label}</span>
+                      )}
                       {links.length > 0 && (
                         <span className="text-muted-foreground">
                           {" ("}

@@ -178,10 +178,21 @@ function companyPage(row) {
       .map((p) => {
         const region = regionByCode.get(p.region);
         const country = countryByCC.get(p.cc);
-        const links = [];
-        if (region) links.push(`<a href="/made-in/usa/${region.slug}">${esc(region.name)}</a>`);
-        if (country) links.push(`<a href="/made-in/${country.slug}">${esc(country.name)}</a>`);
         const label = p.label || country?.name || "Location not specified";
+        // Skip a link whose text just repeats the label — a country-precision
+        // plant would otherwise read "China (China)".
+        const links = [];
+        if (region && region.name !== label) {
+          links.push(`<a href="/made-in/usa/${region.slug}">${esc(region.name)}</a>`);
+        }
+        if (country && country.name !== label) {
+          links.push(`<a href="/made-in/${country.slug}">${esc(country.name)}</a>`);
+        }
+        // The label still has to be reachable, so link it directly when it is
+        // the only thing we'd otherwise show.
+        if (!links.length && country) {
+          return `<li><a href="/made-in/${country.slug}">${esc(label)}</a></li>`;
+        }
         return `<li>${esc(label)}${links.length ? ` <span class="mi-loc">(${links.join(" · ")})</span>` : ""}</li>`;
       })
       .join("");
