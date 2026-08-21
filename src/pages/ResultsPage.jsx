@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "@/components/DocumentHead";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, X, List as ListIcon, Map as MapIcon, Rows, AlignJustify } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, List as ListIcon, Map as MapIcon, Rows, AlignJustify, SearchX } from "lucide-react";
 import { geocode, resolveLocation } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
@@ -1308,10 +1308,11 @@ export default function ResultsPage() {
           setStatus(`⚠️ Search API unavailable – showing ${withDistances.length} sample companies.`);
         }
       } else if (withDistances.length === 0) {
-        // A domain (pasted-URL) miss has its own richer empty state
-        // ("No company found for <domain>" + opt-in suggestions) — suppress
-        // the generic status so the two don't stack.
-        setStatus(domain ? "" : "No companies found matching your criteria.");
+        // No top status line for an ordinary empty search — the centered
+        // empty-state card below is the single, actionable "no results"
+        // message (heading + hint + "Add it to Tabarnam"). A duplicate banner
+        // just stacked the same words. Domain misses have their own card too.
+        setStatus("");
       } else if (meta?.error) {
         setStatus(`⚠️ ${meta.error}`);
       } else {
@@ -2447,35 +2448,36 @@ export default function ResultsPage() {
               </div>
             </div>
           ) : (
-            <div className="p-8 text-center">
-              <div className="text-muted-foreground">
-                <p className="text-lg font-medium mb-1">No companies found</p>
-                {didYouMean?.suggestion ? (
-                  <p className="text-sm">
-                    Did you mean{" "}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = new URLSearchParams(searchParams);
-                        next.set("q", didYouMean.suggestion);
-                        next.delete("page");
-                        next.delete("nocorrect");
-                        setSearchParams(next);
-                      }}
-                      className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
-                    >
-                      {didYouMean.suggestion}
-                    </button>
-                    ?
-                  </p>
-                ) : (
-                  <p className="text-sm">Try adjusting your search terms or filters</p>
-                )}
-              </div>
+            <div className="py-14 px-6 flex flex-col items-center text-center">
+              <SearchX className="h-10 w-10 text-muted-foreground/40 mb-4" aria-hidden="true" />
+              <p className="text-lg font-semibold text-foreground mb-1">
+                {qParam ? <>No results for &ldquo;{qParam}&rdquo;</> : "No companies found"}
+              </p>
+              {didYouMean?.suggestion ? (
+                <p className="text-sm text-muted-foreground">
+                  Did you mean{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = new URLSearchParams(searchParams);
+                      next.set("q", didYouMean.suggestion);
+                      next.delete("page");
+                      next.delete("nocorrect");
+                      setSearchParams(next);
+                    }}
+                    className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                  >
+                    {didYouMean.suggestion}
+                  </button>
+                  ?
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">Try a different spelling, a broader term, or fewer filters.</p>
+              )}
               {/* Turn a dead end into a lead: invite the user to add the missing
                   company, opening Contact pre-set to the add-a-company subject. */}
-              <div className="mt-5 text-sm">
-                <span className="text-muted-foreground">Know a company we&rsquo;re missing? </span>
+              <div className="mt-6 text-sm">
+                <span className="text-muted-foreground">Know of a company we&rsquo;re missing? </span>
                 <button
                   type="button"
                   onClick={() => setAddCompanyOpen(true)}
