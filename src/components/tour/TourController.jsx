@@ -149,6 +149,18 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
       scrollTo: { behavior: 'smooth', block: 'center' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
+        {
+          text: 'Back',
+          action: () => {
+            // Sort is the first results-leg step, so Back has to cross legs —
+            // navigate to /?tour=1 and leave a step-hint pointing at the home
+            // leg's last step (location). startHome reads and clears the hint
+            // and jumps straight there instead of restarting at step 1 (search).
+            safeWrite(TOUR_STEP_HINT_KEY, 'location');
+            go('/?tour=1');
+          },
+          secondary: true,
+        },
         learnMore('#qq'),
         { text: 'Next', action: () => tour.next() },
       ],
@@ -418,6 +430,14 @@ export default function TourController() {
       tour.on('complete', finalize);
       tour.on('cancel', finalize);
       tourRef.current = tour;
+      // A cross-leg Back (e.g. sort step's Back on /results) can leave a
+      // step-hint pointing at a specific home-leg step; jump straight there
+      // instead of restarting at 'search'.
+      const stepHint = safeRead(TOUR_STEP_HINT_KEY);
+      safeRemove(TOUR_STEP_HINT_KEY);
+      if (stepHint) {
+        try { tour.show(stepHint); return; } catch { /* fall through to start */ }
+      }
       tour.start();
     };
 
