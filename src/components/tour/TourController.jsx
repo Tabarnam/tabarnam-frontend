@@ -94,6 +94,24 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
   const setMap = (open) => {
     try { window.dispatchEvent(new CustomEvent('tour:set-map', { detail: { open } })); } catch {}
   };
+  const setDensity = (mode) => {
+    try { window.dispatchEvent(new CustomEvent('tour:set-density', { detail: { mode } })); } catch {}
+  };
+  // Snapshot the visitor's saved density so we can restore it after the
+  // "Comfortable or Compact" step's live demo.
+  const readDensity = () => {
+    try {
+      return localStorage.getItem('tabarnam_density') === 'compact' ? 'compact' : 'comfortable';
+    } catch { return 'comfortable'; }
+  };
+  let originalDensity = null;
+  const captureDensity = () => { if (originalDensity === null) originalDensity = readDensity(); };
+  const restoreDensity = () => {
+    if (originalDensity !== null) {
+      setDensity(originalDensity);
+      originalDensity = null;
+    }
+  };
 
   return [
     {
@@ -124,13 +142,20 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
     {
       id: 'density',
       title: 'Comfortable or Compact',
-      text: 'Want denser rows? Flip to <strong>Compact</strong> to fit more results on screen — your choice sticks between visits.',
+      text: 'Rows just got denser — that\'s <strong>Compact</strong>. Toggle to fit more results on screen. Your choice sticks between visits; we\'ll flip back to whatever you had when you move on.',
       attachTo: { element: '[data-tour-step="density-toggle"]', on: 'bottom-end' },
       scrollTo: { behavior: 'smooth', block: 'nearest' },
+      beforeShowPromise: async () => {
+        // Snapshot the visitor's current preference, then flip to compact so
+        // the change is visible under the popover. Restored on Skip/Back/Next.
+        captureDensity();
+        setDensity('compact');
+        await new Promise((r) => setTimeout(r, 200));
+      },
       buttons: [
-        { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
-        { text: 'Back', action: () => tour.back(), secondary: true },
-        { text: 'Next', action: () => tour.next() },
+        { text: 'Skip tour', action: () => { restoreDensity(); tour.cancel(); }, secondary: true },
+        { text: 'Back', action: () => { restoreDensity(); tour.back(); }, secondary: true },
+        { text: 'Next', action: () => { restoreDensity(); tour.next(); } },
       ],
     },
     {

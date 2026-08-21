@@ -1454,6 +1454,21 @@ export default function ResultsPage() {
     return () => window.removeEventListener("tour:set-map", handler);
   }, []);
 
+  // Same bridge for the "Comfortable or Compact" step — the tour flips to
+  // compact on show so the change is visible under the popover, then restores
+  // the visitor's saved preference on Next/Back/Skip. Ref indirection so the
+  // effect is stable across renders.
+  const selectDensityRef = useRef(selectDensity);
+  selectDensityRef.current = selectDensity;
+  useEffect(() => {
+    const handler = (e) => {
+      const mode = e.detail?.mode === "compact" ? "compact" : "comfortable";
+      selectDensityRef.current?.(mode);
+    };
+    window.addEventListener("tour:set-density", handler);
+    return () => window.removeEventListener("tour:set-density", handler);
+  }, []);
+
   // Written by the panel's HQ/MFG/Both segmented control; "both" is the
   // default and never appears in the URL.
   function handlePinFilterChange(val) {
