@@ -232,7 +232,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
     },
     {
       id: 'bookmark-header',
-      title: 'Find them anytime',
+      title: 'Bookmarks',
       text: 'Your saved companies live behind this bookmark icon in the header.',
       attachTo: { element: '[data-tour-step="bookmark-header-icon"]', on: 'bottom' },
       scrollTo: { behavior: 'smooth', block: 'nearest' },
@@ -338,8 +338,15 @@ function makeTour(Shepherd) {
     defaultStepOptions: {
       cancelIcon: { enabled: true },
       scrollTo: { behavior: 'smooth', block: 'nearest' },
-      modalOverlayOpeningPadding: 4,
-      modalOverlayOpeningRadius: 6,
+      // Pad the modal cutout further from the target's edges so the halo
+      // ring has room to breathe and the icon isn't visually cramped.
+      modalOverlayOpeningPadding: 8,
+      modalOverlayOpeningRadius: 8,
+      // Push the popover further from the target so the arrow/caret sits
+      // in the gap without overlapping the icon it's pointing at.
+      popperOptions: {
+        modifiers: [{ name: 'offset', options: { offset: [0, 16] } }],
+      },
     },
   });
 }
