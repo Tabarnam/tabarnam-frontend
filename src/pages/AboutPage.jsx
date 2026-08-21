@@ -32,7 +32,7 @@ export default function AboutPage() {
         <meta property="og:description" content={description} />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://tabarnam.com/about" />
-        <meta property="og:image" content="https://tabarnam.com/tabarnam.png" />
+        <meta property="og:image" content="https://tabarnam.com/og-card.png" />
         <script type="application/ld+json">{JSON.stringify(orgSchema)}</script>
       </Helmet>
 

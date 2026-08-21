@@ -320,6 +320,33 @@ test("injectIntoShell replaces the shell's fallback description rather than dupl
   assert.equal((html.match(/property="og:title"/g) || []).length, 1);
 });
 
+test("og:image points at the opaque card, never the transparent logo file", () => {
+  // tabarnam.png is transparent and 2.2:1, so platforms composite it on their
+  // own chrome and crop 240px per side to reach 1.91:1 — straight through the
+  // arm. og-card.png is opaque 1200x630 with the mark inset clear of any crop.
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(PAYLOAD));
+  const html = injectIntoShell(SHELL, page);
+  assert.match(html, /<meta property="og:image" content="https:\/\/tabarnam\.com\/og-card\.png" \/>/);
+  assert.doesNotMatch(html, /og:image" content="[^"]*tabarnam\.png"/);
+  assert.match(html, /<meta property="og:image:width" content="1200" \/>/);
+  assert.match(html, /<meta property="og:image:height" content="630" \/>/);
+});
+
+test("og:image sub-properties are de-duplicated, not just og:image itself", () => {
+  // `property="og:image"` does not match `property="og:image:width"`, so the
+  // strip needs the optional suffix group or the document ships two of each.
+  const withSubs = SHELL.replace(
+    '<meta property="og:image" content="https://tabarnam.com/tabarnam.png" />',
+    '<meta property="og:image" content="https://tabarnam.com/og-card.png" />\n    <meta property="og:image:width" content="1200" />\n    <meta property="og:image:height" content="630" />\n    <meta property="og:image:alt" content="Tabarnam" />'
+  );
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(PAYLOAD));
+  const html = injectIntoShell(withSubs, page);
+  for (const tag of ["og:image", "og:image:width", "og:image:height", "og:image:alt"]) {
+    const n = (html.match(new RegExp(`property="${tag}"`, "g")) || []).length;
+    assert.equal(n, 1, `${tag} appears ${n} times`);
+  }
+});
+
 test("injectIntoShell de-duplicates every head tag it restates, across line breaks", () => {
   // index.html writes long meta tags over several lines; the strip has to cope.
   const multiline = SHELL.replace(

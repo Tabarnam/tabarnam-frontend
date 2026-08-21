@@ -146,7 +146,13 @@ function headTags(page) {
     `<meta property="og:title" content="${esc(page.title)}" />`,
     `<meta property="og:description" content="${esc(page.description)}" />`,
     `<meta property="og:url" content="${esc(page.canonical)}" />`,
-    `<meta property="og:image" content="${ORIGIN}/tabarnam.png" />`,
+    // og-card.png, not the logo file: tabarnam.png is transparent and 2.2:1,
+    // so platforms composite it on their own chrome and crop 240px per side to
+    // reach 1.91:1 — through the arm. This one is opaque 1200x630 with margins.
+    `<meta property="og:image" content="${ORIGIN}/og-card.png" />`,
+    `<meta property="og:image:width" content="1200" />`,
+    `<meta property="og:image:height" content="630" />`,
+    `<meta property="og:image:alt" content="Tabarnam" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     page.jsonLd ? `<script type="application/ld+json">${jsonForScript(page.jsonLd)}</script>` : "",
     `<style>${SEO_CSS}</style>`,
@@ -172,8 +178,12 @@ function injectIntoShell(shell, page) {
   // carries two descriptions or two og:titles. index.html writes these across
   // multiple lines, hence [\s\S] rather than . — and og:site_name is
   // deliberately NOT in the list: it is site-wide and correct as-is.
+  // og:image now has sub-properties (width/height/alt) in index.html, and
+  // `property="og:image"` does not match `property="og:image:width"` — without
+  // the optional suffix group those survive the strip and the document ships
+  // two of each.
   const stripped = titled.replace(
-    /\s*<meta\s+(?:name="description"|property="og:(?:type|title|description|url|image)"|name="twitter:(?:card|title|description|image)")[\s\S]*?\/>/gi,
+    /\s*<meta\s+(?:name="description"|property="og:(?:type|title|description|url|image(?::(?:width|height|alt|type|secure_url))?)"|name="twitter:(?:card|title|description|image)")[\s\S]*?\/>/gi,
     ""
   );
 

@@ -28,7 +28,8 @@ async function shareCompanyHandler(req) {
   const description = `See where ${displayName} manufactures and is headquartered on Tabarnam.`;
   const resultsUrl = `https://tabarnam.com/results?q=${encodeURIComponent(displayName)}`;
   const canonicalUrl = `https://tabarnam.com/share?company=${encodeURIComponent(displayName)}`;
-  const imageUrl = "https://tabarnam.com/tabarnam.png";
+  // Opaque 1200x630 card — see public/og-card.png.
+  const imageUrl = "https://tabarnam.com/og-card.png";
 
   const html = `<!doctype html>
 <html lang="en">
