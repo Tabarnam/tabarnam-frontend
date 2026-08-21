@@ -228,6 +228,23 @@ const PRODUCT_SYNONYM_GROUPS = [
   // florists tagged only "flowers" are never pulled in. Plural + singular.
   ["fake plants", "synthetic plants", "artificial plants", "faux plants", "silk plants", "fake flowers", "synthetic flowers", "artificial flowers", "faux flowers", "silk flowers"],
   ["fake plant", "synthetic plant", "artificial plant", "faux plant", "silk plant", "fake flower", "synthetic flower", "artificial flower", "faux flower", "silk flower"],
+  // Building toys for kids — LEGO, Tegu, KEVA, Lux Blox, Magna-Tiles, PicassoTiles,
+  // PlanToys, Grimm's, HABA, Erector, Guidecraft, Basic Fun, Fat Brain all make
+  // the same construction/engagement toy but are tagged under scattered
+  // vocabulary ("Building Toys" / "Construction Toys" / "Building Blocks" /
+  // "Building Sets"), so — measured on this catalog — no single search found
+  // them all (building toys=11 direct, construction toys=12, building blocks=17,
+  // each a DIFFERENT slice). Every term is a distinctive multi-word phrase
+  // anchored by a toy head-noun (toys/blocks/sets), so it only fires on the full
+  // phrase — bare "building"/"construction"/"blocks" never leak (which would
+  // drag in kayaks, cutting boards, and cinder blocks). Deliberately excluded:
+  // "building kits" (kayaks/model kits), "marble run" ("run" → fitness gear),
+  // "wooden blocks" (cutting boards), "construction blocks" (cinder blocks).
+  // STEM/educational neighbors (coding robots, science kits) are a broader
+  // category and surface on their own below the "loosely related" divider.
+  // Plural + singular.
+  ["building toys", "construction toys", "building blocks", "building sets", "construction sets"],
+  ["building toy", "construction toy", "building block", "building set", "construction set"],
 ];
 
 // Build a fast lookup: word → [synonym1, synonym2, ...]

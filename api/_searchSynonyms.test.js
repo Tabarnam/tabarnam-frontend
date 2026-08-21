@@ -153,6 +153,32 @@ test("expandProductSynonyms: aquarium ↔ fish tank / fishbowl cross-expand", ()
   assert.ok(expandProductSynonyms("fish tanks").includes("aquariums"), "fish tanks → aquariums (plural)");
 });
 
+test("expandProductSynonyms: building toys ↔ construction toys / blocks / sets", () => {
+  const out = expandProductSynonyms("building toys");
+  assert.ok(out.includes("construction toys"), "building toys → construction toys");
+  assert.ok(out.includes("building blocks"), "building toys → building blocks");
+  assert.ok(out.includes("building sets"), "building toys → building sets");
+  assert.ok(expandProductSynonyms("construction toys").includes("building toys"), "construction toys → building toys");
+  assert.ok(expandProductSynonyms("building blocks").includes("construction toys"), "building blocks → construction toys");
+  // Singular forms bridge too.
+  assert.ok(expandProductSynonyms("building block").includes("construction toy"), "building block → construction toy");
+});
+
+test("expandProductSynonyms: building-toy group needs the full toy-anchored phrase (no bare-word leak)", () => {
+  const toyCluster = /building toys?|construction toys?|building blocks?|building sets?|construction sets?/;
+  // Bare ambiguous words must NOT pull in the toy cluster.
+  assert.deepEqual(expandProductSynonyms("building"), []);
+  assert.deepEqual(expandProductSynonyms("construction"), []);
+  assert.deepEqual(expandProductSynonyms("blocks"), []);
+  // Neighboring non-toy uses of the same ambiguous words stay clean.
+  for (const q of ["office building", "construction equipment", "cinder blocks", "kayak building kit"]) {
+    assert.ok(
+      !expandProductSynonyms(q).some((v) => toyCluster.test(v)),
+      `"${q}" must not pull in the building-toy cluster`
+    );
+  }
+});
+
 test("expandProductSynonyms: an unrelated word expands to nothing", () => {
   assert.deepEqual(expandProductSynonyms("rollerblade"), []);
 });
