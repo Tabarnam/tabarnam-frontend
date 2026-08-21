@@ -497,17 +497,37 @@ export default function BookmarksPage() {
     if (openFolderId === listId) setOpenFolderId(null);
   }, [deleteList, openFolderId]);
 
+  // Tour bridge: the "Set a cover image" step dispatches
+  // tour:show-demo-folders with 4 demo items so the visitor sees the
+  // 4-image grid format instead of empty placeholder buildings. Only used
+  // when the default folder is actually empty — we never overwrite real
+  // bookmarks with the demo.
+  const [tourDemoItems, setTourDemoItems] = useState(null);
+  useEffect(() => {
+    const handler = (e) => setTourDemoItems(e.detail?.items || null);
+    window.addEventListener("tour:show-demo-folders", handler);
+    return () => window.removeEventListener("tour:show-demo-folders", handler);
+  }, []);
+
   // Build grid rows with expansion points
   const gridItems = useMemo(() => {
     const result = [];
     for (const list of lists) {
-      result.push({ type: "card", list, items: itemsByList[list.id] || [] });
+      const realItems = itemsByList[list.id] || [];
+      const useDemo =
+        tourDemoItems &&
+        list.id === DEFAULT_LIST_ID &&
+        realItems.length === 0;
+      const cardItems = useDemo ? tourDemoItems : realItems;
+      result.push({ type: "card", list, items: cardItems });
       if (openFolderId === list.id) {
-        result.push({ type: "expansion", list, items: itemsByList[list.id] || [] });
+        // Expanded folder always uses real items — the demo is card-only,
+        // and expanding a fake folder would surface fake data in the list.
+        result.push({ type: "expansion", list, items: realItems });
       }
     }
     return result;
-  }, [lists, itemsByList, openFolderId]);
+  }, [lists, itemsByList, openFolderId, tourDemoItems]);
 
   const coverEditorList = coverEditorListId ? lists.find((l) => l.id === coverEditorListId) : null;
 

@@ -88,6 +88,36 @@ function waitForElement(selector, timeoutMs = 1500) {
   });
 }
 
+// Four demo bookmark items the cover-image step injects into the "All Bookmarks"
+// folder card when it's empty, so the visitor sees the 4-image grid format
+// instead of the empty-state building placeholders. Logo URLs are un-signed —
+// getCompanyLogoUrl detects them as Azure company-logos blobs and rewrites
+// them through the /api/company-logo backend proxy, which handles auth
+// internally. If a URL ever 404s, LogoCell falls back to the Building2
+// placeholder for that cell — the other three still demonstrate the concept.
+const TOUR_DEMO_FOLDER_ITEMS = [
+  {
+    company_id: 'company_1774981646055_grvsylo3ubr',
+    name: 'Wimberley Puzzle Company',
+    logo_url: 'https://tabarnamstor2356.blob.core.windows.net/company-logos/company_1774981646055_grvsylo3ubr/logo.png',
+  },
+  {
+    company_id: 'company_1774981640047_fp7a21zqv1r',
+    name: 'White Mountain Puzzles',
+    logo_url: 'https://tabarnamstor2356.blob.core.windows.net/company-logos/company_1774981640047_fp7a21zqv1r/logo.png',
+  },
+  {
+    company_id: 'company_1774981053342_g5trzf4osat',
+    name: 'Portland Puzzle Company',
+    logo_url: 'https://tabarnamstor2356.blob.core.windows.net/company-logos/company_1774981053342_g5trzf4osat/logo.png',
+  },
+  {
+    company_id: 'company_1774980873163_7f9a5onr595',
+    name: 'New York Puzzle Company',
+    logo_url: 'https://tabarnamstor2356.blob.core.windows.net/company-logos/company_1774980873163_7f9a5onr595/logo.png',
+  },
+];
+
 function buildResultsSteps(tour, drawerRef, navigateRef) {
   const openDrawer = () => { try { drawerRef.current?.(true); } catch {} };
   const closeDrawer = () => { try { drawerRef.current?.(false); } catch {} };
@@ -97,6 +127,13 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
   };
   const setDensity = (mode) => {
     try { window.dispatchEvent(new CustomEvent('tour:set-density', { detail: { mode } })); } catch {}
+  };
+  const showDemoFolders = (show) => {
+    try {
+      window.dispatchEvent(new CustomEvent('tour:show-demo-folders', {
+        detail: { items: show ? TOUR_DEMO_FOLDER_ITEMS : null },
+      }));
+    } catch {}
   };
   // Snapshot the visitor's saved density so we can restore it after the
   // "Comfortable or Compact" step's live demo.
@@ -241,9 +278,15 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
           waitForElement('[data-tour-step="bookmark-folder-card"]', 1500),
           new Promise((r) => setTimeout(r, 800)),
         ]);
+        // Dispatch AFTER the wait — BookmarksPage's event listener isn't
+        // attached until it mounts, so a dispatch before the route commit
+        // is lost. Populate the "All Bookmarks" card with 4 demo covers
+        // so the visitor sees the 4-image grid format instead of empty
+        // placeholder buildings. Cleared on Skip/Back/Done below.
+        showDemoFolders(true);
       },
       buttons: [
-        { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
+        { text: 'Skip tour', action: () => { showDemoFolders(false); tour.cancel(); }, secondary: true },
         {
           text: 'Back',
           action: () => {
@@ -257,6 +300,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
             // straight to bookmark-drawer once /results re-mounts, then
             // route back with the tour flag preserved so decideTourMode
             // still returns 'results'.
+            showDemoFolders(false);
             safeWrite(TOUR_STEP_HINT_KEY, 'bookmark-drawer');
             go(`${RESULTS_PATH}?q=${encodeURIComponent(CANNED_QUERY)}&country=US&tour=1`);
           },
@@ -277,6 +321,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
             safeWrite(TOUR_SEEN_KEY, '1');
             safeRemove(TOUR_PROGRESS_KEY);
             safeRemove(TOUR_STEP_HINT_KEY);
+            showDemoFolders(false);
             tour.complete();
             go('/');
           },
