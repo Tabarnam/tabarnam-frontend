@@ -153,7 +153,14 @@ function headTags(page) {
     `<meta property="og:image:width" content="1200" />`,
     `<meta property="og:image:height" content="630" />`,
     `<meta property="og:image:alt" content="Tabarnam" />`,
+    // The strip above removes index.html's generic twitter:* tags (they would
+    // describe the homepage on every page), so the page-specific ones have to
+    // be restated here. X does fall back to the og:* tags, but leaving a hole
+    // we opened ourselves is not a plan.
     `<meta name="twitter:card" content="summary_large_image" />`,
+    `<meta name="twitter:title" content="${esc(page.title)}" />`,
+    `<meta name="twitter:description" content="${esc(page.description)}" />`,
+    `<meta name="twitter:image" content="${ORIGIN}/og-card.png" />`,
     page.jsonLd ? `<script type="application/ld+json">${jsonForScript(page.jsonLd)}</script>` : "",
     `<style>${SEO_CSS}</style>`,
   ]

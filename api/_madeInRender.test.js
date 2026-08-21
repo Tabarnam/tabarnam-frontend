@@ -332,6 +332,20 @@ test("og:image points at the opaque card, never the transparent logo file", () =
   assert.match(html, /<meta property="og:image:height" content="630" \/>/);
 });
 
+test("the twitter:* tags the strip removes are restated for THIS page", () => {
+  // index.html's twitter tags describe the homepage. Stripping them without
+  // re-adding would leave server-rendered pages with a card type and no card.
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(PAYLOAD));
+  const html = injectIntoShell(SHELL, page);
+  assert.match(html, /<meta name="twitter:card" content="summary_large_image" \/>/);
+  assert.match(html, /<meta name="twitter:image" content="https:\/\/tabarnam\.com\/og-card\.png" \/>/);
+  assert.match(html, /<meta name="twitter:title" content="Made in USA — 2 Companies/);
+  assert.match(html, /<meta name="twitter:description" content="2 companies that manufacture in USA/);
+  for (const tag of ["twitter:card", "twitter:title", "twitter:description", "twitter:image"]) {
+    assert.equal((html.match(new RegExp(`name="${tag}"`, "g")) || []).length, 1, tag);
+  }
+});
+
 test("og:image sub-properties are de-duplicated, not just og:image itself", () => {
   // `property="og:image"` does not match `property="og:image:width"`, so the
   // strip needs the optional suffix group or the document ships two of each.
