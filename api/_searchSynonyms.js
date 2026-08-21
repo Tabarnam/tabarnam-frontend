@@ -240,14 +240,15 @@ const PRODUCT_SYNONYM_GROUPS = [
   // drag in kayaks, cutting boards, and cinder blocks). Deliberately excluded:
   // "building kits" (kayaks/model kits), "marble run" ("run" → fitness gear),
   // "wooden blocks" (cutting boards), "construction blocks" (cinder blocks).
-  // "stem toys" / "educational toys" are folded in as the broader neighbor band:
-  // the STEM / coding-robot / science-kit makers (Ozobot, Sphero, Makeblock,
-  // KiwiCo, Thames & Kosmos, Elenco, ThinkFun) don't share any building tag, so
-  // without them a "building toys" search never surfaces those adjacent
-  // engagement toys at all. Both are toy-anchored phrases (no bare-word leak),
-  // and — being tagged the broader category, not "building" — they land below
-  // the "loosely related" divider rather than displacing the true building toys.
-  // Plural + singular.
+  // "stem toys" / "educational toys" are folded in as the broader engagement-toy
+  // neighbors: the STEM / coding-robot / science-kit makers (Ozobot, Sphero,
+  // Makeblock, KiwiCo, Thames & Kosmos, Elenco, ThinkFun) share no building tag,
+  // so without them a "building toys" search never surfaced those adjacent toys
+  // at all. Both are toy-anchored phrases (no bare-word leak). Measured on prod:
+  // this took "building toys" from 31→105 results (11→54 direct); the neighbors
+  // rank DIRECT (interleaved), not below the loosely-related divider — they're
+  // literally tagged "STEM/Educational Toys" so they clear the direct tier — but
+  // the truest building toys still lead. Plural + singular.
   ["building toys", "construction toys", "building blocks", "building sets", "construction sets", "stem toys", "educational toys"],
   ["building toy", "construction toy", "building block", "building set", "construction set", "stem toy", "educational toy"],
 ];
