@@ -133,15 +133,33 @@ test("a city-precision plant keeps both place links alongside its label", () => 
   assert.match(page.body, /Akron, OH <span class="mi-loc">\(<a href="\/made-in\/usa\/ohio">Ohio<\/a> · <a href="\/made-in\/usa">USA<\/a>\)<\/span>/);
 });
 
+// jsonLd is an array of entities (Organization + BreadcrumbList).
+const org = (page) => (Array.isArray(page.jsonLd) ? page.jsonLd : [page.jsonLd]).find((b) => b?.["@type"] === "Organization");
+const crumbs = (page) => (Array.isArray(page.jsonLd) ? page.jsonLd : []).find((b) => b?.["@type"] === "BreadcrumbList");
+
 test("canonical is the slug URL and JSON-LD claims our page, not theirs", () => {
   const page = companyPage(row({ name: "Acme", slug: "acme", domain: "acme.com" }));
   assert.equal(page.canonical, "https://tabarnam.com/company/acme");
-  assert.equal(page.jsonLd["@type"], "Organization");
+  assert.equal(org(page)["@type"], "Organization");
   // url/@id must be OUR page; their site is sameAs. Claiming their domain as
   // `url` would assert this page is their homepage.
-  assert.equal(page.jsonLd.url, "https://tabarnam.com/company/acme");
-  assert.equal(page.jsonLd["@id"], "https://tabarnam.com/company/acme");
-  assert.deepEqual(page.jsonLd.sameAs, ["https://acme.com"]);
+  assert.equal(org(page).url, "https://tabarnam.com/company/acme");
+  assert.equal(org(page)["@id"], "https://tabarnam.com/company/acme");
+  assert.deepEqual(org(page).sameAs, ["https://acme.com"]);
+});
+
+test("the breadcrumb trail matches the visible nav", () => {
+  const page = companyPage(row({ name: "Acme", slug: "acme" }));
+  assert.deepEqual(
+    crumbs(page).itemListElement.map((i) => [i.name, i.item]),
+    [
+      ["Tabarnam", "https://tabarnam.com/"],
+      ["Acme", "https://tabarnam.com/company/acme"],
+    ]
+  );
+  // A company with plants in three countries has no single place to hang off,
+  // so the trail deliberately does not nest under /made-in.
+  assert.doesNotMatch(JSON.stringify(crumbs(page)), /made-in/);
 });
 
 test("the outbound site link is nofollow — 14k of them is not an endorsement graph", () => {
@@ -167,7 +185,7 @@ test("an unknown slug is a real 404 page, not a soft redirect", () => {
 test("a missing domain simply omits the website row", () => {
   const page = companyPage(row({ domain: "" }));
   assert.doesNotMatch(page.body, /Website/);
-  assert.equal(page.jsonLd.sameAs, undefined);
+  assert.equal(org(page).sameAs, undefined);
 });
 
 // ── facets (industries / products / rating) ─────────────────────────────────
@@ -183,8 +201,8 @@ test("facets are enrichment — the page is complete without them", () => {
   const page = companyPage(row({ name: "Acme" }), null);
   assert.match(page.body, /<h1>Where is Acme made\?<\/h1>/);
   assert.doesNotMatch(page.body, /What Acme makes/);
-  assert.equal(page.jsonLd.knowsAbout, undefined);
-  assert.equal(page.jsonLd.aggregateRating, undefined);
+  assert.equal(org(page).knowsAbout, undefined);
+  assert.equal(org(page).aggregateRating, undefined);
 });
 
 test("products render when facets are present", () => {
@@ -207,11 +225,11 @@ test("the industries lever never reaches the page", () => {
 
 test("the industries lever never reaches the structured data either", () => {
   const page = companyPage(row(), FACETS);
-  assert.deepEqual(page.jsonLd.knowsAbout, ["bar soap", "deodorant", "shaving cream"]);
+  assert.deepEqual(org(page).knowsAbout, ["bar soap", "deodorant", "shaving cream"]);
   for (const term of FACETS.industries) {
-    assert.ok(!page.jsonLd.knowsAbout.includes(term), `"${term}" must not be asserted`);
+    assert.ok(!org(page).knowsAbout.includes(term), `"${term}" must not be asserted`);
   }
-  assert.equal(page.jsonLd.makesOffer, undefined);
+  assert.equal(org(page).makesOffer, undefined);
 });
 
 test("knowsAbout is capped so structured data can't become a term dump", () => {
@@ -221,19 +239,19 @@ test("knowsAbout is capped so structured data can't become a term dump", () => {
     stars: null,
     reviews: 0,
   });
-  assert.equal(page.jsonLd.knowsAbout.length, 24);
+  assert.equal(org(page).knowsAbout.length, 24);
 });
 
 test("a rating is cited only when reviews back it", () => {
   const rated = companyPage(row(), FACETS);
   assert.match(rated.body, /<dt>Tabarnam rating<\/dt><dd>4 \/ 5 <span class="mi-loc">from 12 reviews<\/span>/);
-  assert.equal(rated.jsonLd.aggregateRating.ratingValue, 4);
-  assert.equal(rated.jsonLd.aggregateRating.reviewCount, 12);
+  assert.equal(org(rated).aggregateRating.ratingValue, 4);
+  assert.equal(org(rated).aggregateRating.reviewCount, 12);
 
   // Stars with nothing behind them: no claim on the page, no claim in schema.
   const unbacked = companyPage(row(), { ...FACETS, reviews: 0 });
   assert.doesNotMatch(unbacked.body, /Tabarnam rating/);
-  assert.equal(unbacked.jsonLd.aggregateRating, undefined);
+  assert.equal(org(unbacked).aggregateRating, undefined);
 });
 
 test("one review reads as singular", () => {

@@ -25,6 +25,7 @@ const { getFacets } = require("./_companyFacets");
 const PLACES = require("./_madeInPlaces.json");
 const {
   ORIGIN,
+  breadcrumbList,
   esc,
   getShell,
   injectIntoShell,
@@ -320,7 +321,15 @@ rest unknown. Entries come from public sources and may be incomplete or out of
 date — production moves.</p>
 <p><a href="/results?q=${encodeURIComponent(name)}">Search ${esc(name)} on Tabarnam</a> · <a href="/made-in">Browse companies by country</a></p>`;
 
-  return { title, description, canonical, jsonLd, body };
+  // Two levels, matching the visible <nav>: the company page hangs off the
+  // site root, not off a place — a company with plants in three countries has
+  // no single parent to claim.
+  const crumbs = breadcrumbList([
+    { name: "Tabarnam", path: "/" },
+    { name, path: `/company/${slug}` },
+  ]);
+
+  return { title, description, canonical, jsonLd: [jsonLd, crumbs].filter(Boolean), body };
 }
 
 /** Real 404 for a slug we don't publish — never a soft redirect to home. */

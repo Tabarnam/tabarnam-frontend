@@ -211,9 +211,9 @@ test("country page names companies as body text and mirrors them in the ItemList
   assert.match(page.body, /<li><a href="\/company\/borealis">Borealis</);
   assert.doesNotMatch(page.body, /Cyclo/); // manufactures in Vietnam only
 
-  const items = page.jsonLd.mainEntity.itemListElement.map((i) => i.name);
+  const items = collectionOf(page).mainEntity.itemListElement.map((i) => i.name);
   assert.deepEqual(items, ["Acme", "Borealis"]);
-  assert.equal(page.jsonLd.mainEntity.numberOfItems, 2);
+  assert.equal(collectionOf(page).mainEntity.numberOfItems, 2);
 });
 
 test("structured data never claims more items than the page shows", () => {
@@ -223,8 +223,8 @@ test("structured data never claims more items than the page shows", () => {
   }
   const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(many));
 
-  assert.equal(page.jsonLd.mainEntity.numberOfItems, LIST_LIMIT + 25);
-  assert.equal(page.jsonLd.mainEntity.itemListElement.length, LIST_LIMIT);
+  assert.equal(collectionOf(page).mainEntity.numberOfItems, LIST_LIMIT + 25);
+  assert.equal(collectionOf(page).mainEntity.itemListElement.length, LIST_LIMIT);
   const listed = (page.body.match(/<li><a href="\/company\/co\d{4}">Co\d{4}<\/a>/g) || []).length;
   assert.equal(listed, LIST_LIMIT);
   assert.match(page.body, /Showing 250 of 275 companies/);
@@ -234,7 +234,9 @@ test("an empty place says so instead of rendering a bare zero", () => {
   const page = countryPage({ cc: "IS", slug: "iceland", name: "Iceland" }, aggregate(PAYLOAD));
   assert.match(page.title, /^Made in Iceland — Companies That Manufacture in Iceland/);
   assert.match(page.body, /doesn't list any manufacturers in Iceland yet/);
-  assert.equal(page.jsonLd, null);
+  // No CollectionPage — there is no collection. The breadcrumb still applies.
+  assert.equal(collectionOf(page), undefined);
+  assert.ok(crumbsOf(page));
 });
 
 test("US country page links every state that has manufacturing", () => {
@@ -318,6 +320,67 @@ test("injectIntoShell replaces the shell's fallback description rather than dupl
   assert.equal((html.match(/name="description"/g) || []).length, 1);
   assert.doesNotMatch(html, /static fallback/);
   assert.equal((html.match(/property="og:title"/g) || []).length, 1);
+});
+
+// ── breadcrumbs ─────────────────────────────────────────────────────────────
+// Without these a search result shows the bare URL. With them it shows a
+// clickable trail, so they have to match the visible <nav> on the page.
+
+const collectionOf = (page) =>
+  (Array.isArray(page.jsonLd) ? page.jsonLd : [page.jsonLd]).find(
+    (b) => b && b["@type"] === "CollectionPage"
+  );
+
+const crumbsOf = (page) =>
+  (Array.isArray(page.jsonLd) ? page.jsonLd : [page.jsonLd]).find(
+    (b) => b && b["@type"] === "BreadcrumbList"
+  );
+
+test("a country page carries the trail its <nav> shows", () => {
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(PAYLOAD));
+  const crumbs = crumbsOf(page);
+  assert.deepEqual(
+    crumbs.itemListElement.map((i) => [i.position, i.name, i.item]),
+    [
+      [1, "Tabarnam", "https://tabarnam.com/"],
+      [2, "Made in", "https://tabarnam.com/made-in"],
+      [3, "USA", "https://tabarnam.com/made-in/usa"],
+    ]
+  );
+});
+
+test("a state page nests under its country", () => {
+  const page = regionPage({ code: "US-OH", slug: "ohio", name: "Ohio" }, aggregate(PAYLOAD));
+  assert.deepEqual(
+    crumbsOf(page).itemListElement.map((i) => i.name),
+    ["Tabarnam", "Made in", "USA", "Ohio"]
+  );
+  assert.equal(
+    crumbsOf(page).itemListElement[3].item,
+    "https://tabarnam.com/made-in/usa/ohio"
+  );
+});
+
+test("the directory page still gets a two-step trail", () => {
+  assert.deepEqual(
+    crumbsOf(indexPage(aggregate(PAYLOAD))).itemListElement.map((i) => i.name),
+    ["Tabarnam", "Made in"]
+  );
+});
+
+test("the CollectionPage survives alongside the breadcrumbs", () => {
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(PAYLOAD));
+  assert.ok(Array.isArray(page.jsonLd));
+  const types = page.jsonLd.map((b) => b["@type"]).sort();
+  assert.deepEqual(types, ["BreadcrumbList", "CollectionPage"]);
+});
+
+test("both entities ship in one ld+json block", () => {
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(PAYLOAD));
+  const html = injectIntoShell(SHELL, page);
+  assert.equal((html.match(/application\/ld\+json/g) || []).length, 1);
+  assert.match(html, /BreadcrumbList/);
+  assert.match(html, /CollectionPage/);
 });
 
 test("og:image points at the opaque card, never the transparent logo file", () => {

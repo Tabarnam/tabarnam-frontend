@@ -17,6 +17,24 @@ import {
 // Lazy so leaflet + markercluster stay out of the main bundle.
 const MadeInMap = lazy(() => import("@/components/madein/MadeInMap"));
 
+/**
+ * BreadcrumbList so search results show a clickable trail rather than the raw
+ * URL. Mirrors breadcrumbList() in api/_appShell.js — the server emits the same
+ * entity, and the two must agree.
+ */
+function breadcrumbList(trail) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: trail.map((step, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: step.name,
+      item: `https://tabarnam.com${step.path}`,
+    })),
+  };
+}
+
 export default function MadeInStatePage() {
   const { state: stateSlug } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -115,9 +133,16 @@ export default function MadeInStatePage() {
   // canonical URL they all point at. Only the companies actually NAMED on the
   // page are enumerated — structured data must describe visible content.
   const jsonLd = useMemo(() => {
+    if (!region) return null;
+    const crumbs = breadcrumbList([
+      { name: "Tabarnam", path: "/" },
+      { name: "Made in", path: "/made-in" },
+      { name: "USA", path: "/made-in/usa" },
+      { name, path: `/made-in/usa/${region.slug}` },
+    ]);
     const mfgList = data?.companies || [];
-    if (!region || mfgList.length === 0) return null;
-    return {
+    if (mfgList.length === 0) return [crumbs];
+    return [{
       "@context": "https://schema.org",
       "@type": "CollectionPage",
       name: `Companies that manufacture in ${name}`,
@@ -132,7 +157,7 @@ export default function MadeInStatePage() {
           name: e.name,
         })),
       },
-    };
+    }, crumbs];
   }, [region, name, canonical, data]);
 
   useDocumentHead({ title, description, canonical, jsonLd, ready: !!region && !!agg });

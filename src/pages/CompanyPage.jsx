@@ -16,6 +16,24 @@ import {
 } from "@/lib/companyPages";
 import { getCountryRegistry, getRegionRegistry, flagEmoji } from "@/lib/madeIn";
 
+/**
+ * BreadcrumbList so search results show a clickable trail rather than the raw
+ * URL. Mirrors breadcrumbList() in api/_appShell.js — the server emits the same
+ * entity, and the two must agree.
+ */
+function breadcrumbList(trail) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: trail.map((step, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: step.name,
+      item: `https://tabarnam.com${step.path}`,
+    })),
+  };
+}
+
 export default function CompanyPage() {
   const { slug } = useParams();
   const [registry, setRegistry] = useState(null);
@@ -71,16 +89,22 @@ export default function CompanyPage() {
 
   const jsonLd = useMemo(() => {
     if (!entry) return null;
-    return {
-      "@context": "https://schema.org",
-      "@type": "Organization",
-      "@id": canonical,
-      name,
-      url: canonical,
-      ...(entry.tagline ? { description: entry.tagline } : {}),
-      ...(entry.domain ? { sameAs: [`https://${entry.domain}`] } : {}),
-    };
-  }, [entry, canonical, name]);
+    return [
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": canonical,
+        name,
+        url: canonical,
+        ...(entry.tagline ? { description: entry.tagline } : {}),
+        ...(entry.domain ? { sameAs: [`https://${entry.domain}`] } : {}),
+      },
+      breadcrumbList([
+        { name: "Tabarnam", path: "/" },
+        { name, path: `/company/${entry.slug || key}` },
+      ]),
+    ];
+  }, [entry, canonical, name, key]);
 
   useDocumentHead({ title, description, canonical, jsonLd, ready: !!entry && !!countries });
 

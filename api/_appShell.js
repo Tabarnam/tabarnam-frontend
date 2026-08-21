@@ -45,6 +45,31 @@ function jsonForScript(obj) {
 
 const nf = new Intl.NumberFormat("en-US");
 
+/**
+ * BreadcrumbList for a page, so search results show a clickable trail
+ * ("Tabarnam › Made in › USA") instead of the raw URL.
+ *
+ * Google expects the markup to reflect what the visitor can actually see, so
+ * each trail here mirrors the page's own <nav> breadcrumb. The final item is
+ * the current page and still carries its URL — permitted, and it keeps every
+ * position self-describing.
+ *
+ * @param {Array<{name: string, path: string}>} trail
+ */
+function breadcrumbList(trail) {
+  if (!Array.isArray(trail) || trail.length < 2) return null;
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: trail.map((step, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: step.name,
+      item: `${ORIGIN}${step.path}`,
+    })),
+  };
+}
+
 // ── shell ───────────────────────────────────────────────────────────────────
 
 let _shell = { html: "", buildId: "", inflight: null };
@@ -240,6 +265,7 @@ module.exports = {
   esc,
   jsonForScript,
   nf,
+  breadcrumbList,
   getShell,
   _resetShellCache,
   headTags,

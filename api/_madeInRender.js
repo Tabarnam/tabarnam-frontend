@@ -30,6 +30,7 @@ const PLACES = require("./_madeInPlaces.json");
 
 const {
   ORIGIN,
+  breadcrumbList,
   esc,
   nf,
   getShell,
@@ -254,7 +255,14 @@ ${states}
 ${siblings.length ? `<h2>Also made in</h2>${navList(siblings)}` : ""}
 <p><a href="/made-in">All countries</a></p>`;
 
-  return { title, description, canonical, jsonLd, body };
+  // Mirrors the visible <nav> at the top of the page.
+  const crumbs = breadcrumbList([
+    { name: "Tabarnam", path: "/" },
+    { name: "Made in", path: "/made-in" },
+    { name: display, path: `/made-in/${country.slug}` },
+  ]);
+
+  return { title, description, canonical, jsonLd: [jsonLd, crumbs].filter(Boolean), body };
 }
 
 function regionPage(region, agg) {
@@ -306,7 +314,14 @@ ${companyList(b.mfg, name)}
 ${siblings.length ? `<h2>Other states</h2>${navList(siblings)}` : ""}
 <p><a href="/made-in/usa">All US states</a> · <a href="/made-in">All countries</a></p>`;
 
-  return { title, description, canonical, jsonLd, body };
+  const crumbs = breadcrumbList([
+    { name: "Tabarnam", path: "/" },
+    { name: "Made in", path: "/made-in" },
+    { name: "USA", path: "/made-in/usa" },
+    { name, path: `/made-in/usa/${region.slug}` },
+  ]);
+
+  return { title, description, canonical, jsonLd: [jsonLd, crumbs].filter(Boolean), body };
 }
 
 function indexPage(agg) {
@@ -329,14 +344,20 @@ ${navList(rows)}`;
     title,
     description,
     canonical: `${ORIGIN}/made-in`,
-    jsonLd: {
-      "@context": "https://schema.org",
-      "@type": "CollectionPage",
-      name: "Made in — browse by manufacturing country",
-      description,
-      url: `${ORIGIN}/made-in`,
-      mainEntity: { "@type": "ItemList", numberOfItems: rows.length },
-    },
+    jsonLd: [
+      {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        name: "Made in — browse by manufacturing country",
+        description,
+        url: `${ORIGIN}/made-in`,
+        mainEntity: { "@type": "ItemList", numberOfItems: rows.length },
+      },
+      breadcrumbList([
+        { name: "Tabarnam", path: "/" },
+        { name: "Made in", path: "/made-in" },
+      ]),
+    ].filter(Boolean),
     body,
   };
 }
