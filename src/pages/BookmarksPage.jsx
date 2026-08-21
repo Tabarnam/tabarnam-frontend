@@ -4,7 +4,7 @@ import { Helmet } from "@/components/DocumentHead";
 import {
   ArrowLeft, LayoutGrid, List, Building2, MoreHorizontal,
   X, ExternalLink, Pencil, Trash2, Share, ArrowDownAZ, ArrowUpZA,
-  ImagePlus, ChevronRight, Loader2,
+  ImagePlus, ChevronRight, Loader2, Wrench,
 } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
@@ -14,6 +14,11 @@ import { toast } from "@/lib/toast";
 import ShareDialog from "@/components/ShareDialog";
 import { canNativeShare, nativeShare } from "@/lib/share";
 
+// Icons the tour's demo folder items can reference by name via item.demoIcon.
+// Keep this map small — it only exists to serve the cover-image step's
+// mixed demo tile row (photo + photo + icon + blank).
+const DEMO_TILE_ICONS = { Wrench };
+
 const DEFAULT_LIST_ID = "saved";
 
 function LogoCell({ item }) {
@@ -22,6 +27,15 @@ function LogoCell({ item }) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-700 overflow-hidden">
         <img src={url} alt="" className="w-full h-full object-contain" loading="lazy" />
+      </div>
+    );
+  }
+  // Tour demo: a slot can specify a named lucide icon to render at logo scale.
+  const DemoIcon = item.demoIcon ? DEMO_TILE_ICONS[item.demoIcon] : null;
+  if (DemoIcon) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-700">
+        <DemoIcon className="w-8 h-8 text-muted-foreground/60" />
       </div>
     );
   }
@@ -497,17 +511,37 @@ export default function BookmarksPage() {
     if (openFolderId === listId) setOpenFolderId(null);
   }, [deleteList, openFolderId]);
 
+  // Tour bridge: the "Set a cover image" step dispatches
+  // tour:show-demo-folders with 4 demo items so the visitor sees the
+  // 4-image grid format instead of empty placeholder buildings. Only used
+  // when the default folder is actually empty — we never overwrite real
+  // bookmarks with the demo.
+  const [tourDemoItems, setTourDemoItems] = useState(null);
+  useEffect(() => {
+    const handler = (e) => setTourDemoItems(e.detail?.items || null);
+    window.addEventListener("tour:show-demo-folders", handler);
+    return () => window.removeEventListener("tour:show-demo-folders", handler);
+  }, []);
+
   // Build grid rows with expansion points
   const gridItems = useMemo(() => {
     const result = [];
     for (const list of lists) {
-      result.push({ type: "card", list, items: itemsByList[list.id] || [] });
+      const realItems = itemsByList[list.id] || [];
+      const useDemo =
+        tourDemoItems &&
+        list.id === DEFAULT_LIST_ID &&
+        realItems.length === 0;
+      const cardItems = useDemo ? tourDemoItems : realItems;
+      result.push({ type: "card", list, items: cardItems });
       if (openFolderId === list.id) {
-        result.push({ type: "expansion", list, items: itemsByList[list.id] || [] });
+        // Expanded folder always uses real items — the demo is card-only,
+        // and expanding a fake folder would surface fake data in the list.
+        result.push({ type: "expansion", list, items: realItems });
       }
     }
     return result;
-  }, [lists, itemsByList, openFolderId]);
+  }, [lists, itemsByList, openFolderId, tourDemoItems]);
 
   const coverEditorList = coverEditorListId ? lists.find((l) => l.id === coverEditorListId) : null;
 

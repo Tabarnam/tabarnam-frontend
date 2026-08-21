@@ -88,6 +88,25 @@ function waitForElement(selector, timeoutMs = 1500) {
   });
 }
 
+// Four demo tiles the cover-image step injects into the "All Bookmarks"
+// folder card when it's empty, so the visitor sees a filled folder's visual
+// language instead of four identical building placeholders. Mixed on purpose:
+//
+//   Slot 0: Real photo of a product (soap)  — public-domain image bundled
+//   Slot 1: Real photo of a product (coffee) — under /public/tour-demo/
+//   Slot 2: Icon fallback (wrench)          — LogoCell renders demoIcon
+//   Slot 3: Blank                           — LogoCell renders Building2
+//
+// The mix teaches: "your saved bookmarks can be anything, and some slots
+// might just show a category icon or a placeholder if the source has no
+// product image."
+const TOUR_DEMO_FOLDER_ITEMS = [
+  { logo_url: '/tour-demo/soap.jpg', name: 'Soap' },
+  { logo_url: '/tour-demo/coffee.jpg', name: 'Coffee' },
+  { demoIcon: 'Wrench', name: 'Tools' },
+  { name: 'Blank slot' },
+];
+
 function buildResultsSteps(tour, drawerRef, navigateRef) {
   const openDrawer = () => { try { drawerRef.current?.(true); } catch {} };
   const closeDrawer = () => { try { drawerRef.current?.(false); } catch {} };
@@ -97,6 +116,13 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
   };
   const setDensity = (mode) => {
     try { window.dispatchEvent(new CustomEvent('tour:set-density', { detail: { mode } })); } catch {}
+  };
+  const showDemoFolders = (show) => {
+    try {
+      window.dispatchEvent(new CustomEvent('tour:show-demo-folders', {
+        detail: { items: show ? TOUR_DEMO_FOLDER_ITEMS : null },
+      }));
+    } catch {}
   };
   // Snapshot the visitor's saved density so we can restore it after the
   // "Comfortable or Compact" step's live demo.
@@ -241,9 +267,15 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
           waitForElement('[data-tour-step="bookmark-folder-card"]', 1500),
           new Promise((r) => setTimeout(r, 800)),
         ]);
+        // Dispatch AFTER the wait — BookmarksPage's event listener isn't
+        // attached until it mounts, so a dispatch before the route commit
+        // is lost. Populate the "All Bookmarks" card with 4 demo covers
+        // so the visitor sees the 4-image grid format instead of empty
+        // placeholder buildings. Cleared on Skip/Back/Done below.
+        showDemoFolders(true);
       },
       buttons: [
-        { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
+        { text: 'Skip tour', action: () => { showDemoFolders(false); tour.cancel(); }, secondary: true },
         {
           text: 'Back',
           action: () => {
@@ -257,6 +289,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
             // straight to bookmark-drawer once /results re-mounts, then
             // route back with the tour flag preserved so decideTourMode
             // still returns 'results'.
+            showDemoFolders(false);
             safeWrite(TOUR_STEP_HINT_KEY, 'bookmark-drawer');
             go(`${RESULTS_PATH}?q=${encodeURIComponent(CANNED_QUERY)}&country=US&tour=1`);
           },
@@ -277,6 +310,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
             safeWrite(TOUR_SEEN_KEY, '1');
             safeRemove(TOUR_PROGRESS_KEY);
             safeRemove(TOUR_STEP_HINT_KEY);
+            showDemoFolders(false);
             tour.complete();
             go('/');
           },
