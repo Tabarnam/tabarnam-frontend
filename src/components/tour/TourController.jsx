@@ -43,19 +43,6 @@ function buildHomeSteps(tour, onHandoff) {
       ],
     },
     {
-      id: 'location',
-      title: 'Add a location',
-      text: 'You can type a city, postal code, or country to orient results around that place.',
-      attachTo: { element: '[data-tour-step="location-input"]', on: 'bottom-end' },
-      scrollTo: { behavior: 'smooth', block: 'nearest' },
-      buttons: [
-        { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
-        { text: 'Back', action: () => tour.back(), secondary: true },
-        learnMore('#location'),
-        { text: 'Next', action: () => tour.next() },
-      ],
-    },
-    {
       id: 'filter',
       title: 'Sort and filter',
       text: 'Open this menu to sort by nearest, highest rated, or filter to in-country only.',
@@ -65,6 +52,19 @@ function buildHomeSteps(tour, onHandoff) {
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         { text: 'Back', action: () => tour.back(), secondary: true },
         learnMore('#sorting'),
+        { text: 'Next', action: () => tour.next() },
+      ],
+    },
+    {
+      id: 'location',
+      title: 'Add a location',
+      text: 'You can type a city, postal code, or country to orient results around that place.',
+      attachTo: { element: '[data-tour-step="location-input"]', on: 'bottom-end' },
+      scrollTo: { behavior: 'smooth', block: 'nearest' },
+      buttons: [
+        { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
+        { text: 'Back', action: () => tour.back(), secondary: true },
+        learnMore('#location'),
         { text: 'Next', action: onHandoff },
       ],
     },
@@ -120,7 +120,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
       title: 'Click a column to re-sort',
       text: 'Click the <strong>QQ</strong> header to sort by score. Click <strong>HQ</strong> or <strong>Manufacturing</strong> to re-sort by proximity.',
       attachTo: { element: '[data-tour-step="sort-header-qq"]', on: 'bottom' },
-      scrollTo: { behavior: 'smooth', block: 'start' },
+      scrollTo: { behavior: 'smooth', block: 'center' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
         learnMore('#qq'),
@@ -144,7 +144,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
       id: 'density',
       title: 'Comfortable or Compact',
       text: 'Rows just got denser — that\'s <strong>Compact</strong>. Toggle to fit more results on screen. Your choice sticks between visits; we\'ll flip back to whatever you had when you move on.',
-      attachTo: { element: '[data-tour-step="density-toggle"]', on: 'bottom-end' },
+      attachTo: { element: '[data-tour-step="density-toggle"]', on: 'bottom' },
       scrollTo: { behavior: 'smooth', block: 'nearest' },
       beforeShowPromise: async () => {
         // Snapshot the visitor's current preference, then flip to compact so
@@ -183,7 +183,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
       id: 'bookmark-save',
       title: 'Save it for later',
       text: 'Tap the bookmark icon to save any company. Tap it again to file it under a custom list.',
-      attachTo: { element: '[data-tour-step="bookmark-button"]', on: 'left' },
+      attachTo: { element: '[data-tour-step="bookmark-button"]', on: 'top' },
       scrollTo: { behavior: 'smooth', block: 'center' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
