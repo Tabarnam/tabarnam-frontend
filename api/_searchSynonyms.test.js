@@ -162,6 +162,11 @@ test("expandProductSynonyms: building toys ↔ construction toys / blocks / sets
   assert.ok(expandProductSynonyms("building blocks").includes("construction toys"), "building blocks → construction toys");
   // Singular forms bridge too.
   assert.ok(expandProductSynonyms("building block").includes("construction toy"), "building block → construction toy");
+  // The broader STEM/educational neighbor band is folded in (both directions).
+  assert.ok(out.includes("stem toys"), "building toys → stem toys");
+  assert.ok(out.includes("educational toys"), "building toys → educational toys");
+  assert.ok(expandProductSynonyms("stem toys").includes("building toys"), "stem toys → building toys");
+  assert.ok(expandProductSynonyms("educational toys").includes("building blocks"), "educational toys → building blocks");
 });
 
 test("expandProductSynonyms: building-toy group needs the full toy-anchored phrase (no bare-word leak)", () => {

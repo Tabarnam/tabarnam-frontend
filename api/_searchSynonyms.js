@@ -240,11 +240,16 @@ const PRODUCT_SYNONYM_GROUPS = [
   // drag in kayaks, cutting boards, and cinder blocks). Deliberately excluded:
   // "building kits" (kayaks/model kits), "marble run" ("run" → fitness gear),
   // "wooden blocks" (cutting boards), "construction blocks" (cinder blocks).
-  // STEM/educational neighbors (coding robots, science kits) are a broader
-  // category and surface on their own below the "loosely related" divider.
+  // "stem toys" / "educational toys" are folded in as the broader neighbor band:
+  // the STEM / coding-robot / science-kit makers (Ozobot, Sphero, Makeblock,
+  // KiwiCo, Thames & Kosmos, Elenco, ThinkFun) don't share any building tag, so
+  // without them a "building toys" search never surfaces those adjacent
+  // engagement toys at all. Both are toy-anchored phrases (no bare-word leak),
+  // and — being tagged the broader category, not "building" — they land below
+  // the "loosely related" divider rather than displacing the true building toys.
   // Plural + singular.
-  ["building toys", "construction toys", "building blocks", "building sets", "construction sets"],
-  ["building toy", "construction toy", "building block", "building set", "construction set"],
+  ["building toys", "construction toys", "building blocks", "building sets", "construction sets", "stem toys", "educational toys"],
+  ["building toy", "construction toy", "building block", "building set", "construction set", "stem toy", "educational toy"],
 ];
 
 // Build a fast lookup: word → [synonym1, synonym2, ...]
