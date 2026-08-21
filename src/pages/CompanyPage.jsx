@@ -172,9 +172,11 @@ export default function CompanyPage() {
                 </dd>
               </>
             )}
+            {/* "Categories", not "Industry" — the stored list mixes sectors
+                with product types, so the honest label is the general one. */}
             {facets?.industries?.length > 0 && (
               <>
-                <dt className="text-muted-foreground">Industry</dt>
+                <dt className="text-muted-foreground">Categories</dt>
                 <dd className="text-foreground">{facets.industries.join(", ")}</dd>
               </>
             )}

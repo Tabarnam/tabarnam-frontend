@@ -25,7 +25,8 @@ const { BlobServiceClient } = require("@azure/storage-blob");
 
 const BLOB_CONTAINER = "config";
 const BLOB_NAME = "company_facets.json";
-const PAYLOAD_VERSION = 1;
+// v2: brand-bearing terms dropped, products deduped against categories.
+const PAYLOAD_VERSION = 2;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 // A week, not a day: facets move only when an import rewrites a company's
 // keywords, and every age-out costs a full scan.
@@ -64,23 +65,38 @@ function getBlobClient() {
 
 // ── normalisation ───────────────────────────────────────────────────────────
 
+/** Lowercase alphanumerics only, so "Dr. Squatch" and "Dr Squatch" compare equal. */
+function foldTerm(value) {
+  return String(value == null ? "" : value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 /**
  * Clean a list of free-text terms: trim, drop empties and over-long strings,
  * dedupe case-insensitively (keeping the first spelling seen), cap.
  *
- * `drop` removes terms that merely restate the company name — "Dr. Squatch"
- * as a product of Dr. Squatch is noise on the page and dilutes the real terms.
+ * `brand` drops terms carrying the company's own name. Beyond the obvious
+ * "Dr. Squatch" as a product of Dr. Squatch, scraped keyword lists lead with
+ * page titles — "Natural Soap Handmade Soap - Dr Squatch" — which are not
+ * products and read as noise on the page. Matching on the folded form catches
+ * the punctuation variants ("Dr Squatch" vs "Dr. Squatch") these lists mix.
+ *
+ * `exclude` is a set of already-folded terms to skip, used to keep the products
+ * list from repeating what the categories line just said.
  */
-function cleanTerms(list, limit, drop = "") {
-  const dropKey = String(drop || "").trim().toLowerCase();
+function cleanTerms(list, limit, brand = "", exclude = null) {
+  const brandKey = foldTerm(brand);
   const seen = new Set();
   const out = [];
   for (const raw of Array.isArray(list) ? list : []) {
     if (typeof raw !== "string") continue;
     const term = raw.trim().replace(/\s+/g, " ");
     if (!term || term.length > TERM_MAX_CHARS) continue;
-    const key = term.toLowerCase();
-    if (key === dropKey || seen.has(key)) continue;
+    const key = foldTerm(term);
+    if (!key || seen.has(key)) continue;
+    if (brandKey && key.includes(brandKey)) continue;
+    if (exclude && exclude.has(key)) continue;
     seen.add(key);
     out.push(term);
     if (out.length >= limit) break;
@@ -105,15 +121,21 @@ function buildFacetEntry(company) {
   if (company.type === "import_control") return null;
 
   const name = String(company.display_name || company.company_name || company.name || "").trim();
+  // Called "categories" downstream rather than "industries": the stored field
+  // mixes genuine sectors ("Skincare", "Personal Care") with product types
+  // ("bar soap", "soap dish"), and labelling that list "Industry" on the page
+  // would misdescribe it.
   const industries = cleanTerms(company.industries, INDUSTRY_MAX, name);
   // `keywords` and `product_keywords` are the same list on current documents;
-  // read either so an older record still contributes.
+  // read either so an older record still contributes. Terms already shown as
+  // categories are excluded so "deodorant" doesn't appear on both lines.
   const products = cleanTerms(
     Array.isArray(company.product_keywords) && company.product_keywords.length
       ? company.product_keywords
       : company.keywords,
     PRODUCT_MAX,
-    name
+    name,
+    new Set(industries.map(foldTerm))
   );
 
   const stars = toFiniteNumber(company.stars ?? company.star_rating);

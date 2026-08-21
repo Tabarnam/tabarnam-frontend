@@ -209,7 +209,9 @@ function companyPage(row, facets = null) {
   const industries = facets?.industries || [];
   const products = facets?.products || [];
   if (industries.length) {
-    facts.push(["Industry", industries.map((i) => esc(i)).join(", ")]);
+    // "Categories", not "Industry": the stored list mixes sectors with product
+    // types, and the honest label is the general one.
+    facts.push(["Categories", industries.map((i) => esc(i)).join(", ")]);
   }
   // Only cite a rating that reviews actually back. A bare star count with no
   // reviews behind it is a number the page can't justify.

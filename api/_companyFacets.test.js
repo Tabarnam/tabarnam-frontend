@@ -35,6 +35,24 @@ test("cleanTerms drops terms that merely restate the company name", () => {
   assert.deepEqual(cleanTerms(["dr. squatch", "soap"], 10, "Dr. Squatch"), ["soap"]);
 });
 
+test("cleanTerms drops scraped page titles that carry the brand name", () => {
+  // Real leading entry on Dr. Squatch's keyword list — a page title, not a
+  // product, and punctuated differently from the stored company name.
+  assert.deepEqual(
+    cleanTerms(["Natural Soap Handmade Soap - Dr Squatch", "soap"], 10, "Dr. Squatch"),
+    ["soap"]
+  );
+});
+
+test("cleanTerms can exclude terms already shown elsewhere", () => {
+  const shown = new Set(["deodorant"]);
+  assert.deepEqual(cleanTerms(["soap", "Deodorant", "bar"], 10, "", shown), ["soap", "bar"]);
+});
+
+test("cleanTerms dedupes across punctuation variants", () => {
+  assert.deepEqual(cleanTerms(["bar-soap", "Bar Soap", "bar soap"], 10), ["bar-soap"]);
+});
+
 test("cleanTerms drops absurdly long strings rather than printing them", () => {
   const long = "x".repeat(61);
   assert.deepEqual(cleanTerms([long, "soap"], 10), ["soap"]);
@@ -58,6 +76,19 @@ test("a facet row carries industries, products, stars and visible reviews", () =
     2,
     4,
   ]);
+});
+
+test("products never repeat a term already listed as a category", () => {
+  // The live Dr. Squatch record: `industries` mixes real sectors with product
+  // types, and the keyword list restates several of them.
+  const entry = buildFacetEntry(
+    doc({
+      industries: ["Skincare", "Personal Care", "bar soap", "deodorant"],
+      product_keywords: ["soap", "deodorant", "Bar Soap", "Pine Tar Soap"],
+    })
+  );
+  assert.deepEqual(entry[1], ["Skincare", "Personal Care", "bar soap", "deodorant"]);
+  assert.deepEqual(entry[2], ["soap", "Pine Tar Soap"]);
 });
 
 test("product keywords are capped so a page can't become a keyword dump", () => {

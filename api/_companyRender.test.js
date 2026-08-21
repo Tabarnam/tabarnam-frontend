@@ -180,14 +180,15 @@ test("facets are enrichment — the page is complete without them", () => {
   const page = companyPage(row({ name: "Acme" }), null);
   assert.match(page.body, /<h1>Where is Acme made\?<\/h1>/);
   assert.doesNotMatch(page.body, /What Acme makes/);
-  assert.doesNotMatch(page.body, /Industry/);
+  assert.doesNotMatch(page.body, /Categories/);
   assert.equal(page.jsonLd.knowsAbout, undefined);
   assert.equal(page.jsonLd.aggregateRating, undefined);
 });
 
 test("industries and products render when facets are present", () => {
   const page = companyPage(row({ name: "Acme" }), FACETS);
-  assert.match(page.body, /<dt>Industry<\/dt><dd>Skincare, Personal Care<\/dd>/);
+  // Labelled "Categories": the stored list mixes sectors with product types.
+  assert.match(page.body, /<dt>Categories<\/dt><dd>Skincare, Personal Care<\/dd>/);
   assert.match(page.body, /<h2>What Acme makes<\/h2><p>bar soap, deodorant, shaving cream\.<\/p>/);
 });
 
