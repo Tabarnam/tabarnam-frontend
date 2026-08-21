@@ -166,3 +166,75 @@ test("a missing domain simply omits the website row", () => {
   assert.doesNotMatch(page.body, /Website/);
   assert.equal(page.jsonLd.sameAs, undefined);
 });
+
+// ── facets (industries / products / rating) ─────────────────────────────────
+
+const FACETS = {
+  industries: ["Skincare", "Personal Care"],
+  products: ["bar soap", "deodorant", "shaving cream"],
+  stars: 4,
+  reviews: 12,
+};
+
+test("facets are enrichment — the page is complete without them", () => {
+  const page = companyPage(row({ name: "Acme" }), null);
+  assert.match(page.body, /<h1>Where is Acme made\?<\/h1>/);
+  assert.doesNotMatch(page.body, /What Acme makes/);
+  assert.doesNotMatch(page.body, /Industry/);
+  assert.equal(page.jsonLd.knowsAbout, undefined);
+  assert.equal(page.jsonLd.aggregateRating, undefined);
+});
+
+test("industries and products render when facets are present", () => {
+  const page = companyPage(row({ name: "Acme" }), FACETS);
+  assert.match(page.body, /<dt>Industry<\/dt><dd>Skincare, Personal Care<\/dd>/);
+  assert.match(page.body, /<h2>What Acme makes<\/h2><p>bar soap, deodorant, shaving cream\.<\/p>/);
+});
+
+test("knowsAbout carries the terms — never Product entities we can't back", () => {
+  const page = companyPage(row(), FACETS);
+  assert.deepEqual(page.jsonLd.knowsAbout, [
+    "Skincare", "Personal Care", "bar soap", "deodorant", "shaving cream",
+  ]);
+  assert.equal(page.jsonLd.makesOffer, undefined);
+});
+
+test("knowsAbout is capped so structured data can't become a term dump", () => {
+  const page = companyPage(row(), {
+    industries: Array.from({ length: 12 }, (_, i) => `Ind${i}`),
+    products: Array.from({ length: 20 }, (_, i) => `Prod${i}`),
+    stars: null,
+    reviews: 0,
+  });
+  assert.equal(page.jsonLd.knowsAbout.length, 24);
+});
+
+test("a rating is cited only when reviews back it", () => {
+  const rated = companyPage(row(), FACETS);
+  assert.match(rated.body, /<dt>Tabarnam rating<\/dt><dd>4 \/ 5 <span class="mi-loc">from 12 reviews<\/span>/);
+  assert.equal(rated.jsonLd.aggregateRating.ratingValue, 4);
+  assert.equal(rated.jsonLd.aggregateRating.reviewCount, 12);
+
+  // Stars with nothing behind them: no claim on the page, no claim in schema.
+  const unbacked = companyPage(row(), { ...FACETS, reviews: 0 });
+  assert.doesNotMatch(unbacked.body, /Tabarnam rating/);
+  assert.equal(unbacked.jsonLd.aggregateRating, undefined);
+});
+
+test("one review reads as singular", () => {
+  const page = companyPage(row(), { ...FACETS, reviews: 1 });
+  assert.match(page.body, /from 1 review<\/span>/);
+  assert.doesNotMatch(page.body, /from 1 reviews/);
+});
+
+test("facet terms are escaped like everything else", () => {
+  const page = companyPage(row(), {
+    industries: ['<img src=x onerror=1>'],
+    products: ['"><script>alert(1)</script>'],
+    stars: null,
+    reviews: 0,
+  });
+  assert.doesNotMatch(page.body, /<img src=x/);
+  assert.doesNotMatch(page.body, /<script>alert/);
+  assert.match(page.body, /&lt;img src=x/);
+});

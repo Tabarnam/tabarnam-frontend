@@ -73,6 +73,23 @@ async function rebuildMapPins({ source = "manual", logger = console, minAgeMs = 
     `[pins-index] rebuild (${source}): ok=${result.ok} count=${result.count ?? "-"} ` +
       `bytes=${result.bytes ?? "-"} ru=${result.build_request_charge ?? "-"} ms=${result.build_ms ?? "-"}`
   );
+
+  // The company-facets blob derives from the same catalog and goes stale for
+  // the same reasons, so it rebuilds on the same trigger and inherits the same
+  // throttle rather than getting a second one that could drift out of step.
+  // Awaited but never allowed to fail the pins result: facets are enrichment
+  // for /company pages, pins are load-bearing for the map and /made-in.
+  try {
+    const { rebuildAndPersistFacets } = require("../_companyFacets");
+    const facets = await rebuildAndPersistFacets(container, { log });
+    log(
+      `[company-facets] rebuild (${source}): ok=${facets.ok} count=${facets.count ?? "-"} ` +
+        `bytes=${facets.bytes ?? "-"} ru=${facets.build_request_charge ?? "-"} ms=${facets.build_ms ?? "-"}`
+    );
+  } catch (e) {
+    log(`[company-facets] rebuild (${source}) failed (non-fatal): ${e?.message || e}`);
+  }
+
   return result;
 }
 

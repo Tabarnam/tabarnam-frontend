@@ -95,6 +95,10 @@ const PUBLIC_ROUTES = new Set([
   // publicly, writing nothing.
   "company-page",
   "company-page/{slug}",
+  // One company's industries/products/rating — the same public data the
+  // server-rendered /company page already prints, fetched so React can render
+  // it too. Read-only, no business data beyond what the page shows.
+  "company-facets",
   // Google API proxies — called from the public site (client-side geocoding /
   // location lookup), so they are necessarily anonymous.
   "google/geocode",

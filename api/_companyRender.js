@@ -13,15 +13,15 @@
  * slug (see _companySlug.js). No per-request Cosmos read, so a crawler working
  * through thousands of these costs nothing beyond CPU.
  *
- * What it deliberately does NOT include yet: industries, product keywords,
- * ratings and reviews. Those live on the company document rather than in the
- * pins payload, and adding them to that payload would inflate the download the
- * consumer map surfaces already pay for. They want their own precomputed blob
- * — worth doing, because product terms are what "<product> made in <place>"
- * queries actually match on.
+ * Industries, product terms and the rating come from a SECOND precomputed blob
+ * (_companyFacets.js) rather than from the pins payload, so the consumer map
+ * surfaces don't download data only these pages use. Facets are enrichment: a
+ * company page renders completely without them, and it must, because the two
+ * blobs age out independently.
  */
 
 const { getPins } = require("./_pinsIndex");
+const { getFacets } = require("./_companyFacets");
 const PLACES = require("./_madeInPlaces.json");
 const {
   ORIGIN,
@@ -68,6 +68,41 @@ async function getCompanyIndex(container) {
     _index = { generatedAt: cache.generatedAt, data: buildIndex(JSON.parse(cache.body)) };
   }
   return _index.data;
+}
+
+let _facets = { generatedAt: "", byId: null };
+
+/**
+ * Facets keyed by company id, or null when the blob isn't available.
+ *
+ * Never throws and never blocks the page: this is enrichment, and a company
+ * page that dropped its heading because a secondary index was cold would be a
+ * far worse outcome than one without a products list.
+ */
+async function getFacetsById(container, log = console) {
+  try {
+    const cache = await getFacets(container);
+    if (!cache || !cache.body) return null;
+    if (_facets.generatedAt !== cache.generatedAt || !_facets.byId) {
+      const payload = JSON.parse(cache.body);
+      const byId = new Map();
+      for (const row of Array.isArray(payload?.companies) ? payload.companies : []) {
+        if (Array.isArray(row) && row[0]) {
+          byId.set(row[0], {
+            industries: Array.isArray(row[1]) ? row[1] : [],
+            products: Array.isArray(row[2]) ? row[2] : [],
+            stars: typeof row[3] === "number" ? row[3] : null,
+            reviews: typeof row[4] === "number" ? row[4] : 0,
+          });
+        }
+      }
+      _facets = { generatedAt: cache.generatedAt, byId };
+    }
+    return _facets.byId;
+  } catch (err) {
+    (log.warn || console.warn)(`[company-page] facets unavailable: ${err?.message || err}`);
+    return null;
+  }
 }
 
 // ── routing ─────────────────────────────────────────────────────────────────
@@ -120,7 +155,7 @@ function joinProse(items) {
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-function companyPage(row) {
+function companyPage(row, facets = null) {
   const name = String(row[I.name] || "");
   const tagline = String(row[I.tagline] || "");
   const domain = String(row[I.domain] || "");
@@ -171,6 +206,27 @@ function companyPage(row) {
       `<a href="https://${esc(domain)}" rel="noopener nofollow">${esc(domain)}</a>`,
     ]);
   }
+  const industries = facets?.industries || [];
+  const products = facets?.products || [];
+  if (industries.length) {
+    facts.push(["Industry", industries.map((i) => esc(i)).join(", ")]);
+  }
+  // Only cite a rating that reviews actually back. A bare star count with no
+  // reviews behind it is a number the page can't justify.
+  if (facets?.stars != null && facets.reviews > 0) {
+    facts.push([
+      "Tabarnam rating",
+      `${esc(facets.stars)} / 5 <span class="mi-loc">from ${facets.reviews} ${facets.reviews === 1 ? "review" : "reviews"}</span>`,
+    ]);
+  }
+
+  // Products are the terms "<product> made in <place>" searches actually match
+  // on. Rendered as prose rather than a chip wall, and already capped upstream
+  // at 20 of a possible ~90, so the page reads as a description instead of a
+  // keyword dump.
+  const productsSection = products.length
+    ? `<h2>What ${esc(name)} makes</h2><p>${products.map((p) => esc(p)).join(", ")}.</p>`
+    : "";
 
   let mfgSection = "";
   if (places.length) {
@@ -212,6 +268,26 @@ function companyPage(row) {
     url: canonical,
     ...(tagline ? { description: tagline } : {}),
     ...(domain ? { sameAs: [`https://${domain}`] } : {}),
+    // knowsAbout is the honest property for "what this organisation deals in".
+    // Deliberately NOT makesOffer/Product: we hold category and keyword terms,
+    // not offers with prices and availability, and asserting Product entities
+    // we can't back would be structured data that misrepresents the page.
+    ...(industries.length || products.length
+      ? { knowsAbout: [...industries, ...products].slice(0, 24) }
+      : {}),
+    // aggregateRating only where reviews exist to support it — Google requires
+    // the rating to be visible on the page, which it is, in the facts list.
+    ...(facets?.stars != null && facets.reviews > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: facets.stars,
+            reviewCount: facets.reviews,
+            bestRating: 5,
+            worstRating: 1,
+          },
+        }
+      : {}),
     ...(hqLabel || hqName
       ? {
           address: {
@@ -234,6 +310,7 @@ ${tagline ? `<p class="mi-lead">${esc(tagline)}</p>` : ""}
   }${hqLabel || hqName ? `, and is headquartered in ${esc(hqLabel || hqName)}` : ""}.</p>
 ${facts.length ? `<dl class="mi-facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
 ${mfgSection}
+${productsSection}
 <h2>About this listing</h2>
 <p>Headquarters and manufacturing are recorded separately, because they are
 often different places: a brand headquartered in one country frequently
@@ -301,7 +378,10 @@ async function renderCompany(pathname, container, log = console) {
     };
   }
 
-  const page = companyPage(row);
+  // Enrichment, so a cold or failed facets blob costs the page its products
+  // list and nothing else.
+  const facetsById = await getFacetsById(container, log);
+  const page = companyPage(row, facetsById?.get(row[I.id]) || null);
   const shell = await getShell(log);
   return htmlResponse(injectIntoShell(shell, page) || standaloneDocument(page));
 }

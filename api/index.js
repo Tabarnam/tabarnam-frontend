@@ -253,6 +253,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: company-facets");
+  require("./company-facets/index.js");
+} catch (e) {
+  console.error("[api] Failed to load company-facets:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-rebuild-map-pins");
   require("./xadmin-api-rebuild-map-pins/index.js");
 } catch (e) {

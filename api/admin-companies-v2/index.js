@@ -2311,6 +2311,13 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             upsertPinsForCompanies([doc], { logger: context }).catch(() => {});
           } catch { /* non-fatal */ }
 
+          // Same for the company-facets blob behind /company/<slug>, so edited
+          // industries and products show there immediately too.
+          try {
+            const { upsertFacetsForCompanies } = require("../_companyFacets");
+            upsertFacetsForCompanies([doc], { logger: context }).catch(() => {});
+          } catch { /* non-fatal */ }
+
           try {
             const auditAction = String(meta.action || (existingDoc ? "update" : "create")).trim() || (existingDoc ? "update" : "create");
             const auditSource = String(meta.source || "admin-ui").trim() || "admin-ui";
@@ -2539,12 +2546,17 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           // (soft- and hard-deletes both make buildCompanyEntry return null,
           // which upsertPinsForCompanies treats as "remove"). Fire-and-forget.
           if (softDeleted > 0 || hardDeleted > 0) {
+            const asDeleted = docs.map((d) => ({ ...d, is_deleted: true }));
             try {
               const { upsertPinsForCompanies } = require("../_pinsIndex");
-              upsertPinsForCompanies(
-                docs.map((d) => ({ ...d, is_deleted: true })),
-                { logger: context }
-              ).catch(() => {});
+              upsertPinsForCompanies(asDeleted, { logger: context }).catch(() => {});
+            } catch { /* non-fatal */ }
+            // A deleted company must also leave the facets blob, or its
+            // /company page keeps serving industries and products for a record
+            // that no longer exists.
+            try {
+              const { upsertFacetsForCompanies } = require("../_companyFacets");
+              upsertFacetsForCompanies(asDeleted, { logger: context }).catch(() => {});
             } catch { /* non-fatal */ }
           }
 

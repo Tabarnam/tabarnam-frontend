@@ -1036,6 +1036,13 @@ async function saveCompaniesHandler(req, context) {
             const { upsertPinsForCompanies } = require("../_pinsIndex");
             upsertPinsForCompanies(savedDocsForPins, { logger: console }).catch(() => {});
           } catch { /* non-fatal */ }
+          // Same treatment for the company-facets blob, so an edited company's
+          // industries and products show on its /company page immediately
+          // rather than waiting for the periodic rebuild.
+          try {
+            const { upsertFacetsForCompanies } = require("../_companyFacets");
+            upsertFacetsForCompanies(savedDocsForPins, { logger: console }).catch(() => {});
+          } catch { /* non-fatal */ }
         }
 
         const completedAt = new Date().toISOString();
