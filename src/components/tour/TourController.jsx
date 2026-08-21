@@ -88,34 +88,23 @@ function waitForElement(selector, timeoutMs = 1500) {
   });
 }
 
-// Four demo bookmark items the cover-image step injects into the "All Bookmarks"
-// folder card when it's empty, so the visitor sees the 4-image grid format
-// instead of the empty-state building placeholders. Logo URLs are un-signed —
-// getCompanyLogoUrl detects them as Azure company-logos blobs and rewrites
-// them through the /api/company-logo backend proxy, which handles auth
-// internally. If a URL ever 404s, LogoCell falls back to the Building2
-// placeholder for that cell — the other three still demonstrate the concept.
+// Four demo tiles the cover-image step injects into the "All Bookmarks"
+// folder card when it's empty, so the visitor sees a filled folder's visual
+// language instead of four identical building placeholders. Mixed on purpose:
+//
+//   Slot 0: Real photo of a product (soap)  — public-domain image bundled
+//   Slot 1: Real photo of a product (coffee) — under /public/tour-demo/
+//   Slot 2: Icon fallback (wrench)          — LogoCell renders demoIcon
+//   Slot 3: Blank                           — LogoCell renders Building2
+//
+// The mix teaches: "your saved bookmarks can be anything, and some slots
+// might just show a category icon or a placeholder if the source has no
+// product image."
 const TOUR_DEMO_FOLDER_ITEMS = [
-  {
-    company_id: 'company_1774981646055_grvsylo3ubr',
-    name: 'Wimberley Puzzle Company',
-    logo_url: 'https://tabarnamstor2356.blob.core.windows.net/company-logos/company_1774981646055_grvsylo3ubr/logo.png',
-  },
-  {
-    company_id: 'company_1774981640047_fp7a21zqv1r',
-    name: 'White Mountain Puzzles',
-    logo_url: 'https://tabarnamstor2356.blob.core.windows.net/company-logos/company_1774981640047_fp7a21zqv1r/logo.png',
-  },
-  {
-    company_id: 'company_1774981053342_g5trzf4osat',
-    name: 'Portland Puzzle Company',
-    logo_url: 'https://tabarnamstor2356.blob.core.windows.net/company-logos/company_1774981053342_g5trzf4osat/logo.png',
-  },
-  {
-    company_id: 'company_1774980873163_7f9a5onr595',
-    name: 'New York Puzzle Company',
-    logo_url: 'https://tabarnamstor2356.blob.core.windows.net/company-logos/company_1774980873163_7f9a5onr595/logo.png',
-  },
+  { logo_url: '/tour-demo/soap.jpg', name: 'Soap' },
+  { logo_url: '/tour-demo/coffee.jpg', name: 'Coffee' },
+  { demoIcon: 'Wrench', name: 'Tools' },
+  { name: 'Blank slot' },
 ];
 
 function buildResultsSteps(tour, drawerRef, navigateRef) {

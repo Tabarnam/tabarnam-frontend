@@ -4,7 +4,7 @@ import { Helmet } from "@/components/DocumentHead";
 import {
   ArrowLeft, LayoutGrid, List, Building2, MoreHorizontal,
   X, ExternalLink, Pencil, Trash2, Share, ArrowDownAZ, ArrowUpZA,
-  ImagePlus, ChevronRight, Loader2,
+  ImagePlus, ChevronRight, Loader2, Wrench,
 } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
@@ -14,6 +14,11 @@ import { toast } from "@/lib/toast";
 import ShareDialog from "@/components/ShareDialog";
 import { canNativeShare, nativeShare } from "@/lib/share";
 
+// Icons the tour's demo folder items can reference by name via item.demoIcon.
+// Keep this map small — it only exists to serve the cover-image step's
+// mixed demo tile row (photo + photo + icon + blank).
+const DEMO_TILE_ICONS = { Wrench };
+
 const DEFAULT_LIST_ID = "saved";
 
 function LogoCell({ item }) {
@@ -22,6 +27,15 @@ function LogoCell({ item }) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-700 overflow-hidden">
         <img src={url} alt="" className="w-full h-full object-contain" loading="lazy" />
+      </div>
+    );
+  }
+  // Tour demo: a slot can specify a named lucide icon to render at logo scale.
+  const DemoIcon = item.demoIcon ? DEMO_TILE_ICONS[item.demoIcon] : null;
+  if (DemoIcon) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-700">
+        <DemoIcon className="w-8 h-8 text-muted-foreground/60" />
       </div>
     );
   }
