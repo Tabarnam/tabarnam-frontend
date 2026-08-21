@@ -2536,6 +2536,22 @@ export default function ResultsPage() {
             </div>
           );
       })()}
+
+      {/* Always-available lead capture at the foot of a non-empty result set:
+          the searched company may still be missing from the list. Opens the
+          same add-a-company Contact flow as the empty state. */}
+      {displayList.length > 0 && (
+        <div className="mt-6 pt-4 border-t border-border/50 text-center text-sm">
+          <span className="text-muted-foreground">Don&rsquo;t see the company you&rsquo;re looking for? </span>
+          <button
+            type="button"
+            onClick={() => setAddCompanyOpen(true)}
+            className="font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+          >
+            Add it to Tabarnam
+          </button>
+        </div>
+      )}
       </div>
       {/* Drag handle sits between the two columns (its own grid track). It
           sticks near the middle of the viewport so the balance stays
