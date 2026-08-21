@@ -263,7 +263,24 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
           secondary: true,
         },
         learnMore('#bookmarks'),
-        { text: 'Done', action: () => tour.complete() },
+        {
+          text: 'Done',
+          action: () => {
+            // Ending on /bookmarks with an empty folder card is a dead-end
+            // feel — route home so the visitor lands somewhere useful.
+            //
+            // Write the completion state inline BEFORE navigating. The
+            // route change fires the useEffect cleanup which marks
+            // isUnmounting=true, and any finalize() that runs after that
+            // guard skips the seen/progress writes — leaving the tour
+            // eligible to auto-fire again on the next home visit.
+            safeWrite(TOUR_SEEN_KEY, '1');
+            safeRemove(TOUR_PROGRESS_KEY);
+            safeRemove(TOUR_STEP_HINT_KEY);
+            tour.complete();
+            go('/');
+          },
+        },
       ],
     },
   ];
