@@ -1034,7 +1034,12 @@ async function saveCompaniesHandler(req, context) {
         if (savedDocsForPins.length > 0) {
           try {
             const { upsertPinsForCompanies } = require("../_pinsIndex");
-            upsertPinsForCompanies(savedDocsForPins, { logger: console }).catch(() => {});
+            const { submitCompanySlugs } = require("../_indexNow");
+            // The upsert is what assigns the slug, so the IndexNow ping has to
+            // wait on it — a brand-new company has no URL until then.
+            upsertPinsForCompanies(savedDocsForPins, { logger: console })
+              .then((res) => submitCompanySlugs(res?.slugs, { logger: console }))
+              .catch(() => {});
           } catch { /* non-fatal */ }
           // Same treatment for the company-facets blob, so an edited company's
           // industries and products show on its /company page immediately

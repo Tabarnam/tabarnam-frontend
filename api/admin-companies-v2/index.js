@@ -2308,7 +2308,10 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           // immediately, not wait for the throttled rebuild). Fire-and-forget.
           try {
             const { upsertPinsForCompanies } = require("../_pinsIndex");
-            upsertPinsForCompanies([doc], { logger: context }).catch(() => {});
+            const { submitCompanySlugs } = require("../_indexNow");
+            upsertPinsForCompanies([doc], { logger: context })
+              .then((res) => submitCompanySlugs(res?.slugs, { logger: context }))
+              .catch(() => {});
           } catch { /* non-fatal */ }
 
           // Same for the company-facets blob behind /company/<slug>, so edited
@@ -2549,7 +2552,13 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             const asDeleted = docs.map((d) => ({ ...d, is_deleted: true }));
             try {
               const { upsertPinsForCompanies } = require("../_pinsIndex");
-              upsertPinsForCompanies(asDeleted, { logger: context }).catch(() => {});
+              const { submitCompanySlugs } = require("../_indexNow");
+              // Worth submitting even though these now 404 — that is how the
+              // page gets dropped from the index promptly instead of sitting
+              // there as a dead result.
+              upsertPinsForCompanies(asDeleted, { logger: context })
+                .then((res) => submitCompanySlugs(res?.slugs, { logger: context }))
+                .catch(() => {});
             } catch { /* non-fatal */ }
             // A deleted company must also leave the facets blob, or its
             // /company page keeps serving industries and products for a record

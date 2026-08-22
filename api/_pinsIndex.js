@@ -430,12 +430,17 @@ async function upsertPinsForCompanies(companies, { logger = console } = {}) {
 
     const byId = new Map(fromBlob.payload.companies.map((e) => [e[0], e]));
     let changed = 0;
+    // Which company pages this write makes stale, so the caller can tell the
+    // search engines. Removals are tracked separately because their slug is
+    // only knowable from the row we are about to drop.
+    const changedIds = new Set();
+    const removedSlugs = [];
     for (const company of list) {
       const id = String(company?.company_id ?? company?.id ?? "").trim();
       if (!id) continue;
       const entry = buildCompanyEntry(company);
+      const prev = byId.get(id);
       if (entry) {
-        const prev = byId.get(id);
         // Compare only the fields buildCompanyEntry produces. The stored row
         // carries a slug at index 12 that it does not, so comparing the whole
         // array would report a difference on every save and rewrite the blob
@@ -443,22 +448,25 @@ async function upsertPinsForCompanies(companies, { logger = console } = {}) {
         if (!prev || JSON.stringify(prev.slice(0, entry.length)) !== JSON.stringify(entry)) {
           byId.set(id, entry);
           changed++;
+          changedIds.add(id);
         }
       } else if (byId.delete(id)) {
         changed++;
+        if (typeof prev?.[12] === "string" && prev[12]) removedSlugs.push(prev[12]);
       }
     }
-    if (!changed) return { ok: true, updated: 0 };
+    if (!changed) return { ok: true, updated: 0, slugs: [] };
 
+    // Re-run over the whole set: a renamed company needs a new slug, and a
+    // newly added one needs any slug at all. Assignment is deterministic and
+    // preserves incumbents, so this converges with a full rebuild.
+    const withSlugs = assignSlugs([...byId.values()]);
     const payload = {
       ...fromBlob.payload,
       version: PAYLOAD_VERSION,
       generated_at: new Date().toISOString(),
       count: byId.size,
-      // Re-run over the whole set: a renamed company needs a new slug, and a
-      // newly added one needs any slug at all. Assignment is deterministic and
-      // preserves incumbents, so this converges with a full rebuild.
-      companies: assignSlugs([...byId.values()]),
+      companies: withSlugs,
     };
     const written = await writePinsBlob(payload, {
       log,
@@ -467,7 +475,12 @@ async function upsertPinsForCompanies(companies, { logger = console } = {}) {
     if (written.persisted) {
       _installCache(payload, written.body, "upsert");
       log?.(`[pins-index] upserted ${changed} compan${changed === 1 ? "y" : "ies"} into pins blob`);
-      return { ok: true, updated: changed };
+      const slugById = new Map(withSlugs.map((e) => [e[0], e[12]]));
+      const slugs = [...changedIds]
+        .map((id) => slugById.get(id))
+        .filter((s) => typeof s === "string" && s)
+        .concat(removedSlugs);
+      return { ok: true, updated: changed, slugs };
     }
     // 412 = someone else wrote between our read and write — retry once fresh.
     if (written.statusCode !== 412 && written.statusCode !== 409) {
