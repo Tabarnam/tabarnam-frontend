@@ -12,7 +12,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { initializeAzureUser } from "@/lib/azureAuth";
 import { logWiringDiagnostics } from "@/lib/diagnostics";
 import { consumePostLoginDest } from "@/lib/postLoginDest";
-import { installStaleBuildRecovery } from "@/lib/staleBuildRecovery";
+import { installStaleBuildRecovery, attemptStaleBuildRecovery } from "@/lib/staleBuildRecovery";
 
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
@@ -65,6 +65,15 @@ class ErrorBoundary extends React.Component {
   }
   static getDerivedStateFromError(error) {
     return { hasError: true, error };
+  }
+  componentDidCatch(error) {
+    // If this looks like a lazy-imported chunk 404 from a stale build
+    // (open tab across a deploy), trigger the same one-shot reload the
+    // global unhandledrejection listener uses. Errors caught by an
+    // ErrorBoundary don't bubble to that listener, so without this the
+    // boundary would strand the user on the fallback until they manually
+    // hit Reload Page. sessionStorage-guarded — it won't loop.
+    attemptStaleBuildRecovery(error);
   }
   render() {
     if (this.state.hasError) {
