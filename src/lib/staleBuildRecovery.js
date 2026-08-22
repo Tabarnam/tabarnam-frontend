@@ -41,12 +41,28 @@ function looksLikeStaleBuild(reason) {
 }
 
 function recover(reason) {
-  if (!looksLikeStaleBuild(reason)) return;
-  if (alreadyTried()) return; // already reloaded once; let the error show
+  if (!looksLikeStaleBuild(reason)) return false;
+  if (alreadyTried()) return false; // already reloaded once; let the error show
 
   markTried();
   // Bypass any cached copy of the shell on the way back in.
   window.location.reload();
+  return true;
+}
+
+/**
+ * Give React ErrorBoundaries the same auto-reload path as
+ * unhandledrejection / error listeners. Errors caught by a boundary don't
+ * bubble to those global listeners, so a lazy-imported chunk that 404s
+ * after a deploy — Fetch of "Failed to fetch dynamically imported module"
+ * — stalls the user on the boundary's fallback UI without ever triggering
+ * the reload. Boundaries should call this from componentDidCatch.
+ *
+ * @param {unknown} reason — the error the boundary caught.
+ * @returns {boolean} true if a reload was triggered.
+ */
+export function attemptStaleBuildRecovery(reason) {
+  return recover(reason);
 }
 
 export function installStaleBuildRecovery() {
