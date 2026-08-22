@@ -137,6 +137,19 @@
   display: none !important;
 }
 
+/* The cover-image step has a wide 2x2 tile grid on its left; Shepherd's
+   Floating UI keeps flipping our `right-start` placement to `bottom`
+   and drops the popover on top of the tiles. Force the popover to the
+   right of the tile grid with a fixed layout so its position is
+   deterministic regardless of what popper decides. */
+.shepherd-cover-image-step {
+  position: fixed !important;
+  top: 50% !important;
+  right: 5vw !important;
+  left: auto !important;
+  transform: translateY(-50%) !important;
+}
+
 /* Push the dim from 0.55 -> 0.7 so the highlighted target reads clearly
    against the everything-else backdrop. */
 .shepherd-modal-overlay-container.shepherd-modal-is-visible {

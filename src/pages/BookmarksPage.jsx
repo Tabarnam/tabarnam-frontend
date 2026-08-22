@@ -4,7 +4,7 @@ import { Helmet } from "@/components/DocumentHead";
 import {
   ArrowLeft, LayoutGrid, List, Building2, MoreHorizontal,
   X, ExternalLink, Pencil, Trash2, Share, ArrowDownAZ, ArrowUpZA,
-  ImagePlus, ChevronRight, Loader2, Wrench,
+  ImagePlus, ChevronRight, Loader2,
 } from "lucide-react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
@@ -14,11 +14,6 @@ import { toast } from "@/lib/toast";
 import ShareDialog from "@/components/ShareDialog";
 import { canNativeShare, nativeShare } from "@/lib/share";
 
-// Icons the tour's demo folder items can reference by name via item.demoIcon.
-// Keep this map small — it only exists to serve the cover-image step's
-// mixed demo tile row (photo + photo + icon + blank).
-const DEMO_TILE_ICONS = { Wrench };
-
 const DEFAULT_LIST_ID = "saved";
 
 function LogoCell({ item }) {
@@ -27,15 +22,6 @@ function LogoCell({ item }) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-700 overflow-hidden">
         <img src={url} alt="" className="w-full h-full object-contain" loading="lazy" />
-      </div>
-    );
-  }
-  // Tour demo: a slot can specify a named lucide icon to render at logo scale.
-  const DemoIcon = item.demoIcon ? DEMO_TILE_ICONS[item.demoIcon] : null;
-  if (DemoIcon) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-700">
-        <DemoIcon className="w-8 h-8 text-muted-foreground/60" />
       </div>
     );
   }
@@ -598,7 +584,17 @@ export default function BookmarksPage() {
                   items={entry.items}
                   isOpen={openFolderId === entry.list.id}
                   onClick={() => setOpenFolderId(openFolderId === entry.list.id ? null : entry.list.id)}
-                  dataTourStep={entry.list.id !== DEFAULT_LIST_ID ? "bookmark-folder-card" : undefined}
+                  dataTourStep={
+                    // Any custom folder gets the anchor. Also anchor the
+                    // default "All Bookmarks" card when the tour has
+                    // injected demo covers into it — otherwise the
+                    // cover-image step's popover falls back to centered
+                    // and overlaps the tile grid.
+                    entry.list.id !== DEFAULT_LIST_ID ||
+                    (tourDemoItems && entry.items === tourDemoItems)
+                      ? "bookmark-folder-card"
+                      : undefined
+                  }
                 />
               ) : (
                 <ExpandedFolder

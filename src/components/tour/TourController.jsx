@@ -103,11 +103,11 @@ function waitForElement(selector, timeoutMs = 1500) {
 const TOUR_DEMO_FOLDER_ITEMS = [
   { logo_url: '/tour-demo/soap.jpg', name: 'Soap' },
   { logo_url: '/tour-demo/coffee.jpg', name: 'Coffee' },
-  { demoIcon: 'Wrench', name: 'Tools' },
+  { logo_url: '/tour-demo/tools.jpg', name: 'Tools' },
   { name: 'Blank slot' },
 ];
 
-function buildResultsSteps(tour, drawerRef, navigateRef) {
+function buildResultsSteps(tour, drawerRef, navigateRef, floatingUi) {
   const openDrawer = () => { try { drawerRef.current?.(true); } catch {} };
   const closeDrawer = () => { try { drawerRef.current?.(false); } catch {} };
   const go = (path) => { try { navigateRef.current?.(path); } catch {} };
@@ -219,7 +219,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
     },
     {
       id: 'bookmark-save',
-      title: 'Save it for later',
+      title: 'Bookmarks',
       text: 'Tap the bookmark icon to save any company. Tap it again to file it under a custom list.',
       attachTo: { element: '[data-tour-step="bookmark-button"]', on: 'top' },
       scrollTo: { behavior: 'smooth', block: 'center' },
@@ -264,9 +264,16 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
     },
     {
       id: 'bookmark-folder-cover',
-      title: 'Set a cover image',
+      title: 'Set bookmark folder images',
       text: 'Give any list a personal cover. Open the folder, then choose <strong>⋯ → Set Cover Image</strong> to upload one or paste a URL.',
-      attachTo: { element: '[data-tour-step="bookmark-folder-card"]', on: 'right' },
+      attachTo: { element: '[data-tour-step="bookmark-folder-card"]', on: 'right-start' },
+      // Floating UI's flip middleware kept redirecting right -> bottom
+      // (which dropped the popover on top of the tile grid) regardless of
+      // step-level middleware overrides — Shepherd v15's merging isn't
+      // additive the way we need for this to fully lock. Add a class so
+      // CSS can pin the popover to the right side of the tile grid
+      // directly, so this step's layout is deterministic.
+      classes: 'shepherd-cover-image-step',
       scrollTo: { behavior: 'smooth', block: 'center' },
       beforeShowPromise: async () => {
         // Close the drawer (the previous step left it open) before switching pages,
@@ -332,7 +339,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef) {
   ];
 }
 
-function makeTour(Shepherd) {
+function makeTour(Shepherd, floatingOffset) {
   return new Shepherd.Tour({
     useModalOverlay: true,
     defaultStepOptions: {
@@ -342,10 +349,12 @@ function makeTour(Shepherd) {
       // ring has room to breathe and the icon isn't visually cramped.
       modalOverlayOpeningPadding: 8,
       modalOverlayOpeningRadius: 8,
-      // Push the popover further from the target so the arrow/caret sits
-      // in the gap without overlapping the icon it's pointing at.
-      popperOptions: {
-        modifiers: [{ name: 'offset', options: { offset: [0, 16] } }],
+      // Shepherd v15 wraps Floating UI; the correct API is
+      // floatingUIOptions.middleware (the old popperOptions.modifiers
+      // is silently ignored). Push the popover ~24px from the target
+      // so the halo has clear breathing room around every icon.
+      floatingUIOptions: {
+        middleware: [floatingOffset(24)],
       },
     },
   });
@@ -422,9 +431,9 @@ export default function TourController() {
       tourRef.current = null;
     };
 
-    const startHome = (Shepherd) => {
+    const startHome = (Shepherd, floatingUi) => {
       if (cancelled || tourRef.current) return;
-      const tour = makeTour(Shepherd);
+      const tour = makeTour(Shepherd, floatingUi.offset);
       const onHandoff = () => {
         // Mark progress so the results-mount knows to resume; do not write seen=1.
         safeWrite(TOUR_PROGRESS_KEY, 'results');
@@ -448,7 +457,7 @@ export default function TourController() {
       tour.start();
     };
 
-    const startResults = async (Shepherd) => {
+    const startResults = async (Shepherd, floatingUi) => {
       if (cancelled || tourRef.current) return;
       // Purge any shepherd DOM left over from a prior tour instance (e.g. the
       // cover-image step's popover when the visitor hit Back). The route-change
@@ -468,8 +477,8 @@ export default function TourController() {
         safeRemove(TOUR_PROGRESS_KEY);
         return;
       }
-      const tour = makeTour(Shepherd);
-      buildResultsSteps(tour, setDrawerOpenRef, navigateRef).forEach((step) => tour.addStep(step));
+      const tour = makeTour(Shepherd, floatingUi.offset);
+      buildResultsSteps(tour, setDrawerOpenRef, navigateRef, floatingUi).forEach((step) => tour.addStep(step));
       tour.on('complete', finalize);
       tour.on('cancel', finalize);
       tourRef.current = tour;
@@ -486,13 +495,16 @@ export default function TourController() {
 
     const start = async () => {
       if (cancelled) return;
-      // Lazy-load Shepherd so its ~50KB stays out of the main bundle — the
-      // tour only runs for first-time visitors; returning visitors never
-      // download it.
-      const { default: Shepherd } = await import('shepherd.js');
+      // Lazy-load Shepherd + Floating UI helpers together so the ~50KB
+      // stays out of the main bundle — the tour only runs for first-time
+      // visitors; returning visitors never download either.
+      const [{ default: Shepherd }, floatingUi] = await Promise.all([
+        import('shepherd.js'),
+        import('@floating-ui/dom'),
+      ]);
       if (cancelled) return;
-      if (mode === 'home') startHome(Shepherd);
-      else await startResults(Shepherd);
+      if (mode === 'home') startHome(Shepherd, floatingUi);
+      else await startResults(Shepherd, floatingUi);
     };
 
     if (window.requestIdleCallback) {
