@@ -169,7 +169,7 @@ function buildResultsSteps(tour, drawerRef, navigateRef, floatingUi) {
       id: 'row',
       title: 'Open a result',
       text: 'Click any row to expand it into the full company profile, including all locations, reviews, and links.',
-      attachTo: { element: '[data-tour-step="expandable-row"]', on: 'right' },
+      attachTo: { element: '[data-tour-step="expandable-row"]', on: 'top' },
       scrollTo: { behavior: 'smooth', block: 'center' },
       buttons: [
         { text: 'Skip tour', action: () => tour.cancel(), secondary: true },
