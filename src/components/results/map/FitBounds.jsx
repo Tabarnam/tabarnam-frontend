@@ -49,6 +49,25 @@ export default function FitBounds({
     };
   }, [map]);
 
+  // Tour bridge: the map step wants a wide continental-US view regardless of
+  // how the current pins cluster — so it always looks like a real search
+  // even when demo data hasn't been imported yet. The tour dispatches
+  // "tour:fit-map-us" after the initial pin-fit has rendered; we override
+  // with the fixed CONUS bounding box. Non-tour flows never hit this path.
+  useEffect(() => {
+    const handler = () => {
+      programmaticRef.current = true;
+      userMovedRef.current = false;
+      // Continental US bounding box — includes the lower 48. Excludes AK / HI
+      // on purpose so the aspect ratio matches a familiar "US map" view.
+      const US_BOUNDS = L.latLngBounds([[24.4, -125.0], [49.5, -66.5]]);
+      map.fitBounds(US_BOUNDS, { padding: [40, 40], animate: false });
+      setTimeout(() => { programmaticRef.current = false; }, 0);
+    };
+    window.addEventListener("tour:fit-map-us", handler);
+    return () => window.removeEventListener("tour:fit-map-us", handler);
+  }, [map]);
+
   useEffect(() => {
     if (boundsKey !== lastKeyRef.current) {
       lastKeyRef.current = boundsKey;

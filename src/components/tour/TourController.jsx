@@ -114,6 +114,9 @@ function buildResultsSteps(tour, drawerRef, navigateRef, floatingUi) {
   const setMap = (open) => {
     try { window.dispatchEvent(new CustomEvent('tour:set-map', { detail: { open } })); } catch {}
   };
+  const fitMapToUs = () => {
+    try { window.dispatchEvent(new CustomEvent('tour:fit-map-us')); } catch {}
+  };
   const setDensity = (mode) => {
     try { window.dispatchEvent(new CustomEvent('tour:set-density', { detail: { mode } })); } catch {}
   };
@@ -209,6 +212,11 @@ function buildResultsSteps(tour, drawerRef, navigateRef, floatingUi) {
         // its tiles + pins before Shepherd measures the popover.
         await waitForElement('[data-tour-step="results-map-panel"]');
         await new Promise((r) => setTimeout(r, 800));
+        // Override the pin-fit bounds with a fixed continental-US view so
+        // the tour always opens on a familiar shape — no matter how the
+        // current pins cluster or how sparse the demo data is. FitBounds
+        // listens for this event.
+        fitMapToUs();
       },
       buttons: [
         { text: 'Skip tour', action: () => { setMap(false); tour.cancel(); }, secondary: true },
