@@ -173,6 +173,29 @@ test("the lead sentence agrees in number for a single company", () => {
   assert.match(page.body, /1 is headquartered here/);
 });
 
+test("the title and description agree in number for a single company", () => {
+  // Belize, Zimbabwe, Afghanistan and 8 more shipped reading "1 Companies
+  // That Manufacture" — the lead inflected, the headline copy did not.
+  const solo = { companies: [row("Lonely", { hqCC: "US", mfg: [{ cc: "US" }] })] };
+  const page = countryPage({ cc: "US", slug: "usa", name: "USA" }, aggregate(solo));
+  assert.equal(page.title, "Made in USA — 1 Company That Manufactures in USA | Tabarnam");
+  assert.match(page.description, /^1 company that manufactures in USA\. Browse the Tabarnam catalog/);
+  assert.doesNotMatch(page.title, /1 Companies/);
+
+  const region = regionPage(
+    { code: "US-OH", slug: "ohio", name: "Ohio" },
+    aggregate({ companies: [row("Solo", { hqCC: "US", mfg: [{ cc: "US", region: "US-OH" }] })] })
+  );
+  assert.equal(region.title, "Made in Ohio — 1 Company That Manufactures in Ohio | Tabarnam");
+  assert.match(region.description, /^1 company that manufactures in Ohio\./);
+});
+
+test("a place with no manufacturers keeps the generic plural", () => {
+  const page = countryPage({ cc: "IS", slug: "iceland", name: "Iceland" }, aggregate(PAYLOAD));
+  assert.match(page.title, /^Made in Iceland — Companies That Manufacture in Iceland/);
+  assert.match(page.description, /^Companies that manufacture in Iceland\./);
+});
+
 test("every named company links to its own page", () => {
   // This is how /company/<slug> gets discovered and VALUED, rather than merely
   // listed in a sitemap: ~250 links per place page into the company tree.

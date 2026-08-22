@@ -119,11 +119,20 @@ export default function MadeInPage() {
   const count = companies.length;
   const flag = country ? flagEmoji(country.cc) : "";
   const canonical = country ? `https://tabarnam.com/made-in/${country.slug}` : "https://tabarnam.com/made-in";
+  // Must match api/_madeInRender.js exactly — the server seeds this title into
+  // the shell and this component overwrites it on mount, so any drift shows up
+  // as the tab title changing under the reader.
   const title = country
-    ? `Made in ${display} — ${mfgCount > 0 ? `${mfgCount.toLocaleString()} ` : ""}Companies That Manufacture in ${display} | Tabarnam`
+    ? `Made in ${display} — ${mfgCount > 0 ? `${mfgCount.toLocaleString()} ` : ""}${
+        mfgCount === 1 ? "Company That Manufactures" : "Companies That Manufacture"
+      } in ${display} | Tabarnam`
     : "Made in… | Tabarnam";
   const description = country
-    ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${display}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`
+    ? `${
+        mfgCount > 0
+          ? `${mfgCount.toLocaleString()} ${mfgCount === 1 ? "company that manufactures" : "companies that manufacture"}`
+          : "Companies that manufacture"
+      } in ${display}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`
     : "";
 
   // Location label per company for the text list — the plant in THIS place,

@@ -45,6 +45,13 @@ const {
 // ~8.8k manufacturers) around 30KB instead of 800KB.
 const LIST_LIMIT = 250;
 
+// The lead paragraph has always inflected for count, but the title and meta
+// description did not, so every single-company place read "1 Companies That
+// Manufacture in Belize". 11 pages were live that way (8 countries, 3 US
+// territories) — small, but it's the headline copy on pages built to rank.
+const companiesThat = (n) => (n === 1 ? "Company That Manufactures" : "Companies That Manufacture");
+const companiesThatLower = (n) => (n === 1 ? "company that manufactures" : "companies that manufacture");
+
 const byCC = new Map(PLACES.countries.map((c) => [c.cc, c]));
 const bySlug = new Map(PLACES.countries.map((c) => [c.slug, c]));
 const regionByCode = new Map(PLACES.usRegions.map((r) => [r.code, r]));
@@ -192,11 +199,11 @@ function countryPage(country, agg) {
   const display = country.name;
   const canonical = `${ORIGIN}/made-in/${country.slug}`;
 
-  const title = `Made in ${display} — ${count > 0 ? `${nf.format(count)} ` : ""}Companies That Manufacture in ${display} | Tabarnam`;
+  const title = `Made in ${display} — ${count > 0 ? `${nf.format(count)} ` : ""}${companiesThat(count)} in ${display} | Tabarnam`;
   // Copy deliberately makes no accuracy claim. Locations come from imports and
   // change over time, so the page describes what the catalog LISTS rather than
   // asserting anything has been verified.
-  const description = `${count > 0 ? `${nf.format(count)} companies` : "Companies"} that manufacture in ${display}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`;
+  const description = `${count > 0 ? `${nf.format(count)} ${companiesThatLower(count)}` : "Companies that manufacture"} in ${display}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`;
 
   const lead =
     count > 0
@@ -271,8 +278,8 @@ function regionPage(region, agg) {
   const name = region.name;
   const canonical = `${ORIGIN}/made-in/usa/${region.slug}`;
 
-  const title = `Made in ${name} — ${count > 0 ? `${nf.format(count)} ` : ""}Companies That Manufacture in ${name} | Tabarnam`;
-  const description = `${count > 0 ? `${nf.format(count)} companies` : "Companies"} that manufacture in ${name}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`;
+  const title = `Made in ${name} — ${count > 0 ? `${nf.format(count)} ` : ""}${companiesThat(count)} in ${name} | Tabarnam`;
+  const description = `${count > 0 ? `${nf.format(count)} ${companiesThatLower(count)}` : "Companies that manufacture"} in ${name}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`;
 
   const lead =
     count > 0

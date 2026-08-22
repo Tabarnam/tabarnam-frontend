@@ -104,11 +104,18 @@ export default function MadeInStatePage() {
   const canonical = region
     ? `https://tabarnam.com/made-in/usa/${region.slug}`
     : "https://tabarnam.com/made-in/usa";
+  // Must match api/_madeInRender.js exactly — see the note in MadeInPage.jsx.
   const title = region
-    ? `Made in ${name} — ${mfgCount > 0 ? `${mfgCount.toLocaleString()} ` : ""}Companies That Manufacture in ${name} | Tabarnam`
+    ? `Made in ${name} — ${mfgCount > 0 ? `${mfgCount.toLocaleString()} ` : ""}${
+        mfgCount === 1 ? "Company That Manufactures" : "Companies That Manufacture"
+      } in ${name} | Tabarnam`
     : "Made in the USA | Tabarnam";
   const description = region
-    ? `${mfgCount > 0 ? `${mfgCount.toLocaleString()} companies` : "Companies"} that manufacture in ${name}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`
+    ? `${
+        mfgCount > 0
+          ? `${mfgCount.toLocaleString()} ${mfgCount === 1 ? "company that manufactures" : "companies that manufacture"}`
+          : "Companies that manufacture"
+      } in ${name}. Browse the Tabarnam catalog to see where each brand is headquartered and where it makes its products.`
     : "";
 
   // Location label per company for the text list — the plant in THIS state,
